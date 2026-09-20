@@ -5,6 +5,9 @@ const { createSequelize } = require('./sequelize');
 const { initModels } = require('./models');
 const { createCheckoutService } = require('../services/checkout-service');
 const { createGuestlistService } = require('../services/guestlist-service');
+const { createPasswordRecord } = require('../services/auth-service');
+
+const demoPassword = 'NitewideDemo!2026';
 
 const ids = {
   admin: '10000000-0000-4000-8000-000000000001', owner: '10000000-0000-4000-8000-000000000002',
@@ -80,6 +83,8 @@ async function seed() {
       { id: ids.owner, email: 'maya.owner@nitewide.test', displayName: 'Maya Portfolio Owner', marketingConsentAt: new Date() },
       ...managerUsers, ...promoterUsers, ...customerUsers,
     ]);
+    const seededUsers = await models.User.findAll({ attributes: ['id'] });
+    await models.UserCredential.bulkCreate(await Promise.all(seededUsers.map(async (user) => ({ userId: user.id, ...(await createPasswordRecord(demoPassword)) }))));
 
     const weekendDates = nextWeekend();
     const checkout = createCheckoutService({ sequelize, models });
@@ -182,6 +187,7 @@ async function seed() {
     };
     console.log('Seed complete:', counts);
     console.log('Stable development identities:', { admin: ids.admin, owner: ids.owner, promoter: ids.promoter, customer: ids.customer, employee: ids.employee, event: ids.event });
+    console.log('Demo sign-in password:', demoPassword);
     console.log('Sample guestlist QR token:', sampleGuestlistQrToken);
   } finally { await sequelize.close(); }
 }

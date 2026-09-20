@@ -82,25 +82,30 @@ The API development process uses a normal Node process for compatibility with ma
 
 Tests use Node's test runner and exercise the REST boundary, pricing rules, affiliate precedence, transactional checkout behavior, and inventory oversell rejection. A real Postgres instance is used for migrations and local execution; tests deliberately inject repositories at the service boundary so they stay fast and deterministic.
 
-## Development identity boundary
+## Demo users and authentication
 
-Authentication is deliberately an integration boundary in this milestone. Protected routes require an `x-user-id` header; the seed logs the available IDs and uses these stable examples:
+The seed creates working demo credentials for every current application persona. All demo accounts use the password `NitewideDemo!2026`.
 
-| Persona | User ID |
-|---|---|
-| Internal admin | `10000000-0000-4000-8000-000000000001` |
-| Organization owner | `10000000-0000-4000-8000-000000000002` |
-| Org + event affiliate | `10000000-0000-4000-8000-000000000003` |
-| Customer | `10000000-0000-4000-8000-000000000004` |
-| Independent creator | `10000000-0000-4000-8000-000000000005` |
+| App | Persona and capabilities | Email |
+|---|---|---|
+| Nitewide Admin | Internal administrator | `admin@nitewide.test` |
+| Nitewide Business | Organization owner across the sample venues | `maya.owner@nitewide.test` |
+| Nitewide Business | Euphoria venue manager and event creator | `sam.rivera.manager@nitewide.test` |
+| Nitewide Business / Customer | Euphoria organization and event promoter | `leo.carter.promoter1@nitewide.test` |
+| Nitewide Customer | Customer, buyer, and guestlist requester | `jordan.customer.customer1@nitewide.test` |
 
-Replace this boundary with a production identity provider before exposing the API publicly. Do not trust arbitrary user IDs from clients in production.
+The customer app provides working **Sign in** and **Create account** flows. Public registration always creates only a customer identity; clients cannot request owner, manager, promoter, or administrator access. Because Nitewide uses one identity, an elevated demo user can still use the customer app as a customer.
+
+Passwords are salted and hashed with scrypt. Successful authentication returns a signed 12-hour bearer session. During local development only, the existing `x-user-id` header remains available for direct API testing; production disables that shortcut. Replace the built-in authentication service with a managed identity provider, secure cookie strategy, token revocation, password recovery, email verification, and abuse controls before launch.
 
 ## Core API
 
 | Method | Route | Purpose |
 |---|---|---|
 | `GET` | `/health` | Database-aware service health |
+| `POST` | `/api/auth/register` | Register a customer identity and receive a session |
+| `POST` | `/api/auth/sign-in` | Sign in with email and password |
+| `GET` | `/api/auth/me` | Resolve the current bearer session and capabilities |
 | `GET` | `/api/events` | Public discovery |
 | `GET` | `/api/events/:eventId` | Public event detail and offerings |
 | `POST` | `/api/organizations` | Create an organization and owner membership |

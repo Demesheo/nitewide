@@ -1,9 +1,12 @@
 const express = require('express');
-const { asyncHandler, validate, requireUser } = require('../http/middleware');
+const { asyncHandler, validate } = require('../http/middleware');
 const schemas = require('../http/schemas');
 
-function createRouter({ publicController, managementController, commerceController }) {
+function createRouter({ publicController, managementController, commerceController, authController, requireUser }) {
   const router = express.Router();
+  router.post('/auth/register', validate(schemas.register), asyncHandler(authController.register));
+  router.post('/auth/sign-in', validate(schemas.signIn), asyncHandler(authController.signIn));
+  router.get('/auth/me', requireUser, asyncHandler(authController.me));
   router.get('/events', asyncHandler(publicController.listEvents));
   router.get('/events/:eventId', asyncHandler(publicController.getEvent));
   router.post('/organizations', requireUser, validate(schemas.organization), asyncHandler(managementController.createOrganization));

@@ -1,5 +1,5 @@
 const initializers = [
-  require('./User').initUser, require('./Organization').initOrganization, require('./OrganizationOwner').initOrganizationOwner,
+  require('./User').initUser, require('./UserCredential').initUserCredential, require('./Organization').initOrganization, require('./OrganizationOwner').initOrganizationOwner,
   require('./Location').initLocation, require('./Event').initEvent, require('./OrgAffiliate').initOrgAffiliate,
   require('./EventAffiliate').initEventAffiliate, require('./Offering').initOffering, require('./Order').initOrder,
   require('./OrderItem').initOrderItem, require('./Payment').initPayment, require('./Ticket').initTicket,
@@ -11,6 +11,7 @@ function initModels(sequelize) {
   for (const initialize of initializers) initialize(sequelize);
   const m = sequelize.models;
 
+  m.User.hasOne(m.UserCredential, { as: 'credential', foreignKey: 'userId' }); m.UserCredential.belongsTo(m.User, { as: 'user', foreignKey: 'userId' });
   m.User.hasMany(m.Event, { as: 'createdEvents', foreignKey: 'creatorUserId' });
   m.Event.belongsTo(m.User, { as: 'creator', foreignKey: 'creatorUserId' });
   m.Organization.belongsToMany(m.User, { as: 'owners', through: m.OrganizationOwner, foreignKey: 'organizationId', otherKey: 'userId' });
