@@ -8,6 +8,6 @@ const orgAffiliate = z.object({ userId: uuid, code: z.string().min(3).max(48), d
 const eventAffiliate = z.object({ userId: uuid, orgAffiliateId: uuid.nullish(), code: z.string().min(3).max(48), commissionBps: z.number().int().min(0).max(10_000).nullish(), guestlistAllocation: z.number().int().nonnegative().nullish() });
 const checkout = z.object({ eventId: uuid, idempotencyKey: z.string().min(8).max(100), affiliateCode: z.string().max(48).optional(), items: z.array(z.object({ offeringId: uuid, quantity: z.number().int().positive() })).min(1), payment: z.object({ provider: z.string().max(40), reference: z.string().min(1).max(160), status: z.literal('succeeded') }).optional() });
 const guestlist = z.object({ partySize: z.number().int().positive().max(20).default(1), affiliateCode: z.string().max(48).optional() });
+const guestlistDecision = z.object({ decision: z.enum(['approve', 'reject']), note: z.string().max(500).optional() });
 const checkIn = z.object({ eventId: uuid, qrToken: z.string().min(20) });
-module.exports = { organization, event, offering, orgAffiliate, eventAffiliate, checkout, guestlist, checkIn };
-
+module.exports = { organization, event, offering, orgAffiliate, eventAffiliate, checkout, guestlist, guestlistDecision, checkIn };

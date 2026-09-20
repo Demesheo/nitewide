@@ -18,16 +18,16 @@ function createManagementController({ models, permissions }) {
     addEventAffiliate: async (req, res) => { await permissions.assertManageEvent(req.userId, req.params.eventId); const data = await models.EventAffiliate.create({ ...req.body, eventId: req.params.eventId }); res.status(201).json({ data }); },
     eventAnalytics: async (req, res) => {
       await permissions.assertManageEvent(req.userId, req.params.eventId);
-      const [orders, ticketsSold, checkedIn, guestlistConfirmed] = await Promise.all([
+      const [orders, ticketsSold, checkedIn, guestlistConfirmed, guestlistPending] = await Promise.all([
         models.Order.findAll({ where: { eventId: req.params.eventId, status: 'paid' }, attributes: ['subtotalCents', 'platformFeeCents', 'affiliateCommissionCents'] }),
         models.Ticket.count({ where: { eventId: req.params.eventId } }), models.CheckIn.count({ where: { eventId: req.params.eventId } }),
         models.GuestlistEntry.sum('partySize', { where: { eventId: req.params.eventId, status: ['confirmed', 'checked_in'] } }),
+        models.GuestlistEntry.count({ where: { eventId: req.params.eventId, status: 'pending' } }),
       ]);
       const totals = orders.reduce((acc, order) => { acc.grossSalesCents += order.subtotalCents; acc.platformFeesCents += order.platformFeeCents; acc.affiliateCommissionCents += order.affiliateCommissionCents; return acc; }, { grossSalesCents: 0, platformFeesCents: 0, affiliateCommissionCents: 0 });
-      res.json({ data: { ...totals, paidOrders: orders.length, ticketsSold, checkedIn, guestlistConfirmed: Number(guestlistConfirmed) || 0, attendanceRate: ticketsSold ? checkedIn / ticketsSold : 0 } });
+      res.json({ data: { ...totals, paidOrders: orders.length, ticketsSold, checkedIn, guestlistConfirmed: Number(guestlistConfirmed) || 0, guestlistPending, attendanceRate: ticketsSold ? checkedIn / ticketsSold : 0 } });
     },
     adminOverview: async (req, res) => { await permissions.assertInternal(req.userId); const [users, organizations, events, paidOrders] = await Promise.all([models.User.count(), models.Organization.count(), models.Event.count(), models.Order.count({ where: { status: 'paid' } })]); res.json({ data: { users, organizations, events, paidOrders } }); },
   };
 }
 module.exports = { createManagementController };
-

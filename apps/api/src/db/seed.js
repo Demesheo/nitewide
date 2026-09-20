@@ -38,9 +38,9 @@ const promoterNames = [
 ];
 const customerNames = ['Jordan Customer', 'Amelia Brown', 'Ethan Wilson', 'Olivia Garcia', 'Lucas Martinez', 'Mia Robinson', 'Mateo Clark', 'Ava Rodriguez', 'Elijah Lewis', 'Isabella Hall', 'James Allen', 'Sophia Wright', 'Liam Hernandez', 'Harper King', 'Benjamin Lopez', 'Evelyn Hill', 'Daniel Green', 'Luna Baker'];
 const eventDays = [
-  { label: 'Friday', short: 'FRI', title: 'Friday Nights', gaPriceCents: 2500, commissionBps: 900, guestlistAllocation: 12 },
-  { label: 'Saturday', short: 'SAT', title: 'Saturday Sessions', gaPriceCents: 3000, commissionBps: 1200, guestlistAllocation: 16 },
-  { label: 'Sunday', short: 'SUN', title: 'Sunday Social', gaPriceCents: 2000, commissionBps: 700, guestlistAllocation: 14 },
+  { label: 'Friday', short: 'FRI', title: 'Friday Nights', gaPriceCents: 1000, commissionBps: 900, guestlistAllocation: 12 },
+  { label: 'Saturday', short: 'SAT', title: 'Saturday Sessions', gaPriceCents: 1000, commissionBps: 1200, guestlistAllocation: 16 },
+  { label: 'Sunday', short: 'SUN', title: 'Sunday Social', gaPriceCents: 1000, commissionBps: 700, guestlistAllocation: 14 },
 ];
 const packageTemplates = [
   { name: '2 Regular Bottles', description: 'Two regular bottles with a reserved table and admission for up to four guests.', priceCents: 30000, quantityTotal: 24 },
@@ -83,7 +83,7 @@ async function seed() {
 
     const weekendDates = nextWeekend();
     const checkout = createCheckoutService({ sequelize, models });
-    const joinGuestlist = createGuestlistService({ sequelize, models });
+    const guestlistService = createGuestlistService({ sequelize, models });
     let sampleGuestlistQrToken;
     for (const [venueIndex, venue] of venues.entries()) {
       const venueSlug = slugify(venue.name);
@@ -163,9 +163,11 @@ async function seed() {
         });
         const affiliateGuest = customerUsers[(venueIndex + dayIndex + 9) % customerUsers.length];
         const directGuest = customerUsers[(venueIndex + dayIndex + 13) % customerUsers.length];
-        const affiliateEntry = await joinGuestlist({ userId: affiliateGuest.id, eventId: event.id, partySize: 2, affiliateCode: eventAffiliates[0].code });
-        await joinGuestlist({ userId: directGuest.id, eventId: event.id, partySize: 2 });
-        sampleGuestlistQrToken ||= affiliateEntry.qrToken;
+        const affiliateRequest = await guestlistService.request({ userId: affiliateGuest.id, eventId: event.id, partySize: 2, affiliateCode: eventAffiliates[0].code });
+        const affiliateApproval = await guestlistService.review({ eventId: event.id, entryId: affiliateRequest.entry.id, reviewedByUserId: manager.id, decision: 'approve', note: 'Approved by venue manager during seed.' });
+        const directRequest = await guestlistService.request({ userId: directGuest.id, eventId: event.id, partySize: 2 });
+        await guestlistService.review({ eventId: event.id, entryId: directRequest.entry.id, reviewedByUserId: manager.id, decision: 'approve', note: 'Approved by venue manager during seed.' });
+        sampleGuestlistQrToken ||= affiliateApproval.qrToken;
         await models.AuditLog.create({
           actorUserId: manager.id, organizationId: organization.id, entityType: 'Event', entityId: event.id,
           action: 'event.seeded', after: { day: day.label, employeeAffiliateId: staffAffiliate.id },

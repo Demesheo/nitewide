@@ -42,7 +42,7 @@ Open:
 
 The seed command is intentionally destructive to local data: it truncates platform tables and creates a coherent sample marketplace. It refuses to run in production unless explicitly invoked with `--allow-production` from the API workspace.
 
-The sample marketplace includes 12 Orlando venues with events on the next Friday, Saturday, and Sunday. Every event has general admission plus $300 regular-bottle, $400 premium-bottle, and $1,000 Clase Azul/1942 packages. Venue managers, organization affiliates, event promoters, attributed sales, guestlists, payments, and admission credentials provide useful customer, business, and admin data.
+The sample marketplace includes 12 Orlando venues with events on the next Friday, Saturday, and Sunday. Every event has $10 general-admission presales plus $300 regular-bottle, $400 premium-bottle, and $1,000 Clase Azul/1942 packages. Venue managers, organization affiliates, event promoters, attributed sales, guestlist requests and approvals, payments, and admission credentials provide useful customer, business, and admin data.
 
 ## Database commands
 
@@ -108,7 +108,9 @@ Replace this boundary with a production identity provider before exposing the AP
 | `POST` | `/api/events` | Create an independent or organization event |
 | `POST` | `/api/events/:id/offerings` | Create a ticket, package, or reservation tier |
 | `POST` | `/api/events/:id/affiliates` | Select an `EventAffiliate` and optional overrides |
-| `POST` | `/api/events/:id/guestlist` | Join direct or affiliate guestlist |
+| `POST` | `/api/events/:id/guestlist` | Submit a direct or affiliate guestlist request |
+| `GET` | `/api/business/events/:id/guestlist` | List guestlist requests for authorized staff/promoters |
+| `POST` | `/api/business/events/:id/guestlist/:entryId/decision` | Approve or reject a guestlist request |
 | `POST` | `/api/orders` | Transactional checkout and QR credential issuance |
 | `GET` | `/api/orders/:id` | Customer order detail (stored QR hashes are never returned) |
 | `POST` | `/api/check-ins` | Validate and consume a QR credential |
@@ -138,7 +140,7 @@ The raw QR token is returned only at credential issuance. The database retains o
 - Organization ownership is many-to-many through `OrganizationOwner`; it is not a single `ownerId` shortcut.
 - Every event has `creatorUserId`; `organizationId` is optional.
 - `OrgAffiliate` supplies defaults. A selected `EventAffiliate` overrides non-null commission and guestlist fields. Values do not stack.
-- Event guestlist capacity covers both direct and affiliate entries. Affiliate allocation is also enforced when attribution is used.
+- Guestlist submissions begin as pending requests. Authorized owners, employees, organization affiliates, or event promoters approve or reject them; capacity and affiliate allocations are enforced and the QR credential is issued only on approval.
 - `Offering` describes repeatable inventory, `OrderItem` records the purchase snapshot, and `Ticket` represents each admission credential.
 - A package can generate several tickets through `entriesPerUnit`.
 - Checkout, allocation, and check-in run in serializable transactions with locked inventory/credential rows.

@@ -30,9 +30,10 @@ function initModels(sequelize) {
   m.Order.hasMany(m.Payment, { as: 'payments', foreignKey: 'orderId' }); m.Payment.belongsTo(m.Order, { as: 'order', foreignKey: 'orderId' });
   m.OrderItem.hasMany(m.Ticket, { as: 'tickets', foreignKey: 'orderItemId' }); m.Ticket.belongsTo(m.OrderItem, { as: 'orderItem', foreignKey: 'orderItemId' });
   m.Event.hasMany(m.GuestlistEntry, { as: 'guestlistEntries', foreignKey: 'eventId' }); m.GuestlistEntry.belongsTo(m.Event, { as: 'event', foreignKey: 'eventId' });
+  m.User.hasMany(m.GuestlistEntry, { as: 'guestlistEntries', foreignKey: 'userId' }); m.GuestlistEntry.belongsTo(m.User, { as: 'user', foreignKey: 'userId' });
+  m.EventAffiliate.hasMany(m.GuestlistEntry, { as: 'guestlistEntries', foreignKey: 'eventAffiliateId' }); m.GuestlistEntry.belongsTo(m.EventAffiliate, { as: 'eventAffiliate', foreignKey: 'eventAffiliateId' });
   m.Event.hasMany(m.CheckIn, { as: 'checkIns', foreignKey: 'eventId' }); m.CheckIn.belongsTo(m.Event, { as: 'event', foreignKey: 'eventId' });
   return m;
 }
 
 module.exports = { initModels };
-

@@ -11,7 +11,9 @@ function createRouter({ publicController, managementController, commerceControll
   router.post('/events', requireUser, validate(schemas.event), asyncHandler(managementController.createEvent));
   router.post('/events/:eventId/offerings', requireUser, validate(schemas.offering), asyncHandler(managementController.addOffering));
   router.post('/events/:eventId/affiliates', requireUser, validate(schemas.eventAffiliate), asyncHandler(managementController.addEventAffiliate));
-  router.post('/events/:eventId/guestlist', requireUser, validate(schemas.guestlist), asyncHandler(commerceController.joinGuestlist));
+  router.post('/events/:eventId/guestlist', requireUser, validate(schemas.guestlist), asyncHandler(commerceController.requestGuestlist));
+  router.get('/business/events/:eventId/guestlist', requireUser, asyncHandler(commerceController.listGuestlistRequests));
+  router.post('/business/events/:eventId/guestlist/:entryId/decision', requireUser, validate(schemas.guestlistDecision), asyncHandler(commerceController.reviewGuestlist));
   router.post('/orders', requireUser, validate(schemas.checkout), asyncHandler(commerceController.checkout));
   router.get('/orders/:orderId', requireUser, asyncHandler(commerceController.getOrder));
   router.post('/check-ins', requireUser, validate(schemas.checkIn), asyncHandler(commerceController.checkIn));
@@ -20,4 +22,3 @@ function createRouter({ publicController, managementController, commerceControll
   return router;
 }
 module.exports = { createRouter };
-
