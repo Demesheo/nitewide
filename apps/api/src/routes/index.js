@@ -11,6 +11,9 @@ function createRouter({ publicController, managementController, commerceControll
   router.post('/events', requireUser, validate(schemas.event), asyncHandler(managementController.createEvent));
   router.post('/events/:eventId/offerings', requireUser, validate(schemas.offering), asyncHandler(managementController.addOffering));
   router.post('/events/:eventId/affiliates', requireUser, validate(schemas.eventAffiliate), asyncHandler(managementController.addEventAffiliate));
+  router.patch('/business/events/:eventId/guestlist-capacity', requireUser, validate(schemas.guestlistCapacity), asyncHandler(managementController.updateGuestlistCapacity));
+  router.patch('/business/events/:eventId/affiliates/:eventAffiliateId/guestlist-allocation', requireUser, validate(schemas.affiliateGuestlistAllocation), asyncHandler(managementController.updateAffiliateGuestlistAllocation));
+  router.get('/business/events/:eventId/guestlist-settings', requireUser, asyncHandler(managementController.guestlistSettings));
   router.post('/events/:eventId/guestlist', requireUser, validate(schemas.guestlist), asyncHandler(commerceController.requestGuestlist));
   router.get('/business/events/:eventId/guestlist', requireUser, asyncHandler(commerceController.listGuestlistRequests));
   router.post('/business/events/:eventId/guestlist/:entryId/decision', requireUser, validate(schemas.guestlistDecision), asyncHandler(commerceController.reviewGuestlist));

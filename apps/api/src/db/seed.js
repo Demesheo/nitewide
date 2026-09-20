@@ -38,9 +38,9 @@ const promoterNames = [
 ];
 const customerNames = ['Jordan Customer', 'Amelia Brown', 'Ethan Wilson', 'Olivia Garcia', 'Lucas Martinez', 'Mia Robinson', 'Mateo Clark', 'Ava Rodriguez', 'Elijah Lewis', 'Isabella Hall', 'James Allen', 'Sophia Wright', 'Liam Hernandez', 'Harper King', 'Benjamin Lopez', 'Evelyn Hill', 'Daniel Green', 'Luna Baker'];
 const eventDays = [
-  { label: 'Friday', short: 'FRI', title: 'Friday Nights', gaPriceCents: 1000, commissionBps: 900, guestlistAllocation: 12 },
-  { label: 'Saturday', short: 'SAT', title: 'Saturday Sessions', gaPriceCents: 1000, commissionBps: 1200, guestlistAllocation: 16 },
-  { label: 'Sunday', short: 'SUN', title: 'Sunday Social', gaPriceCents: 1000, commissionBps: 700, guestlistAllocation: 14 },
+  { label: 'Friday', short: 'FRI', title: 'Friday Nights', gaPriceCents: 1000, commissionBps: 900, directGuestlistCapacity: 50, guestlistAllocation: 20 },
+  { label: 'Saturday', short: 'SAT', title: 'Saturday Sessions', gaPriceCents: 1000, commissionBps: 1200, directGuestlistCapacity: 75, guestlistAllocation: 25 },
+  { label: 'Sunday', short: 'SUN', title: 'Sunday Social', gaPriceCents: 1000, commissionBps: 700, directGuestlistCapacity: 40, guestlistAllocation: 15 },
 ];
 const packageTemplates = [
   { name: '2 Regular Bottles', description: 'Two regular bottles with a reserved table and admission for up to four guests.', priceCents: 30000, quantityTotal: 24 },
@@ -122,7 +122,7 @@ async function seed() {
           organizationId: organization.id, locationId: location.id, title: `${venue.name} ${day.title}`,
           slug: `${venueSlug}-${day.short.toLowerCase()}`, summary: `${day.label} nightlife at ${venue.name} in the ${venue.metroArea} area.`,
           description: `${venue.description} Doors open at 10 PM with music, guestlist access, general admission, and table packages available.`,
-          category: 'nightlife', status: 'published', startsAt, endsAt, capacity: 500, guestlistCapacity: 100,
+          category: 'nightlife', status: 'published', startsAt, endsAt, capacity: 500, guestlistCapacity: day.directGuestlistCapacity,
         });
         const eventAffiliates = [];
         for (const [promoterIndex, promoter] of venuePromoters.entries()) {
@@ -130,7 +130,7 @@ async function seed() {
             id: venueIndex === 0 && dayIndex === 0 && promoterIndex === 0 ? ids.eventAffiliate : randomUUID(),
             eventId: event.id, userId: promoter.id, orgAffiliateId: orgAffiliates[promoterIndex].id,
             code: `${venueSlug}-${day.short}-P${promoterIndex + 1}`.toUpperCase(),
-            commissionBps: day.commissionBps + promoterIndex * 100, guestlistAllocation: day.guestlistAllocation + promoterIndex * 2,
+            commissionBps: day.commissionBps + promoterIndex * 100, guestlistAllocation: day.guestlistAllocation,
           }));
         }
         const salesStartAt = new Date(); salesStartAt.setDate(salesStartAt.getDate() - 7);

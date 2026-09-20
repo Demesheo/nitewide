@@ -7,20 +7,22 @@ function fixture() {
   const event = { id: 'event-1', organizationId: 'org-1', status: 'published', guestlistCapacity: 20 };
   let entry;
   const auditActions = [];
+  const affiliate = { id: 'affiliate-1', eventId: event.id, userId: 'promoter-1', orgAffiliateId: null, code: 'PROMOTER', status: 'active', guestlistAllocation: 20 };
+  let sum = async () => 0;
   const models = {
     Event: { findByPk: async () => event },
-    EventAffiliate: { findByPk: async () => null },
+    EventAffiliate: { findByPk: async (id) => id === affiliate.id ? affiliate : null, findOne: async ({ where }) => where.code === affiliate.code ? affiliate : null },
     OrgAffiliate: {},
     GuestlistEntry: {
       create: async (data) => { entry = { id: 'entry-1', ...data, update: async (changes) => Object.assign(entry, changes) }; return entry; },
       findOne: async () => entry,
-      sum: async () => 0,
+      sum: (...args) => sum(...args),
     },
     AffiliateAttribution: { create: async () => ({}) },
     AuditLog: { create: async (data) => { auditActions.push(data.action); return data; } },
   };
   const sequelize = { transaction: async (_options, work) => work(transaction) };
-  return { service: createGuestlistService({ sequelize, models }), auditActions };
+  return { service: createGuestlistService({ sequelize, models }), auditActions, event, affiliate, setSum: (implementation) => { sum = implementation; } };
 }
 
 test('a customer creates a pending guestlist request without receiving a QR token', async () => {
@@ -42,4 +44,27 @@ test('approval confirms the request and issues its QR credential', async () => {
   assert.equal(typeof approved.qrToken, 'string');
   assert.equal(approved.qrToken.length > 20, true);
   assert.deepEqual(auditActions, ['guestlist.requested', 'guestlist.approved']);
+});
+
+test('a promoter allocation is independent from the direct venue guestlist capacity', async () => {
+  const { service, event, affiliate, setSum } = fixture();
+  event.guestlistCapacity = 50;
+  affiliate.guestlistAllocation = 20;
+  setSum(async (_field, { where }) => {
+    if (where.eventAffiliateId === affiliate.id) return 19;
+    if (where.eventAffiliateId === null) return 50;
+    return 89;
+  });
+  const requested = await service.request({ eventId: event.id, userId: 'customer-1', partySize: 1, affiliateCode: affiliate.code });
+  const approved = await service.review({ eventId: event.id, entryId: requested.entry.id, reviewedByUserId: 'employee-1', decision: 'approve' });
+  assert.equal(approved.entry.status, 'confirmed');
+});
+
+test('direct approvals only consume the venue guestlist pool', async () => {
+  const { service, event, setSum } = fixture();
+  event.guestlistCapacity = 50;
+  setSum(async (_field, { where }) => where.eventAffiliateId === null ? 49 : 40);
+  const requested = await service.request({ eventId: event.id, userId: 'customer-1', partySize: 1 });
+  const approved = await service.review({ eventId: event.id, entryId: requested.entry.id, reviewedByUserId: 'employee-1', decision: 'approve' });
+  assert.equal(approved.entry.status, 'confirmed');
 });

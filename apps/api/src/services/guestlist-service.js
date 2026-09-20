@@ -38,14 +38,15 @@ function createGuestlistService({ sequelize, models, now = () => new Date() }) {
         return { entry, qrToken: null };
       }
 
-      const used = Number(await models.GuestlistEntry.sum('partySize', { where: { eventId: event.id, status: { [Op.in]: ['confirmed', 'checked_in'] } }, transaction })) || 0;
-      if (used + entry.partySize > event.guestlistCapacity) throw conflict('Event guestlist capacity reached', 'GUESTLIST_FULL');
       if (entry.eventAffiliateId) {
         const eventAffiliate = await models.EventAffiliate.findByPk(entry.eventAffiliateId, { transaction, lock: transaction.LOCK.UPDATE });
         if (!eventAffiliate) throw notFound('Event affiliate');
         const affiliate = await resolveAffiliate(models, { event, code: eventAffiliate.code, now: reviewedAt, transaction, lock: transaction.LOCK.UPDATE });
         const affiliateUsed = Number(await models.GuestlistEntry.sum('partySize', { where: { eventAffiliateId: entry.eventAffiliateId, status: { [Op.in]: ['confirmed', 'checked_in'] } }, transaction })) || 0;
         if (affiliateUsed + entry.partySize > affiliate.guestlistAllocation) throw conflict('Affiliate guestlist allocation reached', 'AFFILIATE_GUESTLIST_FULL');
+      } else {
+        const directUsed = Number(await models.GuestlistEntry.sum('partySize', { where: { eventId: event.id, eventAffiliateId: null, status: { [Op.in]: ['confirmed', 'checked_in'] } }, transaction })) || 0;
+        if (directUsed + entry.partySize > event.guestlistCapacity) throw conflict('Event direct guestlist capacity reached', 'GUESTLIST_FULL');
       }
       const qr = createQrToken();
       await entry.update({ status: 'confirmed', qrTokenHash: qr.hash, reviewedByUserId: input.reviewedByUserId, reviewedAt, reviewNote: input.note || null }, { transaction });

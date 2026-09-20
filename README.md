@@ -42,7 +42,7 @@ Open:
 
 The seed command is intentionally destructive to local data: it truncates platform tables and creates a coherent sample marketplace. It refuses to run in production unless explicitly invoked with `--allow-production` from the API workspace.
 
-The sample marketplace includes 12 Orlando venues with events on the next Friday, Saturday, and Sunday. Every event has $10 general-admission presales plus $300 regular-bottle, $400 premium-bottle, and $1,000 Clase Azul/1942 packages. Venue managers, organization affiliates, event promoters, attributed sales, guestlist requests and approvals, payments, and admission credentials provide useful customer, business, and admin data.
+The sample marketplace includes 12 Orlando venues with events on the next Friday, Saturday, and Sunday. Every event has $10 general-admission presales plus $300 regular-bottle, $400 premium-bottle, and $1,000 Clase Azul/1942 packages. Friday events demonstrate a 50-person direct venue list plus two independent 20-person promoter lists, for 90 possible guestlist admissions. Venue managers, organization affiliates, event promoters, attributed sales, guestlist requests and approvals, payments, and admission credentials provide useful customer, business, and admin data.
 
 ## Database commands
 
@@ -108,6 +108,9 @@ Replace this boundary with a production identity provider before exposing the AP
 | `POST` | `/api/events` | Create an independent or organization event |
 | `POST` | `/api/events/:id/offerings` | Create a ticket, package, or reservation tier |
 | `POST` | `/api/events/:id/affiliates` | Select an `EventAffiliate` and optional overrides |
+| `PATCH` | `/api/business/events/:id/guestlist-capacity` | Set the event's direct venue guestlist limit |
+| `PATCH` | `/api/business/events/:id/affiliates/:affiliateId/guestlist-allocation` | Set or clear one promoter's event-specific guestlist limit |
+| `GET` | `/api/business/events/:id/guestlist-settings` | View direct and per-promoter limits and usage |
 | `POST` | `/api/events/:id/guestlist` | Submit a direct or affiliate guestlist request |
 | `GET` | `/api/business/events/:id/guestlist` | List guestlist requests for authorized staff/promoters |
 | `POST` | `/api/business/events/:id/guestlist/:entryId/decision` | Approve or reject a guestlist request |
@@ -140,7 +143,8 @@ The raw QR token is returned only at credential issuance. The database retains o
 - Organization ownership is many-to-many through `OrganizationOwner`; it is not a single `ownerId` shortcut.
 - Every event has `creatorUserId`; `organizationId` is optional.
 - `OrgAffiliate` supplies defaults. A selected `EventAffiliate` overrides non-null commission and guestlist fields. Values do not stack.
-- Guestlist submissions begin as pending requests. Authorized owners, employees, organization affiliates, or event promoters approve or reject them; capacity and affiliate allocations are enforced and the QR credential is issued only on approval.
+- Guestlist submissions begin as pending requests. Authorized owners, employees, organization affiliates, or event promoters approve or reject them; the QR credential is issued only on approval.
+- The event's `guestlistCapacity` applies only to direct venue guestlist entries. Each selected promoter has a separate `guestlistAllocation`, so promoter allocations are additional pools and neither consume nor conflict with the venue pool or another promoter's pool.
 - `Offering` describes repeatable inventory, `OrderItem` records the purchase snapshot, and `Ticket` represents each admission credential.
 - A package can generate several tickets through `entriesPerUnit`.
 - Checkout, allocation, and check-in run in serializable transactions with locked inventory/credential rows.

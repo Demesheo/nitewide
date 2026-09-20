@@ -1,3 +1,5 @@
+const { notFound } = require('../domain/errors');
+
 function createManagementController({ models, permissions }) {
   return {
     createOrganization: async (req, res) => {
@@ -16,6 +18,53 @@ function createManagementController({ models, permissions }) {
     },
     addOffering: async (req, res) => { await permissions.assertManageEvent(req.userId, req.params.eventId); const data = await models.Offering.create({ ...req.body, eventId: req.params.eventId }); res.status(201).json({ data }); },
     addEventAffiliate: async (req, res) => { await permissions.assertManageEvent(req.userId, req.params.eventId); const data = await models.EventAffiliate.create({ ...req.body, eventId: req.params.eventId }); res.status(201).json({ data }); },
+    updateGuestlistCapacity: async (req, res) => {
+      await permissions.assertManageEvent(req.userId, req.params.eventId);
+      const data = await models.Event.sequelize.transaction(async (transaction) => {
+        const event = await models.Event.findByPk(req.params.eventId, { transaction, lock: transaction.LOCK.UPDATE });
+        const before = { guestlistCapacity: event.guestlistCapacity };
+        await event.update({ guestlistCapacity: req.body.guestlistCapacity }, { transaction });
+        await models.AuditLog.create({ actorUserId: req.userId, organizationId: event.organizationId, entityType: 'Event', entityId: event.id, action: 'event.guestlist_capacity.updated', before, after: { guestlistCapacity: event.guestlistCapacity } }, { transaction });
+        return event;
+      });
+      res.json({ data });
+    },
+    updateAffiliateGuestlistAllocation: async (req, res) => {
+      const event = await permissions.assertManageEvent(req.userId, req.params.eventId);
+      const data = await models.Event.sequelize.transaction(async (transaction) => {
+        const affiliate = await models.EventAffiliate.findOne({ where: { id: req.params.eventAffiliateId, eventId: event.id }, transaction, lock: transaction.LOCK.UPDATE });
+        if (!affiliate) throw notFound('Event affiliate');
+        const before = { guestlistAllocation: affiliate.guestlistAllocation };
+        await affiliate.update({ guestlistAllocation: req.body.guestlistAllocation }, { transaction });
+        await models.AuditLog.create({ actorUserId: req.userId, organizationId: event.organizationId, entityType: 'EventAffiliate', entityId: affiliate.id, action: 'event_affiliate.guestlist_allocation.updated', before, after: { guestlistAllocation: affiliate.guestlistAllocation } }, { transaction });
+        return affiliate;
+      });
+      res.json({ data });
+    },
+    guestlistSettings: async (req, res) => {
+      const event = await permissions.assertManageEvent(req.userId, req.params.eventId);
+      const [directUsed, affiliates] = await Promise.all([
+        models.GuestlistEntry.sum('partySize', { where: { eventId: event.id, eventAffiliateId: null, status: ['confirmed', 'checked_in'] } }),
+        models.EventAffiliate.findAll({
+          where: { eventId: event.id },
+          include: [
+            { model: models.User, as: 'user', attributes: ['id', 'displayName', 'email'] },
+            { model: models.OrgAffiliate, as: 'orgAffiliate', attributes: ['id', 'defaultGuestlistAllocation'], required: false },
+          ],
+          order: [['createdAt', 'ASC']],
+        }),
+      ]);
+      const promoters = await Promise.all(affiliates.map(async (affiliate) => ({
+        id: affiliate.id,
+        code: affiliate.code,
+        status: affiliate.status,
+        user: affiliate.user,
+        guestlistAllocation: affiliate.guestlistAllocation,
+        effectiveGuestlistAllocation: affiliate.guestlistAllocation ?? affiliate.orgAffiliate?.defaultGuestlistAllocation ?? 0,
+        used: Number(await models.GuestlistEntry.sum('partySize', { where: { eventAffiliateId: affiliate.id, status: ['confirmed', 'checked_in'] } })) || 0,
+      })));
+      res.json({ data: { eventId: event.id, title: event.title, direct: { capacity: event.guestlistCapacity, used: Number(directUsed) || 0 }, promoters } });
+    },
     eventAnalytics: async (req, res) => {
       await permissions.assertManageEvent(req.userId, req.params.eventId);
       const [orders, ticketsSold, checkedIn, guestlistConfirmed, guestlistPending] = await Promise.all([
