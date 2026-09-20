@@ -16,6 +16,8 @@ This repository contains:
 - npm 10 or newer
 - Docker, or a PostgreSQL 15+ database with PostGIS and `pgcrypto`
 
+The Docker database is exposed on local port `5433` so it can run alongside a Homebrew or system PostgreSQL server using the standard `5432` port.
+
 ## Exact local setup
 
 From the repository root:
@@ -73,6 +75,8 @@ npm test
 # Production builds of all web apps
 npm run build
 ```
+
+The API development process uses a normal Node process for compatibility with macOS file-watch limits. Restart `npm run dev` after changing API code; the Vite web apps still refresh automatically.
 
 Tests use Node's test runner and exercise the REST boundary, pricing rules, affiliate precedence, transactional checkout behavior, and inventory oversell rejection. A real Postgres instance is used for migrations and local execution; tests deliberately inject repositories at the service boundary so they stay fast and deterministic.
 
@@ -142,4 +146,3 @@ The raw QR token is returned only at credential issuance. The database retains o
 ## Production boundaries
 
 Before launch, integrate a real authentication provider, payment processor and webhook reconciliation, refunds/chargebacks, affiliate payouts, subscription billing, email/SMS delivery, observability, rate limiting, secrets management, background jobs, and a durable QR-delivery channel. Those responsibilities are kept explicit rather than represented by unsafe production stubs.
-

@@ -4,7 +4,7 @@
   "private": true,
   "main": "src/server.js",
   "scripts": {
-    "dev": "node --watch src/server.js",
+    "dev": "node src/server.js",
     "start": "node src/server.js",
     "test": "node --test test/**/*.test.js",
     "db:migrate": "sequelize-cli db:migrate",
@@ -25,4 +25,3 @@
     "sequelize-cli": "^6.6.2"
   }
 }
-
