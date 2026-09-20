@@ -11,7 +11,7 @@
     "dev:business": "npm run dev --workspace @nitewide/business",
     "dev:admin": "npm run dev --workspace @nitewide/admin",
     "build": "npm run build --workspaces --if-present",
-    "test": "npm test --workspace @nitewide/api",
+    "test": "npm test --workspaces --if-present",
     "db:migrate": "npm run db:migrate --workspace @nitewide/api",
     "db:seed": "npm run db:seed --workspace @nitewide/api"
   },
