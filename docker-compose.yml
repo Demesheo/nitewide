@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: nitewide
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nitewide"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - nitewide_postgres:/var/lib/postgresql/data
+
+volumes:
+  nitewide_postgres:
+

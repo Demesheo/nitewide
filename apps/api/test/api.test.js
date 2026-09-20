@@ -1,0 +1,17 @@
+const test = require('node:test'); const assert = require('node:assert/strict'); const { createApp } = require('../src/app');
+async function request(app, path, options = {}) { const server = app.listen(0); await new Promise((resolve) => server.once('listening', resolve)); try { const response = await fetch(`http://127.0.0.1:${server.address().port}${path}`, options); return { status: response.status, body: await response.json() }; } finally { await new Promise((resolve) => server.close(resolve)); } }
+function setup() {
+  const event = { id: 'e1', status: 'published', location: null, toJSON: () => ({ id: 'e1', title: 'Afterglow', status: 'published' }) };
+  const models = {
+    Event: { findAll: async () => [event], findByPk: async () => event }, Location: {}, Organization: {}, Offering: {},
+    Order: { findOne: async () => null }, OrderItem: {}, Ticket: {}, User: {}, OrganizationOwner: {}, OrgAffiliate: {}, EventAffiliate: {}, GuestlistEntry: {}, CheckIn: {},
+  };
+  const services = { permissions: { assertManageEvent: async () => event, assertInternal: async () => ({}) }, checkout: async (input) => ({ order: { id: 'o1', buyerUserId: input.buyerUserId }, credentials: [], replayed: false }), joinGuestlist: async () => ({}), checkIn: async () => ({}) };
+  return createApp({ sequelize: {}, models, services, config: { corsOrigins: [] }, healthCheck: async () => {} });
+}
+test('health endpoint reports the API is ready', async () => { const response = await request(setup(), '/health'); assert.equal(response.status, 200); assert.equal(response.body.service, 'nitewide-api'); });
+test('public discovery returns published events', async () => { const response = await request(setup(), '/api/events'); assert.equal(response.status, 200); assert.equal(response.body.data[0].title, 'Afterglow'); });
+test('checkout requires a user identity', async () => { const response = await request(setup(), '/api/orders', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); assert.equal(response.status, 401); assert.equal(response.body.error.code, 'UNAUTHENTICATED'); });
+test('checkout validates request data before invoking the service', async () => { const response = await request(setup(), '/api/orders', { method: 'POST', headers: { 'content-type': 'application/json', 'x-user-id': '10000000-0000-4000-8000-000000000004' }, body: '{}' }); assert.equal(response.status, 422); assert.equal(response.body.error.code, 'VALIDATION_ERROR'); });
+test('checkout API returns newly issued credentials', async () => { const response = await request(setup(), '/api/orders', { method: 'POST', headers: { 'content-type': 'application/json', 'x-user-id': '10000000-0000-4000-8000-000000000004' }, body: JSON.stringify({ eventId: '40000000-0000-4000-8000-000000000001', idempotencyKey: 'api-test-key', items: [{ offeringId: '50000000-0000-4000-8000-000000000001', quantity: 1 }] }) }); assert.equal(response.status, 201); assert.equal(response.body.data.order.buyerUserId, '10000000-0000-4000-8000-000000000004'); });
+

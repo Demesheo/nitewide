@@ -1,27 +1,20 @@
 {
   "name": "nitewide",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nitewide event discovery, commerce, affiliate, and operations platform",
+  "workspaces": ["apps/*"],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "nodemon index.js"
+    "dev": "concurrently -n api,customer,business,admin -c magenta,cyan,yellow,green \"npm run dev:api\" \"npm run dev:customer\" \"npm run dev:business\" \"npm run dev:admin\"",
+    "dev:api": "npm run dev --workspace @nitewide/api",
+    "dev:customer": "npm run dev --workspace @nitewide/customer",
+    "dev:business": "npm run dev --workspace @nitewide/business",
+    "dev:admin": "npm run dev --workspace @nitewide/admin",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm test --workspace @nitewide/api",
+    "db:migrate": "npm run db:migrate --workspace @nitewide/api",
+    "db:seed": "npm run db:seed --workspace @nitewide/api"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "module",
-  "dependencies": {
-    "axios": "^1.12.2",
-    "bcrypt": "^6.0.0",
-    "dotenv": "^17.2.3",
-    "express": "^5.1.0",
-    "node-fetch": "^2.7.0",
-    "pg": "^8.16.3",
-    "pg-hstore": "^2.3.4",
-    "sequelize": "^6.37.7"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.10"
-  }
+  "devDependencies": { "concurrently": "^9.1.2" },
+  "engines": { "node": ">=20" }
 }
