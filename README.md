@@ -42,6 +42,8 @@ Open:
 
 The seed command is intentionally destructive to local data: it truncates platform tables and creates a coherent sample marketplace. It refuses to run in production unless explicitly invoked with `--allow-production` from the API workspace.
 
+The sample marketplace includes 12 Orlando venues with events on the next Friday, Saturday, and Sunday. Every event has general admission plus $300 regular-bottle, $400 premium-bottle, and $1,000 Clase Azul/1942 packages. Venue managers, organization affiliates, event promoters, attributed sales, guestlists, payments, and admission credentials provide useful customer, business, and admin data.
+
 ## Database commands
 
 ```bash
