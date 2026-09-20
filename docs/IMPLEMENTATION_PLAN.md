@@ -8,7 +8,7 @@ Nitewide remains the nightlife-facing brand while the domain model uses generic 
 - Every event has a creator. An event may optionally belong to an organization with one or more owners.
 - `OrgAffiliate` stores organization defaults. `EventAffiliate` selects a person for an event and overrides those defaults when a field is supplied. Rates never stack.
 - `Offering` is sellable inventory; `OrderItem` is the immutable purchase snapshot; `Ticket` is an admission credential. This allows one tier to sell repeatedly and one package to generate multiple credentials.
-- Event guestlist capacity limits all accepted direct and affiliate guestlist entries. Affiliate allocation is an additional, narrower limit.
+- Event guestlist capacity limits accepted direct venue guestlist entries. Each selected promoter's event allocation is a separate additional pool and does not consume the venue pool or another promoter's pool.
 - Inventory reservations, order creation, guestlist allocation, and check-in use database transactions and row locks.
 - Money is stored as integer cents and rates as basis points.
 - Locations are reusable, geocodable, PostGIS-indexed, and can hide their exact address until an appropriate lifecycle point.
@@ -24,4 +24,3 @@ Nitewide remains the nightlife-facing brand while the domain model uses generic 
 ## Deferred behind explicit interfaces
 
 Production payment capture/refunds, authentication, email/SMS, wallet passes, ticket transfer, payouts, subscription billing, and boost auction logic are integration boundaries rather than mocked claims of production readiness.
-
