@@ -16,7 +16,7 @@ This is the repository-level source of truth for near-term work. Product scope, 
 
 ## Now — Sprint 0 and Sprint 1
 
-- [ ] Import the approved roadmap and user stories into Linear and connect the GitHub repository.
+- [x] Import the approved roadmap and 53 user stories into Linear and connect the GitHub repository.
 - [ ] Add CI for lint, tests, builds, migration validation, and dependency/security checks.
 - [ ] Add production authentication requirements: secure sessions, email verification, password reset, logout/revocation, throttling, and abuse controls.
 - [ ] Complete customer event detail, offering selection, cart, and checkout UI.

@@ -4,10 +4,21 @@ This document is the import map for the Nitewide Linear workspace. It keeps the 
 
 ## Workspace structure
 
-**Project:** Nitewide — MVP to Market  
-**Repository:** https://github.com/Demesheo/nitewide  
-**Cycle cadence:** two weeks, starting September 28, 2026  
+**Project:** [Nitewide — MVP to Market](https://linear.app/demesheo/project/nitewide-mvp-to-market-14fde07cb15e/overview)
+
+**Repository:** https://github.com/Demesheo/nitewide
+
+**Cycle cadence:** two weeks, starting September 28, 2026
+
 **Milestones:** M0 Foundation, M1 Transaction-ready Alpha, M2 Orlando Beta, M3 Orlando Pilot, M4 Florida Expansion, M5 Southeast/Texas Growth, M6 Annual Strategy Review
+
+## Linear synchronization status
+
+- Imported September 20, 2026 as issues `DEM-5` through `DEM-57`.
+- All 53 issues are unassigned intentionally and carry project, milestone, priority, estimate, labels, and acceptance criteria.
+- The project runs from September 20, 2026 through September 20, 2027.
+- `Demesheo/nitewide` is linked to the `DEM` team with one-way GitHub → Linear issue creation. Updates to synchronized issues remain bidirectional; new Linear backlog items are not duplicated into GitHub Issues.
+- Linear's available workspace automation could not create or schedule cycles. Sprint 0–6 dates are therefore retained in issue descriptions and in the roadmap until cycles are enabled or created manually.
 
 ### Goals
 
