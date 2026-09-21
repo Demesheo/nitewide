@@ -17,6 +17,7 @@ This is the repository-level source of truth for near-term work. Product scope, 
 ## Now — Sprint 0 and Sprint 1
 
 - [x] Import the approved roadmap and 103 user stories into Linear and connect the GitHub repository.
+- [ ] Synchronize the locally approved `ADS-01` and `DATA-02` stories after the Linear Agent daily limit resets.
 - [ ] Add CI for lint, tests, builds, migration validation, and dependency/security checks.
 - [ ] Add production authentication requirements: secure sessions, email verification, password reset, logout/revocation, throttling, and abuse controls.
 - [ ] Complete customer event detail, offering selection, cart, and checkout UI.
@@ -57,6 +58,8 @@ This is the repository-level source of truth for near-term work. Product scope, 
 ## Later — Expansion and platform depth
 
 - [ ] Add consent-aware CRM, segmentation, email/SMS campaigns, and automated outreach.
+- [ ] Add Google AdSense-only, responsive, visibly labeled units to eligible customer discovery card slots and footer/right-rail positions on Google-evaluable Free business content pages, with no other networks/direct sponsors and with consent/RDP, GPC/GPP, density, performance, accessibility, invalid-traffic, and conversion guardrails.
+- [ ] Build a counsel-approved aggregated-insights product with minimum cohorts and anti-reidentification controls; do not sell identifiable customer data, raw cookies/device IDs, precise location, contact lists, payment/admission histories, or relationship graphs.
 - [ ] Add reservations, tables, deposits, floor plans, minimum-spend packages, and host assignment.
 - [ ] Add follows, reminders, recommendations, social sharing, calendar, and wallet integrations.
 - [ ] Add advanced reporting/read models, cohort and retention analysis, scheduled reports, and data exports.

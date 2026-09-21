@@ -33,6 +33,12 @@ This model turns the Florida rollout into a measurable operating target. It is a
 | Illustrative domestic-card processing | 2.9% of the full customer charge + $0.30 |
 | Other direct-cost planning reserve | 0.5% of face-value GMV |
 | Annual solo-founder/vendor operating budget | $300,000 |
+| Purchase conversion / organic cards per discovery page | 10% / 10 |
+| Customer AdSense-slot rule | 12% of organic cards, with a two-slot target below 12 cards when policy-safe |
+| Ad fill / viewability | 75% / 70% |
+| Customer / business contextual ad eCPM | $2.50 / $4.00 |
+| Free-business eligible pageviews | 300 per organization/month, two eligible slots/page |
+| Aggregated-insights customers | 4 at $1,000/month |
 
 ## Modeled annual result
 
@@ -47,25 +53,29 @@ This model turns the Florida rollout into a measurable operating target. It is a
 | Nitewide 10% promoter service fees | $283K |
 | Promoter net rewards before adjustments | $2.55M |
 | Premium subscription revenue | $120K |
-| Gross platform revenue | $4.42M |
+| Contextual AdSense revenue | $22K |
+| Aggregated, minimum-cohort insights revenue | $48K |
+| Personal-data/raw-cookie sale revenue | $0 |
+| Gross platform revenue | $4.49M |
 | Estimated Stripe processing | $1.65M |
-| Processor-adjusted platform contribution | $2.77M |
+| Processor-adjusted platform contribution | $2.84M |
 | Other direct-cost reserve | $222K |
-| Illustrative operating contribution after $300K budget | $2.25M |
+| Ads/insights direct-cost reserve | $14K |
+| Illustrative operating contribution after $300K budget | $2.31M |
 
 “Gross platform revenue,” “processor-adjusted contribution,” and “operating contribution” are deliberately separate. Final recognized revenue and expense presentation depends on the approved principal-versus-agent accounting policy and actual Stripe balance transactions.
 
 ## $50M evidence gate
 
-The expanded Florida case would require approximately an 11.3x multiple of $4.42M gross platform revenue to imply $50M. That is still a premium strategic outcome, not a conservative valuation assumption. Applying a 25.3x multiple derived by dividing a reported POSH valuation by an earlier revenue estimate mixes measurement dates and financing context, so it remains an upside sensitivity rather than the operating plan.
+The expanded Florida case would require approximately an 11.1x multiple of $4.49M gross platform revenue to imply $50M. That is still a premium strategic outcome, not a conservative valuation assumption. Applying a 25.3x multiple derived by dividing a reported POSH valuation by an earlier revenue estimate mixes measurement dates and financing context, so it remains an upside sensitivity rather than the operating plan.
 
 | Revenue multiple | Implied value for the expanded Florida case | Equivalent nightclub venue base at unchanged event ratio/economics for $50M |
 |---:|---:|---:|
-| 4x | $17.7M | 226 |
-| 6x | $26.5M | 151 |
-| 8x | $35.3M | 113 |
-| 10x | $44.2M | 91 |
-| 11.3x | ~$50.0M | ~80 |
+| 4x | $18.0M | 223 |
+| 6x | $26.9M | 149 |
+| 8x | $35.9M | 111 |
+| 10x | $44.9M | 89 |
+| 11.1x | ~$50.0M | ~80 |
 
 Nitewide should treat $50M as achieved only when an independent financing or acquisition establishes it. Internally, the goal is to build the evidence that can support that discussion:
 
@@ -82,5 +92,17 @@ Nitewide should treat $50M as achieved only when an independent financing or acq
 - Report base, downside, and upside cases. Never present one multiple as an entitlement or combine a current valuation with stale revenue to imply a comparable multiple.
 - Separate enterprise value from equity value and account for cash, debt, liabilities, dilution, transaction structure, taxes, and deal terms.
 - Treat Florida as the validation market. National expansion is upside only after the Florida cohort and operational gates pass.
+
+## Advertising and data-monetization guardrails
+
+- All modeled placements are Google AdSense only. The model excludes direct sponsorships, house ads, affiliate ads, Google Ad Manager, and other ad networks.
+- Customer placements are responsive Google-rendered AdSense units occupying card-shaped layout slots—not custom event-card advertisements or modified AdSense creative. Every slot must be clearly identifiable as advertising and visually distinguishable from organic event cards. The 12%/two-slot rule defines requested inventory, not guaranteed impressions or revenue; consent, AdSense approval and crawlability, policy eligibility, fill, viewability, invalid-traffic controls, accessibility, performance, and user experience determine whether a slot is served.
+- Google prohibits pages with more ads or paid promotions than publisher content. Suppress or reduce ads on sparse/empty states, authentication, checkout, QR wallet, guestlist decisions, private communications, approval queues, check-in, dispute, support, and other sensitive or task-critical surfaces.
+- Default AdSense to contextual or restricted-data-processing modes. Load non-essential advertising storage only after the applicable consent signal; honor withdrawal, opt-outs, Global Privacy Control and Global Privacy Platform signals, deletion, and regional restrictions.
+- Nitewide will not sell identifiable customer records, email/phone lists, precise location trails, payment/admission histories, raw cookies, device identifiers, or promoter/customer relationship graphs. The base model assigns these activities $0 revenue.
+- The modeled insights product contains aggregated, deidentified, minimum-cohort market trends only. Enforce minimum cohort sizes, suppression, query controls, contractual no-reidentification terms, access logs, export review, retention, and periodic reidentification testing. Counsel must approve the methodology and claims before sale.
+- Personalized advertising, cross-context behavioral advertising, data clean rooms, audience activation, or any activity legally treated as a sale/share remains off until counsel-approved applicability analysis, privacy notice, data-protection assessment, processor/controller contracts, consent and opt-out UX, GPC/GPP handling, sensitive/minor protections, deletion/export workflows, and vendor audits are production-ready.
+
+Decision sources: [Google publisher inventory policy](https://support.google.com/publisherpolicies/answer/11169917), [Google AdSense program policies](https://support.google.com/adsense/answer/48182), [Google U.S. state privacy controls](https://support.google.com/adsense/answer/9560818), [California Attorney General CCPA guidance](https://www.oag.ca.gov/privacy/ccpa), [Florida consumer privacy rights](https://www.flsenate.gov/Laws/Statutes/2025/501.705), [Florida privacy notices](https://www.leg.state.fl.us/Statutes/index.cfm?App_mode=Display_Statute&Search_String=&URL=0500-0599%2F0501%2FSections%2F0501.711.html), and [Florida deidentified-data requirements](https://www.leg.state.fl.us/Statutes/index.cfm?App_mode=Display_Statute&Search_String=&URL=0500-0599%2F0501%2FSections%2F0501.714.html).
 
 Reference context: [Fortune reported](https://fortune.com/2026/03/19/exclusive-posh-lands-37m-series-b-what-are-we-doing-tonight-problem/) that POSH generated roughly $10M of 2024 revenue on more than $83M of ticket sales and later raised a $37M Series B; [Software Equity Group reported](https://softwareequity.com/research/quarterly-saas-report) a 4.0x median EV/TTM revenue multiple for SaaS M&A in 2Q26, with scarce strategic assets receiving higher outlier outcomes. These are context, not direct comparables or valuation guarantees.

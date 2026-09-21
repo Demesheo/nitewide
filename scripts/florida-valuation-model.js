@@ -24,8 +24,30 @@ const assumptions = Object.freeze({
   stripeFixedFee: 0.30,
   otherDirectCostReserveRate: 0.005,
   annualOperatingBudget: 300_000,
+  customerPurchaseConversionRate: 0.10,
+  averageEventCardsPerDiscoveryPage: 10,
+  customerAdCardRatio: 0.12,
+  customerMinimumAdCards: 2,
+  adsenseFillRate: 0.75,
+  adsenseViewabilityRate: 0.70,
+  adNetwork: 'Google AdSense',
+  customerAdEcpm: 2.50,
+  freeBusinessPageviewsPerOrganizationMonth: 300,
+  businessAdSlotsPerEligiblePage: 2,
+  businessAdEcpm: 4,
+  aggregatedInsightsCustomers: 4,
+  aggregatedInsightsMonthlyPrice: 1_000,
+  adsAndInsightsDirectCostRate: 0.20,
   valuationGoal: 50_000_000,
 });
+
+function customerAdSlotsPerPage(input) {
+  const requested = input.averageEventCardsPerDiscoveryPage < 12
+    ? input.customerMinimumAdCards
+    : Math.ceil(input.averageEventCardsPerDiscoveryPage * input.customerAdCardRatio);
+  const contentSafeMaximum = Math.max(0, input.averageEventCardsPerDiscoveryPage - 1);
+  return Math.min(requested, contentSafeMaximum);
+}
 
 function calculate(input = assumptions) {
   const venueNights = input.venues * input.nightsPerWeek * input.weeksPerYear;
@@ -51,10 +73,22 @@ function calculate(input = assumptions) {
 
   const premiumOrganizations = input.venues * input.premiumAdoptionShare;
   const premiumRevenue = premiumOrganizations * input.premiumMonthlyPrice * 12;
-  const grossPlatformRevenue = buyerFees + promoterServiceFeeRevenue + premiumRevenue;
+  const freeOrganizations = input.venues - premiumOrganizations;
+  const customerDiscoveryPageviews = transactions / input.customerPurchaseConversionRate;
+  const customerAdSlots = customerAdSlotsPerPage(input);
+  const customerAdRequests = customerDiscoveryPageviews * customerAdSlots;
+  const customerAdsenseRevenue = customerAdRequests * input.adsenseFillRate * input.adsenseViewabilityRate * input.customerAdEcpm / 1_000;
+  const businessEligiblePageviews = freeOrganizations * input.freeBusinessPageviewsPerOrganizationMonth * 12;
+  const businessAdRequests = businessEligiblePageviews * input.businessAdSlotsPerEligiblePage;
+  const businessAdsenseRevenue = businessAdRequests * input.adsenseFillRate * input.adsenseViewabilityRate * input.businessAdEcpm / 1_000;
+  const adsenseRevenue = customerAdsenseRevenue + businessAdsenseRevenue;
+  const aggregatedInsightsRevenue = input.aggregatedInsightsCustomers * input.aggregatedInsightsMonthlyPrice * 12;
+  const privacySafeMonetizationRevenue = adsenseRevenue + aggregatedInsightsRevenue;
+  const grossPlatformRevenue = buyerFees + promoterServiceFeeRevenue + premiumRevenue + privacySafeMonetizationRevenue;
   const processorAdjustedContribution = grossPlatformRevenue - stripeCosts;
   const otherDirectCostReserve = faceValueGmv * input.otherDirectCostReserveRate;
-  const operatingContribution = processorAdjustedContribution - otherDirectCostReserve - input.annualOperatingBudget;
+  const adsAndInsightsDirectCosts = privacySafeMonetizationRevenue * input.adsAndInsightsDirectCostRate;
+  const operatingContribution = processorAdjustedContribution - otherDirectCostReserve - adsAndInsightsDirectCosts - input.annualOperatingBudget;
   const requiredRevenueMultiple = input.valuationGoal / grossPlatformRevenue;
 
   return {
@@ -76,9 +110,23 @@ function calculate(input = assumptions) {
     promoterNetRewards,
     premiumOrganizations,
     premiumRevenue,
+    freeOrganizations,
+    customerDiscoveryPageviews,
+    customerAdSlots,
+    customerAdRequests,
+    customerAdsenseRevenue,
+    businessEligiblePageviews,
+    businessAdRequests,
+    businessAdsenseRevenue,
+    adsenseRevenue,
+    adNetwork: input.adNetwork,
+    aggregatedInsightsRevenue,
+    personalDataSaleRevenue: 0,
+    privacySafeMonetizationRevenue,
     grossPlatformRevenue,
     processorAdjustedContribution,
     otherDirectCostReserve,
+    adsAndInsightsDirectCosts,
     annualOperatingBudget: input.annualOperatingBudget,
     operatingContribution,
     requiredRevenueMultiple,
@@ -99,6 +147,9 @@ if (require.main === module) {
     'Buyer service fees': currency(result.buyerFees),
     'Nitewide promoter fees': currency(result.promoterServiceFeeRevenue),
     'Premium subscription revenue': currency(result.premiumRevenue),
+    'Contextual AdSense revenue': currency(result.adsenseRevenue),
+    'Aggregated insights revenue': currency(result.aggregatedInsightsRevenue),
+    'Personal-data sale revenue': currency(result.personalDataSaleRevenue),
     'Gross platform revenue': currency(result.grossPlatformRevenue),
     'Stripe processing estimate': currency(result.stripeCosts),
     'Processor-adjusted contribution': currency(result.processorAdjustedContribution),
@@ -109,4 +160,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { assumptions, calculate };
+module.exports = { assumptions, calculate, customerAdSlotsPerPage };

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { assumptions, calculate } = require('../../../scripts/florida-valuation-model');
+const { assumptions, calculate, customerAdSlotsPerPage } = require('../../../scripts/florida-valuation-model');
 
 test('Florida model takes 10% of venue-funded promoter kickbacks without changing attribution share', () => {
   const result = calculate();
@@ -24,4 +24,18 @@ test('Florida model adds one ticket-only non-nightclub event per ten nightclub e
   assert.equal(Math.round(result.nonNightclubGmv), 8_320_000);
   assert.equal(Math.round(result.nonNightclubTransactions), 208_000);
   assert.equal(Math.round(result.grossPromoterKickbacks), 2_831_111);
+});
+
+test('advertising model uses two Google AdSense slots without exceeding organic content', () => {
+  const result = calculate();
+  assert.equal(result.adNetwork, 'Google AdSense');
+  assert.equal(customerAdSlotsPerPage(assumptions), 2);
+  assert.equal(result.personalDataSaleRevenue, 0);
+  assert.ok(result.adsenseRevenue > 0);
+  assert.equal(result.aggregatedInsightsRevenue, 48_000);
+});
+
+test('ad density safety overrides the two-card floor on sparse pages', () => {
+  assert.equal(customerAdSlotsPerPage({ ...assumptions, averageEventCardsPerDiscoveryPage: 1 }), 0);
+  assert.equal(customerAdSlotsPerPage({ ...assumptions, averageEventCardsPerDiscoveryPage: 2 }), 1);
 });

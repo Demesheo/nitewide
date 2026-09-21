@@ -16,8 +16,9 @@ This document is the import map for the Nitewide Linear workspace. It keeps the 
 
 - Synchronized September 20, 2026 as 103 consecutive issues, `DEM-5` through `DEM-107`, with no missing identifiers or duplicate titles.
 - The original 53 issues were expanded in place; 50 operating, legal, finance, payment, admission-evidence, dispute-risk, affiliate-economics, expansion, communications, and marketing issues were added.
-- All 103 issues are intentionally unassigned and carry a project, milestone, priority, estimate, relevant labels, testable acceptance criteria, verification evidence, dependencies/risks, and a solo-founder execution note.
-- Milestone allocation is M0: 12, M1: 28, M2: 21, M3: 12, M4: 13, M5: 9, and M6: 8. No issue is missing a milestone.
+- All 103 synchronized issues are intentionally unassigned and carry a project, milestone, priority, estimate, relevant labels, testable acceptance criteria, verification evidence, dependencies/risks, and a solo-founder execution note.
+- Current synchronized milestone allocation is M0: 12, M1: 28, M2: 21, M3: 12, M4: 13, M5: 9, and M6: 8. No synchronized issue is missing a milestone.
+- `ADS-01` and `DATA-02` are approved locally and queued for the next Linear synchronization because the workspace's Linear Agent daily limit was reached. Once synchronized, the expected total is 105 issues and M4 increases to 15.
 - The project runs from September 20, 2026 through September 20, 2027.
 - `Demesheo/nitewide` is linked to the `DEM` team with one-way GitHub → Linear issue creation. Updates to synchronized issues remain bidirectional; new Linear backlog items are not duplicated into GitHub Issues.
 - Linear's available workspace automation could not create or schedule cycles. Sprint dates are therefore retained in issue descriptions and in the roadmap until cycles are enabled or created manually.
@@ -192,6 +193,8 @@ These issues fill the operating, legal, financial, payments, launch, and nationa
 | OPS-07 | P1 | 5 | Automate national support triage, status communications, organizer education, runbooks, escalation, and outsourced overflow without exposing unrestricted customer data. |
 | GROWTH-04 | P0 | 5 | Turn Florida learning into a repeatable national city-launch playbook with partner minimums, waitlists, content seeding, launch calendar, budget, KPIs, and stop criteria. |
 | PAY-12 | P0 | 8 | Validate national payments/payout/tax coverage, connected-account eligibility, state restrictions, 1099 ownership, reserve policy, prohibited businesses, and processor escalation. |
+| ADS-01 | P1 | 8 | Add Google AdSense-only inventory to customer discovery and eligible, Google-evaluable Free business content pages: responsive Google-rendered units in clearly labeled card-shaped slots target 12% of organic event cards with a two-slot target below 12 only when content density permits; footer/right-rail business slots; no direct sponsors, house/affiliate ads, Ad Manager, other networks, or modified creative; consent/RDP/GPP/GPC controls; no ads on checkout, credentials, communications, approvals, check-in, disputes, or sparse pages; accessibility/performance, invalid-traffic, fill/viewability, revenue, and conversion telemetry. |
+| DATA-02 | P1 | 8 | Launch aggregated minimum-cohort market insights with deidentification, suppression/query controls, contractual no-reidentification, export review, access logs, retention, reidentification testing, privacy assessments, and counsel approval. Personal records, contact lists, precise location, raw cookies/device IDs, payment/admission histories, and relationship graphs are never sold; personalized ads or legally defined sale/share remain disabled until the complete consent/opt-out/GPC/GPP and state-law program passes. |
 
 ### M5 — National expansion
 
