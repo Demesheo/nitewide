@@ -31,6 +31,8 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [ ] Complete business guestlist review, promoter management, QR scanning, door sales, and live event operations.
 - [ ] Add refunds, chargebacks, payouts, platform fees, Gold subscription billing, and boost billing.
 - [ ] Add transactional email/SMS delivery and durable QR delivery.
+- [ ] Add attendee event reminders, guestlist decision messages, actionable approval-queue alerts, and low-inventory/sold-out notifications across email, SMS, and in-app channels.
+- [ ] Add consent-based email/SMS marketing, customer preferences, suppression/unsubscribe handling, segmentation, attribution, and frequency caps.
 - [ ] Add business sales, attendance, affiliate, and inventory dashboards with filters and CSV export.
 - [ ] Add admin transaction oversight, support tooling, audit explorer, moderation, and pricing configuration.
 - [ ] Add observability, alerts, backups, disaster-recovery drills, rate limits, secrets management, and background jobs.

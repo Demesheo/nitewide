@@ -14,8 +14,10 @@ This document is the import map for the Nitewide Linear workspace. It keeps the 
 
 ## Linear synchronization status
 
-- Imported September 20, 2026 as issues `DEM-5` through `DEM-57`.
-- All 53 issues are unassigned intentionally and carry project, milestone, priority, estimate, labels, and acceptance criteria.
+- Synchronized September 20, 2026 as 100 consecutive issues, `DEM-5` through `DEM-104`, with no missing identifiers or duplicate titles.
+- The original 53 issues were expanded in place; 47 operating, legal, finance, payment, expansion, communications, and marketing issues were added.
+- All 100 issues are intentionally unassigned and carry a project, milestone, priority, estimate, relevant labels, testable acceptance criteria, verification evidence, dependencies/risks, and a solo-founder execution note.
+- Milestone allocation is M0: 12, M1: 27, M2: 19, M3: 12, M4: 13, M5: 9, and M6: 8. No issue is missing a milestone.
 - The project runs from September 20, 2026 through September 20, 2027.
 - `Demesheo/nitewide` is linked to the `DEM` team with one-way GitHub → Linear issue creation. Updates to synchronized issues remain bidirectional; new Linear backlog items are not duplicated into GitHub Issues.
 - Linear's available workspace automation could not create or schedule cycles. Sprint dates are therefore retained in issue descriptions and in the roadmap until cycles are enabled or created manually.
@@ -31,9 +33,10 @@ This document is the import map for the Nitewide Linear workspace. It keeps the 
 ### Labels
 
 - App: `customer`, `business`, `admin`, `platform`
-- Domain: `auth`, `discovery`, `commerce`, `payments`, `guestlist`, `admission`, `affiliates`, `analytics`, `crm`, `growth`, `operations`, `security`
+- Domain: `auth`, `discovery`, `commerce`, `payments`, `guestlist`, `admission`, `affiliates`, `analytics`, `crm`, `growth`, `operations`, `security`, `communications`, `email`, `sms`, `marketing`
 - Type: `feature`, `infrastructure`, `research`, `compliance`
 - Region: `orlando`, `miami`, `fort-lauderdale`, `tampa`, `florida`, `national`
+- Operating model: `solo-founder`, `outsourced`, `legal`, `finance`
 
 Priorities use P0 (launch blocker), P1 (milestone-critical), P2 (important), and P3 (later). Estimates are relative points.
 
@@ -210,6 +213,16 @@ These issues fill the operating, legal, financial, payments, launch, and nationa
 | FIN-03 | P1 | 8 | Produce audit-ready books, revenue recognition, processor/ledger reconciliation, tax filings, forecasts, scenario model, concentration analysis, and normalized diligence metrics. |
 | SCALE-04 | P2 | 8 | Review the architecture against 10x/100x transaction, check-in, city, tenant, analytics, and recovery scenarios; extract services only where measured evidence supports it. |
 | FOUNDER-01 | P0 | 5 | Reduce solo-founder bus-factor risk with credential escrow, recovery access, vendor contacts, architecture/runbook index, automated restore verification, and an authorized emergency operator. |
+
+## Communications and marketing expansion
+
+| ID | Pri | Pts | Target | Deliverable and acceptance summary |
+|---|---:|---:|---|---|
+| COMMS-02 | P0 | 8 | M1 | Build a channel-neutral notification outbox and email/SMS adapters with idempotency, templates/versioning, retries, delivery webhooks, timezone/locale support, suppression, audit history, observability, and provider failover boundaries. |
+| COMMS-03 | P0 | 5 | M2 | Send configurable attendee confirmations and reminders for purchased tickets, accepted transfers, reservations, RSVPs, and approved guestlist entries; deduplicate recipients and use the event timezone. |
+| COMMS-04 | P0 | 5 | M2 | Notify only authorized owners/managers/employees/hosts/promoters when guestlist, reservation, refund, transfer, or other approval requests need action; deep-link to the scoped queue and stop alerts after resolution. |
+| COMMS-05 | P1 | 5 | M2 | Emit low-inventory and sold-out transitions, alert configured operators once per state change, update public availability, support waitlists, and prevent alert storms or oversells. |
+| MKT-02 | P1 | 8 | M4 | Add consent-based email/SMS marketing with channel preferences, audience provenance, segmentation, templates, scheduling, tests, suppression/unsubscribe, frequency caps, campaign attribution, and compliance evidence. |
 
 ## Backlog rules
 

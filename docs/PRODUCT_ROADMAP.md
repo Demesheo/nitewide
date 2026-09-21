@@ -6,13 +6,14 @@ Last updated: September 20, 2026
 
 Nitewide is a web-first nightlife discovery, commerce, promotion, and operations platform. The brand stays focused on nightlife at launch, while the platform continues to use generic concepts—users, organizations, events, locations, offerings, orders, credentials, affiliates, and audit records—so concerts, festivals, private events, hospitality, and other verticals can be added without a rewrite.
 
-The product is organized into five connected systems:
+The product is organized into six connected systems:
 
 1. **Discover** — location-aware event search and conversion.
 2. **Sell** — tickets, packages, guestlists, reservations, checkout, credentials, and admission.
 3. **Promote** — affiliate links, allocations, attribution, commissions, campaigns, and boosts.
 4. **Manage** — organization, event, staff, inventory, door, customer, and support operations.
 5. **Analyze** — trusted sales, attendance, customer, affiliate, and marketplace reporting.
+6. **Communicate** — transactional email/SMS, attendee reminders, actionable staff alerts, inventory notifications, consent preferences, and attributable marketing.
 
 ## Non-negotiable product rules
 
@@ -95,6 +96,7 @@ Decision sources: [POSH balance and payout documentation](https://support.posh.v
 - Read fast, indexable event and organization pages; select tickets, packages, guestlist, or reservations without an app download.
 - Register/sign in, pay with supported payment methods, receive durable QR credentials, view orders, transfer eligible tickets, and track guestlist approval.
 - Follow organizers/events, receive reminders, share attributable links, and get consent-respecting recommendations in later phases.
+- Receive configurable email/SMS confirmations and reminders for purchased, transferred, reserved, RSVP, or approved-guestlist events, plus immediate guestlist decision and material event-change notices.
 
 ### Nitewide Business
 
@@ -103,6 +105,16 @@ Decision sources: [POSH balance and payout documentation](https://support.posh.v
 - Configure direct venue guestlists and independent per-promoter allocations; approve requests and operate fast QR/manual check-in with audit history.
 - Monitor gross/net sales, fees, inventory, average order value, attendance, guestlist use, promoter conversion/commission, refunds, and customer cohorts.
 - Add consent-aware CRM, segmentation, campaigns, automation, advanced reports, and business operations as Gold value—not as restrictions on basic selling configuration.
+- Route actionable email/SMS/in-app alerts to only the roles allowed to respond when guestlist, reservation, refund, transfer, or other approval work is waiting; notify operators about sold-out/low-inventory states and customers about relevant availability changes.
+
+### Communications rules
+
+- Transactional messages and marketing consent are separate. A user cannot accidentally unsubscribe from required purchase, security, admission, refund, or material event-change notices.
+- Every message is generated from an auditable event/outbox record with idempotency, retries, delivery state, provider identifiers, template version, locale/timezone, and suppression reason.
+- Attendee reminders use the event timezone and cover ticket holders, approved guestlist attendees, reservation holders, and accepted transfers without sending duplicates.
+- Approval notifications are capability-scoped, deduplicated, summarized when appropriate, and deep-link to the exact authorized queue; resolved requests stop reminders.
+- Low inventory and sold-out transitions are emitted once per relevant state change and can trigger operator alerts, customer waitlists, or marketing automation without overselling.
+- Marketing requires channel-specific consent, preference controls, suppression/unsubscribe handling, frequency caps, audience provenance, and attribution.
 
 ### Nitewide Admin
 
