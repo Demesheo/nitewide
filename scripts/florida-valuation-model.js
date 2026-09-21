@@ -14,7 +14,7 @@ const assumptions = Object.freeze({
   averageNonNightclubTransaction: 40,
   buyerFeeRate: 0.075,
   buyerFixedFee: 0.85,
-  promoterAttributedTransactionShare: 0.25,
+  promoterAttributedTransactionShare: 0.50,
   vipGrossPromoterKickback: 50,
   gaGrossPromoterKickback: 5,
   nitewideKickbackFeeRate: 0.10,
