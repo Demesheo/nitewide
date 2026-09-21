@@ -12,6 +12,7 @@ This repository contains:
 - `TODO.md` — completed, current, next, and later work
 - `docs/PRODUCT_ROADMAP.md` — dated sprints, milestones, regions, quality targets, and scale gates
 - `docs/LINEAR_BACKLOG.md` — Linear goals, labels, cycles, and initial user-story backlog
+- `docs/TOP_25_NIGHTLIFE_METROS.md` — ranked U.S. nightlife metro targets, rollout interpretation, and market-launch scorecard
 
 ## Requirements
 
