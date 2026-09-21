@@ -1,6 +1,6 @@
 const PLAN_POLICIES = Object.freeze({
-  free: Object.freeze({ monthlyFeeCents: 0, percentageBps: 750, perPaidOrderCents: 85 }),
-  premium: Object.freeze({ monthlyFeeCents: 24_900, percentageBps: 750, perPaidOrderCents: 85 }),
+  free: Object.freeze({ monthlyFeeCents: 0, percentageBps: 800, perPaidOrderCents: 89 }),
+  premium: Object.freeze({ monthlyFeeCents: 24_900, percentageBps: 800, perPaidOrderCents: 89 }),
 });
 
 function roundBasisPoints(cents, bps) { return Math.round((cents * bps) / 10_000); }

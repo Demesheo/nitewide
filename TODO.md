@@ -31,7 +31,7 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [ ] Complete customer orders, QR wallet, guestlist request/status, and ticket transfer.
 - [ ] Complete business guestlist review, promoter management, QR scanning, door sales, and live event operations.
 - [ ] Add refunds, chargebacks, payouts, platform fees, $249 Premium subscription billing, and boost billing.
-- [ ] Implement transparent buyer-funded checkout pricing and promoter reward economics: versioned 7.5% + $0.85 buyer service fee for both organization plans, configurable 10% affiliate service fee, gross/fee/net disclosure, multi-ticket order rules, proportional reversals, and reconciled contribution-margin reporting.
+- [ ] Implement transparent buyer-funded checkout pricing and promoter reward economics: versioned 8% + $0.89 buyer service fee for both organization plans, configurable 10% affiliate service fee, gross/fee/net disclosure, multi-ticket order rules, proportional reversals, and reconciled contribution-margin reporting.
 - [ ] Add transactional email/SMS delivery and durable QR delivery.
 - [ ] Add attendee event reminders, guestlist decision messages, actionable approval-queue alerts, and low-inventory/sold-out notifications across email, SMS, and in-app channels.
 - [ ] Add consent-based email/SMS marketing, customer preferences, suppression/unsubscribe handling, segmentation, attribution, and frequency caps.
