@@ -21,7 +21,7 @@ This model turns the Florida rollout into a measurable operating target. It is a
 | Selling nights per venue per week | 4 |
 | VIP volume | $5,000 per venue-night on one-third of nights |
 | Average VIP checkout | $150 |
-| GA volume | $300 per venue-night |
+| GA volume | $500 per venue event-night |
 | Average GA checkout | $20 |
 | Non-nightclub event frequency | 1 per 10 nightclub event-nights |
 | Non-nightclub ticket GMV / average checkout | $5,000 / $40 |
@@ -38,34 +38,34 @@ This model turns the Florida rollout into a measurable operating target. It is a
 
 | Output | Amount |
 |---|---:|
-| Nightclub face-value GMV | $32.73M |
+| Nightclub face-value GMV | $36.05M |
 | Non-nightclub events / GMV | 1,664 / $8.32M |
-| Total face-value GMV | $41.05M |
-| Transactions | 642,489 |
-| Buyer service-fee revenue | $3.62M |
-| Gross venue-funded promoter kickbacks | $2.62M |
-| Nitewide 10% promoter service fees | $262K |
-| Promoter net rewards before adjustments | $2.36M |
+| Total face-value GMV | $44.37M |
+| Transactions | 808,889 |
+| Buyer service-fee revenue | $4.02M |
+| Gross venue-funded promoter kickbacks | $2.83M |
+| Nitewide 10% promoter service fees | $283K |
+| Promoter net rewards before adjustments | $2.55M |
 | Premium subscription revenue | $120K |
-| Gross platform revenue | $4.01M |
-| Estimated Stripe processing | $1.49M |
-| Processor-adjusted platform contribution | $2.52M |
-| Other direct-cost reserve | $205K |
-| Illustrative operating contribution after $300K budget | $2.01M |
+| Gross platform revenue | $4.42M |
+| Estimated Stripe processing | $1.65M |
+| Processor-adjusted platform contribution | $2.77M |
+| Other direct-cost reserve | $222K |
+| Illustrative operating contribution after $300K budget | $2.25M |
 
 “Gross platform revenue,” “processor-adjusted contribution,” and “operating contribution” are deliberately separate. Final recognized revenue and expense presentation depends on the approved principal-versus-agent accounting policy and actual Stripe balance transactions.
 
 ## $50M evidence gate
 
-The expanded Florida case would require approximately a 12.5x multiple of $4.01M gross platform revenue to imply $50M. That is still a premium strategic outcome, not a conservative valuation assumption. Applying a 25.3x multiple derived by dividing a reported POSH valuation by an earlier revenue estimate mixes measurement dates and financing context, so it remains an upside sensitivity rather than the operating plan.
+The expanded Florida case would require approximately an 11.3x multiple of $4.42M gross platform revenue to imply $50M. That is still a premium strategic outcome, not a conservative valuation assumption. Applying a 25.3x multiple derived by dividing a reported POSH valuation by an earlier revenue estimate mixes measurement dates and financing context, so it remains an upside sensitivity rather than the operating plan.
 
 | Revenue multiple | Implied value for the expanded Florida case | Equivalent nightclub venue base at unchanged event ratio/economics for $50M |
 |---:|---:|---:|
-| 4x | $16.0M | 250 |
-| 6x | $24.0M | 166 |
-| 8x | $32.1M | 125 |
-| 10x | $40.1M | 100 |
-| 12.5x | ~$50.0M | ~80 |
+| 4x | $17.7M | 226 |
+| 6x | $26.5M | 151 |
+| 8x | $35.3M | 113 |
+| 10x | $44.2M | 91 |
+| 11.3x | ~$50.0M | ~80 |
 
 Nitewide should treat $50M as achieved only when an independent financing or acquisition establishes it. Internally, the goal is to build the evidence that can support that discussion:
 
