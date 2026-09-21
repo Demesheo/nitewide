@@ -50,7 +50,7 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [ ] Engage qualified legal/tax/accounting specialists; form the advised entity, obtain an EIN, evaluate an S-corporation election, open business banking, and establish books.
 - [ ] Map Stripe principal, application-fee, subscription, refund, dispute, reserve, affiliate, tax, and merchant-deficit activity into a reconciled subledger and CPA-approved general ledger/revenue-recognition policy.
 - [ ] Produce merchant-recovery aging, expected-loss/write-off controls, and diligence schedules instead of assuming external bank debit creates zero A/R exposure.
-- [ ] Reforecast the Florida $50M evidence model monthly from reconciled actuals, keeping promoter attribution separate from the 90/10 venue-funded kickback split and reporting downside/base/upside cases rather than a guaranteed valuation.
+- [ ] Reforecast the Florida $50M evidence model monthly from reconciled actuals, keeping promoter attribution separate from the 90/10 venue-funded kickback split, tracking ticket-only non-nightclub events separately, and reporting downside/base/upside cases rather than a guaranteed valuation.
 - [ ] Run a supervised founder-to-operator transition drill covering access, deploy/rollback, restore, payments, disputes, support, vendors, incidents, and signing-key recovery.
 - [ ] Complete customer terms/privacy/refund policies plus organizer, affiliate, payment, and data-processing agreements before public launch.
 

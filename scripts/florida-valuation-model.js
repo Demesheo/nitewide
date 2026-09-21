@@ -9,6 +9,9 @@ const assumptions = Object.freeze({
   averageVipTransaction: 150,
   gaGmvPerVenueNight: 300,
   averageGaTransaction: 20,
+  nonNightclubEventsPerNightclubEvent: 0.10,
+  nonNightclubGmvPerEvent: 5_000,
+  averageNonNightclubTransaction: 40,
   buyerFeeRate: 0.075,
   buyerFixedFee: 0.85,
   promoterAttributedTransactionShare: 0.25,
@@ -28,10 +31,13 @@ function calculate(input = assumptions) {
   const venueNights = input.venues * input.nightsPerWeek * input.weeksPerYear;
   const vipGmv = venueNights * input.vipGmvPerVenueNight * input.vipActiveNightShare;
   const gaGmv = venueNights * input.gaGmvPerVenueNight;
-  const faceValueGmv = vipGmv + gaGmv;
+  const nonNightclubEvents = venueNights * input.nonNightclubEventsPerNightclubEvent;
+  const nonNightclubGmv = nonNightclubEvents * input.nonNightclubGmvPerEvent;
+  const faceValueGmv = vipGmv + gaGmv + nonNightclubGmv;
   const vipTransactions = vipGmv / input.averageVipTransaction;
   const gaTransactions = gaGmv / input.averageGaTransaction;
-  const transactions = vipTransactions + gaTransactions;
+  const nonNightclubTransactions = nonNightclubGmv / input.averageNonNightclubTransaction;
+  const transactions = vipTransactions + gaTransactions + nonNightclubTransactions;
 
   const buyerFees = faceValueGmv * input.buyerFeeRate + transactions * input.buyerFixedFee;
   const customerCheckoutVolume = faceValueGmv + buyerFees;
@@ -55,9 +61,12 @@ function calculate(input = assumptions) {
     venueNights,
     vipGmv,
     gaGmv,
+    nonNightclubEvents,
+    nonNightclubGmv,
     faceValueGmv,
     vipTransactions,
     gaTransactions,
+    nonNightclubTransactions,
     transactions,
     buyerFees,
     customerCheckoutVolume,
@@ -84,6 +93,8 @@ if (require.main === module) {
   const result = calculate();
   console.table({
     'Face-value GMV': currency(result.faceValueGmv),
+    'Non-nightclub events': Math.round(result.nonNightclubEvents).toLocaleString('en-US'),
+    'Non-nightclub GMV': currency(result.nonNightclubGmv),
     'Modeled transactions': Math.round(result.transactions).toLocaleString('en-US'),
     'Buyer service fees': currency(result.buyerFees),
     'Nitewide promoter fees': currency(result.promoterServiceFeeRevenue),

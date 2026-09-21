@@ -17,3 +17,11 @@ test('Florida model charges Stripe percentage on face value plus buyer fees', ()
   assert.equal(result.stripeCosts, expected);
   assert.ok(result.customerCheckoutVolume > result.faceValueGmv);
 });
+
+test('Florida model adds one ticket-only non-nightclub event per ten nightclub events', () => {
+  const result = calculate();
+  assert.equal(Math.round(result.nonNightclubEvents), 1_664);
+  assert.equal(Math.round(result.nonNightclubGmv), 8_320_000);
+  assert.equal(Math.round(result.nonNightclubTransactions), 208_000);
+  assert.equal(Math.round(result.grossPromoterKickbacks), 2_623_111);
+});
