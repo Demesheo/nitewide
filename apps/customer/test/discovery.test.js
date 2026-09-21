@@ -5,6 +5,8 @@ import {
   eventDateKey,
   availableQuantity,
   checkoutTotal,
+  filterUpcomingWeek,
+  upcomingWeekRange,
 } from "../src/lib/discovery.js";
 import pricing from "../../api/src/domain/pricing.js";
 
@@ -19,6 +21,78 @@ const event = {
   guestlistCapacity: 50,
   offerings: [{ kind: "package", priceCents: 40000 }],
 };
+test("empty-date alternatives include only the next seven venue-local dates", () => {
+  const sample = (id, startsAt) => ({
+    ...event,
+    id,
+    startsAt,
+    endsAt: new Date(new Date(startsAt).getTime() + 3600000).toISOString(),
+  });
+  const samples = [
+    sample("selected-day", "2026-09-22T02:00:00Z"),
+    sample("first-day", "2026-09-23T02:00:00Z"),
+    sample("last-day", "2026-09-29T03:59:59Z"),
+    sample("too-late", "2026-09-29T04:00:00Z"),
+  ];
+  assert.deepEqual(upcomingWeekRange("2026-09-21"), {
+    start: "2026-09-22",
+    end: "2026-09-28",
+  });
+  assert.deepEqual(
+    filterUpcomingWeek(samples, { date: "2026-09-21" }, now).map(
+      (item) => item.id,
+    ),
+    ["first-day", "last-day"],
+  );
+  assert.deepEqual(filterUpcomingWeek(samples, { date: "" }, now), []);
+});
+test("weekly alternatives retain city, query, category, price and saved filters", () => {
+  const filters = {
+    date: "2026-09-21",
+    city: "Orlando",
+    query: "celine",
+    category: "vip",
+    priceCap: "40000",
+    savedIds: ["celine"],
+  };
+  assert.deepEqual(filterUpcomingWeek([event], filters, now), [event]);
+  for (const change of [
+    { city: "Miami" },
+    { query: "unmatched" },
+    { priceCap: "2500" },
+    { savedIds: [] },
+  ]) {
+    assert.deepEqual(
+      filterUpcomingWeek([event], { ...filters, ...change }, now),
+      [],
+    );
+  }
+});
+test("week ranges cross months, years, leap days and DST as calendar dates", () => {
+  assert.deepEqual(upcomingWeekRange("2026-12-28"), {
+    start: "2026-12-29",
+    end: "2027-01-04",
+  });
+  assert.deepEqual(upcomingWeekRange("2028-02-27"), {
+    start: "2028-02-28",
+    end: "2028-03-05",
+  });
+  assert.deepEqual(upcomingWeekRange("2026-10-30"), {
+    start: "2026-10-31",
+    end: "2026-11-06",
+  });
+});
+test("blanket search covers summaries, locations and offering details", () => {
+  const searchable = {
+    ...event,
+    summary: "A rooftop celebration",
+    offerings: [
+      { name: "Premium table", description: "Two bottles for the crew" },
+    ],
+  };
+  for (const query of ["rooftop", "Orlando", "premium", "bottles"])
+    assert.equal(filterEvents([searchable], { query }, now).length, 1);
+});
 test("search combines city, keywords, venue-local date, and experience type", () => {
   assert.equal(eventDateKey(event), "2026-09-25");
   assert.deepEqual(

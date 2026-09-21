@@ -5,7 +5,6 @@ import {
   MapPin,
   CalendarDays,
   Search,
-  Heart,
   Ticket,
   Sparkles,
   Wine,
@@ -38,6 +37,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./components/ui/select";
+import { EventCard } from "./components/event-card";
+import { photo, eventDate, eventTime, artIndex } from "./lib/presentation";
 import { AuthDialog } from "./components/auth-dialog";
 import { detectCurrentCity, localDateInputValue } from "./discovery-defaults";
 import { api } from "./lib/api";
@@ -46,45 +47,25 @@ import {
   checkoutTotal,
   cityName,
   filterEvents,
+  filterUpcomingWeek,
+  upcomingWeekRange,
   money,
   readStorage,
   writeStorage,
 } from "./lib/discovery";
 
-const photos = [
-  "photo-1470229722913-7c0e2dbbafd3",
-  "photo-1514525253161-7a46d19cd819",
-  "photo-1516450360452-9312f5e86fc7",
-  "photo-1506157786151-b8491531f063",
-  "photo-1492684223066-81342ee5ff30",
-  "photo-1501386761578-eac5c94b800a",
-];
-const photo = (index, width = 900) =>
-  `https://images.unsplash.com/${photos[Math.abs(index) % photos.length]}?auto=format&fit=crop&w=${width}&q=85`;
-const artIndex = (event) =>
-  [...(event.organization?.name || event.title)].reduce(
-    (n, char) => n + char.charCodeAt(0),
-    0,
-  );
-const eventDate = (event) =>
-  new Date(event.startsAt).toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    timeZone: event.location?.timezone,
-  });
-const eventTime = (event) =>
-  new Date(event.startsAt).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: event.location?.timezone,
-  });
 const categories = [
   ["all", Compass, "All experiences"],
   ["vip", Wine, "VIP & tables"],
   ["music", Music2, "Live music"],
   ["guestlist", Users, "Guestlists"],
 ];
+const calendarLabel = (date) =>
+  new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 const Brand = () => (
   <a href="/" aria-label="Nitewide home" className="brand">
     nitewide<span>✳</span>
@@ -97,72 +78,6 @@ function validSession() {
     new Date(session.expiresAt) > new Date()
     ? session
     : null;
-}
-
-function EventCard({ event, saved, onSave, onOpen }) {
-  const offerings =
-    event.offerings?.filter((o) => availableQuantity(o) > 0) || [];
-  const lowest = offerings.length
-    ? Math.min(...offerings.map((o) => o.priceCents))
-    : null;
-  return (
-    <article className="event-card">
-      <div className="card-image">
-        <button
-          className="image-link"
-          onClick={onOpen}
-          aria-label={`Explore ${event.title}`}
-        >
-          <img src={photo(artIndex(event), 720)} alt="" loading="lazy" />
-        </button>
-        <Badge className="photo-badge">
-          {event.category === "nightlife"
-            ? "AFTER DARK"
-            : event.category.replaceAll("_", " ").toUpperCase()}
-        </Badge>
-        <button
-          className={`save-button ${saved ? "saved" : ""}`}
-          aria-label={`${saved ? "Unsave" : "Save"} ${event.title}`}
-          aria-pressed={saved}
-          onClick={onSave}
-        >
-          <Heart size={17} fill={saved ? "currentColor" : "none"} />
-        </button>
-        <span className="image-date">
-          {eventDate(event)} <span>· {eventTime(event)}</span>
-        </span>
-      </div>
-      <div className="card-copy">
-        <p className="venue-name">
-          {event.organization?.name || "Independent experience"}
-        </p>
-        <button className="card-title" onClick={onOpen}>
-          {event.title}
-        </button>
-        <p className="card-location">
-          <MapPin size={13} />
-          {cityName(event)}
-          {event.location?.region ? `, ${event.location.region}` : ""}
-        </p>
-        <div className="card-bottom">
-          <span>
-            {lowest === null ? (
-              "Explore guestlist"
-            ) : lowest === 0 ? (
-              "Free admission"
-            ) : (
-              <>
-                <small>From</small> {money(lowest)} <small>+ fees</small>
-              </>
-            )}
-          </span>
-          <button onClick={onOpen} aria-label={`Book ${event.title}`}>
-            <ArrowUpRight size={21} />
-          </button>
-        </div>
-      </div>
-    </article>
-  );
 }
 
 export default function App() {
@@ -262,19 +177,17 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  const results = filterEvents(events, {
+  const filters = {
     city,
     date,
     query,
     category,
+    priceCap,
     savedIds: view === "saved" ? saved : null,
-  }).filter(
-    (event) =>
-      priceCap === "any" ||
-      event.offerings?.some(
-        (o) => availableQuantity(o) && o.priceCents <= Number(priceCap),
-      ),
-  );
+  };
+  const results = filterEvents(events, filters);
+  const weekRange = date ? upcomingWeekRange(date) : null;
+  const weeklyEvents = date ? filterUpcomingWeek(events, filters) : [];
   const minimum = (event) =>
     Math.min(
       ...(event.offerings || [])
@@ -627,12 +540,12 @@ export default function App() {
             <label className="search-field keyword-field">
               <Search />
               <span>
-                <b>WHAT’S YOUR VIBE?</b>
+                <b>SEARCH</b>
                 <input
-                  aria-label="Search events or venues"
+                  aria-label="Search"
                   name="query"
                   value={query}
-                  placeholder="Event, venue, or artist"
+                  placeholder="Search anything…"
                   onChange={(event) => setQuery(event.target.value)}
                 />
               </span>
@@ -793,12 +706,16 @@ export default function App() {
               <h3>
                 {view === "saved" && !saved.length
                   ? "Your next night, saved."
-                  : "A different date. A new possibility."}
+                  : date
+                    ? `No experiences for ${calendarLabel(date)}.`
+                    : "No experiences match your search."}
               </h3>
               <p>
                 {view === "saved" && !saved.length
                   ? "Tap the heart on any experience to keep it here."
-                  : "No experiences match these filters. Try upcoming dates or explore another city."}
+                  : date
+                    ? `We couldn’t find any experiences matching your search on this date. Below, explore the next seven days with the same filters.`
+                    : "Try another search or explore another city."}
               </p>
               <Button
                 variant="outline"
@@ -820,13 +737,12 @@ export default function App() {
         {loadState === "ready" &&
           date &&
           !results.length &&
-          upcoming.length > 0 &&
           view === "discover" && (
             <section className="upcoming-preview wrap">
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">LOOK A LITTLE FURTHER AHEAD</p>
-                  <h2>On the horizon.</h2>
+                  <p className="eyebrow">KEEP THE NIGHT GOING</p>
+                  <h2>Coming up in the next week.</h2>
                 </div>
                 <button
                   className="text-link"
@@ -837,14 +753,17 @@ export default function App() {
                     setPriceCap("any");
                   }}
                 >
-                  Explore upcoming <ArrowUpRight size={16} />
+                  All upcoming dates <ArrowUpRight size={16} />
                 </button>
               </div>
               <p className="results-summary">
-                Other upcoming dates in {city.split(",")[0] || "all cities"}
+                {calendarLabel(weekRange.start)} –{" "}
+                {calendarLabel(weekRange.end)} · {weeklyEvents.length}{" "}
+                {weeklyEvents.length === 1 ? "experience" : "experiences"}
+                {city ? ` in ${city.split(",")[0]}` : " across all cities"}
               </p>
               <div className="event-grid">
-                {upcoming.slice(0, 3).map((event) => (
+                {weeklyEvents.slice(0, limit).map((event) => (
                   <EventCard
                     key={event.id}
                     event={event}
@@ -854,6 +773,24 @@ export default function App() {
                   />
                 ))}
               </div>
+              {!weeklyEvents.length && (
+                <div className="empty-state">
+                  <CalendarDays />
+                  <h3>No matches in this seven-day window.</h3>
+                  <p>
+                    Try another city or clear a filter to widen your search.
+                  </p>
+                </div>
+              )}
+              {weeklyEvents.length > limit && (
+                <Button
+                  variant="outline"
+                  className="load-more"
+                  onClick={() => setLimit(limit + 9)}
+                >
+                  Show more from this week <Plus size={17} />
+                </Button>
+              )}
             </section>
           )}
         <section className="vip-banner wrap">

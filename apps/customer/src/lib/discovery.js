@@ -20,7 +20,14 @@ export function eventDateKey(event) {
 }
 export function filterEvents(
   events,
-  { city = "", date = "", query = "", category = "all", savedIds = null },
+  {
+    city = "",
+    date = "",
+    query = "",
+    category = "all",
+    savedIds = null,
+    priceCap = "any",
+  },
   now = new Date(),
 ) {
   const place = city.split(",")[0].trim().toLowerCase();
@@ -29,9 +36,16 @@ export function filterEvents(
     const text = [
       event.title,
       event.description,
+      event.summary,
       event.organization?.name,
       event.location?.name,
+      event.location?.city,
+      event.location?.region,
       event.category,
+      ...(event.offerings || []).flatMap((offering) => [
+        offering.name,
+        offering.description,
+      ]),
     ]
       .join(" ")
       .toLowerCase();
@@ -41,6 +55,12 @@ export function filterEvents(
       (!date || eventDateKey(event) === date) &&
       words.every((word) => text.includes(word)) &&
       (!savedIds || savedIds.includes(event.id)) &&
+      (priceCap === "any" ||
+        event.offerings?.some(
+          (offering) =>
+            availableQuantity(offering, now) > 0 &&
+            offering.priceCents <= Number(priceCap),
+        )) &&
       (category === "all" ||
         (category === "vip" &&
           event.offerings?.some((o) =>
@@ -50,6 +70,26 @@ export function filterEvents(
         (category === "music" && /music|concert|dj|live/i.test(text)))
     );
   });
+}
+// Calendar arithmetic avoids shifting the seven-day window at DST boundaries.
+export function upcomingWeekRange(date) {
+  const base = new Date(`${date}T12:00:00Z`);
+  const day = (offset) => {
+    const value = new Date(base);
+    value.setUTCDate(value.getUTCDate() + offset);
+    return value.toISOString().slice(0, 10);
+  };
+  return { start: day(1), end: day(7) };
+}
+export function filterUpcomingWeek(events, filters, now = new Date()) {
+  if (!filters.date) return [];
+  const { start, end } = upcomingWeekRange(filters.date);
+  return filterEvents(events, { ...filters, date: "" }, now)
+    .filter((event) => {
+      const day = eventDateKey(event);
+      return day >= start && day <= end;
+    })
+    .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt));
 }
 export function availableQuantity(offering, now = new Date()) {
   if (
