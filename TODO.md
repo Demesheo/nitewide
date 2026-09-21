@@ -39,7 +39,8 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [ ] Meet accessibility and public performance budgets; run load, security, and recovery tests.
 - [ ] Recruit design partners in Orlando, Miami, Fort Lauderdale, and Tampa and execute the Florida beta checklist.
 - [ ] Implement Stripe Connect onboarding, reconciled balance states, risk holds/reserves, and daily payouts scheduled within 24 hours after eligible funds clear.
-- [ ] Approve a Stripe Connect charge-model and negative-balance-liability ADR covering direct charges, destination charges, separate charges/transfers, refunds, disputes, reserves, and recovery.
+- [ ] Approve a Stripe Connect charge-model and negative-balance-liability ADR targeting connected-seller direct charges, Stripe-owned loss liability, and automatic venue-bank deficit recovery; prohibit platform-liability configurations without a separate capital/risk approval.
+- [ ] Persist and monitor each connected account’s loss-liability and negative-balance-debit configuration; freeze payouts/sales and escalate when external-account recovery fails or is unavailable.
 - [ ] Have counsel validate merchant-of-record and seller responsibilities, connected-merchant dispute obligations, reserve/recovery/indemnity terms, consumer support duties, and the limits of contractual risk transfer.
 - [ ] Complete the opaque signed-QR payment-to-admission evidence chain, mandatory scan policy, offline/manual reconciliation, and append-only check-in audit records.
 - [ ] Automate reason-specific Stripe dispute evidence packets and a connected-merchant dispute inbox with deadlines, scoped human review, submission auditing, outcomes, and dispute-control metrics.

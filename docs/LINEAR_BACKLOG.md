@@ -152,10 +152,10 @@ These issues fill the operating, legal, financial, payments, launch, and nationa
 
 | ID | Pri | Pts | Deliverable and acceptance summary |
 |---|---:|---:|---|
-| PAY-06 | P0 | 8 | Complete a Stripe Connect proof of concept and processor comparison; decide account configuration, charge type, fee collection, loss liability, split model, and fallback in an ADR. |
+| PAY-06 | P0 | 8 | Complete a Stripe Connect proof of concept and processor comparison; target seller connected-account direct charges, Stripe-owned payment-loss liability, and supported automatic external-account debit for negative balances; decide charge type, fee collection, split model, merchant/tax/support duties, unsupported-account fallback, and prohibited platform-liability configurations in an ADR. |
 | PAY-07 | P0 | 8 | Add Stripe-hosted/embedded KYC/KYB and bank-account onboarding with capability/status tracking, requirements remediation, privacy boundaries, and test fixtures. |
 | PAY-08 | P0 | 8 | Implement immutable pending/available/scheduled/in-transit/paid/failed/reversed/held balance and payout states reconciled to provider objects. |
-| PAY-09 | P0 | 5 | Define and enforce risk holds, reserves, new-organizer limits, refund/dispute offsets, payout blocking, manual review, and auditable release decisions. |
+| PAY-09 | P0 | 5 | Define and enforce risk holds, reserves, new-organizer limits, refund/dispute offsets, payout blocking, automatic connected-bank negative-balance recovery monitoring, failed-recovery escalation, sales/payout freezes, manual review, and auditable release decisions without silently funding venue deficits from Nitewide’s operating account. |
 | CUST-09 | P0 | 8 | Complete current-city/date discovery with search, filters, map/list behavior, SEO city pages, location privacy, empty states, and analytics. |
 | PLAT-08 | P0 | 8 | Create preview/staging/production delivery with managed hosting/database, DNS/TLS, environment separation, secrets, migrations, health checks, rollback, and deployment telemetry. |
 
