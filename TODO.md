@@ -47,6 +47,9 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [ ] Implement idempotent asynchronous dispute webhooks, reversible customer risk restrictions with notice/appeal, secure venue tasks using Stripe `due_by`, privacy-safe evidence review, reminder/escalation, and restriction/fund reconciliation on dispute closure.
 - [ ] Adopt a privacy-minimizing door identity policy: do not retain full ID images by default; require counsel-approved necessity, consent, encryption, access, retention/deletion, and incident controls for any exception.
 - [ ] Engage qualified legal/tax/accounting specialists; form the advised entity, obtain an EIN, evaluate an S-corporation election, open business banking, and establish books.
+- [ ] Map Stripe principal, application-fee, subscription, refund, dispute, reserve, affiliate, tax, and merchant-deficit activity into a reconciled subledger and CPA-approved general ledger/revenue-recognition policy.
+- [ ] Produce merchant-recovery aging, expected-loss/write-off controls, and diligence schedules instead of assuming external bank debit creates zero A/R exposure.
+- [ ] Run a supervised founder-to-operator transition drill covering access, deploy/rollback, restore, payments, disputes, support, vendors, incidents, and signing-key recovery.
 - [ ] Complete customer terms/privacy/refund policies plus organizer, affiliate, payment, and data-processing agreements before public launch.
 
 ## Later — Expansion and platform depth

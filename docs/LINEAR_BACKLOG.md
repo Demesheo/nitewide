@@ -176,7 +176,7 @@ These issues fill the operating, legal, financial, payments, launch, and nationa
 |---|---:|---:|---|
 | LEGAL-04 | P0 | 5 | Have counsel finalize customer terms, privacy/cookie notices, purchase/refund/transfer policy, consent language, age rules, and Florida disclosures; publish versioned acceptance records. |
 | LEGAL-05 | P0 | 5 | Have counsel finalize organizer, venue, affiliate/promoter, data-processing, payout/reserve, prohibited-event, indemnity, and termination agreements. |
-| FIN-02 | P0 | 5 | Establish accrual/cash policy with a CPA, chart of accounts, monthly close, processor reconciliation, fee/refund/chargeback treatment, tax calendar, and document retention. |
+| FIN-02 | P0 | 5 | Establish CPA-approved principal/agent and revenue-recognition policies, chart of accounts, immutable-subledger mappings, daily processor-to-bank reconciliation, and monthly close covering application fees/refunds, subscriptions/deferred revenue, processor costs, taxes, disputes, reserves, affiliate liabilities, merchant-deficit aging, expected loss/write-offs, and retention evidence. |
 | PAY-11 | P0 | 8 | Pilot live daily payouts scheduled within 24 hours after funds become available; verify KYC, holds, reconciliation, bank arrival visibility, failures, reversals, alerts, and support copy. |
 | OPS-06 | P0 | 5 | Complete the Florida production launch checklist with feature/payment kill switches, data backup/restore, incident communications, support coverage, rollback, and go/no-go evidence. |
 | RISK-01 | P0 | 3 | Obtain appropriate general liability, cyber/E&O, crime/payment, and event-related coverage recommendations; bind required policies and document exclusions/renewals. |
@@ -210,9 +210,9 @@ These issues fill the operating, legal, financial, payments, launch, and nationa
 | STRAT-01 | P1 | 5 | Build a permissioned financing/acquisition data room with corporate, cap table, contracts, IP, financial, tax, product, security, privacy, and KPI evidence. |
 | STRAT-02 | P1 | 5 | Run a national value review against retention, growth, margins, liquidity, concentration, risk, defensibility, and $100M-exit/$1B-category-leader evidence gates without guaranteed valuation claims. |
 | LEGAL-06 | P1 | 5 | Complete trademark/domain, open-source, contractor invention assignment, partner contract, privacy, regulatory, and litigation/claim diligence with remediation owners. |
-| FIN-03 | P1 | 8 | Produce audit-ready books, revenue recognition, processor/ledger reconciliation, tax filings, forecasts, scenario model, concentration analysis, and normalized diligence metrics. |
+| FIN-03 | P1 | 8 | Produce audit-ready books and diligence schedules for GMV, gross/net take rate, $199 Gold MRR, refunded fees, processor costs, disputes/fraud losses, reserves, merchant receivables and aging, bad debt, restricted cash, affiliate liabilities, reconciled deposits, tax filings, forecasts, scenarios, concentration, and normalized metrics; do not claim zero A/R or uncontaminated revenue. |
 | SCALE-04 | P2 | 8 | Review the architecture against 10x/100x transaction, check-in, city, tenant, analytics, and recovery scenarios; extract services only where measured evidence supports it. |
-| FOUNDER-01 | P0 | 5 | Reduce solo-founder bus-factor risk with credential escrow, recovery access, vendor contacts, architecture/runbook index, automated restore verification, and an authorized emergency operator. |
+| FOUNDER-01 | P0 | 5 | Reduce solo-founder bus-factor risk with role-based access, credential/signing-key escrow, recovery access, vendor and processor contacts, contract/IP register, architecture/ADR/runbook index, automated deploy/rollback/restore verification, an authorized emergency operator, and a supervised transition drill with remediated gaps. |
 
 ## Communications and marketing expansion
 

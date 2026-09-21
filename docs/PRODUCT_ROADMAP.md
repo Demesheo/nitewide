@@ -125,6 +125,21 @@ Decision sources: [Stripe dispute categories and evidence](https://docs.stripe.c
 
 Decision sources: [Stripe event types](https://docs.stripe.com/api/events/types) and [Stripe Dispute `evidence_details`](https://docs.stripe.com/api/disputes/object).
 
+## Diligence-quality finance and transition controls
+
+The acquisition objective is minimal unresolved merchant-loss exposure, predictable reconciled net revenue, and a rehearsed operator transition—not “zero A/R,” uncontaminated revenue, or an instantaneous founder replacement.
+
+- Keep customer charge principal, connected-merchant balances, Nitewide application fees, Stripe processing costs, affiliate commissions, taxes, refunds, application-fee refunds, disputes, reserves, subscriptions, boosts, and payouts separately identifiable in the immutable ledger and general ledger mapping.
+- Maintain the approved pricing source of truth: Free is 7% + $0.65 per paid order; Gold is $199/month + 5% + $0.50 per paid order. Report gross platform fees, refunded/credited fees, processor costs, dispute losses, reserves, and net revenue separately rather than presenting gross fees as clean earnings.
+- External-account recovery reduces collection work but does not eliminate receivables or contingent exposure. A failed venue-bank debit, contractual indemnity claim, unsupported connected account, timing difference, or unrecovered deficit becomes a tracked recovery item with owner, aging, status, expected-loss treatment, escalation, and write-off approval.
+- Define with a CPA whether Nitewide is principal or agent for each revenue stream, when application fees and subscriptions are earned, how failed renewals/deferred revenue are treated, and when refunds, credits, chargebacks, taxes, reserves, and bad debt become contra-revenue, expense, liability, or receivable.
+- Reconcile daily from Stripe objects and balance transactions through the internal subledger to bank deposits; perform a documented monthly close with exception aging, connected-account deficit rollforward, application-fee refund rollforward, dispute/reserve rollforward, and reviewer evidence.
+- Produce diligence schedules for GMV, gross and net take rate, subscription MRR, refunds, disputes, fraud losses, application-fee reversals, merchant receivables/aging, bad debt, reserves, processor fees, affiliate liabilities, cash restrictions, concentration, and reconciled cash.
+- Make transition readiness testable: role-based access instead of founder identity, credential and signing-key escrow, documented architecture/ADRs/runbooks, automated deploy/rollback/restore, vendor and processor contacts, contract/IP register, incident authority, and a supervised operator-transition drill with measured gaps.
+- Buyers still evaluate key-person, regulatory, security, merchant concentration, platform reliability, and customer-support risk. Automation lowers those risks; it does not make the company self-regulating or remove the need for controlled human judgment.
+
+Decision sources: [Stripe application-fee refunds](https://docs.stripe.com/api/fee_refunds/create) and [Stripe Connect revenue recognition](https://docs.stripe.com/revenue-recognition/connect).
+
 ## Application outcomes
 
 ### Nitewide Customer
