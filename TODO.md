@@ -29,8 +29,8 @@ This is the repository-level source of truth for near-term work. Product scope, 
 
 - [ ] Complete customer orders, QR wallet, guestlist request/status, and ticket transfer.
 - [ ] Complete business guestlist review, promoter management, QR scanning, door sales, and live event operations.
-- [ ] Add refunds, chargebacks, payouts, platform fees, Gold subscription billing, and boost billing.
-- [ ] Pilot transparent buyer-funded checkout pricing and promoter reward economics: versioned 7.5% + $0.85 buyer-fee experiment, configurable 10% affiliate service fee, gross/fee/net disclosure, multi-ticket order rules, proportional reversals, and reconciled contribution-margin reporting without changing approved Free/Gold organizer pricing by accident.
+- [ ] Add refunds, chargebacks, payouts, platform fees, $249 Premium subscription billing, and boost billing.
+- [ ] Implement transparent buyer-funded checkout pricing and promoter reward economics: versioned 7.5% + $0.85 buyer service fee for both organization plans, configurable 10% affiliate service fee, gross/fee/net disclosure, multi-ticket order rules, proportional reversals, and reconciled contribution-margin reporting.
 - [ ] Add transactional email/SMS delivery and durable QR delivery.
 - [ ] Add attendee event reminders, guestlist decision messages, actionable approval-queue alerts, and low-inventory/sold-out notifications across email, SMS, and in-app channels.
 - [ ] Add consent-based email/SMS marketing, customer preferences, suppression/unsubscribe handling, segmentation, attribution, and frequency caps.
@@ -59,7 +59,7 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [ ] Add reservations, tables, deposits, floor plans, minimum-spend packages, and host assignment.
 - [ ] Add follows, reminders, recommendations, social sharing, calendar, and wallet integrations.
 - [ ] Add advanced reporting/read models, cohort and retention analysis, scheduled reports, and data exports.
-- [ ] Add configurable Gold boost discounts, promotion controls, and experimentation tooling.
+- [ ] Add promotion controls and experimentation tooling; Premium does not receive transaction-fee or boost discounts by default.
 - [ ] Launch Orlando, Miami, Fort Lauderdale, and Tampa, then move directly to evidence-ranked national market waves when launch gates are met.
 - [ ] Validate non-nightlife verticals without introducing vertical-specific core tables.
 - [ ] Evaluate white-label, secondary-ticketing, enterprise, and international capabilities only after core marketplace fit.

@@ -24,8 +24,8 @@ The product is organized into six connected systems:
 - An offering is reusable inventory, an order item is an immutable purchase snapshot, and a ticket is an admission credential.
 - Inventory, guestlist approval, payment reconciliation, and credential consumption must be idempotent, transactional, and auditable.
 - Advanced ticket/package configuration remains available on Free.
-- Free pricing is 7% + $0.65 per paid order. Gold is $199/month + 5% + $0.50 per paid order. Boosts are available to both tiers; configurable Gold discounts are deferred.
-- A buyer-funded checkout-fee experiment and a promoter-reward service fee are separate from the approved Free/Gold organizer pricing. Neither becomes the production default until the checkout, legal, tax, processor, conversion, and contribution-margin gates below pass.
+- Buyers pay the same 7.5% + $0.85 service fee per paid order for Free and Premium organizations. Premium is $249/month and does not reduce transaction or boost fees; its value is advanced analytics, promoter ROI, CRM/marketing, and business-management capability. Advanced ticket/package configuration remains available on Free.
+- The buyer-funded checkout fee and promoter-reward service fee remain subject to checkout, legal, tax, processor, conversion, and contribution-margin launch gates.
 
 ## Current baseline
 
@@ -96,7 +96,7 @@ Decision sources: [POSH balance and payout documentation](https://support.posh.v
 
 The proposed Florida pilot makes the buyer-facing service fee fund Nitewide's platform fee and estimated payment-processing cost while preserving the venue's face-value ticket proceeds. Checkout must show the ticket subtotal, Nitewide service fee, taxes, discounts/credits, and final total before payment. Customer copy must not claim that a fixed amount is the exact "Stripe fee": processor cost varies by payment method, card origin, currency, Connect configuration, refunds, disputes, and negotiated pricing, and Stripe charges a percentage of the full amount processed.
 
-- Keep the approved organizer-plan source of truth unchanged during the experiment: Free is 7% + $0.65 per paid order and Gold is $199/month + 5% + $0.50 per paid order. Treat the proposed buyer fee of 7.5% + $0.85 as a versioned experiment until Nitewide explicitly decides whether it replaces, offsets, or coexists with organizer fees; never silently double-charge both sides.
+- Use one transaction-fee schedule for both organization plans: the buyer pays 7.5% + $0.85 per paid order. Premium costs $249/month and provides no transaction-fee reduction. Do not add an organizer-side transaction fee or silently double-charge both sides.
 - Apply percentage and fixed components at the documented unit—per order unless a future policy explicitly says per ticket. A one-ticket order is not evidence that the fixed fee can be multiplied across a multi-ticket cart.
 - On a $20.00 one-ticket order, a 7.5% + $0.85 buyer fee is $2.35 and the card charge is $22.35 before tax. At Stripe's current published U.S. domestic online-card list price of 2.9% + $0.30, estimated processing is $0.95 on the full charge, leaving about $1.40 from the buyer fee before Connect, payout, refund, dispute, tax, support, promotion, and other costs—not $1.47. Reconcile actual cost from Stripe balance transactions rather than formula estimates.
 - If the connected venue pays Stripe processing under the approved direct-charge configuration, report that venue cost and Nitewide's application-fee revenue separately; do not describe Nitewide's gross application fee as net cash flow. If Nitewide pays processing, subtract it from Nitewide contribution margin. The ledger must make the responsible party explicit for every charge.
@@ -153,7 +153,7 @@ Decision sources: [Stripe event types](https://docs.stripe.com/api/events/types)
 The acquisition objective is minimal unresolved merchant-loss exposure, predictable reconciled net revenue, and a rehearsed operator transition—not “zero A/R,” uncontaminated revenue, or an instantaneous founder replacement.
 
 - Keep customer charge principal, connected-merchant balances, Nitewide application fees, Stripe processing costs, affiliate commissions, taxes, refunds, application-fee refunds, disputes, reserves, subscriptions, boosts, and payouts separately identifiable in the immutable ledger and general ledger mapping.
-- Maintain the approved organizer-plan pricing source of truth: Free is 7% + $0.65 per paid order; Gold is $199/month + 5% + $0.50 per paid order. Keep experimental buyer fees and affiliate service fees separately versioned. Report gross platform fees, refunded/credited fees, processor costs, affiliate fees/rewards, dispute losses, reserves, and net revenue separately rather than presenting gross fees as clean earnings.
+- Maintain the pricing source of truth: buyers pay 7.5% + $0.85 per paid order regardless of whether the organization is Free or Premium; Premium is $249/month with no transaction-fee reduction. Keep affiliate service fees separately versioned. Report subscription billings, credits, Stripe Billing costs, gross platform fees, refunded/credited fees, processor costs, affiliate fees/rewards, dispute losses, reserves, and net revenue separately rather than presenting revenue as pure profit.
 - External-account recovery reduces collection work but does not eliminate receivables or contingent exposure. A failed venue-bank debit, contractual indemnity claim, unsupported connected account, timing difference, or unrecovered deficit becomes a tracked recovery item with owner, aging, status, expected-loss treatment, escalation, and write-off approval.
 - Define with a CPA whether Nitewide is principal or agent for each revenue stream, when application fees and subscriptions are earned, how failed renewals/deferred revenue are treated, and when refunds, credits, chargebacks, taxes, reserves, and bad debt become contra-revenue, expense, liability, or receivable.
 - Reconcile daily from Stripe objects and balance transactions through the internal subledger to bank deposits; perform a documented monthly close with exception aging, connected-account deficit rollforward, application-fee refund rollforward, dispute/reserve rollforward, and reviewer evidence.
@@ -179,7 +179,7 @@ Decision sources: [Stripe application-fee refunds](https://docs.stripe.com/api/f
 - Create, publish, and manage events, locations, sale windows, quantities, purchase limits, hidden/password offers, approval-required offers, packages, reservations, and at-door sales.
 - Configure direct venue guestlists and independent per-promoter allocations; approve requests and operate fast QR/manual check-in with audit history.
 - Monitor gross/net sales, fees, inventory, average order value, attendance, guestlist use, promoter conversion/commission, refunds, and customer cohorts.
-- Add consent-aware CRM, segmentation, campaigns, automation, advanced reports, and business operations as Gold value—not as restrictions on basic selling configuration.
+- Add multi-dimensional visualizations, promoter ROI, consent-aware CRM, segmentation, campaigns, automation, advanced reports, and business operations as Premium value—not as restrictions on basic selling configuration or as fee discounts.
 - Route actionable email/SMS/in-app alerts to only the roles allowed to respond when guestlist, reservation, refund, transfer, or other approval work is waiting; notify operators about sold-out/low-inventory states and customers about relevant availability changes.
 
 ### Communications rules
@@ -237,7 +237,7 @@ Valuation is determined by investors or buyers, market conditions, growth qualit
 | $250M–$500M platform case | National multi-vertical reach, mature payments/CRM/marketing products, enterprise controls, high marketplace liquidity, efficient acquisition, and scalable operations. |
 | $1B category-leader case | Category leadership with exceptional sustained growth, very large GMV/net revenue, international or major enterprise expansion, strong margins, and a defensible payments/data/distribution moat. |
 
-At each quarterly review, track GMV, net revenue, take rate, Gold MRR, gross/contribution margin, active organizations, published and transacting events, organizer activation, 30/90/180-day organizer retention, buyer conversion/repeat rate, acquisition cost/payback, refund/chargeback/fraud rates and losses, dispute evidence completeness/timeliness/win rate by reason, admission scan coverage/manual overrides, reserve coverage, support contacts per order, uptime, checkout success, check-in latency, and city-level supply/demand liquidity.
+At each quarterly review, track GMV, net revenue, take rate, Premium MRR, Premium attach/churn, subscription gross margin, gross/contribution margin, active organizations, published and transacting events, organizer activation, 30/90/180-day organizer retention, buyer conversion/repeat rate, acquisition cost/payback, refund/chargeback/fraud rates and losses, dispute evidence completeness/timeliness/win rate by reason, admission scan coverage/manual overrides, reserve coverage, support contacts per order, uptime, checkout success, check-in latency, and city-level supply/demand liquidity.
 
 ## Architectural scale path
 

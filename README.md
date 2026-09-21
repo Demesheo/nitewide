@@ -157,7 +157,7 @@ The raw QR token is returned only at credential issuance. The database retains o
 - A package can generate several tickets through `entriesPerUnit`.
 - Checkout, allocation, and check-in run in serializable transactions with locked inventory/credential rows.
 - Currency uses integer cents; commissions use basis points.
-- Free pricing is 7% + $0.65 per paid order. Gold is $199/month + 5% + $0.50 per paid order. Advanced offering configuration is available to both tiers.
+- Buyers pay the same 7.5% + $0.85 service fee per paid order for Free and Premium organizations. Premium is $249/month and unlocks advanced analytics and business-management capabilities without a transaction-fee discount. Advanced offering configuration remains available on both tiers.
 
 ## Production boundaries
 

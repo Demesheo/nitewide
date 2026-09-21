@@ -61,7 +61,7 @@ Priorities use P0 (launch blocker), P1 (milestone-critical), P2 (important), and
 | PAY-02 | 8 | P0 | As a customer, I can complete a sandbox payment exactly once despite retries. | Hosted/secure payment UI, server-side totals, idempotent order/payment creation, webhook verification, and failure recovery. |
 | BIZ-01 | 5 | P0 | As an organizer, I can create an organization or continue as an independent creator. | Validated onboarding, owner membership, generic category/location, audit trail, and permission tests. |
 | BIZ-02 | 8 | P0 | As an authorized creator, I can draft, edit, preview, publish, unpublish, and cancel an event. | Lifecycle rules, required fields, timezone handling, location privacy, audit history, and concurrency protection. |
-| BIZ-03 | 8 | P0 | As an organizer, I can configure multiple ticket/package tiers without needing Gold. | Quantities, price, entries/unit, sales window, limits, visibility/password, approval setting, and inventory tests. |
+| BIZ-03 | 8 | P0 | As an organizer, I can configure multiple ticket/package tiers without needing Premium. | Quantities, price, entries/unit, sales window, limits, visibility/password, approval setting, and inventory tests. |
 
 ## Sprint 2 — Oct 5–11, 2026
 
@@ -92,8 +92,8 @@ Priorities use P0 (launch blocker), P1 (milestone-critical), P2 (important), and
 |---|---:|---:|---|---|
 | BIZ-09 | 5 | P0 | As a design partner, I can complete guided onboarding and publish a real event safely. | Checklist, sandbox/live separation, payout setup, support contact, sample removal, and activation telemetry. |
 | COMMS-01 | 5 | P0 | As a customer, I receive verified transactional email/SMS for account, order, guestlist, transfer, refund, and event changes. | Consent/transactional classification, templates, retries, delivery events, suppression, and no secrets/QR leakage. |
-| PAY-05 | 8 | P0 | As an organization, I can use Free or subscribe to Gold with correct billing and entitlements. | $199/month Gold, Free/Gold fee rules, lifecycle, failed renewal, cancellation, invoices, and server-side enforcement. |
-| GROWTH-01 | 5 | P1 | As an organizer, I can purchase a boost on either tier with configurable future Gold discounts. | Inventory/placement policy, billing, disclosure, start/end, reporting, refund rules, and admin control. |
+| PAY-05 | 8 | P0 | As an organization, I can use Free or subscribe to Premium with correct billing and entitlements. | $249/month Premium, identical buyer-funded transaction pricing on both plans, no Premium fee discount, lifecycle, failed renewal, cancellation, invoices, and server-side enforcement. |
+| GROWTH-01 | 5 | P1 | As an organizer, I can purchase a boost on either tier without an automatic Premium discount. | Inventory/placement policy, billing, disclosure, start/end, reporting, refund rules, and admin control. |
 | CUST-06 | 5 | P1 | As a ticket holder, I can transfer an eligible credential without creating two valid entries. | Secure acceptance, expiry/cancel, ownership history, QR rotation, notifications, and audit. |
 
 ## Sprint 5 — Nov 2–15, 2026
@@ -125,7 +125,7 @@ Priorities use P0 (launch blocker), P1 (milestone-critical), P2 (important), and
 | TABLE-01 | P2 | As a venue, I can define sections/tables, capacity, minimum spend, packages, deposits, hosts, and request/assignment states. | M4 |
 | CUST-07 | P2 | As a customer, I can request/reserve a table and track approval, deposit, guests, and status. | M4 |
 | CUST-08 | P2 | As a customer, I can follow organizers/events and receive reminders and consent-respecting recommendations. | M4 |
-| REPORT-01 | P1 | As a Gold operator, I can use searchable/filterable advanced reports, cohorts, retention views, and scheduled exports. | M4 |
+| REPORT-01 | P1 | As a Premium operator, I can use searchable/filterable multi-dimensional visualizations, promoter ROI, cohorts, retention views, and scheduled exports. | M4 |
 | CITY-01 | P0 | As the growth team, I can evaluate and launch a city using supply, demand, partner, support, legal, and unit-economics gates. | M4 |
 | CITY-02 | P1 | As leadership, I can compare city cohorts and pause expansion when liquidity or economics miss thresholds. | M5 |
 | API-01 | P2 | As an approved partner, I can use versioned APIs/webhooks with scoped credentials, limits, replay, and documentation. | M5 |
@@ -165,7 +165,7 @@ These issues fill the operating, legal, financial, payments, launch, and nationa
 |---|---:|---:|---|
 | CITY-03 | P0 | 5 | Configure Orlando, Miami, Fort Lauderdale, and Tampa as data-driven markets with boundaries, aliases, timezones, landing pages, launch state, and representative fixtures. |
 | GROWTH-02 | P0 | 5 | Build a founder-led venue/promoter pipeline with qualification, outreach templates, consent, follow-up, objections, demo script, conversion stages, weekly targets, and a Florida experiment testing whether transparent 90%-of-reward promoter economics improve activation, attributable GMV, venue adoption, retention, and contribution margin. |
-| ECON-01 | P0 | 8 | Implement a versioned Florida pricing pilot: buyer-funded 7.5% + $0.85 service-fee experiment, explicit fee display, configurable 10% service fee on organizer-funded promoter rewards, transparent gross/fee/net ledgers, refunds/reversals, and unit-economics telemetry. Preserve the approved Free/Gold organizer pricing until a reviewed decision explicitly replaces or offsets it; never silently double-charge, call an estimate the exact Stripe fee, or report gross fees as net cash flow. |
+| ECON-01 | P0 | 8 | Implement versioned buyer-funded pricing: the same 7.5% + $0.85 service fee per paid order for Free and $249/month Premium organizations, explicit fee display, no organizer-side or Premium-discounted transaction fee, configurable 10% service fee on organizer-funded promoter rewards, transparent gross/fee/net ledgers, refunds/reversals, and unit-economics telemetry. Never call an estimate the exact Stripe fee or report gross fees/subscriptions as net profit. |
 | GROWTH-03 | P1 | 5 | Publish Florida city/venue/event SEO pages with canonical metadata, structured data, sitemaps, moderation, performance budgets, and measurable acquisition funnels. |
 | BIZ-12 | P1 | 5 | Add event duplication and validated bulk import so one developer can onboard partner calendars quickly without corrupting inventory or permissions. |
 | PAY-10 | P1 | 5 | Add provider-controlled Instant Payouts for eligible accounts with availability display, transparent fees, limits, confirmation, ledger entries, and failure handling. |
@@ -211,7 +211,7 @@ These issues fill the operating, legal, financial, payments, launch, and nationa
 | STRAT-01 | P1 | 5 | Build a permissioned financing/acquisition data room with corporate, cap table, contracts, IP, financial, tax, product, security, privacy, and KPI evidence. |
 | STRAT-02 | P1 | 5 | Run a national value review against retention, growth, margins, liquidity, concentration, risk, defensibility, and $100M-exit/$1B-category-leader evidence gates without guaranteed valuation claims. |
 | LEGAL-06 | P1 | 5 | Complete trademark/domain, open-source, contractor invention assignment, partner contract, privacy, regulatory, and litigation/claim diligence with remediation owners. |
-| FIN-03 | P1 | 8 | Produce audit-ready books and diligence schedules for GMV, gross/net take rate, $199 Gold MRR, refunded fees, processor costs, disputes/fraud losses, reserves, merchant receivables and aging, bad debt, restricted cash, affiliate liabilities, reconciled deposits, tax filings, forecasts, scenarios, concentration, and normalized metrics; do not claim zero A/R or uncontaminated revenue. |
+| FIN-03 | P1 | 8 | Produce audit-ready books and diligence schedules for GMV, gross/net take rate, $249 Premium MRR, Premium attach/churn and subscription gross margin, credits, Stripe Billing and analytics/support costs, refunded fees, processor costs, disputes/fraud losses, reserves, merchant receivables and aging, bad debt, restricted cash, affiliate liabilities, reconciled deposits, tax filings, forecasts, scenarios, concentration, and normalized metrics; do not claim pure profit, zero A/R, or uncontaminated revenue. |
 | SCALE-04 | P2 | 8 | Review the architecture against 10x/100x transaction, check-in, city, tenant, analytics, and recovery scenarios; extract services only where measured evidence supports it. |
 | FOUNDER-01 | P0 | 5 | Reduce solo-founder bus-factor risk with role-based access, credential/signing-key escrow, recovery access, vendor and processor contacts, contract/IP register, architecture/ADR/runbook index, automated deploy/rollback/restore verification, an authorized emergency operator, and a supervised transition drill with remediated gaps. |
 

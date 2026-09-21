@@ -61,7 +61,7 @@ function App() {
   const totalCapacity = settings ? settings.direct.capacity + settings.promoters.reduce((total, promoter) => total + promoter.effectiveGuestlistAllocation, 0) : 0;
 
   return <div className="shell">
-    <aside><b>NITEWIDE<span>.</span></b><small>BUSINESS</small><nav>{['Overview', 'Events', 'Orders', 'Guestlists', 'Affiliates', 'Customers', 'Insights'].map((item, index) => <a className={index === 0 ? 'active' : ''} key={item}>{item}<em>{index === 1 ? '4' : ''}</em></a>)}</nav><div className="account">NC<div><strong>Northstar Collective</strong><small>Gold plan</small></div></div></aside>
+    <aside><b>NITEWIDE<span>.</span></b><small>BUSINESS</small><nav>{['Overview', 'Events', 'Orders', 'Guestlists', 'Affiliates', 'Customers', 'Insights'].map((item, index) => <a className={index === 0 ? 'active' : ''} key={item}>{item}<em>{index === 1 ? '4' : ''}</em></a>)}</nav><div className="account">NC<div><strong>Northstar Collective</strong><small>Premium plan</small></div></div></aside>
     <main>
       <header><div><p>Saturday, September 20</p><h1>Good evening, Maya.</h1></div><button>＋ Create event</button></header>
       {data === false && <div className="warning">Start and seed the Nitewide API to load live business data.</div>}

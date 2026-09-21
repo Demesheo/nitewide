@@ -94,7 +94,7 @@ async function seed() {
       const venueSlug = slugify(venue.name);
       const organization = await models.Organization.create({
         id: venueIndex === 0 ? ids.organization : randomUUID(), name: venue.name, slug: venueSlug,
-        description: venue.description, planTier: venueIndex % 3 === 0 ? 'gold' : 'free',
+        description: venue.description, planTier: venueIndex % 3 === 0 ? 'premium' : 'free',
       });
       const location = await models.Location.create({
         id: venueIndex === 0 ? ids.location : randomUUID(), name: venue.name, addressLine1: venue.streetAddress,
