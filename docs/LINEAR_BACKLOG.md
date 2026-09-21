@@ -14,10 +14,10 @@ This document is the import map for the Nitewide Linear workspace. It keeps the 
 
 ## Linear synchronization status
 
-- Synchronized September 20, 2026 as 102 consecutive issues, `DEM-5` through `DEM-106`, with no missing identifiers or duplicate titles.
-- The original 53 issues were expanded in place; 49 operating, legal, finance, payment, admission-evidence, dispute-risk, expansion, communications, and marketing issues were added.
-- All 102 issues are intentionally unassigned and carry a project, milestone, priority, estimate, relevant labels, testable acceptance criteria, verification evidence, dependencies/risks, and a solo-founder execution note.
-- Milestone allocation is M0: 12, M1: 28, M2: 20, M3: 12, M4: 13, M5: 9, and M6: 8. No issue is missing a milestone.
+- Synchronized September 20, 2026 as 103 consecutive issues, `DEM-5` through `DEM-107`, with no missing identifiers or duplicate titles.
+- The original 53 issues were expanded in place; 50 operating, legal, finance, payment, admission-evidence, dispute-risk, affiliate-economics, expansion, communications, and marketing issues were added.
+- All 103 issues are intentionally unassigned and carry a project, milestone, priority, estimate, relevant labels, testable acceptance criteria, verification evidence, dependencies/risks, and a solo-founder execution note.
+- Milestone allocation is M0: 12, M1: 28, M2: 21, M3: 12, M4: 13, M5: 9, and M6: 8. No issue is missing a milestone.
 - The project runs from September 20, 2026 through September 20, 2027.
 - `Demesheo/nitewide` is linked to the `DEM` team with one-way GitHub → Linear issue creation. Updates to synchronized issues remain bidirectional; new Linear backlog items are not duplicated into GitHub Issues.
 - Linear's available workspace automation could not create or schedule cycles. Sprint dates are therefore retained in issue descriptions and in the roadmap until cycles are enabled or created manually.
@@ -82,7 +82,7 @@ Priorities use P0 (launch blocker), P1 (milestone-critical), P2 (important), and
 | PAY-03 | 8 | P0 | As finance/support, I can refund an eligible order and reconcile payment, ticket, fee, and inventory state. | Full/partial policy, idempotency, webhook races, revoked credentials, immutable ledger/audit, and tests. |
 | PAY-04 | 8 | P0 | As an organizer/affiliate, I can see pending/available/paid balances backed by reconciled transactions. | Split rules, commission precedence, negative adjustments, payout eligibility, provider state, and export are defined. |
 | BIZ-07 | 5 | P0 | As an event operator, I can monitor sales, inventory, guestlist, and check-ins during an event. | Freshness is visible; filters and totals reconcile; degraded/error states and operational alerts exist. |
-| BIZ-08 | 5 | P1 | As an owner, I can invite org affiliates and select event promoters with overrides and attributable links. | Defaults/overrides never stack; links/codes, commission/allocation, disablement, and permission tests pass. |
+| BIZ-08 | 5 | P1 | As an owner, I can invite org affiliates and select event promoters with versioned reward offers, overrides, and attributable links. | Percentage/fixed and per-ticket/per-order terms, eligible tiers, caps, public/private access, defaults/overrides, links/codes, allocation, disablement, and permission tests pass without stacking. |
 | ADMIN-03 | 5 | P0 | As support, I can inspect payment/refund/payout timelines and safely initiate allowed remediation. | Step-up permission, reason capture, confirmation, provider reconciliation, audit, and no silent destructive action. |
 | PLAT-05 | 8 | P0 | As the launch team, we need end-to-end alpha acceptance coverage and observability. | Automated happy/failure/concurrency tests cover discovery-to-entry; traces/logs/metrics correlate order, payment, and credential. |
 
@@ -101,7 +101,7 @@ Priorities use P0 (launch blocker), P1 (milestone-critical), P2 (important), and
 | ID | Pts | Pri | User story / deliverable | Acceptance summary |
 |---|---:|---:|---|---|
 | BIZ-10 | 8 | P0 | As an operator, I can filter and export trustworthy sales, fees, inventory, AOV, attendance, and guestlist reports. | Totals reconcile to ledger; timezone/currency, saved filters, CSV safety, access control, and freshness are explicit. |
-| BIZ-11 | 5 | P1 | As an owner, I can compare affiliate clicks, visits, requests, sales, commission, conversion, AOV, and guestlist use. | Attribution windows/model are documented; disabled promoters and adjustments remain historically accurate. |
+| BIZ-11 | 5 | P1 | As an owner, I can compare affiliate clicks, visits, requests, sales, gross rewards, Nitewide fees, promoter net rewards, conversion, AOV, and guestlist use. | Attribution windows/model are documented; reports expose reversals and contribution economics; disabled promoters and historical terms remain accurate. |
 | ADMIN-04 | 5 | P0 | As an administrator, I can review immutable audit trails for sensitive actions. | Actor, target, before/after, reason, correlation, timestamp, filtering, retention, and restricted export. |
 | ADMIN-05 | 5 | P1 | As an administrator, I can moderate organizations/events and configure pricing, boosts, features, cities, and launch state. | Changes are validated, versioned, auditable, reversible where possible, and protected by scoped permissions. |
 | ADMIN-06 | 5 | P1 | As leadership, I can see platform revenue, GMV, supply, demand, reliability, risk, and support health. | Metrics are defined, time/region filters work, data quality/freshness is visible, and source reports reconcile. |
@@ -164,7 +164,8 @@ These issues fill the operating, legal, financial, payments, launch, and nationa
 | ID | Pri | Pts | Deliverable and acceptance summary |
 |---|---:|---:|---|
 | CITY-03 | P0 | 5 | Configure Orlando, Miami, Fort Lauderdale, and Tampa as data-driven markets with boundaries, aliases, timezones, landing pages, launch state, and representative fixtures. |
-| GROWTH-02 | P0 | 5 | Build a founder-led venue/promoter pipeline with qualification, outreach templates, consent, follow-up, objections, demo script, conversion stages, and weekly targets. |
+| GROWTH-02 | P0 | 5 | Build a founder-led venue/promoter pipeline with qualification, outreach templates, consent, follow-up, objections, demo script, conversion stages, weekly targets, and a Florida experiment testing whether transparent 90%-of-reward promoter economics improve activation, attributable GMV, venue adoption, retention, and contribution margin. |
+| ECON-01 | P0 | 8 | Implement a versioned Florida pricing pilot: buyer-funded 7.5% + $0.85 service-fee experiment, explicit fee display, configurable 10% service fee on organizer-funded promoter rewards, transparent gross/fee/net ledgers, refunds/reversals, and unit-economics telemetry. Preserve the approved Free/Gold organizer pricing until a reviewed decision explicitly replaces or offsets it; never silently double-charge, call an estimate the exact Stripe fee, or report gross fees as net cash flow. |
 | GROWTH-03 | P1 | 5 | Publish Florida city/venue/event SEO pages with canonical metadata, structured data, sitemaps, moderation, performance budgets, and measurable acquisition funnels. |
 | BIZ-12 | P1 | 5 | Add event duplication and validated bulk import so one developer can onboard partner calendars quickly without corrupting inventory or permissions. |
 | PAY-10 | P1 | 5 | Add provider-controlled Instant Payouts for eligible accounts with availability display, transparent fees, limits, confirmation, ledger entries, and failure handling. |

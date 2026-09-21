@@ -16,7 +16,7 @@ This is the repository-level source of truth for near-term work. Product scope, 
 
 ## Now — Sprint 0 and Sprint 1
 
-- [x] Import the approved roadmap and 102 user stories into Linear and connect the GitHub repository.
+- [x] Import the approved roadmap and 103 user stories into Linear and connect the GitHub repository.
 - [ ] Add CI for lint, tests, builds, migration validation, and dependency/security checks.
 - [ ] Add production authentication requirements: secure sessions, email verification, password reset, logout/revocation, throttling, and abuse controls.
 - [ ] Complete customer event detail, offering selection, cart, and checkout UI.
@@ -30,6 +30,7 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [ ] Complete customer orders, QR wallet, guestlist request/status, and ticket transfer.
 - [ ] Complete business guestlist review, promoter management, QR scanning, door sales, and live event operations.
 - [ ] Add refunds, chargebacks, payouts, platform fees, Gold subscription billing, and boost billing.
+- [ ] Pilot transparent buyer-funded checkout pricing and promoter reward economics: versioned 7.5% + $0.85 buyer-fee experiment, configurable 10% affiliate service fee, gross/fee/net disclosure, multi-ticket order rules, proportional reversals, and reconciled contribution-margin reporting without changing approved Free/Gold organizer pricing by accident.
 - [ ] Add transactional email/SMS delivery and durable QR delivery.
 - [ ] Add attendee event reminders, guestlist decision messages, actionable approval-queue alerts, and low-inventory/sold-out notifications across email, SMS, and in-app channels.
 - [ ] Add consent-based email/SMS marketing, customer preferences, suppression/unsubscribe handling, segmentation, attribution, and frequency caps.

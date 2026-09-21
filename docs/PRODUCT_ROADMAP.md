@@ -25,6 +25,7 @@ The product is organized into six connected systems:
 - Inventory, guestlist approval, payment reconciliation, and credential consumption must be idempotent, transactional, and auditable.
 - Advanced ticket/package configuration remains available on Free.
 - Free pricing is 7% + $0.65 per paid order. Gold is $199/month + 5% + $0.50 per paid order. Boosts are available to both tiers; configurable Gold discounts are deferred.
+- A buyer-funded checkout-fee experiment and a promoter-reward service fee are separate from the approved Free/Gold organizer pricing. Neither becomes the production default until the checkout, legal, tax, processor, conversion, and contribution-margin gates below pass.
 
 ## Current baseline
 
@@ -51,7 +52,7 @@ All dates are planning targets. A milestone ships only when its exit criteria pa
 |---|---|---|
 | M0 — Foundation, entity, and architecture | Sep 20–27, 2026 | Backlog and solo-founder workflow are operational; CI is green; identity, payments, legal, analytics, hosting, and SLO decisions have owners; entity and banking work is initiated. |
 | M1 — Transaction-ready alpha | Sep 28–Oct 18, 2026 | A customer can discover, register, purchase in Stripe test mode, receive an opaque signed QR credential, request guestlist access, and be checked in through an auditable payment-to-admission chain; business/admin users operate and reconcile the complete flow. |
-| M2 — Florida design-partner beta | Oct 19–Nov 15, 2026 | Design partners in Orlando, Miami, Fort Lauderdale, and Tampa can onboard, publish, sell, configure promoters/guestlists, scan entry, view balances, read trusted reports, and generate complete dispute-evidence packets. |
+| M2 — Florida design-partner beta | Oct 19–Nov 15, 2026 | Design partners in Orlando, Miami, Fort Lauderdale, and Tampa can onboard, publish, sell, configure promoters/guestlists, scan entry, view balances, read trusted reports, generate complete dispute-evidence packets, and pilot transparent buyer-funded checkout and promoter-reward economics. |
 | M3 — Florida public launch | Nov 16–Dec 15, 2026 | Real payments, refunds, risk controls, daily payout scheduling, legal policies, support runbooks, and production reliability gates pass for all four Florida launch markets. |
 | M4 — National launch readiness | Dec 16, 2026–Feb 28, 2027 | The Florida playbook is automated; national city scoring, timezone/tax configuration, privacy operations, partner onboarding, fraud controls, and support capacity are ready. |
 | M5 — National expansion | Mar 1–May 31, 2027 | Evidence-selected U.S. markets launch in waves using standardized acquisition, city operations, payments, reporting, and reliability controls rather than a fixed Southeast/Texas sequence. |
@@ -67,7 +68,7 @@ The accelerated launch uses one-week alpha sprints, two-week beta sprints, and l
 | Sprint 1 | Sep 28–Oct 4 | Managed identity, event detail/offer selection, organization/event CRUD, Stripe Connect charge/liability decision, staging deployment. |
 | Sprint 2 | Oct 5–11 | Test checkout/webhooks, order/QR wallet, guestlist request/approval, signed QR/manual check-in evidence chain, operational search. |
 | Sprint 3 | Oct 12–18 | Refund/balance ledger, dispute-evidence automation, affiliate links, live operations, alpha observability, security and end-to-end acceptance. |
-| Sprint 4 | Oct 19–Nov 1 | Florida market configuration, partner onboarding, staff roles, communications, reporting, and payout onboarding. |
+| Sprint 4 | Oct 19–Nov 1 | Florida market configuration, partner onboarding, staff roles, communications, reporting, payout onboarding, and a controlled pricing/affiliate-economics pilot. |
 | Sprint 5 | Nov 2–15 | Four-market beta rehearsal, accessibility/performance/load work, support workflows, subscriptions and boosts. |
 | Sprint 6 | Nov 16–29 | Live-payment pilot, daily cleared-fund payout scheduling, legal policies/contracts, bookkeeping, reserves, and incident drills. |
 | Sprint 7 | Nov 30–Dec 15 | Florida public launch, partner/customer support, launch analytics, reliability freeze, and measured issue burn-down. |
@@ -90,6 +91,28 @@ The MVP default is Stripe Connect with Stripe-hosted or embedded onboarding and 
 - Reconcile payments, transfers, payouts, refunds, disputes, fees, commissions, and net organizer balances daily, with idempotent webhooks and alerts for unmatched money movement.
 
 Decision sources: [POSH balance and payout documentation](https://support.posh.vip/en/articles/15090213-managing-your-balance-payouts-bank-accounts), [POSH tax reporting](https://support.posh.vip/en/articles/15090259-tax-reporting-understanding-your-1099-k), [Stripe Connect payouts](https://docs.stripe.com/connect/supported-embedded-components/payouts), [Stripe separate charges and transfers](https://docs.stripe.com/connect/separate-charges-and-transfers), and [Stripe tax-form settings](https://docs.stripe.com/connect/tax-form-settings).
+
+## Buyer-funded checkout and promoter reward economics
+
+The proposed Florida pilot makes the buyer-facing service fee fund Nitewide's platform fee and estimated payment-processing cost while preserving the venue's face-value ticket proceeds. Checkout must show the ticket subtotal, Nitewide service fee, taxes, discounts/credits, and final total before payment. Customer copy must not claim that a fixed amount is the exact "Stripe fee": processor cost varies by payment method, card origin, currency, Connect configuration, refunds, disputes, and negotiated pricing, and Stripe charges a percentage of the full amount processed.
+
+- Keep the approved organizer-plan source of truth unchanged during the experiment: Free is 7% + $0.65 per paid order and Gold is $199/month + 5% + $0.50 per paid order. Treat the proposed buyer fee of 7.5% + $0.85 as a versioned experiment until Nitewide explicitly decides whether it replaces, offsets, or coexists with organizer fees; never silently double-charge both sides.
+- Apply percentage and fixed components at the documented unit—per order unless a future policy explicitly says per ticket. A one-ticket order is not evidence that the fixed fee can be multiplied across a multi-ticket cart.
+- On a $20.00 one-ticket order, a 7.5% + $0.85 buyer fee is $2.35 and the card charge is $22.35 before tax. At Stripe's current published U.S. domestic online-card list price of 2.9% + $0.30, estimated processing is $0.95 on the full charge, leaving about $1.40 from the buyer fee before Connect, payout, refund, dispute, tax, support, promotion, and other costs—not $1.47. Reconcile actual cost from Stripe balance transactions rather than formula estimates.
+- If the connected venue pays Stripe processing under the approved direct-charge configuration, report that venue cost and Nitewide's application-fee revenue separately; do not describe Nitewide's gross application fee as net cash flow. If Nitewide pays processing, subtract it from Nitewide contribution margin. The ledger must make the responsible party explicit for every charge.
+- Require counsel and processor review of fee naming, display, refunds, taxes, card-network rules, state-specific requirements, and whether any card surcharge/convenience-fee regime applies. Prefer a consistent platform/service fee that is clearly disclosed and not misrepresented as Stripe's exact charge.
+- Version every fee schedule with effective dates, market, plan, event, payment-method treatment, refund policy, and accepted checkout disclosure. Preserve the version on the order so support, reconciliation, experiments, and audits reproduce the original calculation.
+
+For promoter-referred sales, the organizer configures and funds a gross referral reward. Nitewide's proposed default affiliate service fee is 10% of that reward, leaving the promoter 90% of the reward before separately disclosed payout fees, withholding, refunds, disputes, or other adjustments. It is not 10% of the ticket price.
+
+- Example: a $5.00 gross promoter reward produces a $0.50 Nitewide affiliate fee and a $4.50 promoter reward before disclosed adjustments. In the $20.00 pilot example above, Nitewide's estimated combined contribution before other costs is about $1.90 only if Nitewide bears the estimated $0.95 processing cost: $2.35 buyer fee + $0.50 affiliate fee - $0.95 processing. If the venue bears processing, the economics and ledger presentation differ.
+- Support percentage or fixed rewards, per-ticket or per-order calculation, eligible tiers, public/private offers, caps, attribution windows, and organization defaults with event overrides. Defaults and overrides replace rather than stack.
+- Show the promoter gross reward, Nitewide affiliate fee, payout/provider fee, withholding, reversals/adjustments, and net amount before the promoter accepts an offer and in every ledger/report view.
+- Lock the applicable terms at attributable conversion, preserve history when a promoter is disabled, and reverse each component proportionally for refunds, chargebacks, canceled events, or invalid/self-referred activity.
+- Make the 10% rate configurable and versioned, but require an auditable approval for changes. Test the Florida positioning against promoter activation, share rate, attributable GMV, venue adoption, conversion, retention, reward concentration, support/fraud cost, and contribution margin; do not assume a lower fee automatically creates a growth loop.
+- Competitive claims must be timestamped and re-verified before publication. POSH's current support documentation lists a 20% Kickback Fee for its event-level affiliate product, while its organizer-referral program is a different program with different economics.
+
+Decision sources: [Stripe Payments pricing](https://stripe.com/pricing), [Stripe Connect pricing](https://stripe.com/connect/pricing), [Stripe application fees](https://docs.stripe.com/api/application_fees), [POSH Kickback Fee documentation](https://support.posh.vip/en/articles/10723760-start-earning-with-posh-kickback-program), [POSH event affiliate guide](https://support.posh.vip/en/articles/15077378-the-ultimate-guide-to-kickback-affiliates), and [POSH organizer affiliate program](https://support.posh.vip/en/articles/15091893-organizer-affiliate-program-earn-commissions-by-inviting-event-creators).
 
 ## Admission evidence and dispute controls
 
@@ -130,7 +153,7 @@ Decision sources: [Stripe event types](https://docs.stripe.com/api/events/types)
 The acquisition objective is minimal unresolved merchant-loss exposure, predictable reconciled net revenue, and a rehearsed operator transition—not “zero A/R,” uncontaminated revenue, or an instantaneous founder replacement.
 
 - Keep customer charge principal, connected-merchant balances, Nitewide application fees, Stripe processing costs, affiliate commissions, taxes, refunds, application-fee refunds, disputes, reserves, subscriptions, boosts, and payouts separately identifiable in the immutable ledger and general ledger mapping.
-- Maintain the approved pricing source of truth: Free is 7% + $0.65 per paid order; Gold is $199/month + 5% + $0.50 per paid order. Report gross platform fees, refunded/credited fees, processor costs, dispute losses, reserves, and net revenue separately rather than presenting gross fees as clean earnings.
+- Maintain the approved organizer-plan pricing source of truth: Free is 7% + $0.65 per paid order; Gold is $199/month + 5% + $0.50 per paid order. Keep experimental buyer fees and affiliate service fees separately versioned. Report gross platform fees, refunded/credited fees, processor costs, affiliate fees/rewards, dispute losses, reserves, and net revenue separately rather than presenting gross fees as clean earnings.
 - External-account recovery reduces collection work but does not eliminate receivables or contingent exposure. A failed venue-bank debit, contractual indemnity claim, unsupported connected account, timing difference, or unrecovered deficit becomes a tracked recovery item with owner, aging, status, expected-loss treatment, escalation, and write-off approval.
 - Define with a CPA whether Nitewide is principal or agent for each revenue stream, when application fees and subscriptions are earned, how failed renewals/deferred revenue are treated, and when refunds, credits, chargebacks, taxes, reserves, and bad debt become contra-revenue, expense, liability, or receivable.
 - Reconcile daily from Stripe objects and balance transactions through the internal subledger to bank deposits; perform a documented monthly close with exception aging, connected-account deficit rollforward, application-fee refund rollforward, dispute/reserve rollforward, and reviewer evidence.
