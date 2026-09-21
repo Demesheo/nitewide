@@ -25,7 +25,7 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [ ] Add admin RBAC and operational user/organization/event lookup.
 - [ ] Define product analytics events, consent rules, SLOs, and launch dashboards.
 
-## Next — Alpha and Orlando beta
+## Next — Alpha and Florida beta
 
 - [ ] Complete customer orders, QR wallet, guestlist request/status, and ticket transfer.
 - [ ] Complete business guestlist review, promoter management, QR scanning, door sales, and live event operations.
@@ -35,7 +35,10 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [ ] Add admin transaction oversight, support tooling, audit explorer, moderation, and pricing configuration.
 - [ ] Add observability, alerts, backups, disaster-recovery drills, rate limits, secrets management, and background jobs.
 - [ ] Meet accessibility and public performance budgets; run load, security, and recovery tests.
-- [ ] Recruit Orlando design partners and execute the production pilot checklist.
+- [ ] Recruit design partners in Orlando, Miami, Fort Lauderdale, and Tampa and execute the Florida beta checklist.
+- [ ] Implement Stripe Connect onboarding, reconciled balance states, risk holds/reserves, and daily payouts scheduled within 24 hours after eligible funds clear.
+- [ ] Engage qualified legal/tax/accounting specialists; form the advised entity, obtain an EIN, evaluate an S-corporation election, open business banking, and establish books.
+- [ ] Complete customer terms/privacy/refund policies plus organizer, affiliate, payment, and data-processing agreements before public launch.
 
 ## Later — Expansion and platform depth
 
@@ -44,7 +47,7 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [ ] Add follows, reminders, recommendations, social sharing, calendar, and wallet integrations.
 - [ ] Add advanced reporting/read models, cohort and retention analysis, scheduled reports, and data exports.
 - [ ] Add configurable Gold boost discounts, promotion controls, and experimentation tooling.
-- [ ] Expand from Orlando to Florida, then selected Southeast/Texas markets, then national regions when launch gates are met.
+- [ ] Launch Orlando, Miami, Fort Lauderdale, and Tampa, then move directly to evidence-ranked national market waves when launch gates are met.
 - [ ] Validate non-nightlife verticals without introducing vertical-specific core tables.
 - [ ] Evaluate white-label, secondary-ticketing, enterprise, and international capabilities only after core marketplace fit.
 

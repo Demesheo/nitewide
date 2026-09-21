@@ -31,34 +31,61 @@ The repository already contains the generic data model and migrations, realistic
 
 Production gaps include managed authentication, payment capture and reconciliation, payouts/refunds/chargebacks, subscription and boost billing, transactional communications, complete app workflows, CRM/marketing, production observability, security hardening, deployment, support operations, and launch validation.
 
-## One-year execution timeline
+## Solo-founder operating model
+
+Nitewide is planned for one dedicated software engineer working with AI assistance. The roadmap optimizes for fast vertical slices, managed infrastructure, automated verification, and explicit outsourcing—not a future engineering headcount plan.
+
+- Keep the modular monolith until measured scaling pressure justifies extraction.
+- Prefer managed identity, payments, communications, hosting, monitoring, and tax/reporting services over bespoke infrastructure.
+- Use AI for implementation, tests, documentation, code review preparation, support content, and operational automation; keep security, financial, and production decisions human-reviewed.
+- Automate CI, deployments, migrations, backups, reconciliation, alerts, and repetitive support before accepting recurring manual work.
+- Outsource licensed or specialist work: entity/tax advice, S-corporation election analysis, contract and marketplace-regulatory review, bookkeeping/tax filing, insurance, penetration testing, and accessibility/legal review.
+- Preserve a narrow launch scope. A faster date means deferring non-blocking depth, not weakening payment correctness, security, privacy, accessibility, or admission reliability.
+
+## Accelerated execution timeline
 
 All dates are planning targets. A milestone ships only when its exit criteria pass.
 
 | Milestone | Dates | Outcome and exit criteria |
 |---|---|---|
-| M0 — Plan and harden foundation | Sep 20–27, 2026 | Backlog is tracked, CI is green, security/payment architecture is decided, analytics/SLOs are defined, and the local baseline is reproducible. |
-| M1 — Transaction-ready alpha | Sep 28–Nov 8, 2026 | A customer can discover, register, purchase in a test payment environment, receive a QR credential, request guestlist access, and be checked in; business and admin users can operate those flows. |
-| M2 — Orlando design-partner beta | Nov 9–Dec 20, 2026 | At least three design partners can onboard, publish, sell, manage promoters/guestlists, scan entry, reconcile money, and read trusted reports with monitored support. |
-| M3 — Orlando production pilot | Jan 4–Feb 28, 2027 | Real payments/payouts/refunds, security/privacy controls, support runbooks, 99.9% service target, and pilot event reliability gates pass. |
-| M4 — Florida expansion | Mar 1–May 31, 2027 | Orlando playbook is repeatable in Tampa and Miami; retention, organizer activation, and unit-economics gates are met before launch. |
-| M5 — Southeast/Texas growth | Jun 1–Aug 31, 2027 | Selected Atlanta/Charlotte/Nashville and Dallas/Houston launches use standardized city operations, scalable reporting, CRM, and marketing. |
-| M6 — Annual strategy and exit-readiness review | Sep 1–20, 2027 | Cohort retention, revenue quality, marketplace liquidity, security, financial controls, and acquisition readiness determine the next expansion or financing plan. |
+| M0 — Foundation, entity, and architecture | Sep 20–27, 2026 | Backlog and solo-founder workflow are operational; CI is green; identity, payments, legal, analytics, hosting, and SLO decisions have owners; entity and banking work is initiated. |
+| M1 — Transaction-ready alpha | Sep 28–Oct 18, 2026 | A customer can discover, register, purchase in Stripe test mode, receive a QR credential, request guestlist access, and be checked in; business/admin users operate and reconcile the complete flow. |
+| M2 — Florida design-partner beta | Oct 19–Nov 15, 2026 | Design partners in Orlando, Miami, Fort Lauderdale, and Tampa can onboard, publish, sell, configure promoters/guestlists, scan entry, view balances, and read trusted reports. |
+| M3 — Florida public launch | Nov 16–Dec 15, 2026 | Real payments, refunds, risk controls, daily payout scheduling, legal policies, support runbooks, and production reliability gates pass for all four Florida launch markets. |
+| M4 — National launch readiness | Dec 16, 2026–Feb 28, 2027 | The Florida playbook is automated; national city scoring, timezone/tax configuration, privacy operations, partner onboarding, fraud controls, and support capacity are ready. |
+| M5 — National expansion | Mar 1–May 31, 2027 | Evidence-selected U.S. markets launch in waves using standardized acquisition, city operations, payments, reporting, and reliability controls rather than a fixed Southeast/Texas sequence. |
+| M6 — National scale and strategic readiness | Jun 1–Sep 20, 2027 | National cohort quality, unit economics, revenue durability, operational resilience, diligence readiness, and the next financing, acquisition, or category-leadership plan are reviewed. |
 
 ## Initial sprint plan
 
-Sprints are two weeks after the one-week planning sprint.
+The accelerated launch uses one-week alpha sprints, two-week beta sprints, and larger outcome windows after launch. Scope can move, but launch gates cannot be waived.
 
 | Sprint | Dates | Primary deliverable |
 |---|---|---|
 | Sprint 0 | Sep 20–27 | Linear/GitHub planning, CI, architecture decisions, metrics, SLOs, and production risk register. |
-| Sprint 1 | Sep 28–Oct 11 | Customer event detail/cart/checkout; payment provider and webhook foundation; business organization/event CRUD. |
-| Sprint 2 | Oct 12–25 | Orders and QR wallet; guestlist request/status; staff approval and check-in UI; admin operational search. |
-| Sprint 3 | Oct 26–Nov 8 | Refund/payout skeleton, live event dashboard, affiliate management, hardening, alpha acceptance tests. |
-| Sprint 4 | Nov 9–22 | Design-partner onboarding, role invitations, transactional email/SMS, pricing/subscription enforcement. |
-| Sprint 5 | Nov 23–Dec 6 | Sales/attendance/affiliate reporting, filters/export, admin payment/support/audit workflows. |
-| Sprint 6 | Dec 7–20 | Beta load/security/accessibility testing, incident and recovery runbooks, partner rehearsal and beta release. |
-| Hardening window | Dec 21–Jan 3 | Fix beta findings, freeze risky changes, and complete production launch review. |
+| Sprint 1 | Sep 28–Oct 4 | Managed identity, event detail/offer selection, organization/event CRUD, Stripe Connect spike, staging deployment. |
+| Sprint 2 | Oct 5–11 | Test checkout/webhooks, order/QR wallet, guestlist request/approval, QR/manual check-in, operational search. |
+| Sprint 3 | Oct 12–18 | Refund/balance ledger, affiliate links, live operations, alpha observability, security and end-to-end acceptance. |
+| Sprint 4 | Oct 19–Nov 1 | Florida market configuration, partner onboarding, staff roles, communications, reporting, and payout onboarding. |
+| Sprint 5 | Nov 2–15 | Four-market beta rehearsal, accessibility/performance/load work, support workflows, subscriptions and boosts. |
+| Sprint 6 | Nov 16–29 | Live-payment pilot, daily cleared-fund payout scheduling, legal policies/contracts, bookkeeping, reserves, and incident drills. |
+| Sprint 7 | Nov 30–Dec 15 | Florida public launch, partner/customer support, launch analytics, reliability freeze, and measured issue burn-down. |
+| Sprint 8 | Dec 16–Jan 15 | Florida retention and conversion improvements; automate founder-heavy support and city operations. |
+| Sprint 9 | Jan 16–Feb 28 | National readiness, market scoring, privacy/tax/payment coverage, fraud controls, and wave-one launch decision. |
+
+## Payments and organizer payouts
+
+The MVP default is Stripe Connect with Stripe-hosted or embedded onboarding and connected-account payout components. A short architecture/legal review remains a launch dependency because charge type determines fee collection, refund/dispute handling, negative-balance liability, tax reporting, and whether funds can be split among organizers and affiliates.
+
+- Track `pending`, `available`, `scheduled`, `in_transit`, `paid`, `failed`, `reversed`, and `held` balances in an immutable internal ledger reconciled to provider objects.
+- Schedule eligible standard payouts no later than 24 hours after funds become available, subject to account verification, risk holds, reserves, refunds, disputes, weekends/holidays, and provider/bank processing.
+- Do not market “money in the bank within 24 hours.” POSH documents that card proceeds generally take 24–48 business hours to become available, while standard ACH arrival takes additional time.
+- Offer provider-supported Instant Payouts only to eligible connected accounts, with transparent provider/platform fees and explicit risk limits. Never advance unsettled funds by default.
+- Use provider-hosted KYC/KYB, bank/debit-card collection, tax information, and 1099 delivery wherever possible to minimize solo-founder compliance operations.
+- Delay organizer/affiliate transfers until source funds and attribution are final enough for the configured risk tier; maintain reserves and reversible adjustments for refunds and disputes.
+- Reconcile payments, transfers, payouts, refunds, disputes, fees, commissions, and net organizer balances daily, with idempotent webhooks and alerts for unmatched money movement.
+
+Decision sources: [POSH balance and payout documentation](https://support.posh.vip/en/articles/15090213-managing-your-balance-payouts-bank-accounts), [POSH tax reporting](https://support.posh.vip/en/articles/15090259-tax-reporting-understanding-your-1099-k), [Stripe Connect payouts](https://docs.stripe.com/connect/supported-embedded-components/payouts), [Stripe separate charges and transfers](https://docs.stripe.com/connect/separate-charges-and-transfers), and [Stripe tax-form settings](https://docs.stripe.com/connect/tax-form-settings).
 
 ## Application outcomes
 
@@ -86,7 +113,7 @@ Sprints are two weeks after the one-week planning sprint.
 
 ## Cross-platform quality targets
 
-Targets apply to production at the Orlando pilot unless a later scale gate supersedes them.
+Targets apply to the Florida public launch unless a later scale gate supersedes them.
 
 - Public web: Core Web Vitals at p75 of LCP ≤ 2.5 seconds, INP ≤ 200 ms, and CLS ≤ 0.1 on representative mobile traffic.
 - API: p95 cached/read requests ≤ 300 ms and ordinary writes ≤ 500 ms, excluding third-party payment latency.
@@ -102,15 +129,11 @@ Cities are go-to-market configuration, not database special cases. Every new mar
 
 | Wave | Regions and candidate metros |
 |---|---|
-| Pilot | Orlando |
-| Florida | Tampa, Miami |
-| Southeast and Mid-Atlantic | Atlanta, Charlotte, Nashville, Washington DC, Baltimore |
-| Texas | Dallas, Houston |
-| Northeast | New York, Philadelphia, Boston |
-| West | Los Angeles, San Diego, San Francisco, Las Vegas, Phoenix, Denver, Portland, Seattle |
-| Midwest | Chicago, Detroit, Minneapolis, Indianapolis, St. Louis |
+| Florida beta and public launch | Orlando, Miami, Fort Lauderdale, Tampa |
+| National wave 1 candidates | New York, Los Angeles, Chicago, Atlanta, Dallas, Houston, Las Vegas, Washington DC |
+| National wave 2 candidates | Philadelphia, Boston, San Francisco, Seattle, Minneapolis, Phoenix, Detroit, Denver, San Diego, St. Louis, Charlotte, Indianapolis, Baltimore, Portland, Nashville |
 
-The order inside later waves is a hypothesis and should be re-ranked using organizer pipeline, demand signals, acquisition cost, competition, and operating constraints.
+No regional phase sits between Florida and national expansion. National markets are scored and launched in evidence-based waves using organizer pipeline, nightlife density, demand signals, acquisition cost, competition, payments/legal readiness, support load, and unit economics.
 
 ## Scale and strategic value gates
 

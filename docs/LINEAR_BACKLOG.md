@@ -8,9 +8,9 @@ This document is the import map for the Nitewide Linear workspace. It keeps the 
 
 **Repository:** https://github.com/Demesheo/nitewide
 
-**Cycle cadence:** two weeks, starting September 28, 2026
+**Delivery cadence:** one-week alpha sprints, two-week beta sprints, then milestone outcome windows
 
-**Milestones:** M0 Foundation, M1 Transaction-ready Alpha, M2 Orlando Beta, M3 Orlando Pilot, M4 Florida Expansion, M5 Southeast/Texas Growth, M6 Annual Strategy Review
+**Milestones:** M0 Foundation/Entity/Architecture, M1 Transaction-ready Alpha, M2 Florida Beta, M3 Florida Public Launch, M4 National Readiness, M5 National Expansion, M6 National Scale/Strategic Readiness
 
 ## Linear synchronization status
 
@@ -18,14 +18,14 @@ This document is the import map for the Nitewide Linear workspace. It keeps the 
 - All 53 issues are unassigned intentionally and carry project, milestone, priority, estimate, labels, and acceptance criteria.
 - The project runs from September 20, 2026 through September 20, 2027.
 - `Demesheo/nitewide` is linked to the `DEM` team with one-way GitHub → Linear issue creation. Updates to synchronized issues remain bidirectional; new Linear backlog items are not duplicated into GitHub Issues.
-- Linear's available workspace automation could not create or schedule cycles. Sprint 0–6 dates are therefore retained in issue descriptions and in the roadmap until cycles are enabled or created manually.
+- Linear's available workspace automation could not create or schedule cycles. Sprint dates are therefore retained in issue descriptions and in the roadmap until cycles are enabled or created manually.
 
 ### Goals
 
-1. Ship a trustworthy transaction-ready Nitewide alpha by November 8, 2026.
-2. Run an Orlando design-partner beta by December 20, 2026.
-3. Launch and validate the Orlando production pilot by February 28, 2027.
-4. Prove a repeatable Florida city-launch playbook by May 31, 2027.
+1. Ship a trustworthy transaction-ready Nitewide alpha by October 18, 2026.
+2. Run a four-market Florida design-partner beta by November 15, 2026.
+3. Launch Nitewide publicly in Orlando, Miami, Fort Lauderdale, and Tampa by December 15, 2026.
+4. Become ready for evidence-ranked national market waves by February 28, 2027.
 5. Build an exit-ready, defensible marketplace and operating platform while preserving a path to national category leadership.
 
 ### Labels
@@ -33,7 +33,7 @@ This document is the import map for the Nitewide Linear workspace. It keeps the 
 - App: `customer`, `business`, `admin`, `platform`
 - Domain: `auth`, `discovery`, `commerce`, `payments`, `guestlist`, `admission`, `affiliates`, `analytics`, `crm`, `growth`, `operations`, `security`
 - Type: `feature`, `infrastructure`, `research`, `compliance`
-- Region: `orlando`, `florida`, `southeast`, `texas`, `national`
+- Region: `orlando`, `miami`, `fort-lauderdale`, `tampa`, `florida`, `national`
 
 Priorities use P0 (launch blocker), P1 (milestone-critical), P2 (important), and P3 (later). Estimates are relative points.
 
@@ -48,7 +48,7 @@ Priorities use P0 (launch blocker), P1 (milestone-critical), P2 (important), and
 | PAY-01 | 5 | P0 | As finance, I need a payment architecture decision so fees, refunds, payouts, tax, and reconciliation have one source of truth. | Provider/Connect model, money flow, webhooks, idempotency, ledger, dispute/refund/payout boundaries, and sandbox plan are approved. |
 | OPS-01 | 3 | P1 | As a founder, I need a production risk register and launch checklist so blockers remain visible. | Security, privacy, legal, support, payments, reliability, and partner risks have owner, severity, mitigation, and review date. |
 
-## Sprint 1 — Sep 28–Oct 11, 2026
+## Sprint 1 — Sep 28–Oct 4, 2026
 
 | ID | Pts | Pri | User story / deliverable | Acceptance summary |
 |---|---:|---:|---|---|
@@ -60,7 +60,7 @@ Priorities use P0 (launch blocker), P1 (milestone-critical), P2 (important), and
 | BIZ-02 | 8 | P0 | As an authorized creator, I can draft, edit, preview, publish, unpublish, and cancel an event. | Lifecycle rules, required fields, timezone handling, location privacy, audit history, and concurrency protection. |
 | BIZ-03 | 8 | P0 | As an organizer, I can configure multiple ticket/package tiers without needing Gold. | Quantities, price, entries/unit, sales window, limits, visibility/password, approval setting, and inventory tests. |
 
-## Sprint 2 — Oct 12–25, 2026
+## Sprint 2 — Oct 5–11, 2026
 
 | ID | Pts | Pri | User story / deliverable | Acceptance summary |
 |---|---:|---:|---|---|
@@ -72,7 +72,7 @@ Priorities use P0 (launch blocker), P1 (milestone-critical), P2 (important), and
 | ADMIN-01 | 5 | P0 | As an internal operator, I can sign in with scoped staff permissions. | Admin is not a client-selected role; MFA/provider plan, session controls, RBAC matrix, audit trail, and tests. |
 | ADMIN-02 | 5 | P0 | As support staff, I can search users, organizations, events, orders, tickets, and guestlists without unrestricted data access. | Fast filters, masked sensitive fields, permission scopes, deep links, and access auditing. |
 
-## Sprint 3 — Oct 26–Nov 8, 2026
+## Sprint 3 — Oct 12–18, 2026
 
 | ID | Pts | Pri | User story / deliverable | Acceptance summary |
 |---|---:|---:|---|---|
@@ -83,7 +83,7 @@ Priorities use P0 (launch blocker), P1 (milestone-critical), P2 (important), and
 | ADMIN-03 | 5 | P0 | As support, I can inspect payment/refund/payout timelines and safely initiate allowed remediation. | Step-up permission, reason capture, confirmation, provider reconciliation, audit, and no silent destructive action. |
 | PLAT-05 | 8 | P0 | As the launch team, we need end-to-end alpha acceptance coverage and observability. | Automated happy/failure/concurrency tests cover discovery-to-entry; traces/logs/metrics correlate order, payment, and credential. |
 
-## Sprint 4 — Nov 9–22, 2026
+## Sprint 4 — Oct 19–Nov 1, 2026
 
 | ID | Pts | Pri | User story / deliverable | Acceptance summary |
 |---|---:|---:|---|---|
@@ -93,7 +93,7 @@ Priorities use P0 (launch blocker), P1 (milestone-critical), P2 (important), and
 | GROWTH-01 | 5 | P1 | As an organizer, I can purchase a boost on either tier with configurable future Gold discounts. | Inventory/placement policy, billing, disclosure, start/end, reporting, refund rules, and admin control. |
 | CUST-06 | 5 | P1 | As a ticket holder, I can transfer an eligible credential without creating two valid entries. | Secure acceptance, expiry/cancel, ownership history, QR rotation, notifications, and audit. |
 
-## Sprint 5 — Nov 23–Dec 6, 2026
+## Sprint 5 — Nov 2–15, 2026
 
 | ID | Pts | Pri | User story / deliverable | Acceptance summary |
 |---|---:|---:|---|---|
@@ -103,7 +103,7 @@ Priorities use P0 (launch blocker), P1 (milestone-critical), P2 (important), and
 | ADMIN-05 | 5 | P1 | As an administrator, I can moderate organizations/events and configure pricing, boosts, features, cities, and launch state. | Changes are validated, versioned, auditable, reversible where possible, and protected by scoped permissions. |
 | ADMIN-06 | 5 | P1 | As leadership, I can see platform revenue, GMV, supply, demand, reliability, risk, and support health. | Metrics are defined, time/region filters work, data quality/freshness is visible, and source reports reconcile. |
 
-## Sprint 6 — Dec 7–20, 2026
+## Sprint 6 — Nov 16–29, 2026
 
 | ID | Pts | Pri | User story / deliverable | Acceptance summary |
 |---|---:|---:|---|---|
@@ -129,6 +129,87 @@ Priorities use P0 (launch blocker), P1 (milestone-critical), P2 (important), and
 | SCALE-01 | P1 | As engineering, we can scale multi-city reporting with queues, caching, location indexes, and read models. | M5 |
 | SCALE-02 | P2 | As the company, we can validate a second event vertical without adding nightlife-specific core schema. | M6 |
 | EXIT-01 | P1 | As leadership, we can complete an acquisition/financing readiness review with clean metrics, contracts, IP, security, and financial controls. | M6 |
+
+## Expanded solo-founder and launch-gap backlog
+
+These issues fill the operating, legal, financial, payments, launch, and national-scale gaps identified after the initial import. They are deliberately written so specialist work can be outsourced while the founder retains an auditable decision and acceptance record.
+
+### M0 — Foundation, entity, and architecture
+
+| ID | Pri | Pts | Deliverable and acceptance summary |
+|---|---:|---:|---|
+| FOUND-01 | P0 | 5 | Establish the solo-developer/AI delivery system: protected CI, AI review checklist, decision records, dependency automation, release train, rollback ownership, and a weekly capacity review. |
+| LEGAL-01 | P0 | 3 | Select and engage a Florida startup attorney and CPA; document scopes, quotes, conflicts, confidentiality, deadlines, and which decisions require licensed advice. |
+| LEGAL-02 | P0 | 5 | Form the advised legal entity, obtain EIN/registered-agent records, and evaluate/file an S-corporation election only after tax advice; store confirmations securely. |
+| FIN-01 | P0 | 3 | Open dedicated business checking/savings and payment-processor accounts with least-privilege access, dual-factor recovery, ownership records, and no commingled funds. |
+| LEGAL-03 | P0 | 5 | Obtain written marketplace, payments/payouts, money-transmission, ticketing, sales-tax, privacy, and Florida launch risk analysis with action list. |
+| OPS-04 | P1 | 3 | Create an outsourcing/vendor register covering legal, accounting, insurance, security testing, accessibility, design, and after-hours incident help with budgets and acceptance owners. |
+
+### M1 — Transaction-ready alpha
+
+| ID | Pri | Pts | Deliverable and acceptance summary |
+|---|---:|---:|---|
+| PAY-06 | P0 | 8 | Complete a Stripe Connect proof of concept and processor comparison; decide account configuration, charge type, fee collection, loss liability, split model, and fallback in an ADR. |
+| PAY-07 | P0 | 8 | Add Stripe-hosted/embedded KYC/KYB and bank-account onboarding with capability/status tracking, requirements remediation, privacy boundaries, and test fixtures. |
+| PAY-08 | P0 | 8 | Implement immutable pending/available/scheduled/in-transit/paid/failed/reversed/held balance and payout states reconciled to provider objects. |
+| PAY-09 | P0 | 5 | Define and enforce risk holds, reserves, new-organizer limits, refund/dispute offsets, payout blocking, manual review, and auditable release decisions. |
+| CUST-09 | P0 | 8 | Complete current-city/date discovery with search, filters, map/list behavior, SEO city pages, location privacy, empty states, and analytics. |
+| PLAT-08 | P0 | 8 | Create preview/staging/production delivery with managed hosting/database, DNS/TLS, environment separation, secrets, migrations, health checks, rollback, and deployment telemetry. |
+
+### M2 — Florida design-partner beta
+
+| ID | Pri | Pts | Deliverable and acceptance summary |
+|---|---:|---:|---|
+| CITY-03 | P0 | 5 | Configure Orlando, Miami, Fort Lauderdale, and Tampa as data-driven markets with boundaries, aliases, timezones, landing pages, launch state, and representative fixtures. |
+| GROWTH-02 | P0 | 5 | Build a founder-led venue/promoter pipeline with qualification, outreach templates, consent, follow-up, objections, demo script, conversion stages, and weekly targets. |
+| GROWTH-03 | P1 | 5 | Publish Florida city/venue/event SEO pages with canonical metadata, structured data, sitemaps, moderation, performance budgets, and measurable acquisition funnels. |
+| BIZ-12 | P1 | 5 | Add event duplication and validated bulk import so one developer can onboard partner calendars quickly without corrupting inventory or permissions. |
+| PAY-10 | P1 | 5 | Add provider-controlled Instant Payouts for eligible accounts with availability display, transparent fees, limits, confirmation, ledger entries, and failure handling. |
+| OPS-05 | P0 | 5 | Launch a self-service help center and support intake with identity verification, ticket routing, macros, payment/admission escalation, response targets, and feedback capture. |
+
+### M3 — Florida public launch
+
+| ID | Pri | Pts | Deliverable and acceptance summary |
+|---|---:|---:|---|
+| LEGAL-04 | P0 | 5 | Have counsel finalize customer terms, privacy/cookie notices, purchase/refund/transfer policy, consent language, age rules, and Florida disclosures; publish versioned acceptance records. |
+| LEGAL-05 | P0 | 5 | Have counsel finalize organizer, venue, affiliate/promoter, data-processing, payout/reserve, prohibited-event, indemnity, and termination agreements. |
+| FIN-02 | P0 | 5 | Establish accrual/cash policy with a CPA, chart of accounts, monthly close, processor reconciliation, fee/refund/chargeback treatment, tax calendar, and document retention. |
+| PAY-11 | P0 | 8 | Pilot live daily payouts scheduled within 24 hours after funds become available; verify KYC, holds, reconciliation, bank arrival visibility, failures, reversals, alerts, and support copy. |
+| OPS-06 | P0 | 5 | Complete the Florida production launch checklist with feature/payment kill switches, data backup/restore, incident communications, support coverage, rollback, and go/no-go evidence. |
+| RISK-01 | P0 | 3 | Obtain appropriate general liability, cyber/E&O, crime/payment, and event-related coverage recommendations; bind required policies and document exclusions/renewals. |
+
+### M4 — National launch readiness
+
+| ID | Pri | Pts | Deliverable and acceptance summary |
+|---|---:|---:|---|
+| CITY-04 | P0 | 8 | Build national market scoring from organizer pipeline, event/nightlife density, demand, competition, CAC, support, legal/payment readiness, and unit economics. |
+| PLAT-09 | P0 | 8 | Generalize market/timezone/tax/currency/configuration and content moderation so U.S. cities launch without code forks or local constants. |
+| SEC-02 | P0 | 8 | Implement privacy requests, export/deletion, consent provenance, retention, legal holds, vendor inventory, breach workflow, and state-law applicability review. |
+| OPS-07 | P1 | 5 | Automate national support triage, status communications, organizer education, runbooks, escalation, and outsourced overflow without exposing unrestricted customer data. |
+| GROWTH-04 | P0 | 5 | Turn Florida learning into a repeatable national city-launch playbook with partner minimums, waitlists, content seeding, launch calendar, budget, KPIs, and stop criteria. |
+| PAY-12 | P0 | 8 | Validate national payments/payout/tax coverage, connected-account eligibility, state restrictions, 1099 ownership, reserve policy, prohibited businesses, and processor escalation. |
+
+### M5 — National expansion
+
+| ID | Pri | Pts | Deliverable and acceptance summary |
+|---|---:|---:|---|
+| CITY-05 | P0 | 8 | Launch the first evidence-ranked national wave with per-city owners-by-automation, partner readiness, content quality, support capacity, budgets, and rollback thresholds. |
+| GROWTH-05 | P1 | 8 | Automate qualified partner acquisition, referral tracking, onboarding nudges, lifecycle messaging, attribution, experiments, and city-level CAC/payback reporting. |
+| SCALE-03 | P0 | 8 | Run national browse/checkout/webhook/check-in load and chaos tests; document capacity, graceful degradation, queue backpressure, recovery, and spend controls. |
+| DATA-01 | P1 | 8 | Build privacy-aware warehouse/BI pipelines and certified metrics for city cohorts, marketplace liquidity, organizer retention, buyer repeats, payments, risk, and margins. |
+| SEC-03 | P0 | 8 | Add rules and review tooling for account/payment/promo abuse, velocity, device/risk signals, payout holds, false-positive measurement, appeals, and auditability. |
+| OPS-08 | P1 | 5 | Establish vendor SLAs, on-call backup, incident authority, security contacts, service budgets, and business-continuity coverage for a solo founder. |
+
+### M6 — National scale and strategic readiness
+
+| ID | Pri | Pts | Deliverable and acceptance summary |
+|---|---:|---:|---|
+| STRAT-01 | P1 | 5 | Build a permissioned financing/acquisition data room with corporate, cap table, contracts, IP, financial, tax, product, security, privacy, and KPI evidence. |
+| STRAT-02 | P1 | 5 | Run a national value review against retention, growth, margins, liquidity, concentration, risk, defensibility, and $100M-exit/$1B-category-leader evidence gates without guaranteed valuation claims. |
+| LEGAL-06 | P1 | 5 | Complete trademark/domain, open-source, contractor invention assignment, partner contract, privacy, regulatory, and litigation/claim diligence with remediation owners. |
+| FIN-03 | P1 | 8 | Produce audit-ready books, revenue recognition, processor/ledger reconciliation, tax filings, forecasts, scenario model, concentration analysis, and normalized diligence metrics. |
+| SCALE-04 | P2 | 8 | Review the architecture against 10x/100x transaction, check-in, city, tenant, analytics, and recovery scenarios; extract services only where measured evidence supports it. |
+| FOUNDER-01 | P0 | 5 | Reduce solo-founder bus-factor risk with credential escrow, recovery access, vendor contacts, architecture/runbook index, automated restore verification, and an authorized emergency operator. |
 
 ## Backlog rules
 
