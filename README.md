@@ -107,6 +107,20 @@ The customer app provides working **Sign in** and **Create account** flows. Publ
 
 Passwords are salted and hashed with scrypt. Successful authentication returns a signed 12-hour bearer session. During local development only, the existing `x-user-id` header remains available for direct API testing; production disables that shortcut. Replace the built-in authentication service with a managed identity provider, secure cookie strategy, token revocation, password recovery, email verification, and abuse controls before launch.
 
+## Customer experience
+
+The customer app uses shadcn/ui (Radix primitives), Tailwind CSS, and Lucide icons with a responsive dark/lime nightlife design. Run `npm run dev:api` and `npm run dev:customer`, then open http://localhost:5173. Vite proxies `/api` to the local API; for a separately hosted API, set `VITE_API_URL` when building the customer app. Production hosting must proxy `/api` or supply that build-time URL.
+
+- Sign in and registration use the real API and existing seeded credentials above. Sessions are checked on reload and expire automatically.
+- Discovery filters live API events by city, venue/event keywords, venue-local calendar date, experience type, and starting price. It supports sorting, saved events, and loading more results. Today's date remains the default; when it has no matches, upcoming suggestions are explicitly shown under other dates. Click **All upcoming** to browse the weekend seed data.
+- Tickets and packages open an event-detail dialog with inventory-aware quantity controls. Checkout is **demo only**: it displays full payment and the 8% + $0.89 per-order service fee, then stores an account-scoped preview receipt locally. It never calls the order/payment endpoint, collects a card, reduces inventory, or issues a valid admission QR. **My bookings** shows these local previews, not a server-backed ticket wallet.
+- Guestlist requests are real API requests for one person and require host approval. A successful request is pending, not admission confirmation.
+- Saved events live in this browser. Demo bookings are filtered to the signed-in user but are not encrypted or synchronized across devices. Use **Sign out** when switching accounts.
+- The initial discovery API response is capped at 100 events. Server-side search/pagination and synchronized saved events/wallet are follow-up production milestones.
+- Stock Unsplash photography illustrates the mood; it is not verified venue photography. Replace it with approved venue/event assets before public launch. The detail view labels this imagery.
+
+Customer checks: `npm test --workspace @nitewide/customer`. Production build: `npm run build --workspace @nitewide/customer`. Browser verification covers sign-in, combined search filters, saved events, demo checkout/receipt, and desktop/mobile layouts. Component setup follows the [shadcn Vite integration](https://ui.shadcn.com/docs/installation/vite); installed component source is in `apps/customer/src/components/ui`.
+
 ## Core API
 
 | Method | Route | Purpose |
