@@ -6,7 +6,7 @@ const assumptions = Object.freeze({
   weeksPerYear: 52,
   vipGmvPerVenueNight: 5_000,
   vipActiveNightShare: 1 / 3,
-  averageVipTransaction: 150,
+  averageVipTransaction: 400,
   gaGmvPerVenueNight: 500,
   averageGaTransaction: 20,
   nonNightclubEventsPerNightclubEvent: 0.10,
