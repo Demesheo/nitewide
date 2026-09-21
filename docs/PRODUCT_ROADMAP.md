@@ -113,6 +113,18 @@ Mandatory QR check-in is a strong fulfillment control, not a guarantee against c
 
 Decision sources: [Stripe dispute categories and evidence](https://docs.stripe.com/disputes/categories), [Stripe dispute evidence examples](https://docs.stripe.com/disputes/visual-evidence), [Stripe Connect disputes](https://docs.stripe.com/connect/disputes), [Stripe Connect payment details and dispute management](https://docs.stripe.com/connect/supported-embedded-components/payment-details), [Stripe 3D Secure](https://docs.stripe.com/payments/3d-secure), and [Florida Statute §562.11](https://www.flsenate.gov/Laws/Statutes/2026/562.11).
 
+### Automated dispute-defense workflow
+
+1. Verify and idempotently persist each Stripe `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.funds_withdrawn`, `charge.dispute.funds_reinstated`, and `charge.dispute.closed` webhook before acknowledging it; enqueue processing so Stripe delivery is never blocked by evidence compilation or notifications.
+2. Resolve the connected account, payment, order, purchaser, event, venue/organizer, credentials, transfers, and existing case. Duplicate or out-of-order events update the same append-only dispute case rather than creating conflicting work.
+3. Place the customer in a reversible, reason-coded `restricted_pending_review` risk state. Block high-risk purchases, transfers, or new reservations according to policy, but do not label the customer fraudulent or permanently suspend them merely because a dispute exists. Notify the customer, provide a support/appeal path, and review linked-account or multi-city signals under access-controlled rules.
+4. Compile a reason-specific draft evidence packet from lawful, relevant records: customer and payment authentication data, receipt/order, accepted policy version, service date, credential lifecycle, QR check-in, customer communications, refund/transfer history, and investigation summary. Validate provenance, consistency, privacy/redaction, file limits, and gaps; never fabricate missing evidence.
+5. Create a scoped venue task and notify authorized operators through in-app and email/SMS channels. The message states the dispute amount/reason, whether Stripe debited the connected account, the exact deadline from `evidence_details.due_by`, and a secure deep link. Do not attach identity documents, raw registration data, QR secrets, or the complete evidence packet to email.
+6. Require the responsible merchant or authorized Nitewide reviewer to inspect, amend, approve, accept, or submit the response through the secured dispute workspace or Stripe embedded component. A fixed “seven days” promise is prohibited because deadlines vary and some disputes do not permit a response.
+7. Track staged/submitted evidence, submission count/method, reminders, webhook updates, won/lost/withdrawn outcomes, fund reinstatement, connected-bank recovery, restrictions, appeals, and all operator actions. Automatically release appropriate restrictions after a favorable resolution or verified error; retain proportionate controls for repeated or confirmed abuse.
+
+Decision sources: [Stripe event types](https://docs.stripe.com/api/events/types) and [Stripe Dispute `evidence_details`](https://docs.stripe.com/api/disputes/object).
+
 ## Application outcomes
 
 ### Nitewide Customer

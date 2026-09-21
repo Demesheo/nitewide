@@ -229,7 +229,7 @@ These issues fill the operating, legal, financial, payments, launch, and nationa
 | ID | Pri | Pts | Target | Deliverable and acceptance summary |
 |---|---:|---:|---|---|
 | ADMIT-01 | P0 | 8 | M1 | Implement the auditable `PaymentIntent/Charge → Order → OrderItem → Ticket → signed opaque QR → CheckIn` chain; record credential/key version, event, gate, timestamp, scanner/operator, state, online/offline mode, and reasoned overrides without exposing payment or customer data in the QR. |
-| RISK-02 | P0 | 8 | M2 | Generate reason-specific Stripe dispute evidence packets from payment authentication, receipts/policies, credential lifecycle, check-in, lawful activity signals, communications, transfers/refunds, and investigation summary; provide responsible connected merchants a scoped dispute inbox, validate completeness/deadlines, require human review, submit/audit outcomes, and measure win/loss rates. Treat door ID as minimal supplemental evidence and prohibit default storage of full ID images without counsel-approved controls. |
+| RISK-02 | P0 | 8 | M2 | Build an idempotent asynchronous workflow for Stripe dispute-created/updated/funds/closed events: create one auditable case, apply reversible risk restrictions with notice/appeal, compile and validate reason-specific evidence, notify authorized connected merchants with a secure deep link and Stripe `due_by` deadline, require human approval/submission, reconcile outcomes/recovery, and measure results. Never email sensitive attachments, assume a fixed seven-day deadline, treat a dispute as proven fraud, or retain full ID images without counsel-approved controls. |
 
 ## Backlog rules
 

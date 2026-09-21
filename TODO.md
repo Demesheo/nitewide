@@ -44,6 +44,7 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [ ] Have counsel validate merchant-of-record and seller responsibilities, connected-merchant dispute obligations, reserve/recovery/indemnity terms, consumer support duties, and the limits of contractual risk transfer.
 - [ ] Complete the opaque signed-QR payment-to-admission evidence chain, mandatory scan policy, offline/manual reconciliation, and append-only check-in audit records.
 - [ ] Automate reason-specific Stripe dispute evidence packets and a connected-merchant dispute inbox with deadlines, scoped human review, submission auditing, outcomes, and dispute-control metrics.
+- [ ] Implement idempotent asynchronous dispute webhooks, reversible customer risk restrictions with notice/appeal, secure venue tasks using Stripe `due_by`, privacy-safe evidence review, reminder/escalation, and restriction/fund reconciliation on dispute closure.
 - [ ] Adopt a privacy-minimizing door identity policy: do not retain full ID images by default; require counsel-approved necessity, consent, encryption, access, retention/deletion, and incident controls for any exception.
 - [ ] Engage qualified legal/tax/accounting specialists; form the advised entity, obtain an EIN, evaluate an S-corporation election, open business banking, and establish books.
 - [ ] Complete customer terms/privacy/refund policies plus organizer, affiliate, payment, and data-processing agreements before public launch.
