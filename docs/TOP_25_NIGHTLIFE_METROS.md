@@ -45,21 +45,23 @@ Recent editorial rankings are inputs, not ground truth. Time Out's 2025 U.S. lis
 | 24 | Baltimore–Columbia–Towson | Independent music, arts, waterfront nightlife, university audiences | Useful Mid-Atlantic market that should be operated distinctly from nearby Washington. |
 | 25 | Charlotte–Concord–Gastonia | Rapid growth, banking workforce, sports, clubs, breweries, event districts | Attractive growth market and Southeast operating bridge, though current scene breadth trails higher-ranked metros. |
 
-## Data-backed conservative capture estimate
+## Data-backed capture estimate with Florida overrides
 
 The latest available Census County Business Patterns metro file reports **14,146 employer establishments** classified as NAICS 722410 across these 25 markets. That classification includes bars, taverns, nightclubs, and other drinking places. The same metros contain approximately **138.4 million residents** in the Census Bureau's July 2025 population estimates.
 
-The earlier 263-venue estimate represented 1.86% of this supply proxy and was reasonable in total, but its rank-based buckets overallocated several smaller markets and underallocated the largest supply pools. The revised base case is **251 retained active venue equivalents**:
+The earlier 263-venue estimate represented 1.86% of this supply proxy and was reasonable in total, but its rank-based buckets underallocated several of the largest supply pools. The formula-only base case produces 251 retained active venue equivalents:
 
 - set the mature portfolio target at 1.75% of the 722410 establishment proxy;
 - allocate 70% of the target by each metro's share of establishments and 30% by its share of population;
 - apply minimum mature-market floors of eight venues for ranks 1–8, six for ranks 9–15, and four for ranks 16–25;
 - count only retained venues sustaining recurring event and commerce activity—not contracts, registrations, or dormant accounts.
 
-| Rank | Metro | 2025 population | 2023 drinking-place establishments | Earlier estimate | Revised base |
+The adopted operating estimate is **271 retained active venue equivalents**. It restores South Florida from the formula's eight venues to **25** and Orlando from six to **nine**. These founder-approved overrides reflect direct local knowledge and supply that the Census drinking-place classification can miss: nightlife embedded in restaurants, hotels, beach hospitality, event spaces, and the distinct Miami, Miami Beach, Fort Lauderdale, and Palm Beach clusters.
+
+| Rank | Metro | 2025 population | 2023 drinking-place establishments | Earlier estimate | Adopted target |
 |---:|---|---:|---:|---:|---:|
 | 1 | New York | 20.1M | 2,554 | 25 | **42** |
-| 2 | Miami–Fort Lauderdale | 6.4M | 386 | 25 | **8** |
+| 2 | Miami–Fort Lauderdale–West Palm Beach | 6.4M | 386 | 25 | **25** |
 | 3 | Las Vegas | 2.4M | 468 | 15 | **8** |
 | 4 | Chicago | 9.4M | 1,496 | 15 | **23** |
 | 5 | Los Angeles | 12.8M | 982 | 15 | **18** |
@@ -69,7 +71,7 @@ The earlier 263-venue estimate represented 1.86% of this supply proxy and was re
 | 9 | San Diego | 3.3M | 348 | 9 | **6** |
 | 10 | Nashville | 2.2M | 181 | 9 | **6** |
 | 11 | Dallas–Fort Worth | 8.5M | 548 | 9 | **11** |
-| 12 | Orlando | 3.0M | 220 | 9 | **6** |
+| 12 | Orlando | 3.0M | 220 | 9 | **9** |
 | 13 | San Francisco–Oakland | 4.6M | 705 | 9 | **11** |
 | 14 | Houston | 7.9M | 719 | 9 | **13** |
 | 15 | Washington, D.C. | 6.5M | 330 | 9 | **7** |
@@ -83,13 +85,13 @@ The earlier 263-venue estimate represented 1.86% of this supply proxy and was re
 | 23 | Minneapolis–St. Paul | 3.8M | 368 | 6 | **6** |
 | 24 | Baltimore | 2.9M | 256 | 6 | **4** |
 | 25 | Charlotte | 2.9M | 232 | 6 | **4** |
-|  | **Total** | **138.4M** | **14,146** | **263** | **251** |
+|  | **Total** | **138.4M** | **14,146** | **263** | **271** |
 
-This is a multi-year mature-market planning case, not a year-one forecast. NAICS 722410 is an imperfect denominator: it includes bars that will never need Nitewide and excludes some alcohol-free clubs, restaurants, hotels, casinos, concert halls, and event operators that may be excellent customers. A working assumption that 15%–20% of the proxy is operationally addressable would make 251 venues roughly 9%–12% of the addressable subset. That addressable-share assumption must be replaced with a verified venue census during each market brief.
+This is a multi-year mature-market planning case, not a year-one forecast. NAICS 722410 is an imperfect denominator: it includes bars that will never need Nitewide and excludes some alcohol-free clubs, restaurants, hotels, casinos, concert halls, and event operators that may be excellent customers. The adopted 271 venues equal 1.92% of the full proxy. A working assumption that 15%–20% of the proxy is operationally addressable would make 271 venues roughly 10%–13% of the addressable subset. That addressable-share assumption must be replaced with a verified venue census during each market brief.
 
-Florida's local relationships may justify an operating target above the allocation—particularly in Miami, Orlando, and Tampa—but that should be recorded as a Florida execution advantage rather than labeled conservative population-based capture.
+The South Florida and Orlando overrides are recorded as a Florida execution advantage rather than a population-only result. Validate them through a venue census and partner pipeline covering Miami, Miami Beach, Fort Lauderdale, Palm Beach, and Orlando before treating them as forecast commitments.
 
-At unchanged unit economics, 251 active venue equivalents imply approximately $139.2 million of annual GMV, $14.1 million of platform revenue, and $169.0 million of illustrative enterprise value at 12× revenue. These outputs are sensitivities, not forecasts or guarantees.
+At unchanged unit economics, 271 active venue equivalents imply approximately $150.3 million of annual GMV, $15.2 million of platform revenue, and $182.4 million of illustrative enterprise value at 12× revenue. These outputs are sensitivities, not forecasts or guarantees.
 
 ## Rollout interpretation
 
