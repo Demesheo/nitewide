@@ -1,6 +1,16 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { assumptions, calculate, customerAdSlotsPerPage } = require('../../../scripts/florida-valuation-model');
+test('current policy assigns 7.5% + $0.79 to buyers and processing to organizers', () => {
+  const r = calculate();
+  assert.equal(assumptions.buyerFeeRate, .075);
+  assert.equal(assumptions.buyerFixedFee, .79);
+  assert.equal(assumptions.stripePaidBy, 'organizer');
+  assert.equal(r.buyerFees, r.faceValueGmv * .075 + r.transactions * .79);
+  assert.equal(r.organizerStripeCosts, r.stripeCosts);
+  assert.equal(r.platformStripeCosts, 0);
+  assert.equal(r.processorAdjustedContribution, r.grossPlatformRevenue);
+});
 
 test('Florida model takes 10% of venue-funded promoter kickbacks without changing attribution share', () => {
   const result = calculate();

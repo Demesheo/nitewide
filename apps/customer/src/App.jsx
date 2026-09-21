@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   ArrowRight,
@@ -38,10 +38,13 @@ import {
   SelectValue,
 } from "./components/ui/select";
 import { EventCard } from "./components/event-card";
-import { photo, eventDate, eventTime, artIndex } from "./lib/presentation";
+import { EventArtwork } from './components/event-artwork';
+import { NIGHTLIFE_ARTWORK, eventDate, eventTime } from "./lib/presentation";
 import { AuthDialog } from "./components/auth-dialog";
+import { focusEventDialogStart, openEventDialogAtTop } from './lib/dialog-focus';
 import { detectCurrentCity, localDateInputValue } from "./discovery-defaults";
 import { api } from "./lib/api";
+import { businessLink } from './lib/business-link';
 import {
   availableQuantity,
   checkoutTotal,
@@ -110,6 +113,11 @@ export default function App() {
     [notice, setNotice] = useState("");
   const locationEdited = useRef(false),
     pendingAuth = useRef(null);
+  const eventDialogRef = useRef(null);
+  const eventTitleRef = useRef(null);
+  useLayoutEffect(() => {
+    if (selected) focusEventDialogStart(eventDialogRef.current, eventTitleRef.current);
+  }, [selected?.id]);
   const [locationState, setLocationState] = useState("finding");
   async function loadEvents() {
     setLoadState("loading");
@@ -359,6 +367,7 @@ export default function App() {
             >
               <Ticket size={20} />
             </button>
+            <a className="business-nav-link" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a>
             {session ? (
               <>
                 <Button
@@ -430,8 +439,8 @@ export default function App() {
           <div className="hero-art">
             <img
               className="hero-photo"
-              src={photo(0, 1400)}
-              alt="Lights over a packed dance floor"
+              src={NIGHTLIFE_ARTWORK.dancefloor}
+              alt="Illustrative nightclub scene in blue and magenta light"
               fetchPriority="high"
             />
             <div className="hero-grain" />
@@ -796,8 +805,8 @@ export default function App() {
         <section className="vip-banner wrap">
           <div className="vip-visual">
             <img
-              src={photo(2)}
-              alt="Atmospheric lights at a night out"
+              src={NIGHTLIFE_ARTWORK.lounge}
+              alt="Illustrative velvet VIP lounge with atmospheric lighting"
               loading="lazy"
             />
             <span>THE GOOD LIFE, RESERVED.</span>
@@ -886,7 +895,11 @@ export default function App() {
           if (!open && !guestBusy) setSelected(null);
         }}
       >
-        <DialogContent className="event-modal">
+        <DialogContent
+          className="event-modal"
+          ref={eventDialogRef}
+          onOpenAutoFocus={(event) => openEventDialogAtTop(event, eventDialogRef.current, eventTitleRef.current)}
+        >
           <DialogHeader>
             <p className="eyebrow">
               {stage === "complete"
@@ -895,7 +908,7 @@ export default function App() {
                   ? "REVIEW YOUR NIGHT"
                   : "YOUR NIGHT STARTS HERE"}
             </p>
-            <DialogTitle>
+            <DialogTitle ref={eventTitleRef} tabIndex={-1}>
               {stage === "complete"
                 ? "Consider the plan made."
                 : selected?.title}
@@ -908,8 +921,7 @@ export default function App() {
           {selected && stage === "details" && (
             <>
               <div className="detail-art">
-                <img src={photo(artIndex(selected))} alt="" />
-                <small>Nightlife imagery for inspiration</small>
+                <EventArtwork event={selected} />
               </div>
               <p className="detail-description">
                 {selected.description ||
@@ -1063,7 +1075,7 @@ export default function App() {
                   </div>
                   <div>
                     <dt>
-                      Service fee <small>(8% + $0.89 / order)</small>
+                      Service fee <small>(7.5% + $0.79 / order; Stripe fees paid by organizer)</small>
                     </dt>
                     <dd>{money(totals.fee, offering.currency)}</dd>
                   </div>

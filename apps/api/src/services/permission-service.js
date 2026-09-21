@@ -5,6 +5,10 @@ function createPermissionService(models) {
     return Boolean(user?.isInternalAdmin || owner);
   }
   async function assertManageOrganization(userId, organizationId) { if (!(await canManageOrganization(userId, organizationId))) throw forbidden('Organization owner access required'); }
+  async function assertOwnOrganization(userId, organizationId) {
+    const [user, membership] = await Promise.all([models.User.findByPk(userId), models.OrganizationOwner.findOne({ where: { userId, organizationId, role: 'owner' } })]);
+    if (!user?.isInternalAdmin && !membership) throw forbidden('Organization owner access required');
+  }
   async function assertManageEvent(userId, eventId) {
     const event = await models.Event.findByPk(eventId); if (!event) throw notFound('Event');
     const user = await models.User.findByPk(userId);
@@ -15,14 +19,15 @@ function createPermissionService(models) {
     const event = await models.Event.findByPk(eventId); if (!event) throw notFound('Event');
     const user = await models.User.findByPk(userId);
     if (user?.isInternalAdmin || event.creatorUserId === userId || (event.organizationId && await canManageOrganization(userId, event.organizationId))) return event;
-    const [eventAffiliate, orgAffiliate] = await Promise.all([
+    const [eventAffiliate, orgAffiliate, employee] = await Promise.all([
       models.EventAffiliate.findOne({ where: { eventId, userId, status: 'active' } }),
       event.organizationId ? models.OrgAffiliate.findOne({ where: { organizationId: event.organizationId, userId, status: 'active' } }) : null,
+      event.organizationId ? models.OrganizationEmployee.findOne({ where: { organizationId: event.organizationId, userId, status: 'active' } }) : null,
     ]);
-    if (eventAffiliate || orgAffiliate) return event;
+    if (eventAffiliate || orgAffiliate || employee) return event;
     throw forbidden('Guestlist approval access required');
   }
   async function assertInternal(userId) { const user = await models.User.findByPk(userId); if (!user?.isInternalAdmin) throw forbidden('Internal administrator access required'); return user; }
-  return { canManageOrganization, assertManageOrganization, assertManageEvent, assertGuestlistApprover, assertInternal };
+  return { canManageOrganization, assertManageOrganization, assertOwnOrganization, assertManageEvent, assertGuestlistApprover, assertInternal };
 }
 module.exports = { createPermissionService };

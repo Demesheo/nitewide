@@ -43,8 +43,9 @@ function publicUser(user) {
 
 function createAuthService({ sequelize, models, tokenSecret, now = () => new Date() }) {
   async function rolesFor(user) {
-    const [memberships, orgAffiliateCount, eventAffiliateCount, createdEventCount] = await Promise.all([
+    const [memberships, employeeCount, orgAffiliateCount, eventAffiliateCount, createdEventCount] = await Promise.all([
       models.OrganizationOwner.findAll({ where: { userId: user.id }, attributes: ['role'] }),
+      models.OrganizationEmployee.count({ where: { userId: user.id, status: 'active' } }),
       models.OrgAffiliate.count({ where: { userId: user.id, status: 'active' } }),
       models.EventAffiliate.count({ where: { userId: user.id, status: 'active' } }),
       models.Event.count({ where: { creatorUserId: user.id } }),
@@ -53,6 +54,7 @@ function createAuthService({ sequelize, models, tokenSecret, now = () => new Dat
     if (user.isInternalAdmin) roles.push('internal_admin');
     if (memberships.some((membership) => membership.role === 'owner')) roles.push('organization_owner');
     if (memberships.some((membership) => membership.role === 'admin')) roles.push('venue_manager');
+    if (employeeCount) roles.push('employee');
     if (orgAffiliateCount || eventAffiliateCount) roles.push('promoter');
     if (createdEventCount) roles.push('event_creator');
     return roles;

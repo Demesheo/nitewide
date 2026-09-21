@@ -12,7 +12,7 @@ function createGuestlistService({ sequelize, models, now = () => new Date() }) {
       const requestedAt = now();
       const affiliate = await resolveAffiliate(models, { event, code: input.affiliateCode, now: requestedAt, transaction });
       if (input.affiliateCode) {
-        if (!affiliate.eventAffiliate) throw new DomainError('Affiliate must be selected for this event', { code: 'AFFILIATE_NOT_SELECTED' });
+        if (!affiliate.eventAffiliate) throw new DomainError('Promoter must be selected for this event', { code: 'AFFILIATE_NOT_SELECTED' });
       }
       const entry = await models.GuestlistEntry.create({
         eventId: event.id, userId: input.userId, eventAffiliateId: affiliate.eventAffiliate?.id,
@@ -40,10 +40,10 @@ function createGuestlistService({ sequelize, models, now = () => new Date() }) {
 
       if (entry.eventAffiliateId) {
         const eventAffiliate = await models.EventAffiliate.findByPk(entry.eventAffiliateId, { transaction, lock: transaction.LOCK.UPDATE });
-        if (!eventAffiliate) throw notFound('Event affiliate');
+        if (!eventAffiliate) throw notFound('Event promoter');
         const affiliate = await resolveAffiliate(models, { event, code: eventAffiliate.code, now: reviewedAt, transaction, lock: transaction.LOCK.UPDATE });
         const affiliateUsed = Number(await models.GuestlistEntry.sum('partySize', { where: { eventAffiliateId: entry.eventAffiliateId, status: { [Op.in]: ['confirmed', 'checked_in'] } }, transaction })) || 0;
-        if (affiliateUsed + entry.partySize > affiliate.guestlistAllocation) throw conflict('Affiliate guestlist allocation reached', 'AFFILIATE_GUESTLIST_FULL');
+        if (affiliateUsed + entry.partySize > affiliate.guestlistAllocation) throw conflict('Promoter guestlist allocation reached', 'AFFILIATE_GUESTLIST_FULL');
       } else {
         const directUsed = Number(await models.GuestlistEntry.sum('partySize', { where: { eventId: event.id, eventAffiliateId: null, status: { [Op.in]: ['confirmed', 'checked_in'] } }, transaction })) || 0;
         if (directUsed + entry.partySize > event.guestlistCapacity) throw conflict('Event direct guestlist capacity reached', 'GUESTLIST_FULL');

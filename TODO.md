@@ -4,6 +4,12 @@ This is the repository-level source of truth for near-term work. Product scope, 
 
 ## Completed foundation
 
+- [x] Simplify comparisons to platform rows / feature columns with checkmarks and explicit planned states. Align Customer, API, Business calculator, financial model and documentation on 7.5% + $0.79 per paid order to customers; organizer pays Stripe. Preserve historical receipts and order snapshots.
+
+- [x] Add one compact five-platform feature matrix combining current and planned capabilities, a highlighted Nitewide row, sourced rates, and a tested Posh buyer-fee comparison. Explain the opportunity for more in-venue spending without promising sales growth.
+
+- [x] Add a public Business splash with a dark shadcn theme, interactive sample dashboard, current/upcoming features, sourced competitor positioning, planned pricing, FAQs, and Customer → Business → sign-in navigation. Document deployment links and add route/content/navigation tests.
+
 - [x] Establish the Nitewide brand with a generic, multi-vertical event domain.
 - [x] Create the Express/Sequelize/PostgreSQL/PostGIS API and three web apps.
 - [x] Model multi-capability users, organization ownership, employees, `OrgAffiliate`, and `EventAffiliate` relationships.
@@ -11,8 +17,18 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [x] Add transactional inventory, pricing rules, affiliate precedence, QR issuance/check-in, and API tests.
 - [x] Add pending guestlist requests with staff/promoter approval and independent venue/promoter capacity pools.
 - [x] Seed 12 Orlando venues, Friday/Saturday/Sunday events, $10 GA, three bottle packages, staff, promoters, sales, and guestlist activity.
+- [x] Add a non-destructive, source-attributed Posh snapshot for September 21–October 20, 2026: 23 events / 11 flyers across four existing venues, Tier → OHM mapping, fixed Eastern dates, demo-commerce labels, and tested repeatable imports. See [source coverage and refresh instructions](docs/POSH_DEMO_DATA.md).
 - [x] Add customer registration/sign-in and demo users for customer, promoter, manager, owner, and admin personas.
 - [x] Default customer discovery to the visitor's current city and current day.
+- [x] Build dark shadcn Business sign-in, scoped sales charts, employee/affiliate attribution, filters, and CSV export (local MVP).
+- [x] Add role-enforced event/tier create/edit, optimistic conflict checks, sold-inventory guards, and guestlist review/limit controls.
+- [x] Add validated event artwork uploads, editor previews/replacement/removal, and uncropped customer-card/detail flyers.
+- [x] Give customer cards responsive 4:5 flyer frames, unobstructed artwork, local nightclub/VIP fallbacks, and tested image-error handling.
+- [x] Add six distinct Orlando venue mood images for Parlay, Eden, Shakai, Aura, La Rosa and Celine, with Instagram source notes, uploaded-flyer priority, city-safe matching and tested fallback chains.
+- [x] Prioritize real Instagram venue photos (including the supplied Parlay screenshot) over generated artwork; add source credits and stretch card flyers edge-to-edge. Local demo only; source/limitations documented.
+- [x] Open event dialogs at their title with scroll reset; keep all detail artwork portrait (4:5), including venue photos and fallbacks. Verify long flyers, mobile, keyboard navigation and reopening after scroll.
+- [ ] Obtain venue/rightsholder clearance and higher-resolution originals for Instagram demo photos before public release; replace Celine's event still if a preferred glamour photo is supplied.
+- [x] Document Business components/styles/roles and test real PostgreSQL workflows with isolated fixtures.
 
 ## Now — Sprint 0 and Sprint 1
 
@@ -21,8 +37,10 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [ ] Add CI for lint, tests, builds, migration validation, and dependency/security checks.
 - [ ] Add production authentication requirements: secure sessions, email verification, password reset, logout/revocation, throttling, and abuse controls.
 - [ ] Complete customer event detail, offering selection, cart, and checkout UI.
-- [ ] Select and implement the payment-provider foundation, idempotent webhooks, and reconciliation ledger.
-- [ ] Add organization onboarding and event/offering CRUD to Nitewide Business.
+- [x] Select Stripe Connect as the MVP processor while preserving the current 7.5% + $0.79 customer service fee and organizer-paid Stripe processing policy.
+- [ ] Implement the Stripe Connect foundation, direct-charge/account-liability ADR, hosted/embedded onboarding, idempotent webhooks, and reconciliation ledger.
+- [ ] Revisit the documented Stax Orlando partnership and cost-optimization proposal after launch when reconciled Stripe volume and operating data support negotiation.
+- [ ] Add organization onboarding and membership administration to Nitewide Business (event/offering create/edit is implemented).
 - [ ] Add admin RBAC and operational user/organization/event lookup.
 - [ ] Define product analytics events, consent rules, SLOs, and launch dashboards.
 
@@ -31,11 +49,12 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [ ] Complete customer orders, QR wallet, guestlist request/status, and ticket transfer.
 - [ ] Complete business guestlist review, promoter management, QR scanning, door sales, and live event operations.
 - [ ] Add refunds, chargebacks, payouts, platform fees, $249 Premium subscription billing, and boost billing.
-- [ ] Implement transparent buyer-funded checkout pricing and promoter reward economics: versioned 8% + $0.89 buyer service fee for both organization plans, configurable 10% affiliate service fee, gross/fee/net disclosure, multi-ticket order rules, proportional reversals, and reconciled contribution-margin reporting.
+- [ ] Implement transparent buyer-funded checkout pricing and promoter reward economics: versioned 7.5% + $0.79 buyer service fee for both organization plans, configurable 10% affiliate service fee on organizer-funded rewards, gross/fee/net disclosure, multi-ticket order rules, proportional reversals, and reconciled contribution-margin reporting.
 - [ ] Add transactional email/SMS delivery and durable QR delivery.
 - [ ] Add attendee event reminders, guestlist decision messages, actionable approval-queue alerts, and low-inventory/sold-out notifications across email, SMS, and in-app channels.
 - [ ] Add consent-based email/SMS marketing, customer preferences, suppression/unsubscribe handling, segmentation, attribution, and frequency caps.
-- [ ] Add business sales, attendance, affiliate, and inventory dashboards with filters and CSV export.
+- [ ] Extend implemented business sales/affiliate reports with attendance and inventory dashboards, paginated queries, and Premium entitlement gates.
+- [ ] Move local flyer storage to S3/CloudFront, add moderation/rate limits, and age-gated orphan cleanup.
 - [ ] Add admin transaction oversight, support tooling, audit explorer, moderation, and pricing configuration.
 - [ ] Add observability, alerts, backups, disaster-recovery drills, rate limits, secrets management, and background jobs.
 - [ ] Meet accessibility and public performance budgets; run load, security, and recovery tests.

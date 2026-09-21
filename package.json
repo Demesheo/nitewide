@@ -14,7 +14,9 @@
     "test": "npm test --workspaces --if-present",
     "model:florida": "node scripts/florida-valuation-model.js",
     "db:migrate": "npm run db:migrate --workspace @nitewide/api",
-    "db:seed": "npm run db:seed --workspace @nitewide/api"
+    "db:seed": "npm run db:seed --workspace @nitewide/api",
+    "db:seed:sales": "npm run db:seed:sales --workspace @nitewide/api",
+    "db:seed:posh": "node apps/api/src/db/import-posh.js"
   },
   "devDependencies": { "concurrently": "^9.1.2" },
   "engines": { "node": ">=20" }

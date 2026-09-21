@@ -22,6 +22,7 @@ The app is served on port 5173. Vite proxies `/api` to port 4000. A separately h
 | `src/main.jsx`                                       | React root, StrictMode, global stylesheet                                                                         |
 | `src/App.jsx`                                        | Discovery state, search, navigation, event details, booking review/confirmation, local wallet, guestlist requests |
 | `src/components/event-card.jsx`                      | Reusable discovery and weekly-results card; event selection and independent saved toggle                          |
+| `src/components/event-artwork.jsx`                   | Uploaded flyer → local mood artwork → CSS placeholder, with explicit illustrative labels and no error loops |
 | `src/components/auth-dialog.jsx`                     | Real login/registration, validation, loading/error states, session handoff                                        |
 | `src/components/ui/`                                 | Locally owned shadcn Button, Badge, Dialog, Input, Select, and Tabs components backed by Radix primitives         |
 | `src/lib/discovery.js`                               | Filtering, venue-local date keys, seven-day alternatives, availability, pricing, storage helpers                  |
@@ -73,6 +74,12 @@ The `@theme inline` block bridges these roles into shadcn/Tailwind names such as
 
 The card is an `article` with one native event-selection button inside its heading. `.card-open::after` stretches the button hit area over the entire article, so the photo, venue label, padding, price, and arrow all open the event. The heart is a sibling native button above that layer (`z-index: 2`) with `aria-pressed`. It neither opens the event nor nests inside another button. Keyboard users can activate either control with Enter/Space. Keep the stretched-button containing block on `.event-card`; do not add `position: relative` to the heading or card-copy wrapper without adjusting this pattern.
 
+Artwork frames use a consistent **4:5 portrait aspect ratio** at every breakpoint, including loading skeletons. Uploaded card flyers use `object-fit: fill` at the user's request: the entire image stretches edge to edge without letterboxing or cropping, and non-4:5 artwork intentionally changes proportions. Detail views preserve the original flyer proportions with `object-fit: contain`. Real venue photos use `cover` without filters; faces are not generated or retouched. The category, date/time and 44×44 save target sit below the artwork. Titles clamp visually to two lines but keep their full accessible name; flexible card-copy layouts align price rows. The date and time remain visible on mobile.
+
+Clamp `.card-title-text`, never `.card-open`: clipping the button itself can clip its stretched pseudo-element and break clicks on the flyer. Regression-check the actual image hit area, not only the heading button.
+
+`EventArtwork` resolves relative upload URLs against the configured API origin. Missing or broken flyers fall through to a real venue photo, then generated venue/generic mood artwork as a last resort, then a branded CSS placeholder without retry loops. `src/lib/venue-artwork.js` maps Parlay, Eden, Shakai, Aura, La Rosa and Celine to distinct locally bundled assets and records their Instagram handles, source posts and photo credits. Matching uses an exact organization slug (or normalized name alias when no slug exists) and an Orlando location, never the event title. Failure tracking uses resolved URLs, so replacement uploads and API-origin changes can load normally. Photos have venue alt text and a **Photo: @account** credit; generated fallbacks are decorative and labeled **Nitewide mood artwork**. Uploaded event artwork always takes precedence. See [source notes, usage-review requirements, asset paths and prompts](CUSTOMER_ARTWORK.md).
+
 ### AuthDialog
 
 Props: `open`, `onOpenChange`, `onSuccess(session)`. Uses shadcn Dialog for focus management, Escape handling, and labeling; Input/Button for form controls. Registration fields enforce the API password rules. Opening the dialog defaults to sign-in. A successful login returns to the pending checkout or wallet action.
@@ -87,7 +94,13 @@ An empty selected date displays that date and explains the lack of matching expe
 
 ### Event details and booking
 
-shadcn Dialog contains Tabs for tickets/tables and guestlist. Quantity controls respect sale windows, stock, and per-order minimum/maximum. Demo checkout shows the full amount plus **8% + $0.89 per paid order**. It collects no payment details and never calls `/orders`, changes inventory, or issues a valid admission credential. Guestlist submission does call the real API and remains pending until approved.
+Event dialogs deliberately cancel Radix's default first-control autofocus. Their title is programmatically focusable (`tabIndex=-1`), receives focus without scrolling, and the scroll container resets to zero on opening or event-ID changes. This prevents long artwork from jumping straight to the booking tabs. Normal Tab navigation, focus trapping and Escape dismissal remain enabled. `test/dialog-focus.test.js` covers cancellation, focus and repeat resets; browser regression checks should include a long flyer, close/reopen after scrolling, another event, and mobile.
+
+Detail artwork always uses a **4:5 portrait frame** for flyers, real venue photos, generated images and the missing-art placeholder. No image-presence-specific landscape or viewport-height override is used. Flyers retain their proportions within the frame; photos and generated art cover it. The dialog itself scrolls to expose the booking controls below the portrait artwork.
+
+The event dialog uses a non-shrinking flex column to prevent controls overlapping tall artwork. `overflow-anchor: none` prevents browser scroll anchoring from undoing the top reset when reopening content during the close animation.
+
+shadcn Dialog contains Tabs for tickets/tables and guestlist. Quantity controls respect sale windows, stock, and per-order minimum/maximum. Demo checkout shows the full amount plus **7.5% + $0.79 per paid order**, rounded to cents; free orders have no fee. Stripe processing is paid by the business/organization/creator and is not added to the customer total. `lib/checkout-fees.js` supplies the Customer and Business calculator fee and is parity-tested against the API. Existing stored preview receipts keep their original values. The demo collects no payment details and never calls `/orders`, changes inventory, or issues a valid admission credential. Guestlist submission does call the real API and remains pending until approved.
 
 ### Shared shadcn primitives
 
@@ -97,17 +110,19 @@ Use Button variants for primary/secondary/ghost actions, Badge for status labels
 
 - DM Sans for body/controls; Manrope for headings and wordmark. Fonts load from Google Fonts with swap behavior and sans-serif fallbacks.
 - `.wrap` limits content to 1264px with 40px desktop gutters, 28px intermediate gutters, and 20px mobile gutters.
-- Layout breakpoints: 1000px for compact desktop/tablet, 760px for stacked hero/search and two-column cards, 480px for single-column cards.
+- Layout breakpoints: 1000px for compact desktop/tablet and two-column cards, 760px for stacked hero/search, 480px for single-column cards, and 360px for a compact header. Larger screens use three card columns.
 - Cards use 13px corners; dialogs use 20px corners and scroll within 90–92dvh. Keep dialog width inside the viewport.
 - Use the existing skip link, visible focus styles, labeled icon buttons, loading skeletons, error/retry states, and live result announcements.
 - Respect `prefers-reduced-motion`; do not make content dependent on hover or animation.
-- Photography is mood imagery from Unsplash, not verified venue photography. The detail view labels it; approved event assets should replace it before public launch.
+- Default mood imagery is now locally bundled, AI-generated nightclub/VIP photography rather than remote Unsplash images. See [artwork assets and generation prompts](CUSTOMER_ARTWORK.md). Cards, hero and VIP feature use the coordinated assets; uploaded event flyers remain untouched.
 
 ## State, limits and testing
 
 Saved events are browser-local (`nitewide.saved`). Demo bookings are browser-local and filtered by signed-in user (`nitewide.demo-bookings`); they are not a synchronized or encrypted wallet. `nitewide.session` holds the existing API bearer session. The API discovery response is currently capped at 100 events; server-side search/pagination remains a production follow-up.
 
 Automated tests cover combined filtering, generic text fields, venue-local dates, next-week boundaries, month/year/leap/DST transitions, availability, and pricing parity with the API. For browser regression checks:
+
+Artwork tests additionally cover uploaded-image priority, missing/broken images, fallback failure, replacement URLs, API-origin changes, deterministic category selection, and the presence/size/format of bundled WebP files.
 
 1. Select a date with no results. Confirm the named date, next-seven-day range, retained filters, and no out-of-window cards.
 2. Select a date whose next week is empty. Confirm the explicit weekly empty state.

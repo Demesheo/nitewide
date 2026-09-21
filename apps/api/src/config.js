@@ -5,6 +5,7 @@ const schema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   DATABASE_URL: z.string().default('postgres://postgres:postgres@localhost:5432/nitewide'),
   DATABASE_SSL: z.enum(['true', 'false']).default('false'),
+  MEDIA_UPLOAD_DIR: z.string().optional(),
   CORS_ORIGINS: z.string().default('http://localhost:5173,http://localhost:5174,http://localhost:5175'),
   AUTH_TOKEN_SECRET: z.string().min(32).default('nitewide-development-secret-change-me'),
 });

@@ -1,7 +1,8 @@
 import { Heart, MapPin, ArrowUpRight } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { availableQuantity, cityName, money } from "../lib/discovery";
-import { photo, artIndex, eventDate, eventTime } from "../lib/presentation";
+import { eventDate, eventTime } from "../lib/presentation";
+import { EventArtwork } from "./event-artwork";
 export function EventCard({ event, saved, onSave, onOpen }) {
   const offerings =
     event.offerings?.filter((o) => availableQuantity(o) > 0) || [];
@@ -12,26 +13,28 @@ export function EventCard({ event, saved, onSave, onOpen }) {
     <article className="event-card">
       <div className="card-image">
         <div className="image-link">
-          <img src={photo(artIndex(event), 720)} alt="" loading="lazy" />
+          <EventArtwork event={event} loading="lazy" />
         </div>
-        <Badge className="photo-badge">
-          {event.category === "nightlife"
-            ? "AFTER DARK"
-            : event.category.replaceAll("_", " ").toUpperCase()}
-        </Badge>
-        <button
-          className={`save-button ${saved ? "saved" : ""}`}
-          aria-label={`${saved ? "Unsave" : "Save"} ${event.title}`}
-          aria-pressed={saved}
-          onClick={onSave}
-        >
-          <Heart size={17} fill={saved ? "currentColor" : "none"} />
-        </button>
-        <span className="image-date">
-          {eventDate(event)} <span>· {eventTime(event)}</span>
-        </span>
       </div>
       <div className="card-copy">
+        <div className="card-meta">
+          <Badge className="card-category">
+            {event.category === "nightlife"
+              ? "AFTER DARK"
+              : (event.category || 'experience').replaceAll("_", " ").toUpperCase()}
+          </Badge>
+          <button
+            className={`save-button ${saved ? "saved" : ""}`}
+            aria-label={`${saved ? "Unsave" : "Save"} ${event.title}`}
+            aria-pressed={saved}
+            onClick={onSave}
+          >
+            <Heart size={17} fill={saved ? "currentColor" : "none"} />
+          </button>
+        </div>
+        <p className="card-date">
+          <time dateTime={event.startsAt}>{eventDate(event)} <span>· {eventTime(event)}</span></time>
+        </p>
         <p className="venue-name">
           {event.organization?.name || "Independent experience"}
         </p>
@@ -41,7 +44,7 @@ export function EventCard({ event, saved, onSave, onOpen }) {
             onClick={onOpen}
             aria-label={`Explore ${event.title}`}
           >
-            {event.title}
+            <span className="card-title-text">{event.title}</span>
           </button>
         </h3>
         <p className="card-location">

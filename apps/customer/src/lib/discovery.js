@@ -1,4 +1,5 @@
 import { localDateInputValue } from "../discovery-defaults.js";
+import { checkoutFeeCents } from './checkout-fees.js';
 export const money = (cents, currency = "USD") =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -107,7 +108,7 @@ export function availableQuantity(offering, now = new Date()) {
 }
 export function checkoutTotal(priceCents, quantity) {
   const subtotal = priceCents * quantity;
-  const fee = subtotal > 0 ? Math.round(subtotal * 0.08) + 89 : 0;
+  const fee = checkoutFeeCents(subtotal);
   return { subtotal, fee, total: subtotal + fee };
 }
 export function readStorage(key, fallback) {

@@ -7,6 +7,8 @@ function initEvent(sequelize) {
     creatorUserId: { type: DataTypes.UUID, allowNull: false },
     organizationId: { type: DataTypes.UUID, allowNull: true },
     locationId: { type: DataTypes.UUID, allowNull: true },
+    imageAssetId: { type: DataTypes.UUID, allowNull: true },
+    imageUrl: { type: DataTypes.VIRTUAL, get() { const id = this.getDataValue('imageAssetId'); return id ? `/api/media/images/${id}` : null; } },
     title: { type: DataTypes.STRING(180), allowNull: false },
     slug: { type: DataTypes.STRING(200), allowNull: false, validate: { is: /^[a-z0-9]+(?:-[a-z0-9]+)*$/ } },
     summary: DataTypes.STRING(500),
@@ -27,4 +29,3 @@ function initEvent(sequelize) {
   return Event;
 }
 module.exports = { Event, initEvent };
-

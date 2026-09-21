@@ -1,0 +1,646 @@
+NITEWIDE + STAX CONNECT SALES CALL BRIEF
+Prepared: September 21, 2026
+Purpose: Founder preparation for an introductory and technical/commercial call with Stax
+
+CURRENT STATUS — SEPTEMBER 21, 2026
+Nitewide has selected Stripe Connect for the MVP because it is the easiest and fastest implementation path. The active pricing policy is unchanged: customers pay Nitewide 7.5% + $0.79 per paid order, and the host/organizer pays actual Stripe processing fees. This Stax brief is retained for a later partnership and cost-optimization discussion; Stax evaluation is not a launch dependency.
+
+IMPORTANT
+This is a planning and negotiation document, not a promise of future volume, legal conclusion, or representation that Stax has accepted Nitewide's preferred structure. Publicly documented Stax capabilities are labeled CONFIRMED PUBLICLY. Items labeled MUST CONFIRM require written technical documentation, pricing, and contract language. Merchant-of-record, money-transmission, tax, surcharge/service-fee, privacy, and liability conclusions require qualified counsel.
+
+
+======================================================================
+1. THE SHORT VERSION: WHAT I WANT FROM THE CALL
+======================================================================
+
+For a future commercial review, I want to determine whether Stax Connect could become a materially better replacement or secondary embedded-payments partner after Nitewide launches on Stripe Connect.
+
+Stax is especially interesting because:
+
+1. Nitewide is an Orlando startup launching first in Orlando and Florida.
+2. Stax was founded in Orlando and maintains its headquarters in Orlando.
+3. Stax Connect publicly supports embedded/white-label payments, submerchant enrollment and underwriting, APIs, partner webhooks, disputes, custom fees, and split funding.
+4. A local partnership could give both companies a strong Orlando-to-Florida case study.
+
+The decision cannot be based on location alone. To select Stax instead of Stripe Connect, Stax must provide:
+
+- Better complete economics at our expected volume, not merely a lower headline rate.
+- Written confirmation that each venue, organizer, or independent creator can be the seller and settlement merchant for its own transactions.
+- A structure in which merchant refunds, disputes, chargeback fees, fines, taxes, and unrecovered merchant losses are not silently transferred to Nitewide.
+- Onboarding and underwriting that work for both individuals/sole proprietors and legal business entities.
+- Reliable APIs/webhooks for payments, refunds, disputes, deposits, merchant status, reconciliation, and evidence submission.
+- A workable method for Nitewide's customer service fee and organizer-funded promoter rewards across cards and wallets.
+- Competitive funds availability and payout timing with accurate language about holds and bank arrival.
+- Named implementation, underwriting/risk, and incident contacts for an Orlando pilot.
+- Data export, token portability, and a practical exit/migration path.
+
+If Stax cannot meet these requirements in writing by our provider-decision deadline, Nitewide will use Stripe Connect as the schedule-safe fallback.
+
+
+======================================================================
+2. 60-SECOND OPENING TALK TRACK
+======================================================================
+
+"Nitewide is an Orlando-based, web-first event discovery, ticketing, VIP-package, guestlist, promoter, QR-admission, and business-operations platform. We are starting with nightlife because Orlando and Florida give us a strong launch market, but our underlying architecture is generic enough to support concerts, festivals, private events, and other ticketed experiences.
+
+We are evaluating Stax Connect against Stripe Connect. Stax has a unique strategic advantage because both companies are local to Orlando. I would like to explore a 10-to-20-venue Orlando design-partner pilot, followed by Miami, Fort Lauderdale, Tampa, and a path to roughly 80 active Florida venues if the pilot metrics work.
+
+We need venues, organizers, and independent creators to onboard as their own sellers and settlement merchants. Nitewide will provide the software, collect a clearly disclosed customer service fee, maintain the event and affiliate ledgers, and generate QR check-in evidence. We need Stax to handle compliant merchant onboarding, payment processing, settlement, and the processor-side dispute lifecycle.
+
+For us to choose Stax, the complete cost must be materially better than Stripe at our projected mix, and the written contract must clearly define merchant losses, negative balances, reserves, recovery, payouts, fees, wallets, and data portability. We would also like to discuss named local implementation support and whether Stax would participate in an Orlando case study or merchant-introduction program after a successful pilot."
+
+
+======================================================================
+3. NITEWIDE PRODUCT AND BUSINESS MODEL
+======================================================================
+
+Nitewide serves four overlapping groups:
+
+- Customers discovering events, buying tickets/packages, requesting guestlist access, and presenting QR credentials.
+- Venues and organizations managing events, inventory, employees, guests, sales, check-in, reporting, and payouts.
+- Independent event creators who may sell without forming or joining an organization.
+- Promoters/affiliates who receive organizer-funded referral rewards and may also receive guestlist allocations.
+
+One Nitewide user can hold several roles simultaneously. The payments model therefore cannot assume that every person is only a customer or only a business operator.
+
+Current product pricing:
+
+- Customer service fee: 7.5% of face-value subtotal plus $0.79 once per paid order.
+- Free organization plan: no Nitewide subscription or organizer-side platform transaction fee.
+- Optional Premium: $249 per month for advanced analytics, promoter ROI, CRM/marketing, and management capabilities; no transaction-fee discount.
+- Promoter monetization: the organizer funds the gross promoter reward; Nitewide retains 10% of that reward and the promoter receives 90% before adjustments.
+- Current approved implementation policy: the organizer pays actual payment-processing cost.
+- Deferred sensitivity only: Nitewide absorbs routine processing so organizers pay no routine processing or platform fees. This is not the active roadmap and would require a separately approved provider contract, unit-economics model, legal review, and risk plan.
+
+Every event sale is paid in full at checkout. Nitewide does not currently plan to advance unsettled funds.
+
+
+======================================================================
+4. PROJECTED FLORIDA PAYMENT VOLUME
+======================================================================
+
+These are conservative planning assumptions for a mature Florida cohort. They are not guaranteed commitments. Actual results will be reported by cohort and reconciled to processor statements.
+
+Core assumptions:
+
+- 80 active nightlife venues.
+- 4 selling nights per venue per week, 52 weeks per year.
+- VIP sales: $5,000 per venue-night on one-third of nights.
+- Average VIP checkout: $400, paid in full.
+- General-admission sales: $500 per venue-night.
+- Average GA checkout: $20.
+- Second vertical: one $5,000 ticket-only non-nightclub event for every ten nightclub event-nights.
+- Average non-nightclub checkout: $40.
+- 50% of transactions attributed to a promoter/affiliate.
+- 50% of venues purchase Premium at $249 per month.
+
+Annual face-value sales by category:
+
+- Nightclub VIP GMV: approximately $27.73 million.
+- Nightclub GA GMV: approximately $8.32 million.
+- Total nightclub GMV: approximately $36.05 million.
+- Ticket-only non-nightclub GMV: approximately $8.32 million.
+- Total face-value GMV: approximately $44.37 million.
+
+Annual checkout counts:
+
+- VIP checkouts: approximately 69,333.
+- GA checkouts: approximately 416,000.
+- Non-nightclub checkouts: approximately 208,000.
+- Total checkouts: approximately 693,333.
+- Average blended face-value checkout: approximately $64.00.
+
+Annual amount expected to be processed before tax:
+
+- Face-value GMV: approximately $44.37 million.
+- Customer service fees: approximately $3.88 million.
+- Total customer charge volume before tax: approximately $48.25 million.
+- Average monthly charge volume: approximately $4.02 million.
+- Average monthly transactions: approximately 57,778.
+- Average blended customer charge before tax: approximately $69.59.
+
+Initial processing profile to give underwriting and pricing:
+
+- Currency/country: U.S. dollars and U.S. sellers/customers at Florida launch.
+- Channel: primarily card-not-present ecommerce through a responsive web checkout.
+- Card-present volume: not included in the base projection; possible future door sales must be quoted separately.
+- ACH: not included in the base projection; it may be evaluated later for selected high-value purchases or business billing.
+- Modeled checkout values before tax: $22.29 for one $20 GA ticket, $43.79 for one $40 non-nightclub ticket, $430.79 for a $400 VIP package, and $1,075.79 for a $1,000 VIP package, using the current service fee.
+- Transaction-count mix: approximately 10% VIP, 60% nightclub GA, and 30% non-nightclub ticket sales.
+- Face-GMV mix: approximately 62.5% VIP, 18.75% nightclub GA, and 18.75% non-nightclub events.
+- Refund, cancellation, dispute, international-card, and wallet shares are not yet supported by production actuals. Ask Stax to show sensitivities instead of inventing a favorable assumption.
+- Seasonality and event-door bursts are expected. Nitewide needs authorization capacity and support that do not assume smooth daily volume.
+
+Illustrative rollout volume if the mature model scales roughly with venue count:
+
+VENUES     ANNUAL FACE GMV     ANNUAL CHARGE VOLUME*     TRANSACTIONS/YEAR
+10         $5.55 million       $6.03 million              86,667
+20         $11.09 million      $12.06 million             173,333
+40         $22.19 million      $24.12 million             346,667
+80         $44.37 million      $48.25 million             693,333
+
+*Charge volume includes the modeled Nitewide customer service fee but excludes tax and future optional items. This table is a proportional planning illustration, not a sales guarantee.
+
+Modeled annual Nitewide revenue at 80 venues:
+
+- Customer service fees: approximately $3.876 million.
+- Nitewide's 10% share of organizer-funded promoter rewards: approximately $277,000.
+- Premium subscriptions: approximately $120,000.
+- Contextual AdSense: approximately $19,000.
+- Aggregated, minimum-cohort insights: approximately $48,000.
+- Total gross platform revenue: approximately $4.339 million.
+
+Payment processing is the largest provider-sensitive cost. Under Stripe's public domestic online-card benchmark of 2.9% plus $0.30 applied to the full modeled charge volume, estimated annual processing is approximately $1.607 million before international-card, currency, refund, dispute, Connect, payout, or negotiated-pricing differences.
+
+
+======================================================================
+5. COMMERCIAL REQUIREMENT: BE MORE FAVORABLE THAN STRIPE CONNECT
+======================================================================
+
+Stripe benchmark to beat:
+
+- Public domestic online-card starting price: 2.9% + $0.30 per successful charge.
+- At the modeled Florida volume: approximately $1.607 million annually.
+- Stripe Connect says that when Stripe handles connected-user pricing there are no additional platform account, payout-volume, tax-reporting, or per-payout fees.
+- If a platform controls connected-user pricing, Stripe publicly lists $2 per monthly active account plus 0.25% + $0.25 per payout, subject to the chosen model and negotiated terms.
+- Stripe publicly states that, for eligible direct charges, the connected account pays processing, refunds, and chargebacks and Stripe covers account loss liability. The exact account configuration and contract still control.
+
+Required Stax proposal:
+
+1. Provide an all-in effective cost, not just processor markup.
+2. Show costs at the 10-, 20-, 40-, and 80-venue scenarios above.
+3. Separate interchange/network assessments, Stax markup, authorization, tokenization/gateway, platform, monthly minimum, merchant onboarding/KYC, PCI, refund, chargeback, retrieval, payout, instant funding, ACH, statement, account-update, wallet, and termination fees.
+4. State whether Nitewide receives revenue share or residuals and how those amounts are calculated, reversed, reported, and paid.
+5. State whether the proposal changes if venues pay processing versus Nitewide economically absorbing it.
+6. State every reserve, rolling reserve, hold, guarantee, minimum, volume commitment, exclusivity, term, auto-renewal, and early-termination provision.
+
+Nitewide's planning gates:
+
+- Maximum target: 2.60% all-in effective processing cost at the modeled mix.
+- Preferred scale band: 2.20% to 2.40% all-in.
+- The calculation must include every unavoidable platform and merchant processing charge.
+- A lower rate does not compensate for Nitewide-owned merchant losses, unacceptable reserves, missing wallets, weak dispute tooling, or poor portability.
+
+Illustrative annual processing sensitivity at $48.25 million charge volume:
+
+ALL-IN EFFECTIVE COST     ANNUAL PROCESSING     SAVINGS VS STRIPE BENCHMARK
+Stripe public benchmark  approximately $1.607M  baseline
+2.60%                    approximately $1.254M  approximately $353K
+2.40%                    approximately $1.158M  approximately $449K
+2.20%                    approximately $1.061M  approximately $546K
+
+Under the active policy, organizers pay processing, so these savings primarily improve organizer economics and Nitewide's competitiveness. Any future Nitewide-paid-processing experiment would require a separate decision because the same cost would directly reduce Nitewide contribution.
+
+QUESTION TO ASK DIRECTLY:
+
+"Using our projected card-not-present mix, average tickets, and rollout stages, what is Stax's complete effective cost at each stage, including every processor, platform, merchant, settlement, risk, and payout fee? Please provide the answer in writing and show which costs are fixed, variable, pass-through, negotiable, or subject to future repricing."
+
+
+======================================================================
+6. MERCHANT OF RECORD, SELLER, AND LOSS-LIABILITY REQUIREMENTS
+======================================================================
+
+Required outcome:
+
+- Each venue, organization, or independent creator is the seller and settlement merchant for its own event sales.
+- The buyer's receipt and statement descriptor clearly identify the responsible seller while also making Nitewide's service role understandable.
+- Nitewide is the software platform and fee recipient, not the default seller of every event.
+- Merchant refunds, disputes, chargeback fees, fines, taxes, prohibited activity, and merchant losses are charged to or recoverable from the responsible merchant, subject to applicable law and processor rules.
+- Nitewide must know every circumstance in which Stax can debit, reserve, hold, set off, or collect from Nitewide.
+- Nitewide will not accept uncapped or ambiguous liability for every submerchant without a separately approved capital, reserve, insurance, legal, and pricing plan.
+
+MUST CONFIRM IN WRITING:
+
+1. Who is the legal seller, settlement merchant, and merchant of record in the proposed Stax Connect structure?
+2. Whose name appears on the statement descriptor and receipt?
+3. Which party pays processing, refunds, dispute amounts, chargeback fees, network fines, and other merchant losses?
+4. If a merchant balance is negative, does Stax debit that merchant's settlement bank account? What authorization is required?
+5. What happens if merchant bank recovery fails or the account is closed?
+6. Can Stax use Nitewide funds, reserves, future residuals, or operating bank accounts to cover a submerchant loss? Under exactly what circumstances?
+7. Does Stax require Nitewide to guarantee, indemnify, repurchase, or reserve for submerchant obligations?
+8. Can Nitewide freeze payments or payouts for risky merchants while preserving existing customer/refund obligations?
+9. How are merchant deficits, recovery attempts, reserves, write-offs, and later recoveries exposed by API and reports?
+10. Which portions of this allocation are processor policy versus negotiable contract terms?
+
+Do not say on the call that QR check-in eliminates fraud or chargebacks. A check-in record is strong fulfillment evidence, but the issuer/network decides disputes and a scan does not necessarily prove that the cardholder authorized the purchase.
+
+
+======================================================================
+7. INDIVIDUAL AND BUSINESS SELLER ONBOARDING
+======================================================================
+
+Nitewide must support both:
+
+- Independent creators operating as individuals or sole proprietors.
+- LLCs, partnerships, private/public corporations, tax-exempt entities, and other approved organizations.
+
+CONFIRMED PUBLICLY IN STAX DOCUMENTATION:
+
+- Stax's enrollment schema lists Individual/Sole Proprietor, LLC, Partnership, Private Corporation, Public Corporation, tax-exempt, government, and other company types.
+- A sole proprietor without an EIN may use an SSN, subject to Stax underwriting.
+- Registration supports principal signer/control-owner information and additional representatives/beneficial owners.
+- Stax documentation requires information for people who directly or indirectly own 25% or more of an entity.
+- Auto-verification can check individuals/SSNs, business identity, and banking information.
+- Underwriting states include APPROVED, PENDED, and REJECTED; account status must be ACTIVE before processing.
+- Conditional approval can allow processing while some requirements remain pending, but funds may be held.
+- Hosted/hybrid enrollment, electronic signatures, document requirements/uploads, and underwriting-status webhooks are documented.
+
+NITEWIDE IMPLEMENTATION COMMITMENTS:
+
+- Prefer Stax-hosted or hybrid enrollment so SSNs, government IDs, beneficial-owner records, and bank details do not pass through or persist in Nitewide systems unless strictly required and approved.
+- Store only provider IDs, safe status fields, requirements summaries, accepted-terms versions, and audit metadata needed to operate the account.
+- Never allow live sales until the required underwriting and merchant-account capabilities are active.
+- Display pending/rejected/remediation states clearly and securely.
+- Listen for underwriting, electronic-signature, merchant-status, and account-change webhooks; reconcile rather than relying on a one-time onboarding result.
+- Require re-verification when ownership, bank, legal entity, or loss-liability configuration changes.
+- Restrict sensitive onboarding data to least-privilege staff and apply retention/deletion rules approved by counsel.
+
+QUESTIONS FOR STAX:
+
+1. Does Stax approve ticketing, nightlife, alcohol-serving venues, promoters, and independent event creators under the proposed model and MCCs?
+2. Which entity types can be onboarded through the same integration?
+3. Can an individual creator onboard as a sole proprietor before forming an LLC?
+4. What information is mandatory for each entity type, and which data can remain entirely in Stax-hosted pages?
+5. How are beneficial owners, control persons, sanctions, bank accounts, EIN/SSN, and documents verified?
+6. What are typical approval times, pend reasons, rejection rules, manual-review paths, and support SLAs?
+7. What does conditional approval permit, and when are funds held?
+8. Can Nitewide test every approval, pend, reject, document, and re-verification state in the partner sandbox?
+9. Who owns merchant KYC/KYB support and ongoing compliance remediation?
+10. How are merchant terms updated, reaccepted, and proven later?
+
+
+======================================================================
+8. CUSTOMER CHARGES, FEES, SPLITS, AND PROMOTER REWARDS
+======================================================================
+
+Required order economics:
+
+- Event face-value subtotal belongs economically to the organizer, subject to refunds, taxes, rewards, reserves, and processing.
+- Nitewide charges the customer 7.5% + $0.79 once per paid order.
+- The organizer may fund a promoter reward.
+- Nitewide retains 10% of that promoter reward; the promoter receives the remaining 90% after applicable adjustments.
+- All components must be itemized, reversible, auditable, and reconcilable.
+
+CONFIRMED PUBLICLY:
+
+- Stax documents API-driven custom fees.
+- Stax documents split funding across enrolled merchant funding bank accounts.
+- Stax documents idempotency for invoice payments and transaction-linked immutable records.
+
+CRITICAL LIMITATION TO DISCUSS:
+
+Stax's public custom-fee documentation says custom fees are not supported for Google Pay, Apple Pay, card-present, surcharged, or trust-account transactions. The payment may still succeed without the custom fee. That creates a launch-blocking risk if Nitewide's platform revenue depends on a fee being applied consistently.
+
+MUST CONFIRM IN WRITING:
+
+1. What is the correct Stax Connect mechanism for Nitewide to collect its service fee on card and wallet transactions?
+2. Can it work consistently for Apple Pay, Google Pay, future PayPal/Venmo support, and card-present door sales?
+3. If custom fees do not support wallets, can platform revenue instead be collected through processing markup, partner residual, settlement allocation, invoice, or another certified method?
+4. Does "split funding" support payments among a submerchant, Nitewide, and an affiliate, or only multiple bank accounts owned by one merchant?
+5. Can promoter rewards be held until settlement and paid later to verified individuals or businesses?
+6. Does Stax provide affiliate/mass-payout functionality and required tax reporting, or will Nitewide need a separate payout provider?
+7. Can every fee/split be reversed proportionally for partial refunds, disputes, canceled events, or invalid attribution?
+8. How are fee application failures reported synchronously and by webhook?
+9. Can Nitewide prevent fulfillment if its required fee/split instruction is rejected?
+10. What certifications and merchant disclosures does Stax require for platform/custom fees?
+
+
+======================================================================
+9. CHECKOUT, TOKENIZATION, PCI, AND PAYMENT METHODS
+======================================================================
+
+NITEWIDE REQUIREMENTS:
+
+- Mobile-first embedded or hosted checkout that does not require an app download.
+- Cards plus Apple Pay and Google Pay at launch; clear roadmap/option for PayPal/Venmo if Stax does not supply them.
+- Tokenization so Nitewide never stores full card numbers or CVV.
+- Support for recognizable descriptors, receipts, refunds, partial refunds, and saved methods where consented.
+- Server-authoritative totals and idempotent payment creation.
+- Fraud signals and step-up authentication appropriate to card-not-present ticketing and high-value VIP packages.
+- A documented PCI responsibility matrix and the smallest practical Nitewide PCI scope.
+
+CONFIRMED PUBLICLY:
+
+- Stax recommends browser-side Stax.js tokenization to reduce PCI obligations.
+- Stax states that direct server-side card collection expands scope and requires annual SAQ-D.
+- Full card number and CVV are used during tokenization rather than stored by Stax in the documented flow.
+- AVS responses are available, though Stax says AVS can only be tested on a live account and must be enabled through the account manager.
+
+QUESTIONS FOR STAX:
+
+1. Which hosted/embedded checkout or Stax.js pattern produces the smallest PCI scope for Nitewide?
+2. What SAQ does Stax expect Nitewide and each submerchant to complete?
+3. Are Apple Pay and Google Pay available in the same embedded flow, and what are their exact fees and domain/certification requirements?
+4. Is PayPal or Venmo available directly or through a supported combined architecture?
+5. Are network tokens, account updater, stored credentials, and credential-on-file consent supported?
+6. Are AVS and CVV results available through API/webhooks, and can policy be configured by merchant or platform?
+7. Is EMV 3-D Secure supported for card-not-present transactions? What liability shift and exemptions apply?
+8. What fraud engine, velocity rules, device signals, block/allow lists, risk scores, and manual-review controls are included or separately priced?
+9. Can risk rules be set at platform and merchant levels without venues accidentally weakening mandatory controls?
+10. What tools support high-value $300, $400, and $1,000 VIP-package transactions?
+
+
+======================================================================
+10. FRAUD, QR CHECK-IN, AND DISPUTE MANAGEMENT
+======================================================================
+
+Nitewide will create an auditable evidence chain:
+
+provider transaction -> Nitewide order -> order item -> ticket/admission credential -> signed opaque QR -> check-in record
+
+The QR contains an opaque, revocable credential, not payment IDs or customer data. Check-in records include event, entrance, timestamp, scanner/device, authorized operator, credential/key version, online/offline state, and reasoned manual overrides.
+
+CONFIRMED PUBLICLY:
+
+- Stax documents dispute retrieval, filters, response deadlines, evidence uploads, status tracking, and dispute webhooks.
+- Documented dispute states include INQUIRY, OPEN, PENDING, EVIDENCE_UPLOADED, PREARBITRATION, WON, LOST, and ACCEPTED.
+- Public documentation supports JPEG, PDF, PNG, and TIFF evidence files up to 10MB per document.
+- Stax partner webhooks include dispute creation; merchant-status and underwriting webhooks are also documented.
+- Stax states that the merchant is notified and may provide evidence to challenge a dispute.
+
+NITEWIDE IMPLEMENTATION COMMITMENTS:
+
+- Verify and idempotently persist every relevant webhook before acknowledging it.
+- Build a reason-specific evidence packet containing transaction/authentication results, receipt, accepted terms, refund policy, credential lifecycle, QR scan/check-in, lawful customer/account signals, communications, and refund/transfer history.
+- Notify authorized venue operators through a secure task; never email raw IDs, full evidence packets, QR secrets, or sensitive registration records.
+- Use the actual processor response deadline, not a fixed seven-day assumption.
+- Require human review before submitting evidence.
+- Apply reversible risk restrictions to disputed customer accounts; do not automatically label a customer fraudulent merely because a dispute was created.
+- Track dispute outcome, merchant debit, recovery, restrictions, and ledger adjustments.
+
+QUESTIONS FOR STAX:
+
+1. Which dispute lifecycle events are available by partner webhook beyond creation?
+2. Can Nitewide retrieve and submit evidence for all submerchants with properly scoped partner credentials?
+3. Can the venue also self-serve disputes in a Stax-hosted or embedded experience?
+4. Does the API expose exact response deadlines, reason codes, debited amount, chargeback fee, funding account, and final recovery?
+5. Can QR/check-in records and customer communications be submitted as structured or PDF evidence?
+6. When exactly is the merchant debited, and how is a winning dispute reinstated?
+7. What fraud tools and chargeback-monitoring programs are included?
+8. Who handles pre-arbitration and card-network monitoring thresholds?
+9. What are the chargeback, retrieval, evidence, and arbitration fees?
+10. What are the escalation contacts and response SLAs during a live event or material fraud incident?
+
+
+======================================================================
+11. SETTLEMENT, PAYOUTS, NEGATIVE BALANCES, AND RECONCILIATION
+======================================================================
+
+Required states in Nitewide:
+
+- pending
+- available
+- scheduled
+- in transit
+- paid
+- failed
+- reversed
+- held
+
+NITEWIDE REQUIREMENTS:
+
+- Schedule eligible standard payouts no later than 24 hours after funds become available.
+- Never market "money in the bank within 24 hours" unless the contract and actual bank-arrival data support that exact claim.
+- Never advance unsettled funds by default.
+- Receive transaction, fee, adjustment, dispute, deposit, payout, and bank-reconciliation data sufficient for an immutable subledger.
+- Reconcile every provider deposit to Nitewide orders and merchant balances with no unexplained variance.
+- Freeze payouts or new sales when risk, KYC, reserves, or failed negative-balance recovery requires it.
+
+QUESTIONS FOR STAX:
+
+1. Define transaction settlement, funds availability, payout initiation, deposit creation, and bank arrival separately.
+2. What is the normal card-not-present funding timeline for new and established event/nightlife merchants?
+3. What same-day or next-day options exist, and what eligibility, cutoff, weekend, reserve, and fee rules apply?
+4. What events/APIs identify deposits, funding instructions, holds, reserves, reversals, and failures?
+5. Can Nitewide control payout scheduling or holds by merchant?
+6. How does Stax attempt recovery of a negative merchant balance, and how is success/failure reported?
+7. Can funds be offset from future merchant processing before Stax seeks Nitewide funds?
+8. What reserves can Stax impose at merchant and platform levels, and how are they released?
+9. What reports provide gross sales, refunds, disputes, interchange, assessments, Stax fees, platform revenue, deposits, and merchant net?
+10. Are reports and APIs available in sandbox with representative failure/reversal cases?
+
+
+======================================================================
+12. ORLANDO PARTNERSHIP PROPOSAL
+======================================================================
+
+Suggested proposal:
+
+Phase 1: Technical and commercial validation
+
+- Partner sandbox access.
+- Weekly implementation call during integration.
+- Named solutions engineer and underwriting/risk contact.
+- Written fee, liability, reserves, settlement, payout, and termination schedule.
+- Test individual/sole-proprietor and LLC/corporate merchants.
+- Test card, wallet, refund, dispute, evidence, negative-balance, deposit, and reconciliation flows.
+
+Phase 2: Orlando design-partner pilot
+
+- 10 to 20 qualified Orlando venues/organizers.
+- Controlled live volume and explicit launch limits.
+- Weekly onboarding, authorization, conversion, cost, payout, dispute, support, and reconciliation review.
+- Joint remediation of merchant onboarding friction.
+- Stripe fallback and documented rollback remain available.
+
+Phase 3: Florida expansion
+
+- Expand to Miami, Fort Lauderdale, Tampa, and additional Florida markets.
+- Evidence-based path toward approximately 80 active venues.
+- Negotiate volume tiers as actual monthly processing crosses agreed thresholds.
+- Consider a joint case study only after metrics and merchant satisfaction pass.
+
+Partnership requests:
+
+- Named Orlando-area executive sponsor or partnership lead.
+- Named implementation and risk/underwriting escalation contacts.
+- Local working session at Stax or another Orlando location.
+- Warm introductions to appropriate Orlando merchants only if permitted and mutually valuable.
+- Co-marketing or a joint Florida case study after successful pilot evidence.
+- Written price tiers that improve automatically as verified volume grows.
+- Early notice and migration support for material API, underwriting, risk, or pricing changes.
+
+Suggested partnership language:
+
+"Because Nitewide and Stax are both Orlando companies, I think there is an opportunity to build more than a vendor relationship. Nitewide can become a visible local example of Stax Connect supporting a modern event platform from Orlando into the rest of Florida. I would like to discuss a structured design-partner pilot with named technical and risk contacts, measurable success criteria, and the possibility of a joint case study or local merchant introductions after we prove the model."
+
+
+======================================================================
+13. CALL AGENDA
+======================================================================
+
+0-5 minutes: Company and product fit
+
+- Deliver the 60-second opening.
+- Confirm Stax Connect is the correct product/team.
+- Confirm event ticketing/nightlife and independent creators are eligible verticals.
+
+5-15 minutes: Merchant and liability structure
+
+- Seller/settlement merchant/MoR structure.
+- Individuals versus business entities.
+- Loss liability, negative balances, reserves, and recovery.
+
+15-25 minutes: Money movement and product fit
+
+- Customer service fee across cards and wallets.
+- Organizer proceeds and promoter rewards.
+- Refund/dispute reversals and reconciliation.
+- Payout timing and reporting.
+
+25-35 minutes: Commercial proposal
+
+- Present the 10/20/40/80 venue projections.
+- Ask for complete effective costs at each stage.
+- Ask about partner residual/revenue share and automatic volume tiers.
+- Review contract term, minimums, reserves, and termination.
+
+35-45 minutes: Integration, risk, and pilot
+
+- Hosted/hybrid enrollment, KYC/KYB, sandbox, tokenization, PCI.
+- Fraud tools, AVS/CVV/3DS, disputes, evidence APIs, and QR evidence.
+- Named implementation/risk contacts and Orlando pilot structure.
+
+Final five minutes: Secure next steps
+
+- Confirm owners for commercial, technical, underwriting/risk, and legal follow-up.
+- Request sandbox access and documentation.
+- Request the written pricing and liability proposal.
+- Schedule the technical architecture session.
+- Agree on a date for open-question resolution and provider decision.
+
+
+======================================================================
+14. TOP QUESTIONS IF TIME IS SHORT
+======================================================================
+
+1. Can Stax support event/nightlife venues and independent event creators as separately underwritten sellers and settlement merchants?
+2. Who ultimately absorbs an unrecovered venue refund, dispute, chargeback fee, or negative balance under your proposed contract?
+3. Can Stax debit the responsible venue bank account, and what happens if recovery fails?
+4. What is our complete effective cost at 10, 20, 40, and 80 venues using the supplied volume and ticket mix?
+5. Can Nitewide collect its 7.5% + $0.79 customer service fee consistently on cards, Apple Pay, Google Pay, and card-present sales despite the documented custom-fee limitations?
+6. Can organizer proceeds, Nitewide fees, and promoter rewards be separately tracked, reversed, and reconciled?
+7. Does Stax support payouts to both individual and business promoters, or do we need another provider?
+8. What hosted onboarding keeps SSNs, beneficial-owner data, IDs, and bank details out of Nitewide's systems?
+9. Which fraud, AVS/CVV, 3DS, dispute-webhook, evidence, and risk controls are included and which cost extra?
+10. What local Orlando implementation, underwriting, partnership, merchant-introduction, and co-marketing support will Stax commit to?
+
+
+======================================================================
+15. RED FLAGS / REASONS NOT TO PROCEED
+======================================================================
+
+- Stax will not provide a complete written fee schedule.
+- The effective cost is not materially better than Stripe after all fees and reserves.
+- Nitewide must guarantee all submerchant losses or maintain an uneconomic reserve.
+- The venue cannot be the seller/settlement merchant for its own event sales.
+- Negative-balance and failed-recovery responsibility is ambiguous.
+- Platform/customer fees cannot be collected reliably on Apple Pay or Google Pay.
+- Promoter reward accounting cannot be reversed and reconciled.
+- Independent creators/sole proprietors or nightlife/event sellers are ineligible.
+- Onboarding forces Nitewide to retain raw SSNs, IDs, bank details, or full payment credentials without a compelling reason.
+- Required merchant, underwriting, dispute, deposit, or settlement events are not available by API/webhook.
+- There is no usable partner sandbox for failure and remediation states.
+- Funding-speed claims are marketing language without contractual definitions and reporting.
+- Data, tokens, and merchant records cannot be exported or migrated on termination.
+- Long exclusivity, auto-renewal, minimums, or termination fees remove Nitewide's safe fallback.
+- Stax cannot provide named implementation and risk escalation support for the pilot.
+
+
+======================================================================
+16. DOCUMENTS TO REQUEST AFTER THE CALL
+======================================================================
+
+- Full Stax Connect proposal and fee schedule.
+- Draft platform/partner agreement and merchant agreement.
+- Merchant-loss, chargeback, indemnity, reserve, recovery, and bank-debit terms.
+- Supported/prohibited vertical and MCC policy for event ticketing, nightlife, alcohol-serving venues, and promoters.
+- Individual/sole-proprietor and entity KYC/KYB field/document matrix.
+- Hosted/hybrid enrollment and partner-sandbox documentation/access.
+- API/webhook catalog and authentication/signature specification.
+- Custom-fee, partner-residual, split-funding, and wallet compatibility matrix.
+- Payout/funding schedule, cutoffs, holds, instant-funding eligibility, and fee schedule.
+- Fraud/AVS/CVV/3DS/risk product description and pricing.
+- Dispute lifecycle, evidence, pre-arbitration, and fee documentation.
+- Reconciliation, statement, deposit, interchange, and fee-report samples.
+- PCI responsibility matrix, attestation, and expected SAQ scope.
+- Security, incident-notification, privacy/DPA, subprocessors, uptime/support SLA, and business-continuity documents.
+- Data export, token portability, migration, termination, and transition-assistance terms.
+- Named contacts and written outline for the proposed Orlando pilot.
+
+
+======================================================================
+17. INTERNAL DECISION RULE AFTER THE CALL
+======================================================================
+
+Do not select Stax on the call.
+
+After receiving written materials:
+
+1. Score Stax against Stripe using the repository provider scorecard.
+2. Model total cost at the actual proposed card/wallet mix and all rollout stages.
+3. Have counsel review seller/MoR, merchant loss, reserves, recovery, fee disclosure, money movement, tax, privacy, indemnity, and termination.
+4. Prove onboarding, payments, fees, refunds, disputes, payouts, negative balances, and reconciliation in sandbox.
+5. Verify that the platform-fee mechanism works with Apple Pay and Google Pay.
+6. Run failure cases, not only successful payments.
+7. Approve a provider/account-model architecture decision record and rollback plan.
+8. Begin limited live processing only after all launch blockers are closed.
+
+Stax should be selected only if it produces better risk-adjusted economics than Stripe while matching Nitewide's required compliance, merchant isolation, payments, fraud/dispute, wallet, reporting, and operational capabilities.
+
+
+======================================================================
+18. PUBLIC SOURCES TO REVIEW
+======================================================================
+
+Stax company and Orlando headquarters:
+https://staxpayments.com/about-stax/
+
+Stax Connect overview:
+https://staxpayments.com/stax-connect/
+
+Stax merchant enrollment overview:
+https://docs.staxpayments.com/reference/enrollment-1
+
+Stax registration data and beneficial owners:
+https://docs.staxpayments.com/reference/update-merchant-registration-data
+
+Stax underwriting overview:
+https://docs.staxpayments.com/docs/underwriting-overview
+
+Stax underwriting/account statuses:
+https://docs.staxpayments.com/reference/get-merchant-registration-data
+
+Stax business entity information:
+https://docs.staxpayments.com/docs/business-information
+
+Stax partner webhooks:
+https://docs.staxpayments.com/docs/partner-webhooks
+
+Stax custom-fee limitations:
+https://docs.staxpayments.com/docs/custom-fees
+
+Stax split funding:
+https://docs.staxpayments.com/docs/split-funding-1
+
+Stax card tokenization and PCI note:
+https://docs.staxpayments.com/reference/create-a-payment-method
+
+Stax AVS:
+https://docs.staxpayments.com/docs/address-verification-system-avs
+
+Stax dispute management:
+https://docs.staxpayments.com/reference/dispute-management
+
+Stripe Connect pricing benchmark:
+https://stripe.com/connect/pricing
+
+Stripe Payments pricing benchmark:
+https://stripe.com/pricing
+
+Nitewide model and provider decision sources:
+docs/FLORIDA_50M_MODEL.md
+docs/FEE_POLICY.md
+docs/PAYMENT_PROVIDER_EVALUATION.md
+
+Revalidate all external claims and prices immediately before the call and again before signing.

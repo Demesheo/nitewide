@@ -12,8 +12,9 @@ const assumptions = Object.freeze({
   nonNightclubEventsPerNightclubEvent: 0.10,
   nonNightclubGmvPerEvent: 5_000,
   averageNonNightclubTransaction: 40,
-  buyerFeeRate: 0.08,
-  buyerFixedFee: 0.89,
+  buyerFeeRate: 0.075,
+  buyerFixedFee: 0.79,
+  stripePaidBy: 'organizer',
   promoterAttributedTransactionShare: 0.50,
   vipGrossPromoterKickback: 50,
   gaGrossPromoterKickback: 5,
@@ -85,7 +86,9 @@ function calculate(input = assumptions) {
   const aggregatedInsightsRevenue = input.aggregatedInsightsCustomers * input.aggregatedInsightsMonthlyPrice * 12;
   const privacySafeMonetizationRevenue = adsenseRevenue + aggregatedInsightsRevenue;
   const grossPlatformRevenue = buyerFees + promoterServiceFeeRevenue + premiumRevenue + privacySafeMonetizationRevenue;
-  const processorAdjustedContribution = grossPlatformRevenue - stripeCosts;
+  const platformStripeCosts = input.stripePaidBy === 'organizer' ? 0 : stripeCosts;
+  const organizerStripeCosts = input.stripePaidBy === 'organizer' ? stripeCosts : 0;
+  const processorAdjustedContribution = grossPlatformRevenue - platformStripeCosts;
   const otherDirectCostReserve = faceValueGmv * input.otherDirectCostReserveRate;
   const adsAndInsightsDirectCosts = privacySafeMonetizationRevenue * input.adsAndInsightsDirectCostRate;
   const operatingContribution = processorAdjustedContribution - otherDirectCostReserve - adsAndInsightsDirectCosts - input.annualOperatingBudget;
@@ -105,6 +108,8 @@ function calculate(input = assumptions) {
     buyerFees,
     customerCheckoutVolume,
     stripeCosts,
+    platformStripeCosts,
+    organizerStripeCosts,
     grossPromoterKickbacks,
     promoterServiceFeeRevenue,
     promoterNetRewards,
@@ -151,7 +156,8 @@ if (require.main === module) {
     'Aggregated insights revenue': currency(result.aggregatedInsightsRevenue),
     'Personal-data sale revenue': currency(result.personalDataSaleRevenue),
     'Gross platform revenue': currency(result.grossPlatformRevenue),
-    'Stripe processing estimate': currency(result.stripeCosts),
+    'Stripe estimate paid by organizers': currency(result.organizerStripeCosts),
+    'Stripe estimate paid by Nitewide': currency(result.platformStripeCosts),
     'Processor-adjusted contribution': currency(result.processorAdjustedContribution),
     'Other direct-cost reserve': currency(result.otherDirectCostReserve),
     'Annual operating budget': currency(result.annualOperatingBudget),

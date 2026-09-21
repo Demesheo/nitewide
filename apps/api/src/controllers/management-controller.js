@@ -1,4 +1,4 @@
-const { notFound } = require('../domain/errors');
+const { notFound, conflict } = require('../domain/errors');
 
 function createManagementController({ models, permissions }) {
   return {
@@ -22,6 +22,9 @@ function createManagementController({ models, permissions }) {
       await permissions.assertManageEvent(req.userId, req.params.eventId);
       const data = await models.Event.sequelize.transaction(async (transaction) => {
         const event = await models.Event.findByPk(req.params.eventId, { transaction, lock: transaction.LOCK.UPDATE });
+        if (!event) throw notFound('Event');
+        const used = Number(await models.GuestlistEntry.sum('partySize', { where: { eventId: event.id, eventAffiliateId: null, status: ['confirmed', 'checked_in'] }, transaction })) || 0;
+        if (req.body.guestlistCapacity < used) throw conflict(`Direct guestlist already has ${used} approved guests`);
         const before = { guestlistCapacity: event.guestlistCapacity };
         await event.update({ guestlistCapacity: req.body.guestlistCapacity }, { transaction });
         await models.AuditLog.create({ actorUserId: req.userId, organizationId: event.organizationId, entityType: 'Event', entityId: event.id, action: 'event.guestlist_capacity.updated', before, after: { guestlistCapacity: event.guestlistCapacity } }, { transaction });
@@ -32,8 +35,13 @@ function createManagementController({ models, permissions }) {
     updateAffiliateGuestlistAllocation: async (req, res) => {
       const event = await permissions.assertManageEvent(req.userId, req.params.eventId);
       const data = await models.Event.sequelize.transaction(async (transaction) => {
+        await models.Event.findByPk(event.id, { transaction, lock: transaction.LOCK.UPDATE });
         const affiliate = await models.EventAffiliate.findOne({ where: { id: req.params.eventAffiliateId, eventId: event.id }, transaction, lock: transaction.LOCK.UPDATE });
-        if (!affiliate) throw notFound('Event affiliate');
+        if (!affiliate) throw notFound('Event promoter');
+        const parent = req.body.guestlistAllocation === null && affiliate.orgAffiliateId ? await models.OrgAffiliate.findByPk(affiliate.orgAffiliateId, { transaction, lock: transaction.LOCK.UPDATE }) : null;
+        const limit = req.body.guestlistAllocation ?? parent?.defaultGuestlistAllocation ?? 0;
+        const used = Number(await models.GuestlistEntry.sum('partySize', { where: { eventAffiliateId: affiliate.id, status: ['confirmed', 'checked_in'] }, transaction })) || 0;
+        if (limit < used) throw conflict(`Promoter guestlist already has ${used} approved guests`);
         const before = { guestlistAllocation: affiliate.guestlistAllocation };
         await affiliate.update({ guestlistAllocation: req.body.guestlistAllocation }, { transaction });
         await models.AuditLog.create({ actorUserId: req.userId, organizationId: event.organizationId, entityType: 'EventAffiliate', entityId: affiliate.id, action: 'event_affiliate.guestlist_allocation.updated', before, after: { guestlistAllocation: affiliate.guestlistAllocation } }, { transaction });

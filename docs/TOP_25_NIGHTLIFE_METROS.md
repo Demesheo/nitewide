@@ -91,7 +91,7 @@ This is a multi-year mature-market planning case, not a year-one forecast. NAICS
 
 The South Florida and Orlando overrides are recorded as a Florida execution advantage rather than a population-only result. Validate them through a venue census and partner pipeline covering Miami, Miami Beach, Fort Lauderdale, Palm Beach, and Orlando before treating them as forecast commitments.
 
-At the current unit economics—including full payment on every sale, a $400 blended VIP checkout, an 8% + $0.89 buyer fee, and 50% promoter/affiliate attribution—271 active venue equivalents imply approximately $150.3 million of annual GMV, $15.6 million of platform revenue, and $186.9 million of illustrative enterprise value at 12× revenue. These outputs are sensitivities, not forecasts or guarantees.
+At the September 21 unit economics—including full payment on every sale, a $400 blended VIP checkout, a 7.5% + $0.79 buyer fee, organizer-paid Stripe processing, and 50% promoter/affiliate attribution—271 active venue equivalents imply approximately $150.3 million of annual GMV, $14.6 million of platform revenue, and $175.0 million of illustrative enterprise value at 12× revenue. These outputs are sensitivities, not forecasts or guarantees. See [current fee policy](FEE_POLICY.md); the regional ranking assumptions above are unchanged.
 
 ## Rollout interpretation
 

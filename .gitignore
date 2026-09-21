@@ -6,3 +6,4 @@ coverage/
 npm-debug.log*
 *.swp
 *.swo
+apps/api/uploads/

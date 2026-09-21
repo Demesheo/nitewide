@@ -1,9 +1,38 @@
 const express = require('express');
 const { asyncHandler, validate } = require('../http/middleware');
 const schemas = require('../http/schemas');
+const businessSchemas = require('../http/business-schemas');
+const { createBusinessService } = require('../services/business-service');
+const { createAdminService } = require('../services/admin-service');
+const adminSchemas = require('../http/admin-schemas');
+const { analyticsQuery } = require('../http/analytics-schemas');
+const { createAnalyticsService } = require('../services/analytics-service');
+const { createTeamService } = require('../services/team-service');
+const { z } = require('zod');
 
-function createRouter({ publicController, managementController, commerceController, authController, requireUser }) {
+function createRouter({ publicController, managementController, commerceController, authController, requireUser, models, permissions }) {
   const router = express.Router();
+  const business = createBusinessService({ models, permissions });
+  const admin = createAdminService({ models, permissions });
+  const analytics = createAnalyticsService({ models, permissions });
+  const team = createTeamService({ models, permissions });
+  const inviteInput = z.object({ email: z.string().trim().email().max(320), role: z.enum(['manager', 'employee', 'affiliate']) });
+  router.get('/business/organizations/:organizationId/team', requireUser, asyncHandler(async (req, res) => res.json({ data: await team.roster(req.userId, req.params.organizationId) })));
+  router.post('/business/organizations/:organizationId/invitations', requireUser, validate(inviteInput), asyncHandler(async (req, res) => res.status(201).json({ data: await team.invite(req.userId, req.params.organizationId, req.body) })));
+  router.delete('/business/organizations/:organizationId/invitations/:invitationId', requireUser, asyncHandler(async (req, res) => res.json({ data: await team.revoke(req.userId, req.params.organizationId, req.params.invitationId) })));
+  router.post('/business/organizations/:organizationId/invitations/:invitationId/resend', requireUser, asyncHandler(async (req, res) => res.json({ data: await team.resend(req.userId, req.params.organizationId, req.params.invitationId) })));
+  router.get('/team/invitations/:token', asyncHandler(async (req, res) => res.json({ data: await team.invitation(req.params.token) })));
+  router.post('/team/invitations/:token/accept', requireUser, asyncHandler(async (req, res) => res.json({ data: await team.accept(req.userId, req.params.token) })));
+  router.get('/admin/analytics', requireUser, asyncHandler(async (req, res) => res.json({ data: await analytics.adminReport(req.userId, analyticsQuery.parse(req.query)) })));
+  router.get('/business/analytics', requireUser, asyncHandler(async (req, res) => res.json({ data: await analytics.businessReport(req.userId, analyticsQuery.parse(req.query)) })));
+  router.get('/admin/workspace', requireUser, asyncHandler(async (req, res) => res.json({ data: await admin.workspace(req.userId, adminSchemas.reportQuery.parse(req.query)) })));
+  router.patch('/admin/users/:id', requireUser, validate(adminSchemas.userUpdate), asyncHandler(async (req, res) => res.json({ data: await admin.updateUser(req.userId, req.params.id, req.body) })));
+  router.patch('/admin/organizations/:id', requireUser, validate(adminSchemas.organizationUpdate), asyncHandler(async (req, res) => res.json({ data: await admin.updateOrganization(req.userId, req.params.id, req.body) })));
+  router.patch('/admin/events/:id', requireUser, validate(adminSchemas.eventUpdate), asyncHandler(async (req, res) => res.json({ data: await admin.updateEvent(req.userId, req.params.id, req.body) })));
+  router.post('/admin/demo-users', requireUser, validate(adminSchemas.demoUser), asyncHandler(async (req, res) => res.status(201).json({ data: await admin.createDemoUser(req.userId, req.body) })));
+  router.get('/business/workspace', requireUser, asyncHandler(async (req, res) => res.json({ data: await business.workspace(req.userId, businessSchemas.reportQuery.parse(req.query)) })));
+  router.post('/business/events', requireUser, validate(businessSchemas.eventEditor), asyncHandler(async (req, res) => res.status(201).json({ data: await business.saveEvent(req.userId, null, req.body) })));
+  router.put('/business/events/:eventId', requireUser, validate(businessSchemas.eventEditor), asyncHandler(async (req, res) => res.json({ data: await business.saveEvent(req.userId, req.params.eventId, req.body) })));
   router.post('/auth/register', validate(schemas.register), asyncHandler(authController.register));
   router.post('/auth/sign-in', validate(schemas.signIn), asyncHandler(authController.signIn));
   router.get('/auth/me', requireUser, asyncHandler(authController.me));

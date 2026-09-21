@@ -168,7 +168,16 @@ test("demo checkout matches server pricing and charges the fixed fee once per or
   }
   assert.deepEqual(checkoutTotal(40000, 1), {
     subtotal: 40000,
-    fee: 3289,
-    total: 43289,
+    fee: 3079,
+    total: 43079,
   });
+});
+test('customer preview matches API for cent rounding and adds no buyer Stripe charge', () => {
+  for (let cents = 0; cents <= 100000; cents++) {
+    const demo = checkoutTotal(cents, 1);
+    const server = pricing.calculatePricing({subtotalCents: cents});
+    assert.equal(demo.fee, server.platformFeeCents);
+    assert.equal(demo.total, server.totalCents);
+  }
+  assert.deepEqual(checkoutTotal(2000, 1), {subtotal: 2000, fee: 229, total: 2229});
 });

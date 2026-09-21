@@ -1,18 +1,39 @@
-const photos = [
-  "photo-1470229722913-7c0e2dbbafd3",
-  "photo-1514525253161-7a46d19cd819",
-  "photo-1516450360452-9312f5e86fc7",
-  "photo-1506157786151-b8491531f063",
-  "photo-1492684223066-81342ee5ff30",
-  "photo-1501386761578-eac5c94b800a",
-];
-export const photo = (index, width = 900) =>
-  `https://images.unsplash.com/${photos[Math.abs(index) % photos.length]}?auto=format&fit=crop&w=${width}&q=85`;
+import { venueArtwork, venuePhoto } from './venue-artwork.js';
+
+export const NIGHTLIFE_ARTWORK = {
+  dancefloor: '/images/afterhours-dancefloor.webp',
+  lounge: '/images/velvet-vip-lounge.webp',
+};
+export function eventImageSource(event, apiBase) {
+  if (!event.imageUrl) return null;
+  return apiBase && /^https?:\/\//.test(apiBase)
+    ? new URL(event.imageUrl, apiBase).href
+    : event.imageUrl;
+}
 export const artIndex = (event) =>
-  [...(event.organization?.name || event.title)].reduce(
+  [...(event.organization?.name || event.title || 'Nitewide')].reduce(
     (n, char) => n + char.charCodeAt(0),
     0,
   );
+export function genericFallbackArtwork(event) {
+  if (/concert|music|festival/.test(event.category || '')) return NIGHTLIFE_ARTWORK.dancefloor;
+  if (/private|dining|lounge|reservation/.test(event.category || '')) return NIGHTLIFE_ARTWORK.lounge;
+  return artIndex(event) % 2 ? NIGHTLIFE_ARTWORK.lounge : NIGHTLIFE_ARTWORK.dancefloor;
+}
+export function fallbackArtwork(event) {
+  return venuePhoto(event) || venueArtwork(event) || genericFallbackArtwork(event);
+}
+export function eventArtworkState(event, apiBase, failedSources = []) {
+  const uploaded = eventImageSource(event, apiBase);
+  if (uploaded && !failedSources.includes(uploaded)) return { src: uploaded, kind: 'flyer' };
+  const photo = venuePhoto(event);
+  if (photo && !failedSources.includes(photo)) return { src: photo, kind: 'photo' };
+  const fallback = [venueArtwork(event), genericFallbackArtwork(event)]
+    .find((src) => src && !failedSources.includes(src));
+  return fallback
+    ? { src: fallback, kind: 'illustration' }
+    : { src: null, kind: 'placeholder' };
+}
 export const eventDate = (event) =>
   new Date(event.startsAt).toLocaleDateString("en-US", {
     weekday: "short",
