@@ -45,6 +45,52 @@ Recent editorial rankings are inputs, not ground truth. Time Out's 2025 U.S. lis
 | 24 | Baltimore–Columbia–Towson | Independent music, arts, waterfront nightlife, university audiences | Useful Mid-Atlantic market that should be operated distinctly from nearby Washington. |
 | 25 | Charlotte–Concord–Gastonia | Rapid growth, banking workforce, sports, clubs, breweries, event districts | Attractive growth market and Southeast operating bridge, though current scene breadth trails higher-ranked metros. |
 
+## Data-backed conservative capture estimate
+
+The latest available Census County Business Patterns metro file reports **14,146 employer establishments** classified as NAICS 722410 across these 25 markets. That classification includes bars, taverns, nightclubs, and other drinking places. The same metros contain approximately **138.4 million residents** in the Census Bureau's July 2025 population estimates.
+
+The earlier 263-venue estimate represented 1.86% of this supply proxy and was reasonable in total, but its rank-based buckets overallocated several smaller markets and underallocated the largest supply pools. The revised base case is **251 retained active venue equivalents**:
+
+- set the mature portfolio target at 1.75% of the 722410 establishment proxy;
+- allocate 70% of the target by each metro's share of establishments and 30% by its share of population;
+- apply minimum mature-market floors of eight venues for ranks 1–8, six for ranks 9–15, and four for ranks 16–25;
+- count only retained venues sustaining recurring event and commerce activity—not contracts, registrations, or dormant accounts.
+
+| Rank | Metro | 2025 population | 2023 drinking-place establishments | Earlier estimate | Revised base |
+|---:|---|---:|---:|---:|---:|
+| 1 | New York | 20.1M | 2,554 | 25 | **42** |
+| 2 | Miami–Fort Lauderdale | 6.4M | 386 | 25 | **8** |
+| 3 | Las Vegas | 2.4M | 468 | 15 | **8** |
+| 4 | Chicago | 9.4M | 1,496 | 15 | **23** |
+| 5 | Los Angeles | 12.8M | 982 | 15 | **18** |
+| 6 | New Orleans | 1.0M | 371 | 15 | **8** |
+| 7 | Austin | 2.6M | 404 | 15 | **8** |
+| 8 | Atlanta | 6.5M | 292 | 15 | **8** |
+| 9 | San Diego | 3.3M | 348 | 9 | **6** |
+| 10 | Nashville | 2.2M | 181 | 9 | **6** |
+| 11 | Dallas–Fort Worth | 8.5M | 548 | 9 | **11** |
+| 12 | Orlando | 3.0M | 220 | 9 | **6** |
+| 13 | San Francisco–Oakland | 4.6M | 705 | 9 | **11** |
+| 14 | Houston | 7.9M | 719 | 9 | **13** |
+| 15 | Washington, D.C. | 6.5M | 330 | 9 | **7** |
+| 16 | Boston | 5.0M | 324 | 6 | **6** |
+| 17 | Philadelphia | 6.3M | 785 | 6 | **13** |
+| 18 | Tampa–St. Petersburg | 3.4M | 374 | 6 | **6** |
+| 19 | Denver | 3.1M | 449 | 6 | **7** |
+| 20 | Seattle | 4.2M | 513 | 6 | **8** |
+| 21 | Phoenix | 5.2M | 383 | 6 | **7** |
+| 22 | Detroit | 4.4M | 458 | 6 | **7** |
+| 23 | Minneapolis–St. Paul | 3.8M | 368 | 6 | **6** |
+| 24 | Baltimore | 2.9M | 256 | 6 | **4** |
+| 25 | Charlotte | 2.9M | 232 | 6 | **4** |
+|  | **Total** | **138.4M** | **14,146** | **263** | **251** |
+
+This is a multi-year mature-market planning case, not a year-one forecast. NAICS 722410 is an imperfect denominator: it includes bars that will never need Nitewide and excludes some alcohol-free clubs, restaurants, hotels, casinos, concert halls, and event operators that may be excellent customers. A working assumption that 15%–20% of the proxy is operationally addressable would make 251 venues roughly 9%–12% of the addressable subset. That addressable-share assumption must be replaced with a verified venue census during each market brief.
+
+Florida's local relationships may justify an operating target above the allocation—particularly in Miami, Orlando, and Tampa—but that should be recorded as a Florida execution advantage rather than labeled conservative population-based capture.
+
+At unchanged unit economics, 251 active venue equivalents imply approximately $139.2 million of annual GMV, $14.1 million of platform revenue, and $169.0 million of illustrative enterprise value at 12× revenue. These outputs are sensitivities, not forecasts or guarantees.
+
 ## Rollout interpretation
 
 This ranking measures nightlife-market attractiveness, not a rigid launch sequence. Nitewide's existing Florida-first plan remains the fastest learning path:
@@ -75,6 +121,8 @@ A signed venue is not an active venue equivalent. National scale and valuation m
 - [Time Out: 2025 U.S. nightlife top ten](https://www.timeout.com/usa/news/this-is-officially-americas-best-city-for-nightlife-right-now-072425)
 - [Time Out: 2024 nightlife survey and Austin result](https://www.timeout.com/usa/news/austin-was-just-named-one-of-the-best-nightlife-cities-in-the-world-081524)
 - [U.S. Census Bureau: Vintage 2025 metropolitan population estimates](https://www.census.gov/data/datasets/time-series/demo/popest/2020s-total-metro-and-micro-statistical-areas.html)
+- [U.S. Census Bureau: 2023 County Business Patterns metro dataset](https://www.census.gov/data/datasets/2023/econ/cbp/2023-cbp.html)
+- [U.S. Census Bureau: NAICS 722410 profile and industry definition](https://data.census.gov/profile/722410_-_Drinking_Places_%28Alcoholic_Beverages%29?codeset=naics~722410&g=010XX00US)
 - [Resonance Consultancy: America's Best Cities 2025](https://www.floridawesteda.com/wp-content/uploads/2025/06/Best-Cities-Americas-Best-Cities-2025.pdf)
 
 Refresh annually and whenever first-party Nitewide performance materially contradicts the ordering. Once sufficient marketplace data exists, rank markets primarily by retained supply, buyer liquidity, contribution margin, repeat behavior, and launch efficiency—not media reputation.
