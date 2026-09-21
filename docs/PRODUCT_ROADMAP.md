@@ -50,8 +50,8 @@ All dates are planning targets. A milestone ships only when its exit criteria pa
 | Milestone | Dates | Outcome and exit criteria |
 |---|---|---|
 | M0 — Foundation, entity, and architecture | Sep 20–27, 2026 | Backlog and solo-founder workflow are operational; CI is green; identity, payments, legal, analytics, hosting, and SLO decisions have owners; entity and banking work is initiated. |
-| M1 — Transaction-ready alpha | Sep 28–Oct 18, 2026 | A customer can discover, register, purchase in Stripe test mode, receive a QR credential, request guestlist access, and be checked in; business/admin users operate and reconcile the complete flow. |
-| M2 — Florida design-partner beta | Oct 19–Nov 15, 2026 | Design partners in Orlando, Miami, Fort Lauderdale, and Tampa can onboard, publish, sell, configure promoters/guestlists, scan entry, view balances, and read trusted reports. |
+| M1 — Transaction-ready alpha | Sep 28–Oct 18, 2026 | A customer can discover, register, purchase in Stripe test mode, receive an opaque signed QR credential, request guestlist access, and be checked in through an auditable payment-to-admission chain; business/admin users operate and reconcile the complete flow. |
+| M2 — Florida design-partner beta | Oct 19–Nov 15, 2026 | Design partners in Orlando, Miami, Fort Lauderdale, and Tampa can onboard, publish, sell, configure promoters/guestlists, scan entry, view balances, read trusted reports, and generate complete dispute-evidence packets. |
 | M3 — Florida public launch | Nov 16–Dec 15, 2026 | Real payments, refunds, risk controls, daily payout scheduling, legal policies, support runbooks, and production reliability gates pass for all four Florida launch markets. |
 | M4 — National launch readiness | Dec 16, 2026–Feb 28, 2027 | The Florida playbook is automated; national city scoring, timezone/tax configuration, privacy operations, partner onboarding, fraud controls, and support capacity are ready. |
 | M5 — National expansion | Mar 1–May 31, 2027 | Evidence-selected U.S. markets launch in waves using standardized acquisition, city operations, payments, reporting, and reliability controls rather than a fixed Southeast/Texas sequence. |
@@ -64,9 +64,9 @@ The accelerated launch uses one-week alpha sprints, two-week beta sprints, and l
 | Sprint | Dates | Primary deliverable |
 |---|---|---|
 | Sprint 0 | Sep 20–27 | Linear/GitHub planning, CI, architecture decisions, metrics, SLOs, and production risk register. |
-| Sprint 1 | Sep 28–Oct 4 | Managed identity, event detail/offer selection, organization/event CRUD, Stripe Connect spike, staging deployment. |
-| Sprint 2 | Oct 5–11 | Test checkout/webhooks, order/QR wallet, guestlist request/approval, QR/manual check-in, operational search. |
-| Sprint 3 | Oct 12–18 | Refund/balance ledger, affiliate links, live operations, alpha observability, security and end-to-end acceptance. |
+| Sprint 1 | Sep 28–Oct 4 | Managed identity, event detail/offer selection, organization/event CRUD, Stripe Connect charge/liability decision, staging deployment. |
+| Sprint 2 | Oct 5–11 | Test checkout/webhooks, order/QR wallet, guestlist request/approval, signed QR/manual check-in evidence chain, operational search. |
+| Sprint 3 | Oct 12–18 | Refund/balance ledger, dispute-evidence automation, affiliate links, live operations, alpha observability, security and end-to-end acceptance. |
 | Sprint 4 | Oct 19–Nov 1 | Florida market configuration, partner onboarding, staff roles, communications, reporting, and payout onboarding. |
 | Sprint 5 | Nov 2–15 | Four-market beta rehearsal, accessibility/performance/load work, support workflows, subscriptions and boosts. |
 | Sprint 6 | Nov 16–29 | Live-payment pilot, daily cleared-fund payout scheduling, legal policies/contracts, bookkeeping, reserves, and incident drills. |
@@ -87,6 +87,28 @@ The MVP default is Stripe Connect with Stripe-hosted or embedded onboarding and 
 - Reconcile payments, transfers, payouts, refunds, disputes, fees, commissions, and net organizer balances daily, with idempotent webhooks and alerts for unmatched money movement.
 
 Decision sources: [POSH balance and payout documentation](https://support.posh.vip/en/articles/15090213-managing-your-balance-payouts-bank-accounts), [POSH tax reporting](https://support.posh.vip/en/articles/15090259-tax-reporting-understanding-your-1099-k), [Stripe Connect payouts](https://docs.stripe.com/connect/supported-embedded-components/payouts), [Stripe separate charges and transfers](https://docs.stripe.com/connect/separate-charges-and-transfers), and [Stripe tax-form settings](https://docs.stripe.com/connect/tax-form-settings).
+
+## Admission evidence and dispute controls
+
+Mandatory QR check-in is a strong fulfillment control, not a guarantee against chargebacks or proof that the cardholder authorized the purchase. The issuer/card network decides disputes, and Connect liability depends on the connected-account configuration and whether Nitewide uses direct charges, destination charges, or separate charges and transfers. Nitewide must never market the system as “zero liability,” “unassailable,” or entirely autonomous.
+
+- Preserve the traceable chain `PaymentIntent/Charge → Order → OrderItem → Ticket → signed QR credential → CheckIn`; use immutable internal identifiers and provider references at each boundary.
+- Put only an opaque, revocable, cryptographically signed credential in the QR. Never expose a Stripe transaction ID, customer data, or reusable secret in the QR payload; store only the token hash where possible and retain signing-key version metadata.
+- Record the event, entrance, timestamp, scanner/device, authorized operator, credential state, signature/key version, online/offline mode, and reasoned manual override for every admission attempt. Duplicate, transferred, refunded, canceled, invalid, expired, and already-used states remain explicit.
+- Assemble a reason-specific evidence packet containing Stripe PaymentIntent/Charge and authentication results, order/receipt, accepted policy version, credential lifecycle, check-in record, purchase/login/device activity where lawful, customer communications, transfer/refund history, and a concise investigation summary.
+- Submit evidence through Stripe’s dispute APIs where supported, track deadlines and outcomes, and retain a human review/escalation path. Automation prepares and validates evidence; it does not blindly submit weak or irrelevant data.
+- Use Radar, risk scoring, recognizable statement descriptors, receipts, AVS/CVC signals, and 3D Secure when appropriate. 3D Secure can shift liability for qualifying fraudulent disputes, but exemptions and unsupported/failed authentication do not provide the same protection.
+- Choose and document the Connect charge model and negative-balance owner before production onboarding. Apply organizer limits, payout holds, reserves, transfer reversals, and recovery terms according to measured risk and written agreements.
+- Where a venue or organizer is the actual seller, evaluate direct charges on its connected account so the connected merchant can view and manage the payment and dispute. This is a preferred risk-isolation candidate, not a blanket rule: the Stripe account configuration still determines loss liability, and Nitewide must confirm merchant-of-record, refund, tax, support, and customer-experience consequences before adoption.
+- Do not treat `on_behalf_of` on a destination charge as a complete liability transfer. Stripe documents that destination-charge dispute amounts and fees are debited from the platform account, even when a connected merchant can participate in dispute management; recovery may require transfer reversal and can fail or be restricted.
+- A promoter receives merchant/dispute responsibility only when it is genuinely the contracting seller, has an eligible connected account, and passes onboarding and legal review. Nitewide cannot assign card-network or statutory responsibility to an unrelated promoter merely by naming it in the Terms.
+- Give responsible connected merchants a scoped Stripe-hosted or embedded dispute inbox with deadlines, notifications, evidence requirements, acceptance/submission controls, and escalation. Nitewide retains monitoring, audit, and emergency intervention even when the merchant performs the response.
+- Use organizer agreements to allocate permitted responsibilities for refunds, disputes, evidence cooperation, negative balances, reserves, transfer recovery, response deadlines, and indemnification. Contract terms reduce and recover exposure but cannot override Stripe rules, card-network decisions, non-waivable consumer law, privacy duties, or Nitewide’s own negligence.
+- Do not collect or retain full customer identity-document images by default. A door ID check or minimal attestation can supplement evidence, but an ID scan does not prove that the cardholder authorized the purchase. Any identity-document collection requires counsel-approved necessity, notice/consent, restricted access, encryption, short retention, deletion, incident handling, and jurisdiction-specific review.
+- Florida Statute §562.11 prohibits serving alcohol to people under 21 and describes defenses based on carefully checking approved identification and acting in good faith. The statute reviewed does not establish a universal statewide requirement that every nightclub electronically scan and retain every patron’s ID. Treat scanning and retention as venue/local policy until Florida counsel confirms applicable state law, local ordinances, licensing conditions, and privacy requirements.
+- Minimize and time-limit evidence data, restrict access, log every export/submission, and obtain counsel review for identity, device, location, and retention practices.
+
+Decision sources: [Stripe dispute categories and evidence](https://docs.stripe.com/disputes/categories), [Stripe dispute evidence examples](https://docs.stripe.com/disputes/visual-evidence), [Stripe Connect disputes](https://docs.stripe.com/connect/disputes), [Stripe Connect payment details and dispute management](https://docs.stripe.com/connect/supported-embedded-components/payment-details), [Stripe 3D Secure](https://docs.stripe.com/payments/3d-secure), and [Florida Statute §562.11](https://www.flsenate.gov/Laws/Statutes/2026/562.11).
 
 ## Application outcomes
 
@@ -130,6 +152,8 @@ Targets apply to the Florida public launch unless a later scale gate supersedes 
 - Public web: Core Web Vitals at p75 of LCP ≤ 2.5 seconds, INP ≤ 200 ms, and CLS ≤ 0.1 on representative mobile traffic.
 - API: p95 cached/read requests ≤ 300 ms and ordinary writes ≤ 500 ms, excluding third-party payment latency.
 - Door operations: online QR validation p95 ≤ 500 ms; duplicate, invalid, refunded, transferred, and already-used states are explicit.
+- Admission evidence: 100% of successful production admissions create an append-only credential/check-in record linked to the applicable order and payment; manual/offline exceptions are reconciled and reviewed.
+- Disputes: evidence completeness, submission timeliness, win rate by reason, dispute/fraud rate, losses, reserve coverage, and manual-review volume are measured without treating check-in as conclusive authorization proof.
 - Reliability: 99.9% monthly API availability target for the pilot, tested backups, documented recovery objectives, and alerts on checkout/check-in failures.
 - Correctness: zero accepted oversells in concurrency tests; webhooks and client retries cannot double-charge, double-issue, or double-check-in.
 - Accessibility: customer and operational critical paths meet WCAG 2.2 AA.
@@ -160,7 +184,7 @@ Valuation is determined by investors or buyers, market conditions, growth qualit
 | $250M–$500M platform case | National multi-vertical reach, mature payments/CRM/marketing products, enterprise controls, high marketplace liquidity, efficient acquisition, and scalable operations. |
 | $1B category-leader case | Category leadership with exceptional sustained growth, very large GMV/net revenue, international or major enterprise expansion, strong margins, and a defensible payments/data/distribution moat. |
 
-At each quarterly review, track GMV, net revenue, take rate, Gold MRR, gross/contribution margin, active organizations, published and transacting events, organizer activation, 30/90/180-day organizer retention, buyer conversion/repeat rate, acquisition cost/payback, refund/chargeback/fraud rates, support contacts per order, uptime, checkout success, check-in latency, and city-level supply/demand liquidity.
+At each quarterly review, track GMV, net revenue, take rate, Gold MRR, gross/contribution margin, active organizations, published and transacting events, organizer activation, 30/90/180-day organizer retention, buyer conversion/repeat rate, acquisition cost/payback, refund/chargeback/fraud rates and losses, dispute evidence completeness/timeliness/win rate by reason, admission scan coverage/manual overrides, reserve coverage, support contacts per order, uptime, checkout success, check-in latency, and city-level supply/demand liquidity.
 
 ## Architectural scale path
 

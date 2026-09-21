@@ -14,10 +14,10 @@ This document is the import map for the Nitewide Linear workspace. It keeps the 
 
 ## Linear synchronization status
 
-- Synchronized September 20, 2026 as 100 consecutive issues, `DEM-5` through `DEM-104`, with no missing identifiers or duplicate titles.
-- The original 53 issues were expanded in place; 47 operating, legal, finance, payment, expansion, communications, and marketing issues were added.
-- All 100 issues are intentionally unassigned and carry a project, milestone, priority, estimate, relevant labels, testable acceptance criteria, verification evidence, dependencies/risks, and a solo-founder execution note.
-- Milestone allocation is M0: 12, M1: 27, M2: 19, M3: 12, M4: 13, M5: 9, and M6: 8. No issue is missing a milestone.
+- Synchronized September 20, 2026 as 102 consecutive issues, `DEM-5` through `DEM-106`, with no missing identifiers or duplicate titles.
+- The original 53 issues were expanded in place; 49 operating, legal, finance, payment, admission-evidence, dispute-risk, expansion, communications, and marketing issues were added.
+- All 102 issues are intentionally unassigned and carry a project, milestone, priority, estimate, relevant labels, testable acceptance criteria, verification evidence, dependencies/risks, and a solo-founder execution note.
+- Milestone allocation is M0: 12, M1: 28, M2: 20, M3: 12, M4: 13, M5: 9, and M6: 8. No issue is missing a milestone.
 - The project runs from September 20, 2026 through September 20, 2027.
 - `Demesheo/nitewide` is linked to the `DEM` team with one-way GitHub → Linear issue creation. Updates to synchronized issues remain bidirectional; new Linear backlog items are not duplicated into GitHub Issues.
 - Linear's available workspace automation could not create or schedule cycles. Sprint dates are therefore retained in issue descriptions and in the roadmap until cycles are enabled or created manually.
@@ -223,6 +223,13 @@ These issues fill the operating, legal, financial, payments, launch, and nationa
 | COMMS-04 | P0 | 5 | M2 | Notify only authorized owners/managers/employees/hosts/promoters when guestlist, reservation, refund, transfer, or other approval requests need action; deep-link to the scoped queue and stop alerts after resolution. |
 | COMMS-05 | P1 | 5 | M2 | Emit low-inventory and sold-out transitions, alert configured operators once per state change, update public availability, support waitlists, and prevent alert storms or oversells. |
 | MKT-02 | P1 | 8 | M4 | Add consent-based email/SMS marketing with channel preferences, audience provenance, segmentation, templates, scheduling, tests, suppression/unsubscribe, frequency caps, campaign attribution, and compliance evidence. |
+
+## Admission evidence and dispute-risk expansion
+
+| ID | Pri | Pts | Target | Deliverable and acceptance summary |
+|---|---:|---:|---|---|
+| ADMIT-01 | P0 | 8 | M1 | Implement the auditable `PaymentIntent/Charge → Order → OrderItem → Ticket → signed opaque QR → CheckIn` chain; record credential/key version, event, gate, timestamp, scanner/operator, state, online/offline mode, and reasoned overrides without exposing payment or customer data in the QR. |
+| RISK-02 | P0 | 8 | M2 | Generate reason-specific Stripe dispute evidence packets from payment authentication, receipts/policies, credential lifecycle, check-in, lawful activity signals, communications, transfers/refunds, and investigation summary; provide responsible connected merchants a scoped dispute inbox, validate completeness/deadlines, require human review, submit/audit outcomes, and measure win/loss rates. Treat door ID as minimal supplemental evidence and prohibit default storage of full ID images without counsel-approved controls. |
 
 ## Backlog rules
 

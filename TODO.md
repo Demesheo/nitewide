@@ -16,7 +16,7 @@ This is the repository-level source of truth for near-term work. Product scope, 
 
 ## Now — Sprint 0 and Sprint 1
 
-- [x] Import the approved roadmap and 53 user stories into Linear and connect the GitHub repository.
+- [x] Import the approved roadmap and 102 user stories into Linear and connect the GitHub repository.
 - [ ] Add CI for lint, tests, builds, migration validation, and dependency/security checks.
 - [ ] Add production authentication requirements: secure sessions, email verification, password reset, logout/revocation, throttling, and abuse controls.
 - [ ] Complete customer event detail, offering selection, cart, and checkout UI.
@@ -39,6 +39,11 @@ This is the repository-level source of truth for near-term work. Product scope, 
 - [ ] Meet accessibility and public performance budgets; run load, security, and recovery tests.
 - [ ] Recruit design partners in Orlando, Miami, Fort Lauderdale, and Tampa and execute the Florida beta checklist.
 - [ ] Implement Stripe Connect onboarding, reconciled balance states, risk holds/reserves, and daily payouts scheduled within 24 hours after eligible funds clear.
+- [ ] Approve a Stripe Connect charge-model and negative-balance-liability ADR covering direct charges, destination charges, separate charges/transfers, refunds, disputes, reserves, and recovery.
+- [ ] Have counsel validate merchant-of-record and seller responsibilities, connected-merchant dispute obligations, reserve/recovery/indemnity terms, consumer support duties, and the limits of contractual risk transfer.
+- [ ] Complete the opaque signed-QR payment-to-admission evidence chain, mandatory scan policy, offline/manual reconciliation, and append-only check-in audit records.
+- [ ] Automate reason-specific Stripe dispute evidence packets and a connected-merchant dispute inbox with deadlines, scoped human review, submission auditing, outcomes, and dispute-control metrics.
+- [ ] Adopt a privacy-minimizing door identity policy: do not retain full ID images by default; require counsel-approved necessity, consent, encryption, access, retention/deletion, and incident controls for any exception.
 - [ ] Engage qualified legal/tax/accounting specialists; form the advised entity, obtain an EIN, evaluate an S-corporation election, open business banking, and establish books.
 - [ ] Complete customer terms/privacy/refund policies plus organizer, affiliate, payment, and data-processing agreements before public launch.
 
