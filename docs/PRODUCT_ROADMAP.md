@@ -232,12 +232,14 @@ Valuation is determined by investors or buyers, market conditions, growth qualit
 |---|---|
 | ~$1M foundation narrative | Working end-to-end product, coherent model, reliable test environment, design partners, measurable funnel, and clear security/payment plan. |
 | ~$5M–$10M seed case | One-city product-market-fit evidence, repeat organizers, growing paid GMV/net revenue, healthy activation and event retention, controlled support burden, and reliable checkout/admission. |
-| ~$25M–$50M growth case | Repeatable 3–5 city playbook, strong cohort retention, improving contribution margin, multi-million-dollar annual GMV, meaningful transaction plus subscription revenue, and mature controls. |
+| ~$25M–$50M growth case | Validate the reproducible Florida operating model: target 80 retained active venues, ~$32.7M face-value GMV, ~$3.2M gross platform revenue, reconciled positive contribution, durable venue/buyer/promoter cohorts, Premium usage, low concentration, and a repeatable national playbook. A $50M outcome requires either materially more scale or premium strategic evidence; it is not inferred from one comparable multiple. |
 | $100M exit-ready case | Defensible multi-city supply/demand network, differentiated customer/affiliate data graph, durable organizer retention, high-quality recurring net revenue, clean IP/contracts/financials, and credible strategic synergies. |
 | $250M–$500M platform case | National multi-vertical reach, mature payments/CRM/marketing products, enterprise controls, high marketplace liquidity, efficient acquisition, and scalable operations. |
 | $1B category-leader case | Category leadership with exceptional sustained growth, very large GMV/net revenue, international or major enterprise expansion, strong margins, and a defensible payments/data/distribution moat. |
 
 At each quarterly review, track GMV, net revenue, take rate, Premium MRR, Premium attach/churn, subscription gross margin, gross/contribution margin, active organizations, published and transacting events, organizer activation, 30/90/180-day organizer retention, buyer conversion/repeat rate, acquisition cost/payback, refund/chargeback/fraud rates and losses, dispute evidence completeness/timeliness/win rate by reason, admission scan coverage/manual overrides, reserve coverage, support contacts per order, uptime, checkout success, check-in latency, and city-level supply/demand liquidity.
+
+The calculation, assumptions, sensitivity table, and $50M evidence gates are maintained in [the Florida operating model](FLORIDA_50M_MODEL.md). Reforecast it from reconciled actuals each month; do not hard-code its assumptions into product behavior.
 
 ## Architectural scale path
 

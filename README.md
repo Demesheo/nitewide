@@ -79,9 +79,14 @@ npm test
 
 # Production builds of all web apps
 npm run build
+
+# Recalculate the conservative Florida operating model
+npm run model:florida
 ```
 
 The API development process uses a normal Node process for compatibility with macOS file-watch limits. Restart `npm run dev` after changing API code; the Vite web apps still refresh automatically.
+
+The assumptions, outputs, valuation sensitivities, and evidence gates behind the Florida model are documented in [docs/FLORIDA_50M_MODEL.md](docs/FLORIDA_50M_MODEL.md).
 
 Tests use Node's test runner and exercise the REST boundary, pricing rules, affiliate precedence, transactional checkout behavior, and inventory oversell rejection. A real Postgres instance is used for migrations and local execution; tests deliberately inject repositories at the service boundary so they stay fast and deterministic.
 
