@@ -38,6 +38,12 @@ test('owners and managers can review direct and all referred guestlist entries',
     assert.equal(scope.canReviewAny, true);
   }
 });
+test('creating an organization event alone does not grant direct guestlist approval', async () => {
+  const models = modelsFor();
+  models.Event.findByPk = async () => ({id:'event-1',creatorUserId:'user-1',organizationId:'org-1'});
+  const permissions = createPermissionService(models);
+  await assert.rejects(permissions.guestlistReviewScope('user-1','event-1'),{code:'FORBIDDEN'});
+});
 
 test('automatic employee referrals allow only own approvals and stop when employment ends', async () => {
   const assignment = { id:'staff-event', code:'STAFFEV-fixture', status:'active' };

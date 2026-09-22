@@ -9,8 +9,8 @@ import { eventPhase, selectEvents } from '@/lib/events';
 import { EventTable } from './EventTable';
 import { EventDetail } from './EventDetail';
 
-export function Events({ data, session, onEdit, onCreate, onUnauthorized }) {
-  const [selectedId, setSelectedId] = useState(null);
+export function Events({ data, session, onEdit, onCreate, onUnauthorized, ownOnly = false, initialEventId = null }) {
+  const [selectedId, setSelectedId] = useState(initialEventId);
   const [view, setView] = useState('upcoming');
   const [search, setSearch] = useState('');
   const [from, setFrom] = useState('');
@@ -23,7 +23,7 @@ export function Events({ data, session, onEdit, onCreate, onUnauthorized }) {
   const counts = { upcoming: data.events.filter((e) => ['upcoming', 'live'].includes(eventPhase(e, now))).length, past: data.events.filter((e) => eventPhase(e, now) === 'past').length, draft: data.events.filter((e) => eventPhase(e, now) === 'draft').length };
   return <div className="events-workspace">
     <div className="event-summary-strip">{[['upcoming', 'On the horizon'], ['past', 'Past experiences'], ['draft', 'In the making']].map(([key, label]) => <button key={key} onClick={() => setView(key)} className={view === key ? 'selected' : ''}><span>{label}</span><strong>{counts[key]}</strong><CalendarDays size={20}/></button>)}</div>
-    <section className="panel event-library"><div className="section-heading"><div><span className="eyebrow">YOUR EVENT COLLECTION</span><h2>Every event. The whole picture.</h2><p>Open an event for sales, people, admissions, and customer spending.</p></div></div>
+    <section className="panel event-library"><div className="section-heading"><div><span className="eyebrow">YOUR EVENT COLLECTION</span><h2>{ownOnly ? 'Your event activity' : 'Every event. The whole picture.'}</h2><p>{ownOnly ? 'Open an event to see your own sales, referred customers, and guestlists.' : 'Open an event for sales, people, admissions, and customer spending.'}</p></div></div>
       <Tabs value={view} onValueChange={setView}><TabsList aria-label="Event timeline"><TabsTrigger value="upcoming">Upcoming & live</TabsTrigger><TabsTrigger value="past">Past</TabsTrigger><TabsTrigger value="draft">Drafts</TabsTrigger><TabsTrigger value="all">All events</TabsTrigger></TabsList></Tabs>
       <div className="event-filters"><div className="search-field"><Search size={16}/><Input aria-label="Search events" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)}/></div><Field id="events-from" label="From" type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)}/><Field id="events-to" label="Through" type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)}/>{(from || to || search) && <Button variant="ghost" onClick={() => {setFrom(''); setTo(''); setSearch('');}}>Clear filters</Button>}</div>
       {rows.length ? <div className="event-library-table"><EventTable searchable={false} rows={rows} onSelect={(e) => setSelectedId(e.id)} columns={[
@@ -34,7 +34,7 @@ export function Events({ data, session, onEdit, onCreate, onUnauthorized }) {
         {key:'paidOrders',label:'Orders',numeric:true},
         {key:'canManage',label:'Access',render:(e) => e.canManage ? 'Event manager' : 'Your referrals'},
         {key:'id',label:'Details',render:(e) => <Button variant="ghost" size="sm" onClick={() => setSelectedId(e.id)} aria-label={`Open ${e.title}`}><ArrowUpRight size={18}/></Button>},
-      ]}/></div> : <Empty title="No events in this view"><span>Choose another date or start planning your next event.</span><Button variant="outline" onClick={onCreate}>Create event</Button></Empty>}
+      ]}/></div> : <Empty title="No events in this view"><span>{ownOnly ? 'Choose another date or ask your venue manager about event access.' : 'Choose another date or start planning your next event.'}</span>{!ownOnly && <Button variant="outline" onClick={onCreate}>Create event</Button>}</Empty>}
     </section>
   </div>;
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, X, Users, Save } from "lucide-react";
+import { Check, X, Users, Save, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Choice, Empty, Field } from "./controls";
 import { api } from "@/lib/api";
@@ -9,15 +10,20 @@ import { sortTableRows } from '@/lib/table-sort';
 import { eventDateLabel } from '@/lib/business';
 import { MultiSelect } from './MultiSelect';
 import { guestlistEventName, guestlistStatuses, guestlistStatusesForEvent, guestlistStatusQuery, reviewableGuestlistEvents } from '@/lib/guestlists';
+import { customerLink } from '@/lib/customer-link';
 
-export function Guestlists({ events, session, expire }) {
+export function Guestlists({ events, session, expire, initialEventId = null, initialEntryId = null }) {
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const availableEvents = reviewableGuestlistEvents(events, currentTime);
   const hasReviewableEvent = events.some((event) => event.canReviewGuestlist ?? event.canManage);
-  const [eventId, setEventId] = useState(availableEvents[0]?.id || "");
-  const [statuses, setStatuses] = useState(['pending']);
+  const [eventId, setEventId] = useState(initialEventId || availableEvents[0]?.id || "");
+  const [statuses, setStatuses] = useState(initialEntryId ? [] : ['pending']);
   const [entries, setEntries] = useState([]);
   const [settings, setSettings] = useState(null);
+  const [invitePools, setInvitePools] = useState(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteResult, setInviteResult] = useState(null);
+  const [inviteContact, setInviteContact] = useState('email');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [activeEntryId, setActiveEntryId] = useState(null);
@@ -32,6 +38,7 @@ export function Guestlists({ events, session, expire }) {
   const availableStatuses = guestlistStatusesForEvent(selected, currentTime);
   const pendingOnly = statuses.length === 1 && statuses[0] === 'pending';
   const activeEntry = entries.find((entry) => entry.id === activeEntryId);
+  useEffect(() => { if (initialEntryId && entries.some((entry) => entry.id === initialEntryId)) setActiveEntryId(initialEntryId); }, [initialEntryId, entries]);
   const sortedEntries = sortTableRows(entries.map((entry) => ({ ...entry, guestName: entry.user?.displayName || 'Guest', partyValue: entry.partySize, sourceValue: entry.source === 'affiliate' ? entry.eventAffiliate?.user?.displayName || 'Unknown referrer' : 'Direct', requestedValue: Date.parse(entry.createdAt) })), sortKey, descending);
   const pager = useTablePagination(sortedEntries, entries, `${eventId}:${statuses.join(',')}:${sortKey}:${descending}`);
   const head = (label, key) => <th scope="col"><button type="button" className="analytics-sort" onClick={() => { if (sortKey === key) setDescending(!descending); else { setSortKey(key); setDescending(key === 'partyValue' || key === 'requestedValue'); } }}>{label}<span aria-hidden="true">{sortKey === key ? (descending ? ' ↓' : ' ↑') : ' ↕'}</span></button></th>;
@@ -51,6 +58,7 @@ export function Guestlists({ events, session, expire }) {
     setError("");
     setEntries([]);
     setSettings(null);
+    setInvitePools(null);
     if (!eventId || !selected) return;
     setLoading(true);
     Promise.all([
@@ -58,11 +66,13 @@ export function Guestlists({ events, session, expire }) {
       selected.canManage
         ? api(`/business/events/${eventId}/guestlist-settings`, session)
         : null,
+      api(`/business/events/${eventId}/guestlist-invite-pools`, session),
     ])
-      .then(([list, limits]) => {
+      .then(([list, limits, pools]) => {
         if (active) {
           setEntries(list);
           setSettings(limits);
+          setInvitePools(pools);
         }
       })
       .catch((e) => {
@@ -130,6 +140,30 @@ export function Guestlists({ events, session, expire }) {
       setBusy(false);
     }
   }
+  async function sendInvite(e) {
+    e.preventDefault();
+    const values = new FormData(e.currentTarget);
+    const selectedPool = values.get('pool');
+    setBusy(true); setError(''); setInviteResult(null);
+    try {
+      const result = await api(`/business/events/${eventId}/guestlist-invitations`, session, { method: 'POST', body: JSON.stringify({
+        pool: selectedPool === 'direct' ? 'direct' : 'own',
+        ...(selectedPool === 'direct' ? {} : { eventAffiliateId: selectedPool }),
+        ...(inviteContact === 'email' ? { email: values.get('email') } : { phone: values.get('phone') }),
+        partySize: Number(values.get('partySize')),
+      }) });
+      if (result.token) {
+        const url = new URL(customerLink(import.meta.env.VITE_CUSTOMER_URL, window.location), window.location.href);
+        url.searchParams.set('guestlistInvite', result.token);
+        setInviteResult({ status: 'pending', link: url.toString() });
+      } else {
+        setInviteResult({ status: 'confirmed' });
+        setStatuses(['confirmed']);
+      }
+      setRevision((value) => value + 1);
+    } catch (err) { if (err.status === 401) expire(); else setError(err.message); }
+    finally { setBusy(false); }
+  }
   if (!availableEvents.length)
     return (
       <Empty title={hasReviewableEvent ? 'No recent or upcoming guestlists' : 'No guestlists assigned'}>
@@ -138,6 +172,18 @@ export function Guestlists({ events, session, expire }) {
     );
   return (
     <>
+      <Dialog open={inviteOpen} onOpenChange={(open) => { if (!busy) { setInviteOpen(open); if (!open) setInviteResult(null); } }}>
+        <DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>Invite to guestlist</DialogTitle><DialogDescription>Existing customers are confirmed now if space is available. New customers use a private link; space is checked when they sign up or claim it. No email or text is sent yet.</DialogDescription></DialogHeader>
+          {inviteResult?.status === 'confirmed' ? <p role="status">This customer is confirmed on the guestlist. They can see the update in their Nitewide notifications.</p> : inviteResult?.link ? <div className="space-y-3"><p role="status">Invitation ready. Share this private link with the guest. It expires in 7 days and does not reserve a place.</p><Input readOnly aria-label="Guestlist invitation link" value={inviteResult.link}/><Button type="button" variant="outline" onClick={() => navigator.clipboard.writeText(inviteResult.link)}>Copy link</Button></div> : <form className="space-y-4" onSubmit={sendInvite}>
+            <label className="block text-sm">Guestlist pool<select name="pool" className="mt-1 block w-full rounded-md border border-border bg-secondary p-2" required>{invitePools?.direct && <option value="direct">Venue direct guestlist</option>}{invitePools?.own.map((pool) => <option key={pool.id} value={pool.id}>My allocation{pool.guestlistAllocation != null ? ` · ${pool.guestlistAllocation} places` : ''}</option>)}</select></label>
+            <label className="block text-sm">Invite by<select value={inviteContact} onChange={(e) => setInviteContact(e.target.value)} className="mt-1 block w-full rounded-md border border-border bg-secondary p-2"><option value="email">Email</option><option value="phone">Phone</option></select></label>
+            {inviteContact === 'email' ? <Field id="invite-email" name="email" label="Email address" type="email" required/> : <Field id="invite-phone" name="phone" label="Phone number" type="tel" placeholder="+14075551212" required/>}
+            <Field id="invite-party" name="partySize" label="People" type="number" min="1" max="20" defaultValue="1" required/>
+            {error && <p role="alert" className="error">{error}</p>}
+            <Button disabled={busy || !invitePools?.direct && !invitePools?.own.length} type="submit">{busy ? 'Checking…' : 'Create invitation'}</Button>
+          </form>}
+        </DialogContent>
+      </Dialog>
       <Dialog open={Boolean(activeEntry)} onOpenChange={(open) => { if (!open) { setActiveEntryId(null); setConfirmCancel(false); setError(''); } }}>
         {activeEntry && <DialogContent className="guestlist-detail-dialog sm:max-w-xl max-h-[90vh] overflow-y-auto" onCloseAutoFocus={(event) => { event.preventDefault(); entryTriggerRef.current?.focus(); }}>
           <DialogHeader>
@@ -185,6 +231,7 @@ export function Guestlists({ events, session, expire }) {
           options={availableEvents.map((e) => [e.id, `${guestlistEventName(e.title)} · ${eventDateLabel(e)}`, e.title])}
         />
         <MultiSelect label="Request status" options={availableStatuses} selected={statuses.filter((status) => availableStatuses.some((item) => item.id === status))} onChange={setStatuses} />
+        {invitePools && (invitePools.direct || invitePools.own.length > 0) && <Button type="button" onClick={() => { setInviteResult(null); setInviteOpen(true); }}><UserPlus size={16}/> Invite guest</Button>}
       </div>
       {error && (
         <p className="error" role="alert">

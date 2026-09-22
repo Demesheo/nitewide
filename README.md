@@ -9,6 +9,7 @@ This repository contains:
 - `apps/business` — Nitewide Business event operations and analytics
 - `apps/admin` — Nitewide Admin internal operations
 - `docs/IMPLEMENTATION_PLAN.md` — architectural decisions and milestones
+- `docs/GUESTLIST_INVITES_NOTIFICATIONS.md` — guestlist invitations, in-app notifications, and email/SMS integration gates
 - `TODO.md` — completed, current, next, and later work
 - `docs/PRODUCT_ROADMAP.md` — dated sprints, milestones, regions, quality targets, and scale gates
 - `docs/LINEAR_BACKLOG.md` — Linear goals, labels, cycles, and initial user-story backlog

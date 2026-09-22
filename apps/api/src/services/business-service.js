@@ -1,6 +1,7 @@
 const { Op, Transaction, fn, col } = require("sequelize");
 const { randomUUID } = require('node:crypto');
 const { assertEventEditable, eventFinished } = require('../domain/event-policy');
+const { activeEventAffiliates } = require('./event-affiliate-scope');
 const {
   forbidden,
   conflict,
@@ -9,7 +10,7 @@ const {
 } = require("../domain/errors");
 
 // Order snapshots, not today's tier price, are the source of historical sales truth.
-function aggregateSales(orders, events, affiliates, memberships, employees = []) {
+function aggregateSales(orders, events, affiliates, memberships, employees = [], guests = []) {
   const byEvent = new Map(
     events.map((e) => [
       e.id,
@@ -25,11 +26,11 @@ function aggregateSales(orders, events, affiliates, memberships, employees = [])
       if (role === 'Owner') people.get(membership.userId).role = role;
       continue;
     }
-    people.set(membership.userId, { id: membership.userId, name: membership.user?.displayName || role, role, salesCents: 0, orders: 0, commissionCents: 0 });
+    people.set(membership.userId, { id: membership.userId, name: membership.user?.displayName || role, role, salesCents: 0, orders: 0, commissionCents: 0, guestlistRequests: 0, guestlistPlaces: 0, approvedGuestlistPlaces: 0 });
   }
   for (const employee of employees) {
     if (people.has(employee.userId)) continue;
-    people.set(employee.userId, { id: employee.userId, name: employee.user?.displayName || 'Employee', role: 'Employee', salesCents: 0, orders: 0, commissionCents: 0 });
+    people.set(employee.userId, { id: employee.userId, name: employee.user?.displayName || 'Employee', role: 'Employee', salesCents: 0, orders: 0, commissionCents: 0, guestlistRequests: 0, guestlistPlaces: 0, approvedGuestlistPlaces: 0 });
   }
   for (const a of affiliates) {
     const membership = memberships.find((m) => m.userId === a.userId && m.organizationId === a.organizationId);
@@ -38,10 +39,13 @@ function aggregateSales(orders, events, affiliates, memberships, employees = [])
       people.set(a.userId, {
         id: a.userId,
         name: a.user?.displayName || "Promoter",
-        role: membership ? membership.role === 'owner' ? 'Owner' : 'Manager' : employee ? "Employee" : "Promoter",
+        role: membership ? membership.role === 'owner' ? 'Owner' : 'Manager' : employee ? "Employee" : a.role || "Promoter",
         salesCents: 0,
         orders: 0,
         commissionCents: 0,
+        guestlistRequests: 0,
+        guestlistPlaces: 0,
+        approvedGuestlistPlaces: 0,
       });
     else if (membership?.role === 'owner') people.get(a.userId).role = 'Owner';
     else if (membership && people.get(a.userId).role !== 'Owner') people.get(a.userId).role = 'Manager';
@@ -93,6 +97,15 @@ function aggregateSales(orders, events, affiliates, memberships, employees = [])
       if (e) e.units += item.quantity;
     }
   }
+  const affiliateById = new Map(affiliates.map((affiliate) => [affiliate.id, affiliate]));
+  for (const guest of guests) {
+    const affiliate = affiliateById.get(guest.eventAffiliateId);
+    const person = affiliate && people.get(affiliate.userId);
+    if (!person) continue;
+    person.guestlistRequests += 1;
+    person.guestlistPlaces += Number(guest.partySize || 0);
+    if (['confirmed', 'checked_in'].includes(guest.status)) person.approvedGuestlistPlaces += Number(guest.partySize || 0);
+  }
   const sorted = (values) =>
     [...values].sort(
       (a, b) => b.salesCents - a.salesCents || a.name.localeCompare(b.name),
@@ -114,7 +127,7 @@ function createBusinessService({
   now = () => new Date(),
 }) {
   async function context(userId) {
-    const [user, memberships, employees, orgAffiliates, eventAffiliates] =
+    let [user, memberships, employees, orgAffiliates, eventAffiliates] =
       await Promise.all([
         models.User.findByPk(userId),
         models.OrganizationOwner.findAll({ where: { userId } }),
@@ -123,6 +136,7 @@ function createBusinessService({
         models.EventAffiliate.findAll({ where: { userId, status: "active" } }),
       ]);
     if (!user?.isActive) throw forbidden("An active account is required");
+    eventAffiliates = await activeEventAffiliates(models, eventAffiliates, memberships, employees);
     const managedOrgIds = memberships.map((m) => m.organizationId);
     const ownedOrgIds = memberships.filter((m) => m.role === 'owner').map((m) => m.organizationId);
     const orgIds = [
@@ -136,7 +150,7 @@ function createBusinessService({
       ? {}
       : {
           [Op.or]: [
-            { creatorUserId: userId },
+            { creatorUserId: userId, organizationId: null },
             { organizationId: orgIds },
             { id: eventAffiliates.map((a) => a.eventId) },
           ],
@@ -165,7 +179,7 @@ function createBusinessService({
       ...(selectedIds.length ? [{ organizationId: { [Op.in]: selectedIds } }] : []),
       ...(selectedOrganizations.includes('independent') ? [{ organizationId: null }] : []),
     ] } : {};
-    const events = await models.Event.findAll({
+    const foundEvents = await models.Event.findAll({
       where: { [Op.and]: [ctx.where, filter] },
       include: [
         { model: models.Location, as: "location" },
@@ -174,11 +188,12 @@ function createBusinessService({
       order: [["startsAt", "DESC"]],
       limit: 501,
     });
-    if (events.length > 500)
+    if (foundEvents.length > 500)
       throw new DomainError(
         "Choose an organization to narrow this workspace (500 event limit)",
         { status: 422 },
       );
+    const events = foundEvents.filter((event) => event.status !== 'draft' || canManage(ctx, event) || ctx.eventAffiliates.some((affiliate) => affiliate.eventId === event.id));
     const organizationIds = [
       ...new Set([
         ...ctx.orgIds,
@@ -232,13 +247,17 @@ function createBusinessService({
     const affiliateEvents = allEventAffiliates.map((a) => ({
       ...a.toJSON(),
       organizationId: events.find((e) => e.id === a.eventId)?.organizationId,
+      role: !events.find((e) => e.id === a.eventId)?.organizationId && events.find((e) => e.id === a.eventId)?.creatorUserId === a.userId ? 'Creator' : 'Promoter',
     }));
     const affiliates = [
       ...allOrgAffiliates.map((a) => a.toJSON()),
       ...affiliateEvents,
     ];
     const ownOrgIds = ctx.orgAffiliates.map((a) => a.id);
-    const ownEventIds = ctx.eventAffiliates.map((a) => a.id);
+    // Current venue staff can still see their own historical referrals after
+    // an event-specific assignment is deactivated; this grants no new event
+    // access because the event list was scoped above.
+    const ownEventIds = (await models.EventAffiliate.findAll({ where: { userId, eventId: eventIds }, attributes: ['id'] })).map((row) => row.id);
     const eventSales = await models.Order.findAll({
       where: { eventId: eventIds, status: 'paid', currency: 'USD', [Op.or]: [
         { eventId: managedEventIds }, { eventAffiliateId: ownEventIds }, { eventAffiliateId: null, orgAffiliateId: ownOrgIds },
@@ -273,6 +292,14 @@ function createBusinessService({
         { status: 422 },
       );
     const visibleOrders = orders.filter((order) => ctx.user.isInternalAdmin || managedEventIds.includes(order.eventId) || (order.eventAffiliateId ? ownEventIds.includes(order.eventAffiliateId) : ownOrgIds.includes(order.orgAffiliateId)));
+    const guestlists = await models.GuestlistEntry.findAll({
+      where: { eventId: eventIds, createdAt: { [Op.between]: [since, until] }, [Op.or]: [
+        { eventId: managedEventIds }, { eventAffiliateId: ownEventIds },
+      ] },
+      attributes: ['eventId', 'userId', 'eventAffiliateId', 'partySize', 'status', 'createdAt'],
+      limit: 10001,
+    });
+    if (guestlists.length > 10000) throw new DomainError('Choose a shorter period (10,000 guestlist report limit)', { status: 422 });
     const visibleAffiliates = affiliates.filter(
       (a) =>
         a.userId === userId ||
@@ -292,6 +319,7 @@ function createBusinessService({
       visibleAffiliates,
       visibleMemberships,
       visibleEmployees,
+      guestlists,
     );
     const daily = new Map(report.daily.map((d) => [d.date, d.salesCents]));
     report.daily = Array.from({ length: query.days }, (_, i) => {
@@ -332,10 +360,11 @@ function createBusinessService({
         timezone: "UTC",
         currency: "USD",
       },
-      scope:
-        managedEventIds.length === events.length && events.length
-          ? "managed"
-          : "mixed_or_own",
+      scope: managedEventIds.length === events.length && events.length
+        ? "managed"
+        : managedEventIds.length || ctx.managedOrgIds.length || ctx.user.isInternalAdmin
+          ? "mixed"
+          : "own",
     };
   }
   async function saveEvent(userId, eventId, input) {

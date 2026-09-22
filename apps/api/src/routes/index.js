@@ -9,18 +9,22 @@ const { analyticsQuery } = require('../http/analytics-schemas');
 const { createAnalyticsService } = require('../services/analytics-service');
 const { createTeamService } = require('../services/team-service');
 const { createEventWorkspaceService } = require('../services/event-workspace-service');
+const { createReferralLinkService } = require('../services/referral-link-service');
 const { z } = require('zod');
 const { optionalPhone } = require('../domain/phone');
 
-function createRouter({ publicController, managementController, commerceController, authController, requireUser, models, permissions }) {
+function createRouter({ publicController, managementController, commerceController, authController, requireUser, models, permissions, invitations, notifications }) {
   const router = express.Router();
   const business = createBusinessService({ models, permissions });
   const admin = createAdminService({ models, permissions });
   const analytics = createAnalyticsService({ models, permissions });
   const team = createTeamService({ models, permissions });
   const eventWorkspace = createEventWorkspaceService({ models, permissions });
+  const referralLinks = createReferralLinkService({ models });
   const eventPerson = z.object({ userId: z.string().uuid().optional(), email: z.string().trim().email().optional(), commissionBps: z.number().int().min(0).max(4000), status: z.enum(['active', 'inactive']).default('active') }).refine((v) => Boolean(v.userId) !== Boolean(v.email), 'Provide a user or an email');
   router.get('/business/events/:eventId/detail', requireUser, asyncHandler(async (req, res) => res.json({ data: await eventWorkspace.detail(req.userId, req.params.eventId) })));
+  router.get('/business/events/:eventId/referral-link', requireUser, asyncHandler(async (req, res) => res.json({ data: await referralLinks.ownLink(req.userId, req.params.eventId) })));
+  router.post('/events/:eventId/referral-visits', validate(z.object({ code: z.string().min(3).max(48), sessionKey: z.string().uuid().optional() })), asyncHandler(async (req, res) => res.json({ data: await referralLinks.visit(req.params.eventId, req.body.code, req.body.sessionKey) })));
   router.put('/business/events/:eventId/people', requireUser, validate(eventPerson), asyncHandler(async (req, res) => res.json({ data: await eventWorkspace.savePerson(req.userId, req.params.eventId, req.body) })));
   const inviteInput = z.object({ email: z.string().trim().email().max(320), phone: optionalPhone, role: z.enum(['manager', 'employee', 'affiliate']) });
   router.get('/business/events/:eventId/invitations',requireUser,asyncHandler(async (req,res) => res.json({data:await team.eventInvitations(req.userId,req.params.eventId)})));
@@ -55,6 +59,11 @@ function createRouter({ publicController, managementController, commerceControll
   router.patch('/business/events/:eventId/guestlist-capacity', requireUser, validate(schemas.guestlistCapacity), asyncHandler(managementController.updateGuestlistCapacity));
   router.patch('/business/events/:eventId/affiliates/:eventAffiliateId/guestlist-allocation', requireUser, validate(schemas.affiliateGuestlistAllocation), asyncHandler(managementController.updateAffiliateGuestlistAllocation));
   router.get('/business/events/:eventId/guestlist-settings', requireUser, asyncHandler(managementController.guestlistSettings));
+  router.get('/business/events/:eventId/guestlist-invite-pools', requireUser, asyncHandler(async (req, res) => res.json({ data: await invitations.pools(req.userId, req.params.eventId) })));
+  router.post('/business/events/:eventId/guestlist-invitations', requireUser, validate(schemas.guestlistInvite), asyncHandler(async (req, res) => res.status(201).json({ data: await invitations.invite(req.userId, req.params.eventId, req.body) })));
+  router.post('/guestlist-invitations/:token/claim', requireUser, asyncHandler(async (req, res) => res.json({ data: await invitations.claim(req.params.token, req.userId) })));
+  router.get('/notifications', requireUser, asyncHandler(async (req, res) => res.json({ data: { items: await notifications.list(req.userId), unreadCount: await notifications.unreadCount(req.userId) } })));
+  router.post('/notifications/:id/read', requireUser, asyncHandler(async (req, res) => res.json({ data: await notifications.markRead(req.userId, req.params.id) })));
   router.post('/events/:eventId/guestlist', requireUser, validate(schemas.guestlist), asyncHandler(commerceController.requestGuestlist));
   router.get('/business/events/:eventId/guestlist', requireUser, asyncHandler(commerceController.listGuestlistRequests));
   router.post('/business/events/:eventId/guestlist/:entryId/decision', requireUser, validate(schemas.guestlistDecision), asyncHandler(commerceController.reviewGuestlist));

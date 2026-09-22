@@ -11,14 +11,14 @@ import {
 } from "./ui/dialog";
 import { api } from "../lib/api";
 
-export function AuthDialog({ open, onOpenChange, onSuccess }) {
+export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken }) {
   const [register, setRegister] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [phone, setPhone] = useState("");
   useEffect(() => {
     if (open) {
-      setRegister(false);
+      setRegister(Boolean(guestlistInviteToken));
       setError("");
       setPhone("");
     }
@@ -36,6 +36,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess }) {
         marketingConsent: form.get("marketing") === "on",
         transactionalSmsConsent: form.get("transactionalSms") === "on",
         marketingSmsConsent: form.get("marketingSms") === "on",
+        ...(guestlistInviteToken ? { guestlistInviteToken } : {}),
       });
     try {
       onSuccess(
@@ -71,7 +72,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess }) {
           </DialogTitle>
           <DialogDescription>
             {register
-              ? "One account. Every kind of night."
+              ? guestlistInviteToken ? "Create an account with the invited email or phone to claim your guestlist place, if space remains." : "One account. Every kind of night."
               : "Your next great night is waiting for you."}
           </DialogDescription>
         </DialogHeader>

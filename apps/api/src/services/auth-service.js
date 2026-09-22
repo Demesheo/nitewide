@@ -41,7 +41,7 @@ function publicUser(user) {
   return { id: user.id, email: user.email, displayName: user.displayName, phone: user.phone, marketingConsentAt: user.marketingConsentAt, transactionalSmsConsentAt: user.transactionalSmsConsentAt, marketingSmsConsentAt: user.marketingSmsConsentAt, phoneVerifiedAt: user.phoneVerifiedAt };
 }
 
-function createAuthService({ sequelize, models, tokenSecret, now = () => new Date() }) {
+function createAuthService({ sequelize, models, tokenSecret, invitations = null, now = () => new Date() }) {
   async function rolesFor(user) {
     const [memberships, employeeCount, orgAffiliateCount, eventAffiliateCount, createdEventCount] = await Promise.all([
       models.OrganizationOwner.findAll({ where: { userId: user.id }, attributes: ['role'] }),
@@ -69,16 +69,24 @@ function createAuthService({ sequelize, models, tokenSecret, now = () => new Dat
   async function register(input) {
     const normalizedEmail = input.email.trim().toLowerCase();
     const password = await createPasswordRecord(input.password);
-    const user = await sequelize.transaction(async (transaction) => {
+    const { user, guestlistInvite } = await sequelize.transaction(async (transaction) => {
       const created = await models.User.create({ email: normalizedEmail, displayName: input.displayName.trim(), phone: input.phone, marketingConsentAt: input.marketingConsent ? now() : null, transactionalSmsConsentAt: input.transactionalSmsConsent ? now() : null, marketingSmsConsentAt: input.marketingSmsConsent ? now() : null }, { transaction });
       // Future Twilio integration: verify this user supplied number, set
       // phoneVerifiedAt, then enqueue only consented SMS categories. A phone
       // number or invitation contact alone never authorizes SMS delivery.
       await models.UserCredential.create({ userId: created.id, ...password }, { transaction });
       await models.AuditLog.create({ actorUserId: created.id, entityType: 'User', entityId: created.id, action: 'user.registered', after: { role: 'customer' } }, { transaction });
-      return created;
+      let guestlistInvite = null;
+      if (input.guestlistInviteToken && invitations) {
+        try { guestlistInvite = await invitations.claim(input.guestlistInviteToken, created.id, transaction); }
+        catch (error) {
+          if (!['INVITE_INVALID', 'FORBIDDEN'].includes(error.code)) throw error;
+          guestlistInvite = { status: 'invalid' };
+        }
+      }
+      return { user: created, guestlistInvite };
     });
-    return sessionFor(user);
+    return { ...await sessionFor(user), ...(guestlistInvite ? { guestlistInvite } : {}) };
   }
 
   async function signIn(input) {

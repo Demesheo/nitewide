@@ -8,6 +8,8 @@ const initializers = [
   require('./AuditLog').initAuditLog, require('./Boost').initBoost,
   require('./TeamInvitation').initTeamInvitation,
   require('./OrganizationEmployee').initOrganizationEmployee,
+  require('./GuestlistInvitation').initGuestlistInvitation,
+  require('./Notification').initNotification,
 ];
 
 function initModels(sequelize) {
@@ -44,6 +46,8 @@ function initModels(sequelize) {
   m.User.hasMany(m.GuestlistEntry, { as: 'guestlistEntries', foreignKey: 'userId' }); m.GuestlistEntry.belongsTo(m.User, { as: 'user', foreignKey: 'userId' });
   m.GuestlistEntry.belongsTo(m.User, { as: 'reviewer', foreignKey: 'reviewedByUserId' });
   m.EventAffiliate.hasMany(m.GuestlistEntry, { as: 'guestlistEntries', foreignKey: 'eventAffiliateId' }); m.GuestlistEntry.belongsTo(m.EventAffiliate, { as: 'eventAffiliate', foreignKey: 'eventAffiliateId' });
+  m.GuestlistInvitation.belongsTo(m.Event, { as: 'event', foreignKey: 'eventId' });
+  m.Notification.belongsTo(m.Event, { as: 'event', foreignKey: 'eventId' });
   m.Event.hasMany(m.CheckIn, { as: 'checkIns', foreignKey: 'eventId' }); m.CheckIn.belongsTo(m.Event, { as: 'event', foreignKey: 'eventId' });
   m.User.hasMany(m.AuditLog, { as: 'auditActions', foreignKey: 'actorUserId' }); m.AuditLog.belongsTo(m.User, { as: 'actor', foreignKey: 'actorUserId' });
   m.Organization.hasMany(m.AuditLog, { as: 'auditLogs', foreignKey: 'organizationId' }); m.AuditLog.belongsTo(m.Organization, { as: 'organization', foreignKey: 'organizationId' });

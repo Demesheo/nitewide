@@ -42,12 +42,15 @@ import { MultiSelect } from "@/components/MultiSelect";
 import { SalesMixPie } from "@/components/SalesMixPie";
 import { Guestlists } from "@/components/Guestlists";
 import { TeamPerformanceTable } from "@/components/TeamPerformanceTable";
+import { PersonalOverview } from "@/components/PersonalOverview";
+import { Notifications } from "@/components/Notifications";
 import { Team, TeamInviteLanding } from "@/components/Team";
 import { TablePagination, useTablePagination } from "@/components/TablePagination";
 import { api, readSession, SESSION_KEY } from "@/lib/api";
 import { csv, money } from "@/lib/business";
 import { salesMixSlices } from "@/lib/sales-mix";
 import { sortTableRows } from "@/lib/table-sort";
+import { workspaceAccess } from "@/lib/workspace-access";
 
 const navigation = [
   ["overview", LayoutDashboard, "Overview"],
@@ -410,6 +413,8 @@ export default function App() {
   const [loginNotice, setLoginNotice] = useState("");
   const [revision, setRevision] = useState(0);
   const [editor, setEditor] = useState(null);
+  const [eventToOpen, setEventToOpen] = useState(null);
+  const [guestlistEntryToOpen, setGuestlistEntryToOpen] = useState(null);
   const [mobileNav, setMobileNav] = useState(false);
   const signOut = useCallback((expired = false) => {
     window.history.replaceState(null, '', '/sign-in');
@@ -464,8 +469,10 @@ export default function App() {
     setSession(value);
     setLoginNotice("");
   }
-  function navigate(value) {
+  function navigate(value, eventId = null, entryId = null) {
     setPage(value);
+    setEventToOpen(eventId);
+    setGuestlistEntryToOpen(entryId);
     setMobileNav(false);
   }
   function exportReport() {
@@ -525,6 +532,10 @@ export default function App() {
         : "The right people. A great night.";
   const activeOrg = selectedOrganizations.length === 1 ? data?.organizations.find((o) => o.id === selectedOrganizations[0]) : data?.organizations.length === 1 && !hasIndependentWorkspace ? data.organizations[0] : null;
   const showOrganizationSelector = (data?.organizations.length || 0) + Number(hasIndependentWorkspace) > 1;
+  const { canManage, ownOnly } = workspaceAccess(data, session.user);
+  const canManageTeam = Boolean(session.user.isInternalAdmin || data?.organizations?.some((org) => org.canManage));
+  const visibleNavigation = navigation.filter(([id]) => id !== 'team' || canManageTeam);
+  const visiblePage = page === 'team' && !canManageTeam ? 'overview' : page;
   return (
     <div className="app-shell">
       {mobileNav && (
@@ -544,24 +555,24 @@ export default function App() {
           <div>
             <strong>{activeOrg?.name || (selectedOrganizations.length === 1 && selectedOrganizations[0] === 'independent' ? 'Independent events' : 'Your business')}</strong>
             <small>
-              {activeOrg
+              {ownOnly ? 'Your venue activity' : activeOrg
                 ? `${activeOrg.planTier === "premium" ? "Premium" : "Free"} workspace`
                 : "All your experiences"}
             </small>
           </div>
         </div>
-        <span className="nav-label">MANAGE</span>
+        <span className="nav-label">{ownOnly ? 'YOUR WORKSPACE' : 'MANAGE'}</span>
         <nav aria-label="Main navigation">
-          {navigation.map(([id, Icon, label]) => (
+          {visibleNavigation.map(([id, Icon, label]) => (
             <button
               key={id}
-              className={page === id ? "active" : ""}
-              aria-current={page === id ? "page" : undefined}
+              className={visiblePage === id ? "active" : ""}
+              aria-current={visiblePage === id ? "page" : undefined}
               onClick={() => navigate(id)}
             >
               <Icon size={19} />
-              {label}
-              {page === id && <span className="nav-indicator" />}
+              {ownOnly && id === 'analytics' ? 'My analytics' : ownOnly && id === 'events' ? 'My events' : label}
+              {visiblePage === id && <span className="nav-indicator" />}
             </button>
           ))}
         </nav>
@@ -606,9 +617,10 @@ export default function App() {
             </Button>
             <span>Workspace</span>
             <ChevronRight size={14} />
-            <strong>{navigation.find(([id]) => id === page)[2]}</strong>
+            <strong>{visibleNavigation.find(([id]) => id === visiblePage)?.[2] || 'Overview'}</strong>
           </div>
           <div className="topbar-right">
+            <Notifications session={session} onNavigate={navigate} />
             <span className="live-label">
               <span />
               Connected workspace
@@ -628,33 +640,33 @@ export default function App() {
           <div className="page-heading">
             <div>
               <span className="eyebrow">
-                {page === "overview"
-                  ? `YOUR BUSINESS, IN FOCUS`
+                {visiblePage === "overview"
+                  ? ownOnly ? 'YOUR REFERRALS, IN FOCUS' : `YOUR BUSINESS, IN FOCUS`
                   : page === "analytics"
                     ? "SALES INTELLIGENCE"
                   : "NITEWIDE BUSINESS"}
               </span>
-              <h1>{title}</h1>
+              <h1>{ownOnly && visiblePage === 'overview' ? 'Your performance, clearly.' : ownOnly && visiblePage === 'analytics' ? 'Know your impact.' : title}</h1>
               <p>
-                {page === "overview"
-                  ? `Welcome back, ${session.user.displayName.split(" ")[0]}. Here’s where things stand.`
+                {visiblePage === "overview"
+                  ? ownOnly ? `Welcome back, ${session.user.displayName.split(" ")[0]}. These are your credited referrals and guestlists.` : `Welcome back, ${session.user.displayName.split(" ")[0]}. Here’s where things stand.`
                   : page === "analytics"
-                    ? "Explore sales, events, team referrals, and the customers behind your authorized orders."
+                    ? ownOnly ? 'See only your referred sales, customers, and events.' : "Explore sales, events, team referrals, and the customers behind your authorized orders."
                   : page === "events"
-                    ? "Create, refine, and bring your experiences to life."
+                    ? ownOnly ? 'Your events and the people you brought in.' : "Create, refine, and bring your experiences to life."
                     : page === "team"
                       ? "Invite employees and promoters into your authorized organizations."
                     : "Review requests and keep every guestlist in balance."}
               </p>
             </div>
-            {(page === "overview" || page === "events") && (
+            {canManage && (visiblePage === "overview" || visiblePage === "events") && (
               <Button onClick={() => setEditor({})}>
                 <Plus />
                 Create event
               </Button>
             )}
           </div>
-          {page !== "analytics" && page !== "team" && (page !== "guestlists" || showOrganizationSelector) && <div className="page-controls">
+          {visiblePage !== "analytics" && visiblePage !== "team" && (visiblePage !== "guestlists" || showOrganizationSelector) && <div className="page-controls">
             {showOrganizationSelector && <MultiSelect
               label="Organizations"
               selected={selectedOrganizations}
@@ -721,34 +733,38 @@ export default function App() {
               className={loading ? "content-updating" : ""}
               aria-busy={loading}
             >
-              {data.scope === "mixed_or_own" && (
+              {data.scope === "mixed" && (
                 <p className="scope-note">
                   <ShieldCheck size={16} />
                   Sales include managed events and your own referrals only.
                   Organization event editing requires owner or manager access.
                 </p>
               )}
-              {page === "overview" && (
-                <Performance data={data} onEvents={() => navigate("events")} />
+              {visiblePage === "overview" && (
+                ownOnly ? <PersonalOverview data={data} onEvents={(eventId) => navigate('events', eventId)} onAnalytics={() => navigate('analytics')} onGuestlists={() => navigate('guestlists')}/> : <Performance data={data} onEvents={() => navigate("events")} />
               )}
-              {page === "analytics" && <Analytics session={session} />}
-              {page === "events" && (
+              {visiblePage === "analytics" && <Analytics session={session} ownOnly={ownOnly} />}
+              {visiblePage === "events" && (
                 <Events
                   data={data}
                   session={session}
+                  ownOnly={ownOnly}
+                  initialEventId={eventToOpen}
                   onUnauthorized={expire}
                   onEdit={setEditor}
                   onCreate={() => setEditor({})}
                 />
               )}
-              {page === "guestlists" && (
+              {visiblePage === "guestlists" && (
                 <Guestlists
                   events={data.events}
                   session={session}
                   expire={expire}
+                  initialEventId={eventToOpen}
+                  initialEntryId={guestlistEntryToOpen}
                 />
               )}
-              {page === "team" && <Team session={session} organizations={data.organizations.filter((org) => org.canManage)} onUnauthorized={expire} />}
+              {visiblePage === "team" && canManageTeam && <Team session={session} organizations={data.organizations.filter((org) => org.canManage)} onUnauthorized={expire} />}
             </div>
           )}
           <footer className="app-footer">

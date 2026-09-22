@@ -37,6 +37,8 @@ async function resolveAffiliate(models, { event, code, now = new Date(), transac
   if ((!eventAffiliate && !orgAffiliate) || (eventAffiliate && !isActiveWindow(eventAffiliate, now)) || (orgAffiliate && !isActiveWindow(orgAffiliate, now))) {
     throw new DomainError('Promoter code is invalid or inactive', { code: 'INVALID_AFFILIATE' });
   }
+  const referrerId = eventAffiliate?.userId || orgAffiliate?.userId;
+  if (!referrerId || !(await models.User.findByPk(referrerId, common))?.isActive) throw invalidCode();
   // Auto-created team event codes stop working when membership/account ends.
   if (eventAffiliate?.code?.startsWith('STAFFEV-') || eventAffiliate?.code?.startsWith('LEADEV-')) {
     const leader = eventAffiliate.code.startsWith('LEADEV-');

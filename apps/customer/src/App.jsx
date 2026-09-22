@@ -41,10 +41,12 @@ import { EventCard } from "./components/event-card";
 import { EventArtwork } from './components/event-artwork';
 import { NIGHTLIFE_ARTWORK, eventDate, eventTime } from "./lib/presentation";
 import { AuthDialog } from "./components/auth-dialog";
+import { Notifications } from "./components/notifications";
 import { focusEventDialogStart, openEventDialogAtTop } from './lib/dialog-focus';
 import { detectCurrentCity, localDateInputValue } from "./discovery-defaults";
 import { api } from "./lib/api";
 import { businessLink } from './lib/business-link';
+import { referralCodeForEvent, referralFromSearch } from './lib/referral';
 import {
   availableQuantity,
   offeringAvailabilityLabel,
@@ -98,6 +100,11 @@ export default function App() {
   const [session, setSession] = useState(validSession),
     [authOpen, setAuthOpen] = useState(false),
     [walletOpen, setWalletOpen] = useState(false);
+  const guestlistInviteToken = new URLSearchParams(window.location.search).get('guestlistInvite');
+  const [referral, setReferral] = useState(null);
+  const [demoBusy, setDemoBusy] = useState(false);
+  const [demoError, setDemoError] = useState('');
+  const inviteClaimAttempted = useRef(false);
   const [selected, setSelected] = useState(null),
     [offeringId, setOfferingId] = useState(""),
     [quantity, setQuantity] = useState(1),
@@ -139,6 +146,22 @@ export default function App() {
   }
   useEffect(() => {
     loadEvents();
+  }, []);
+  useEffect(() => {
+    const incoming = referralFromSearch(window.location.search);
+    if (!incoming) return;
+    let active = true;
+    const sessionKey = sessionStorage.getItem('nitewide.referral-session') || crypto.randomUUID();
+    sessionStorage.setItem('nitewide.referral-session', sessionKey);
+    Promise.all([
+      api(`/events/${encodeURIComponent(incoming.eventId)}`),
+      api(`/events/${encodeURIComponent(incoming.eventId)}/referral-visits`, { body: { code: incoming.code, sessionKey } }),
+    ]).then(([event, visit]) => {
+      if (!active) return;
+      setReferral({ ...incoming, referrerName: visit.referrerName });
+      openEvent(event);
+    }).catch(() => { if (active) setNotice('This referral link is no longer active. You can still browse events.'); });
+    return () => { active = false; };
   }, []);
   useEffect(() => {
     let active = true;
@@ -244,30 +267,55 @@ export default function App() {
     setSaved(next);
     writeStorage("nitewide.saved", next);
   }
-  function authSuccess(data) {
+  async function authSuccess(data) {
     setSession(data);
     writeStorage("nitewide.session", data);
     setNotice(`You're in, ${data.user.displayName.split(" ")[0]}.`);
+    if (guestlistInviteToken) {
+      inviteClaimAttempted.current = true;
+      try {
+        const result = data.guestlistInvite || await api(`/guestlist-invitations/${encodeURIComponent(guestlistInviteToken)}/claim`, { token: data.accessToken, method: 'POST' });
+        setNotice(result.status === 'confirmed' ? 'You are confirmed on the guestlist.' : result.status === 'full' ? 'The guestlist is full. Your invitation link can be tried again if space opens.' : 'Your account is ready, but this guestlist invitation could not be claimed.');
+        if (result.status === 'confirmed') { const url = new URL(window.location.href); url.searchParams.delete('guestlistInvite'); window.history.replaceState({}, '', url); }
+      } catch (error) { setNotice(`Signed in, but the guestlist invitation could not be claimed: ${error.message}`); }
+    }
     const next = pendingAuth.current;
     pendingAuth.current = null;
     if (next === "checkout") setStage("checkout");
     if (next === "wallet") setWalletOpen(true);
   }
+  useEffect(() => {
+    if (!guestlistInviteToken || inviteClaimAttempted.current) return;
+    if (!session) { setAuthOpen(true); return; }
+    inviteClaimAttempted.current = true;
+    api(`/guestlist-invitations/${encodeURIComponent(guestlistInviteToken)}/claim`, { token: session.accessToken, method: 'POST' })
+      .then((result) => { setNotice(result.status === 'confirmed' ? 'You are confirmed on the guestlist.' : 'Your invitation is not confirmed; the guestlist may be full or closed.'); if (result.status === 'confirmed') { const url = new URL(window.location.href); url.searchParams.delete('guestlistInvite'); window.history.replaceState({}, '', url); } })
+      .catch((error) => setNotice(`Guestlist invitation could not be claimed: ${error.message}`));
+  }, [guestlistInviteToken, session]);
   function checkout() {
     if (!session) {
       pendingAuth.current = "checkout";
       setAuthOpen(true);
     } else setStage("checkout");
   }
-  function completeDemo() {
+  async function completeDemo() {
     if (!session) {
       pendingAuth.current = "checkout";
       setAuthOpen(true);
       return;
     }
     if (!offering || availableQuantity(offering) < quantity) return;
+    setDemoBusy(true);
+    setDemoError('');
+    try {
+    const result = await api('/orders', { token: session.accessToken, body: {
+      eventId: selected.id, idempotencyKey: crypto.randomUUID(),
+      affiliateCode: referralCodeForEvent(referral, selected.id),
+      items: [{ offeringId: offering.id, quantity }],
+      payment: { provider: 'demo', reference: crypto.randomUUID(), status: 'succeeded' },
+    } });
     const receipt = {
-      id: `DEMO-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      id: result.order.id,
       userId: session.user.id,
       event: {
         title: selected.title,
@@ -285,6 +333,9 @@ export default function App() {
     writeStorage("nitewide.demo-bookings", next);
     setBooking(receipt);
     setStage("complete");
+    await loadEvents();
+    } catch (error) { setDemoError(error.message); }
+    finally { setDemoBusy(false); }
   }
   async function requestGuestlist() {
     if (!session) {
@@ -296,7 +347,7 @@ export default function App() {
     try {
       await api(`/events/${selected.id}/guestlist`, {
         token: session.accessToken,
-        body: { partySize: 1 },
+        body: { partySize: 1, affiliateCode: referralCodeForEvent(referral, selected.id) },
       });
       setGuestState("pending");
     } catch (error) {
@@ -371,6 +422,7 @@ export default function App() {
             <a className="business-nav-link" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a>
             {session ? (
               <>
+                <Notifications session={session} onEvent={(eventId) => api(`/events/${encodeURIComponent(eventId)}`).then(openEvent).catch((error) => setNotice(error.message))} />
                 <Button
                   variant="outline"
                   className="account-button"
@@ -1061,9 +1113,9 @@ export default function App() {
             <div className="checkout-review">
               <Badge variant="outline">DEMO CHECKOUT</Badge>
               <p>
-                This is a preview of your booking. No card details, charge, or
-                real reservation.
+                This creates a demo order and admission in local test data. No card details or charge; not valid for entry.
               </p>
+              {referralCodeForEvent(referral, selected.id) && <p>Referred by {referral.referrerName}</p>}
               <div className="order-summary">
                 <h3>{offering.name}</h3>
                 <p>
@@ -1090,8 +1142,9 @@ export default function App() {
                 Booking as {session?.user.email}. Taxes and any additional
                 charges must be finalized before live payments launch.
               </p>
-              <Button className="primary-action" onClick={completeDemo}>
-                Confirm demo booking <ArrowRight />
+              {demoError && <p role="alert">{demoError}</p>}
+              <Button className="primary-action" onClick={completeDemo} disabled={demoBusy}>
+                {demoBusy ? 'Recording demo order…' : 'Confirm demo booking'} <ArrowRight />
               </Button>
               <Button variant="ghost" onClick={() => setStage("details")}>
                 Back to tickets & tables
@@ -1115,10 +1168,7 @@ export default function App() {
                 <b>{booking.id}</b>
                 <span>DEMO ONLY · NOT VALID FOR ENTRY</span>
               </div>
-              <p>
-                No charge was made. This preview is saved in My bookings on this
-                device.
-              </p>
+              <p>No charge was made. This demo order is recorded for local business reporting and saved in My bookings on this device.</p>
               <Button
                 className="primary-action"
                 onClick={() => {
@@ -1134,6 +1184,7 @@ export default function App() {
       </Dialog>
       <AuthDialog
         open={authOpen}
+        guestlistInviteToken={guestlistInviteToken}
         onOpenChange={(value) => {
           setAuthOpen(value);
           if (!value) pendingAuth.current = null;

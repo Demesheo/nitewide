@@ -6,7 +6,7 @@ const { employeeReferralCode, leaderReferralCode } = require('./affiliate-servic
 
 function summarizeEvent({ orders, offerings, people, guests }) {
   const tiers = new Map(offerings.map((o) => [o.id, { id: o.id, name: o.name, kind: o.kind, units: 0, salesCents: 0, admissions: 0 }]));
-  const referrals = new Map(people.map((p) => [p.userId, { ...p, salesCents: 0, orders: 0, commissionCents: 0, customerIds: new Set() }]));
+  const referrals = new Map(people.map((p) => [p.userId, { ...p, salesCents: 0, orders: 0, commissionCents: 0, guestlistRequests: 0, guestlistPlaces: 0, approvedGuestlistPlaces: 0, customerIds: new Set(), guestlistCustomerIds: new Set() }]));
   const customers = new Map();
   const channels = new Map();
   const customer = (id, user) => {
@@ -54,6 +54,14 @@ function summarizeEvent({ orders, offerings, people, guests }) {
   for (const guest of guests) {
     const row = customer(guest.userId, guest.user);
     row.guestlistStatuses.push(guest.status);
+    const person = people.find((p) => p.id === guest.eventAffiliateId);
+    if (person && referrals.has(person.userId)) {
+      const referral = referrals.get(person.userId);
+      referral.guestlistRequests += 1;
+      referral.guestlistPlaces += guest.partySize;
+      referral.guestlistCustomerIds.add(guest.userId);
+      if (['confirmed', 'checked_in'].includes(guest.status)) referral.approvedGuestlistPlaces += guest.partySize;
+    }
     if (['confirmed', 'checked_in'].includes(guest.status)) {
       row.guestlistPlaces += guest.partySize;
       summary.guestlistPlaces += guest.partySize;
@@ -61,7 +69,7 @@ function summarizeEvent({ orders, offerings, people, guests }) {
     }
   }
   summary.customers = new Set(orders.map((o) => o.buyerUserId)).size;
-  return { summary, tiers: [...tiers.values()], people: [...referrals.values()].map(({ customerIds, ...p }) => ({ ...p, customers: customerIds.size })), customers: [...customers.values()], channels: [...channels.values()] };
+  return { summary, tiers: [...tiers.values()], people: [...referrals.values()].map(({ customerIds, guestlistCustomerIds, ...p }) => ({ ...p, customers: customerIds.size, guestlistCustomers: guestlistCustomerIds.size })), customers: [...customers.values()], channels: [...channels.values()] };
 }
 
 function createEventWorkspaceService({ models: m, permissions, now = () => new Date() }) {
@@ -93,8 +101,9 @@ function createEventWorkspaceService({ models: m, permissions, now = () => new D
     const members = await roster(event);
     const assignments = await m.EventAffiliate.findAll({ where: { eventId }, include: [{ model: m.User, as: 'user', attributes: ['id', 'displayName', 'email'] }, { model: m.OrgAffiliate, as: 'orgAffiliate' }] });
     const ownAssignments = assignments.filter((a) => a.userId === userId).map((a) => a.id);
-    const ownOrg = event.organizationId ? await m.OrgAffiliate.findOne({ where: { organizationId: event.organizationId, userId } }) : null;
-    if (!canManage && !members.some((p) => p.userId === userId) && !ownAssignments.length) throw forbidden('Event access required');
+    const activeAssignment = assignments.some((a) => a.userId === userId && a.status === 'active' && !a.code?.startsWith('STAFFEV-') && !a.code?.startsWith('LEADEV-'));
+    const ownOrg = event.organizationId ? await m.OrgAffiliate.findOne({ where: { organizationId: event.organizationId, userId, status: 'active' } }) : null;
+    if (!canManage && !members.some((p) => p.userId === userId) && !activeAssignment) throw forbidden('Event access required');
     const allPeople = assignments.map((a) => ({ id: a.id, userId: a.userId, name: a.user.displayName, role: members.find((p) => p.userId === a.userId)?.role || (a.userId === event.creatorUserId && !event.organizationId ? 'Creator' : 'Promoter'), orgAffiliateId: a.orgAffiliateId, status: a.status, code: a.code, commissionBps: a.commissionBps ?? a.orgAffiliate?.defaultCommissionBps ?? 0 }));
     // Show the full current venue team, even without an event assignment or sales.
     // Owners, managers and employees can refer at 0% immediately.
@@ -105,14 +114,15 @@ function createEventWorkspaceService({ models: m, permissions, now = () => new D
     if (!canManage) guestWhere.eventAffiliateId = ownAssignments;
     const [orders, guests] = await Promise.all([
       m.Order.findAll({ where: orderWhere, include: [{ model: m.User, as: 'buyer', attributes: ['id', 'displayName', 'email'] }, { model: m.OrderItem, as: 'items', include: [{ model: m.Ticket, as: 'tickets', attributes: ['holderUserId', 'status'], include: [{ model: m.User, as: 'holder', attributes: ['displayName', 'email'] }] }] }], order: [['paidAt', 'DESC']] }),
-      m.GuestlistEntry.findAll({ where: guestWhere, attributes: ['userId', 'status', 'partySize'], include: [{ model: m.User, as: 'user', attributes: ['id', 'displayName', 'email'] }] }),
+      m.GuestlistEntry.findAll({ where: guestWhere, attributes: ['userId', 'eventAffiliateId', 'status', 'partySize'], include: [{ model: m.User, as: 'user', attributes: ['id', 'displayName', 'email'] }] }),
     ]);
     const people = canManage ? allPeople : allPeople.filter((p) => p.userId === userId);
     const offerings = [...event.offerings].sort((a, b) => a.sortOrder - b.sortOrder);
     const report = summarizeEvent({ orders, offerings, people, guests });
     const serialized = event.toJSON();
     serialized.offerings = offerings.map((o) => { const { accessCodeHash, ...tier } = o.toJSON(); if (!canManage) delete tier.quantitySold; return { ...tier, saleState: offeringSaleState(o, offerings, now()) }; });
-    return { event: { ...serialized, canManage, canEdit: canManage && !eventFinished(event, now()) }, scope: canManage ? 'event' : 'own', candidates: canManage ? members : [], ...report };
+    const purchases = orders.map((order) => ({ id: order.id, customer: order.buyer?.displayName || 'Customer', items: order.items.map((item) => `${item.quantity} × ${item.nameSnapshot}`).join(', '), salesCents: order.subtotalCents, referredBy: people.find((person) => person.id === order.eventAffiliateId)?.name || 'Direct', paidAt: order.paidAt, demo: order.pricingPlanSnapshot?.demo === true }));
+    return { event: { ...serialized, canManage, canEdit: canManage && !eventFinished(event, now()) }, scope: canManage ? 'event' : 'own', candidates: canManage ? members : [], purchases, ...report };
   }
   async function savePerson(userId, eventId, input) {
     await permissions.assertManageEvent(userId, eventId);

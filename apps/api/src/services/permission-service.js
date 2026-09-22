@@ -19,7 +19,7 @@ function createPermissionService(models) {
     const event = await models.Event.findByPk(eventId); if (!event) throw notFound('Event');
     const user = await models.User.findByPk(userId);
     if (!user?.isActive) throw forbidden('An active account is required');
-    if (user?.isInternalAdmin || event.creatorUserId === userId || (event.organizationId && await canManageOrganization(userId, event.organizationId))) {
+    if (user?.isInternalAdmin || (!event.organizationId && event.creatorUserId === userId) || (event.organizationId && await canManageOrganization(userId, event.organizationId))) {
       return { event, canReviewAny: true, eventAffiliateIds: [] };
     }
     let affiliates = await models.EventAffiliate.findAll({ where: { eventId, userId, status: 'active' }, attributes: ['id', 'code'] });

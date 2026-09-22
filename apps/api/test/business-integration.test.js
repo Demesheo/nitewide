@@ -41,10 +41,15 @@ test(
       promoter: randomUUID(),
       employee: randomUUID(),
       outsider: randomUUID(),
+      invitedDirect: randomUUID(),
+      invitedReferral: randomUUID(),
+      invitedEmployee: randomUUID(),
+      eventPromoter: randomUUID(),
+      matrixCustomer: randomUUID(),
       org: randomUUID(),
       affiliate: randomUUID(),
     };
-    const users = [ids.owner, ids.manager, ids.promoter, ids.employee, ids.outsider];
+    const users = [ids.owner, ids.manager, ids.promoter, ids.employee, ids.outsider, ids.invitedDirect, ids.invitedReferral, ids.invitedEmployee, ids.eventPromoter, ids.matrixCustomer];
     const events = [];
     const locations = new Set();
     let server;
@@ -219,6 +224,77 @@ test(
         code: `QAE-${event.id.slice(0, 8)}`,
         guestlistAllocation: 20,
       });
+      const linkCodes = new Set();
+      for (const person of [ids.owner, ids.manager, ids.employee, ids.promoter]) {
+        const link = await req(`/business/events/${event.id}/referral-link`, person);
+        assert.equal(link.status, 200, JSON.stringify(link.body));
+        assert.equal(link.body.data.eventId, event.id);
+        assert.ok(link.body.data.code);
+        linkCodes.add(link.body.data.code);
+      }
+      assert.equal(linkCodes.size, 4, 'each authorized person gets a unique event code');
+      assert.equal((await req(`/business/events/${event.id}/referral-link`, ids.outsider)).status, 403);
+      const visitKey = randomUUID();
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const visit = await req(`/events/${event.id}/referral-visits`, null, 'POST', { code: eventAffiliate.code, sessionKey: visitKey });
+        assert.equal(visit.status, 200, JSON.stringify(visit.body));
+        assert.equal(visit.body.data.referrerName, 'QA promoter');
+      }
+      assert.equal(await m.AffiliateAttribution.count({ where: { eventId: event.id, action: 'visit', sessionKey: visitKey } }), 1);
+      assert.equal((await req(`/events/${event.id}/referral-visits`, null, 'POST', { code: 'INVALID', sessionKey: randomUUID() })).status, 400);
+      const inviteEvent = await req('/business/events', ids.owner, 'POST', { ...input, guestlistCapacity: 3, slug: `invite-${randomUUID()}` });
+      assert.equal(inviteEvent.status, 201, JSON.stringify(inviteEvent.body));
+      const guestInviteEventId = inviteEvent.body.data.id;
+      events.push(guestInviteEventId);
+      locations.add(inviteEvent.body.data.locationId);
+      const inviteAffiliate = await m.EventAffiliate.create({ eventId: guestInviteEventId, userId: ids.promoter, orgAffiliateId: ids.affiliate, code: `QAI-${guestInviteEventId.slice(0,8)}`, guestlistAllocation: 2 });
+      const employeeInviteAffiliate = await m.EventAffiliate.create({ eventId: guestInviteEventId, userId: ids.employee, code: `QASTAFF-${guestInviteEventId.slice(0,8)}`, guestlistAllocation: 1 });
+      const guestInvitePath = `/business/events/${guestInviteEventId}/guestlist-invitations`;
+      const pools = await req(`/business/events/${guestInviteEventId}/guestlist-invite-pools`, ids.promoter);
+      assert.equal(pools.body.data.direct, false);
+      assert.ok(pools.body.data.own.some((pool) => pool.id === inviteAffiliate.id));
+      const employeePools = await req(`/business/events/${guestInviteEventId}/guestlist-invite-pools`, ids.employee);
+      assert.equal(employeePools.body.data.direct, false);
+      assert.deepEqual(employeePools.body.data.own.map((pool) => pool.id), [employeeInviteAffiliate.id]);
+      assert.equal((await req(guestInvitePath, ids.promoter, 'POST', { pool: 'direct', email: `${ids.invitedDirect}@integration.nitewide.test`, partySize: 1 })).status, 403);
+      assert.equal((await req(guestInvitePath, ids.outsider, 'POST', { pool: 'direct', email: `${ids.invitedDirect}@integration.nitewide.test`, partySize: 1 })).status, 403);
+      const existingDirect = await req(guestInvitePath, ids.owner, 'POST', { pool: 'direct', email: `${ids.invitedDirect}@integration.nitewide.test`, partySize: 1 });
+      assert.equal(existingDirect.status, 201, JSON.stringify(existingDirect.body));
+      assert.equal(existingDirect.body.data.invitation.status, 'accepted');
+      const existingReferral = await req(guestInvitePath, ids.promoter, 'POST', { pool: 'own', eventAffiliateId: inviteAffiliate.id, email: `${ids.invitedReferral}@integration.nitewide.test`, partySize: 1 });
+      assert.equal(existingReferral.status, 201, JSON.stringify(existingReferral.body));
+      assert.equal((await m.GuestlistEntry.findByPk(existingReferral.body.data.entryId)).eventAffiliateId, inviteAffiliate.id);
+      const employeeReferral = await req(guestInvitePath, ids.employee, 'POST', { pool: 'own', eventAffiliateId: employeeInviteAffiliate.id, email: `${ids.invitedEmployee}@integration.nitewide.test`, partySize: 1 });
+      assert.equal(employeeReferral.status, 201, JSON.stringify(employeeReferral.body));
+      assert.equal((await m.GuestlistEntry.findByPk(employeeReferral.body.data.entryId)).eventAffiliateId, employeeInviteAffiliate.id);
+      const inviteNotification = await req('/notifications', ids.invitedDirect);
+      assert.equal(inviteNotification.body.data.unreadCount, 1);
+      assert.equal(inviteNotification.body.data.items[0].kind, 'guestlist_invited');
+      assert.equal((await req(`/notifications/${inviteNotification.body.data.items[0].id}/read`, ids.outsider, 'POST')).status, 404);
+      assert.equal((await req(`/notifications/${inviteNotification.body.data.items[0].id}/read`, ids.invitedDirect, 'POST')).status, 200);
+      const pending = await req(guestInvitePath, ids.owner, 'POST', { pool: 'direct', email: `new-${randomUUID()}@integration.nitewide.test`, partySize: 1 });
+      assert.equal(pending.body.data.invitation.status, 'pending');
+      assert.ok(pending.body.data.token);
+      assert.equal((await req(guestInvitePath, ids.owner, 'POST', { pool: 'direct', email: pending.body.data.invitation.email, partySize: 1 })).status, 409);
+      const registered = await req('/auth/register', null, 'POST', { displayName: 'New guest', email: pending.body.data.invitation.email, password: 'NitewideDemo!2026', guestlistInviteToken: pending.body.data.token });
+      assert.equal(registered.status, 201, JSON.stringify(registered.body));
+      assert.equal(registered.body.data.guestlistInvite.status, 'confirmed');
+      users.push(registered.body.data.user.id);
+      const repeatedClaim = await req(`/guestlist-invitations/${pending.body.data.token}/claim`, registered.body.data.user.id, 'POST');
+      assert.equal(repeatedClaim.status, 200);
+      assert.equal(repeatedClaim.body.data.status, 'confirmed');
+      const phonePending = await req(guestInvitePath, ids.owner, 'POST', { pool: 'direct', phone: '+14075550199', partySize: 1 });
+      assert.equal(phonePending.status, 201, JSON.stringify(phonePending.body));
+      const phoneRegistered = await req('/auth/register', null, 'POST', { displayName: 'Phone guest', email: `phone-${randomUUID()}@integration.nitewide.test`, phone: '+14075550199', password: 'NitewideDemo!2026', guestlistInviteToken: phonePending.body.data.token });
+      assert.equal(phoneRegistered.status, 201, JSON.stringify(phoneRegistered.body));
+      assert.equal(phoneRegistered.body.data.guestlistInvite.status, 'confirmed');
+      users.push(phoneRegistered.body.data.user.id);
+      const fullPending = await req(guestInvitePath, ids.owner, 'POST', { pool: 'direct', email: `full-${randomUUID()}@integration.nitewide.test`, partySize: 1 });
+      const fullRegistered = await req('/auth/register', null, 'POST', { displayName: 'Waitlisted guest', email: fullPending.body.data.invitation.email, password: 'NitewideDemo!2026', guestlistInviteToken: fullPending.body.data.token });
+      assert.equal(fullRegistered.status, 201, JSON.stringify(fullRegistered.body));
+      assert.equal(fullRegistered.body.data.guestlistInvite.status, 'full');
+      users.push(fullRegistered.body.data.user.id);
+      assert.equal(await m.GuestlistEntry.count({ where: { eventId: guestInviteEventId, eventAffiliateId: null, status: 'confirmed' } }), 3);
       const checkout = await req("/orders", ids.outsider, "POST", {
         eventId: event.id,
         idempotencyKey: randomUUID(),
@@ -231,6 +307,15 @@ test(
         },
       });
       assert.equal(checkout.status, 201, JSON.stringify(checkout.body));
+      const buyerNotifications = (await req('/notifications', ids.outsider)).body.data.items;
+      assert.ok(buyerNotifications.some((item) => item.kind === 'purchase_confirmed' && item.eventId === event.id));
+      const referrerNotifications = (await req('/notifications', ids.promoter)).body.data.items;
+      assert.ok(referrerNotifications.some((item) => item.kind === 'referral_purchase' && item.metadata.orderId === checkout.body.data.order.id));
+      const ownerNotifications = (await req('/notifications', ids.owner)).body.data.items;
+      assert.ok(ownerNotifications.some((item) => item.kind === 'event_purchase' && item.metadata.referrerUserId === ids.promoter));
+      const purchaseDetail = await req(`/business/events/${event.id}/detail`, ids.owner);
+      assert.equal(purchaseDetail.status, 200);
+      assert.ok(purchaseDetail.body.data.purchases.some((purchase) => purchase.id === checkout.body.data.order.id && purchase.customer === 'QA outsider' && purchase.referredBy === 'QA promoter'));
       const report = await req(
         `/business/workspace?organizationId=${ids.org}&days=7`,
         ids.owner,
@@ -248,7 +333,23 @@ test(
         ids.promoter,
       );
       assert.equal(promoterReport.body.data.events[0].canManage, false);
+      assert.equal(promoterReport.body.data.scope, 'own');
       assert.equal(promoterReport.body.data.report.people.length, 1);
+      const employeeWorkspace = (await req(`/business/workspace?organizationId=${ids.org}`,ids.employee)).body.data;
+      assert.equal(employeeWorkspace.scope,'own');
+      assert.equal(employeeWorkspace.report.summary.salesCents,0,'another promoter’s sale is invisible to staff');
+      assert.deepEqual(employeeWorkspace.report.people.map((person)=>person.id),[ids.employee]);
+      const employeeAnalytics = (await req(`/business/analytics?days=30&organizationIds=${ids.org}`,ids.employee)).body.data;
+      assert.equal(employeeAnalytics.scope,'own');
+      assert.equal(employeeAnalytics.summary.salesCents,0);
+      assert.deepEqual(employeeAnalytics.referrals.people.map((person)=>person.id),[ids.employee]);
+      assert.equal(employeeAnalytics.referrals.customers.length,1);
+      assert.equal(employeeAnalytics.referrals.customers[0].guestlistPlaces,1);
+      assert.equal(employeeAnalytics.referrals.customers[0].salesCents,0,'guestlist-only customers do not invent sales');
+      const promoterAnalytics = (await req(`/business/analytics?days=30&organizationIds=${ids.org}`,ids.promoter)).body.data;
+      assert.equal(promoterAnalytics.scope,'own');
+      assert.equal(promoterAnalytics.summary.salesCents,2000);
+      assert.deepEqual(promoterAnalytics.referrals.people.map((person)=>person.id),[ids.promoter]);
       const outsider = await req(
         `/business/workspace?organizationId=${ids.org}`,
         ids.outsider,
@@ -302,6 +403,7 @@ test(
         { partySize: 2 },
       );
       assert.equal(request.status, 202);
+      assert.ok((await req('/notifications', ids.owner)).body.data.items.some((item) => item.kind === 'guestlist_request' && item.eventId === event.id));
       assert.equal(
         (await req(`/business/events/${event.id}/guestlist`, ids.outsider))
           .status,
@@ -315,6 +417,7 @@ test(
         { decision: "approve" },
       );
       assert.equal(approval.status, 200);
+      assert.ok((await req('/notifications', ids.outsider)).body.data.items.some((item) => item.kind === 'guestlist_approved' && item.eventId === event.id));
       assert.equal(
         (
           await req(
@@ -558,6 +661,10 @@ test(
       assert.equal(await m.EventAffiliate.count({where:{eventId:employeeEventId,userId:ids.employee}}),1);
       assert.equal((await req(`/business/events/${employeeEventId}/people`,ids.manager,'PUT',{userId:ids.employee,commissionBps:2000,status:'inactive'})).status,200);
       assert.equal((await employeeBuy()).body.error.code,'INVALID_AFFILIATE');
+      const historicalStaffWorkspace = (await req(`/business/workspace?organizationId=${ids.org}`,ids.employee)).body.data;
+      assert.equal(historicalStaffWorkspace.report.events.find((row)=>row.id===employeeEventId).salesCents,2000,'staff retain their own historical sales after an event override is removed');
+      const historicalStaffAnalytics = (await req(`/business/analytics?days=30&organizationIds=${ids.org}`,ids.employee)).body.data;
+      assert.equal(historicalStaffAnalytics.referrals.people.find((row)=>row.id===ids.employee).salesCents,2000);
       // A default employee can also be explicitly removed before their first referral.
       const unusedEvent = await req('/business/events',ids.owner,'POST',{...input,slug:`staff-unused-${randomUUID()}`});
       assert.equal(unusedEvent.status,201);
@@ -650,6 +757,67 @@ test(
         assert.equal(credited.orders,2);
         assert.equal(credited.commissionCents,100);
       }
+      const matrixEventResponse = await req('/business/events', ids.owner, 'POST', { ...input, title: 'Referral matrix event', slug: `matrix-${randomUUID()}`, guestlistCapacity: 20, offerings: [{ ...input.offerings[0], quantityTotal: 50 }] });
+      assert.equal(matrixEventResponse.status, 201, JSON.stringify(matrixEventResponse.body));
+      const matrixEvent = matrixEventResponse.body.data;
+      events.push(matrixEvent.id); locations.add(matrixEvent.locationId);
+      const matrixTier = await m.Offering.findOne({ where: { eventId: matrixEvent.id } });
+      await m.EventAffiliate.create({ eventId: matrixEvent.id, userId: ids.eventPromoter, code: `MATRIX-${randomUUID()}`, commissionBps: 4000, guestlistAllocation: 10, status: 'active' });
+      const matrixActors = [
+        { userId: ids.owner, buyerId: ids.outsider, rate: 0, role: 'Owner' },
+        { userId: ids.manager, buyerId: ids.invitedDirect, rate: 500, role: 'Manager' },
+        { userId: ids.employee, buyerId: ids.invitedReferral, rate: 1250, role: 'Employee' },
+        { userId: ids.promoter, buyerId: ids.invitedEmployee, rate: 2000, role: 'Promoter' },
+        { userId: ids.eventPromoter, buyerId: ids.matrixCustomer, rate: 4000, role: 'Promoter' },
+      ];
+      for (const actor of matrixActors) {
+        const link = await req(`/business/events/${matrixEvent.id}/referral-link`, actor.userId);
+        assert.equal(link.status, 200, `${actor.role} link: ${JSON.stringify(link.body)}`);
+        const assignment = await m.EventAffiliate.findOne({ where: { eventId: matrixEvent.id, userId: actor.userId } });
+        await assignment.update({ commissionBps: actor.rate, guestlistAllocation: 10 });
+        const purchase = await req('/orders', actor.buyerId, 'POST', { eventId: matrixEvent.id, idempotencyKey: randomUUID(), affiliateCode: link.body.data.code, items: [{ offeringId: matrixTier.id, quantity: 1 }], payment: { provider: 'test', reference: randomUUID(), status: 'succeeded' } });
+        assert.equal(purchase.status, 201, `${actor.role} purchase: ${JSON.stringify(purchase.body)}`);
+        assert.equal(purchase.body.data.order.affiliateCommissionCents, actor.rate / 10);
+        const guestlist = await req(`/events/${matrixEvent.id}/guestlist`, actor.buyerId, 'POST', { partySize: 1, affiliateCode: link.body.data.code });
+        assert.equal(guestlist.status, 202, `${actor.role} guestlist: ${JSON.stringify(guestlist.body)}`);
+      }
+      const matrixDetail = await req(`/business/events/${matrixEvent.id}/detail`, ids.owner);
+      assert.equal(matrixDetail.status, 200, JSON.stringify(matrixDetail.body));
+      for (const actor of matrixActors) {
+        const person = matrixDetail.body.data.people.find((row) => row.userId === actor.userId);
+        assert.equal(person.role, actor.role);
+        assert.equal(person.salesCents, 1000);
+        assert.equal(person.commissionCents, actor.rate / 10);
+        assert.equal(person.guestlistRequests, 1);
+        assert.equal(person.guestlistPlaces, 1);
+      }
+      assert.equal(matrixDetail.body.data.summary.salesCents, 5000);
+      assert.equal(matrixDetail.body.data.summary.commissionCents, 775);
+      const matrixWorkspace = await req('/business/workspace?days=30', ids.owner);
+      const matrixOverviewRows = matrixWorkspace.body.data.report.people;
+      for (const actor of matrixActors) {
+        const row = matrixOverviewRows.find((person) => person.id === actor.userId);
+        assert.ok(row.salesCents >= 1000, `${actor.role} overview sale`);
+        assert.ok(row.commissionCents >= actor.rate / 10, `${actor.role} overview commission`);
+        assert.ok(row.guestlistPlaces >= 1, `${actor.role} overview guestlist`);
+      }
+      const matrixAnalytics = await req(`/business/analytics?days=30&search=${encodeURIComponent(matrixEvent.title)}`, ids.owner);
+      assert.equal(matrixAnalytics.status, 200, JSON.stringify(matrixAnalytics.body));
+      for (const actor of matrixActors) {
+        const row = matrixAnalytics.body.data.referrals.people.find((person) => person.id === actor.userId);
+        assert.equal(row.salesCents, 1000, `${actor.role} analytics sale`);
+        assert.equal(row.commissionCents, actor.rate / 10, `${actor.role} analytics commission`);
+        assert.equal(row.guestlistPlaces, 1, `${actor.role} analytics guestlist`);
+      }
+
+      const selloutEvent = await req('/business/events', ids.owner, 'POST', { ...input, slug: `sellout-${randomUUID()}`, offerings: [{ ...input.offerings[0], quantityTotal: 1 }] });
+      assert.equal(selloutEvent.status, 201, JSON.stringify(selloutEvent.body));
+      events.push(selloutEvent.body.data.id);
+      locations.add(selloutEvent.body.data.locationId);
+      const selloutTier = await m.Offering.findOne({ where: { eventId: selloutEvent.body.data.id } });
+      const sold = await req('/orders', ids.outsider, 'POST', { eventId: selloutEvent.body.data.id, idempotencyKey: randomUUID(), items: [{ offeringId: selloutTier.id, quantity: 1 }], payment: { provider: 'test', reference: randomUUID(), status: 'succeeded' } });
+      assert.equal(sold.status, 201, JSON.stringify(sold.body));
+      assert.ok((await req('/notifications', ids.owner)).body.data.items.some((item) => item.kind === 'offering_sold_out' && item.eventId === selloutEvent.body.data.id));
     } finally {
       if (server) await new Promise((resolve) => server.close(resolve));
       // Resolve all fixture locations, including any created just before a failed assertion.
@@ -691,6 +859,8 @@ test(
           where: { eventId: events },
           transaction,
         });
+        await m.Notification.destroy({ where: { userId: users }, transaction });
+        await m.GuestlistInvitation.destroy({ where: { eventId: events }, transaction });
         await m.EventAffiliate.destroy({
           where: { eventId: events },
           transaction,
@@ -721,6 +891,7 @@ test(
           where: { uploadedByUserId: users },
           transaction,
         });
+        await m.UserCredential.destroy({ where: { userId: users }, transaction });
         await m.User.destroy({ where: { id: users }, transaction });
       });
       await sequelize.close();
