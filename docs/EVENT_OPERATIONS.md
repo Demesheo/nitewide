@@ -36,13 +36,13 @@ Once `endsAt <= now`, or status is completed, business event configuration is re
 
 ## Admission release rules
 
-Each offering can have optional opening/closing timestamps. Admission tickets may also reference an earlier admission tier that must sell out first. The referenced tier must be finite, active, have positive stock, and cost less than the successor. Forward/self references, cycles, package prerequisites, and non-increasing price ladders are rejected.
+Each ticket or package can have optional opening/closing timestamps. A higher-priced tier can reference an earlier limited tier of the same type with positive stock. Forward/self references, cycles, cross-type prerequisites, unlimited predecessors, and non-increasing price ladders are rejected. Reservations can have windows but cannot join a ladder.
 
-Example: 50 early tickets at $10 → 100 standard tickets at $15 → 100 final tickets at $20. Standard stays locked until all 50 early tickets have sold. Add a date window to require both sellout and the date window. Date-only tiers have no sellout prerequisite. A closed window does not count as selling out; configure date-only tiers if a calendar handover is required. Raising the predecessor's inventory above its sold count locks the successor again until it sells out.
+Example: create 50 GA tickets at $10, 50 at $20 linked to the first tier, then 100 at $40 linked to the second. A linked tier opens when its predecessor **sells out, reaches its sales stop time, or is closed manually** by unchecking Sales enabled and saving. Its own sales start time must also have arrived, and its own stop time must not have passed. A date-only tier has no predecessor requirement. Re-enabling a manually closed predecessor or increasing its inventory may put a successor back into the waiting state; review the ladder before saving. Closing a tier never alters completed purchases.
 
 The editor sends `releaseAfterIndex` for a preceding tier. The API resolves it to a persisted offering ID within one transaction, including newly created tiers. Historical tier IDs cannot be silently removed. Checkout locks the event before inventory, checks the stored release rule/windows, and records original prices and admission counts. A higher tier cannot be purchased in the same checkout that would finish the prerequisite tier: it opens for the next checkout after that sale commits.
 
-Public event responses provide `saleState`: `on_sale`, `scheduled`, `waiting_for_tier`, `sold_out`, `closed`, or `inactive`. Customer cards/checkout controls exclude locked tiers from availability and display an availability explanation. An already open customer page may need Refresh to see a tier unlocked by another purchase; the API always enforces the latest state.
+Public event responses provide `saleState`: `on_sale`, `scheduled`, `waiting_for_tier`, `sold_out`, or `closed`; manually closed tiers are not shown publicly. Customer purchase controls disable locked tiers and explain when they open. An already open customer page may need Refresh to see a tier unlocked by another purchase; the API always enforces the latest state.
 
 ## Team selection and commissions
 

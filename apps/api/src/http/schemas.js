@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { optionalPhone } = require('../domain/phone');
 const uuid = z.string().uuid();
 const date = z.coerce.date();
 const organization = z.object({ name: z.string().min(2).max(160), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), description: z.string().max(5000).optional(), planTier: z.enum(['free', 'premium']).default('free') });
@@ -13,7 +14,7 @@ const guestlistQuery = z.object({ status: z.union([guestlistStatus, z.array(gues
 const guestlistDecision = z.object({ decision: z.enum(['approve', 'reject', 'cancel']), note: z.string().max(500).optional() });
 const guestlistCapacity = z.object({ guestlistCapacity: z.number().int().nonnegative() });
 const affiliateGuestlistAllocation = z.object({ guestlistAllocation: z.number().int().nonnegative().nullable() });
-const register = z.object({ displayName: z.string().trim().min(2).max(120), email: z.string().trim().email().max(320), password: z.string().min(8).max(128).regex(/[a-z]/, 'Password must include a lowercase letter').regex(/[A-Z]/, 'Password must include an uppercase letter').regex(/[0-9]/, 'Password must include a number'), marketingConsent: z.boolean().default(false) });
+const register = z.object({ displayName: z.string().trim().min(2).max(120), email: z.string().trim().email().max(320), password: z.string().min(8).max(128).regex(/[a-z]/, 'Password must include a lowercase letter').regex(/[A-Z]/, 'Password must include an uppercase letter').regex(/[0-9]/, 'Password must include a number'), phone: optionalPhone, marketingConsent: z.boolean().default(false), transactionalSmsConsent: z.boolean().default(false), marketingSmsConsent: z.boolean().default(false) }).refine((data) => data.phone || (!data.transactionalSmsConsent && !data.marketingSmsConsent), { path: ['phone'], message: 'Add a phone number to choose SMS updates' });
 const signIn = z.object({ email: z.string().trim().email().max(320), password: z.string().min(1).max(128) });
 const checkIn = z.object({ eventId: uuid, qrToken: z.string().min(20) });
 module.exports = { organization, event, offering, orgAffiliate, eventAffiliate, checkout, guestlist, guestlistQuery, guestlistDecision, guestlistCapacity, affiliateGuestlistAllocation, register, signIn, checkIn };

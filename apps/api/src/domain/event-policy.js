@@ -12,7 +12,15 @@ function offeringSaleState(offering, offerings, now = new Date()) {
   if (offering.salesStartAt && now < new Date(offering.salesStartAt)) return 'scheduled';
   if (offering.releaseAfterOfferingId) {
     const previous = offerings.find((o) => o.id === offering.releaseAfterOfferingId);
-    if (!previous || previous.inventoryMode !== 'finite' || previous.quantitySold < previous.quantityTotal) return 'waiting_for_tier';
+    // A ladder advances after sellout, the predecessor's window ends, or an
+    // editor manually closes that predecessor. The successor's own window
+    // remains an independent requirement (checked above).
+    const released = previous && (
+      !previous.isActive ||
+      (previous.salesEndAt && now >= new Date(previous.salesEndAt)) ||
+      (previous.inventoryMode === 'finite' && previous.quantitySold >= previous.quantityTotal)
+    );
+    if (!released) return 'waiting_for_tier';
   }
   return 'on_sale';
 }

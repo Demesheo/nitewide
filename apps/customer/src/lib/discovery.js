@@ -107,6 +107,17 @@ export function availableQuantity(offering, now = new Date()) {
   const maximum = Math.min(offering.maxPerOrder || 10, remaining);
   return maximum < (offering.minPerOrder || 1) ? 0 : maximum;
 }
+export function offeringAvailabilityLabel(offering, offerings = []) {
+  if (availableQuantity(offering)) return '+ fees';
+  if (offering.saleState === 'waiting_for_tier') {
+    const previous = offerings.find((item) => item.id === offering.releaseAfterOfferingId);
+    return previous ? `Opens when ${previous.name} sells out or closes` : 'Opens when the earlier tier sells out or closes';
+  }
+  if (offering.saleState === 'scheduled') return 'Opens later';
+  if (offering.saleState === 'sold_out') return 'Sold out';
+  if (offering.saleState === 'closed') return 'Sales closed';
+  return 'Unavailable';
+}
 export function checkoutTotal(priceCents, quantity) {
   const subtotal = priceCents * quantity;
   const fee = checkoutFeeCents(subtotal);

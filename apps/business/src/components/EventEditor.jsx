@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Field, SelectField } from "./controls";
-import { editorDraft, eventPayload } from "@/lib/business";
+import { editorDraft, eventPayload, releaseOptions } from "@/lib/business";
 import { api } from "@/lib/api";
 import { ImageUpload } from "./ImageUpload";
 
@@ -46,6 +46,16 @@ export function EventEditor({
         i === index ? { ...t, [key]: value } : t,
       ),
     }));
+  const addTier = (kind) => setDraft((d) => ({
+    ...d,
+    offerings: [...d.offerings, {
+      clientKey: crypto.randomUUID(), name: "", kind,
+      price: Math.max(0, ...d.offerings.filter((t) => t.kind === kind).map((t) => Number(t.price) || 0)) + 10,
+      quantityTotal: 50, inventoryMode: "finite", entriesPerUnit: kind === "package" ? 4 : 1,
+      minPerOrder: 1, maxPerOrder: 10, isActive: true, visibility: "public", description: "",
+      releaseAfterKey: "", salesStartAt: "", salesEndAt: "",
+    }],
+  }));
   async function submit(e) {
     e.preventDefault();
     if (uploading) return;
@@ -302,36 +312,12 @@ export function EventEditor({
                 <div className="section-heading">
                   <div>
                     <h3>Build your ticket ladder</h3>
-                    <p>Open tiers now, on a schedule, or after an earlier tier sells out. Prices in USD.</p>
+                    <p>Set a quantity and price for each tier. Later tiers can open after an earlier tier sells out, its sales window ends, or you close it manually.</p>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={draft.offerings.length >= 50}
-                    onClick={() =>
-                      set("offerings", [
-                        ...draft.offerings,
-                        {
-                          clientKey: crypto.randomUUID(),
-                          name: "",
-                          kind: "ticket",
-                          price: Math.max(10, ...draft.offerings.filter((t) => t.kind === 'ticket').map((t) => Number(t.price) || 0)) + 5,
-                          quantityTotal: 100,
-                          inventoryMode: "finite",
-                          entriesPerUnit: 1,
-                          minPerOrder: 1,
-                          maxPerOrder: 10,
-                          isActive: true,
-                          visibility: "public",
-                          description: "",
-                        },
-                      ])
-                    }
-                  >
-                    <Plus />
-                    Add tier
-                  </Button>
+                  <div className="tier-add-actions">
+                    <Button type="button" variant="outline" size="sm" disabled={draft.offerings.length >= 50} onClick={() => addTier("ticket")}><Plus /> Add ticket tier</Button>
+                    <Button type="button" variant="outline" size="sm" disabled={draft.offerings.length >= 50} onClick={() => addTier("package")}><Plus /> Add package tier</Button>
+                  </div>
                 </div>
                 {draft.offerings.map((t, i) => (
                   <fieldset className="tier-card" key={t.clientKey}>
@@ -353,7 +339,7 @@ export function EventEditor({
                         label="Type"
                         disabled={t.quantitySold > 0}
                         value={t.kind}
-                        onChange={(v) => { tier(i, "kind", v); if (v !== 'ticket') tier(i, 'releaseAfterKey', ''); }}
+                        onChange={(v) => setDraft((d) => ({ ...d, offerings: d.offerings.map((item, index) => index === i ? { ...item, kind: v, releaseAfterKey: "" } : item) }))}
                         options={[
                           ["ticket", "Ticket"],
                           ["package", "Package"],
@@ -428,13 +414,13 @@ export function EventEditor({
                         value={t.maxPerOrder}
                         onChange={(e) => tier(i, "maxPerOrder", e.target.value)}
                       />
-                      {t.kind === 'ticket' && <div className="full"><SelectField id={`tier-release-${i}`} label="Release rule" value={t.releaseAfterKey || 'immediate'} onChange={(v) => tier(i, 'releaseAfterKey', v === 'immediate' ? '' : v)} options={[
-                        ['immediate', 'No sellout requirement'],
-                        ...draft.offerings.slice(0, i).filter((p) => p.kind === 'ticket' && p.inventoryMode === 'finite' && Number(p.price) < Number(t.price) && p.isActive).map((p) => [p.clientKey, `After ${p.name || 'earlier tier'} sells out`]),
+                      {['ticket', 'package'].includes(t.kind) && <div className="full"><SelectField id={`tier-release-${i}`} label="Open after (optional)" value={t.releaseAfterKey || 'immediate'} onChange={(v) => tier(i, 'releaseAfterKey', v === 'immediate' ? '' : v)} options={[
+                        ['immediate', 'No earlier tier required'],
+                        ...releaseOptions(draft.offerings, i).map((p) => [p.key, p.name]),
                       ]}/></div>}
                       <Field
                         id={`tier-sales-start-${i}`}
-                        label="Sales open (venue time, optional)"
+                        label="Start selling (venue time, optional)"
                         type="datetime-local"
                         value={t.salesStartAt || ""}
                         onChange={(e) =>
@@ -443,7 +429,7 @@ export function EventEditor({
                       />
                       <Field
                         id={`tier-sales-end-${i}`}
-                        label="Sales close (venue time, optional)"
+                        label="Stop selling (venue time, optional)"
                         type="datetime-local"
                         value={t.salesEndAt || ""}
                         onChange={(e) => tier(i, "salesEndAt", e.target.value)}
@@ -469,9 +455,10 @@ export function EventEditor({
                             tier(i, "isActive", e.target.checked)
                           }
                         />
-                        Available for sale
+                        Sales enabled
                       </label>
-                      {t.releaseAfterKey && <p className="hint full">Opens when the selected lower-priced tier sells out. Any date window must also be open.</p>}
+                      {t.releaseAfterKey && <p className="hint full">This tier opens when the selected tier sells out, reaches its stop time, or is closed manually. Its own start time must also have arrived.</p>}
+                      {!t.isActive && <p className="hint full">Closed manually. A linked next tier may open now if its own start time has arrived. Re-enable sales to reopen this tier.</p>}
                     </div>
                     {!t.id && draft.offerings.length > 1 && (
                       <Button
@@ -491,8 +478,7 @@ export function EventEditor({
                     )}
                     {t.id && (
                       <p className="hint">
-                        Disable this tier to stop future sales; historical
-                        orders stay intact.
+                        Uncheck Sales enabled to close this tier manually. A linked next tier opens automatically. Historical orders stay intact.
                       </p>
                     )}
                   </fieldset>

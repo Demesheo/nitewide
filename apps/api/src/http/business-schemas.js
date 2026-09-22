@@ -82,8 +82,8 @@ const eventEditor = z
     e.offerings.forEach((t, i) => {
       if (t.releaseAfterIndex == null) return;
       const previous = e.offerings[t.releaseAfterIndex];
-      if (t.kind !== 'ticket' || !previous || t.releaseAfterIndex >= i || previous.kind !== 'ticket' || previous.inventoryMode !== 'finite' || !previous.isActive || previous.quantityTotal < 1 || previous.priceCents >= t.priceCents) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['offerings', i, 'releaseAfterIndex'], message: 'Choose an earlier, active, limited admission tier with a lower price.' });
+      if (!['ticket', 'package'].includes(t.kind) || !previous || t.releaseAfterIndex >= i || previous.kind !== t.kind || previous.inventoryMode !== 'finite' || previous.quantityTotal < 1 || previous.priceCents >= t.priceCents) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['offerings', i, 'releaseAfterIndex'], message: 'Choose an earlier, limited tier of the same type with a lower price.' });
       }
     });
   });

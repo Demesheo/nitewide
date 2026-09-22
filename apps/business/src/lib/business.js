@@ -67,6 +67,17 @@ export const defaultTiers = () =>
     visibility: "public",
     description: "",
   }));
+export function releaseOptions(offerings, index) {
+  const current = offerings[index];
+  if (!current || !["ticket", "package"].includes(current.kind)) return [];
+  return offerings.slice(0, index).filter((prior) =>
+    prior.kind === current.kind && prior.inventoryMode === "finite" &&
+    Number(prior.quantityTotal) > 0 && Number(prior.price) < Number(current.price)
+  ).map((prior) => ({
+    key: prior.clientKey || prior.id,
+    name: prior.name || "earlier tier",
+  }));
+}
 export function editorDraft(event, organizationId = null, organizations = []) {
   const venueLocation = event?.organizationId && event.location
     ? event.location

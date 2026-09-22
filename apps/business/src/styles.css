@@ -1072,6 +1072,7 @@ textarea:focus-visible {
 .editor-body .section-heading {
   padding: 0 0 17px;
 }
+.tier-add-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .tier-card {
   border: 1px solid #46324e;
   padding: 18px;
@@ -1503,6 +1504,8 @@ textarea:focus-visible {
 .team-invite p { margin-top: 7px; color: var(--muted-foreground, #b2adc2); max-width: 720px; }
 .team-invite form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
 .team-invite form label { display: grid; gap: 7px; min-width: 220px; font-size: 12px; }
+.signin-form .sms-choice { display: flex; align-items: flex-start; gap: 10px; font-size: 12px; line-height: 1.5; }
+.signin-form .sms-choice input { width: 16px; height: 16px; flex: none; margin-top: 2px; accent-color: var(--primary); }
 .team-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .team-link p, .team-link small { flex-basis: 100%; }
 .team-link input { flex: 1; min-width: 240px; }

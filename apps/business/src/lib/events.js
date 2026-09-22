@@ -17,7 +17,7 @@ export function selectEvents(events, { view = 'upcoming', search = '', from = ''
       [event.title, event.location?.name, event.location?.city].filter(Boolean).join(' ').toLowerCase().includes(search.trim().toLowerCase());
   });
 }
-export const saleLabels = { on_sale: 'On sale', scheduled: 'Scheduled', waiting_for_tier: 'Waiting for sellout', sold_out: 'Sold out', closed: 'Sales closed', inactive: 'Paused' };
+export const saleLabels = { on_sale: 'On sale', scheduled: 'Opens on schedule', waiting_for_tier: 'Waiting for prior tier', sold_out: 'Sold out', closed: 'Window closed', inactive: 'Closed manually' };
 
 export function eventTeamRoles(people) {
   return [...new Set(people.map((p) => p.role).filter(Boolean))].sort().map((role) => ({id:role,label:role}));

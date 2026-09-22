@@ -4,12 +4,19 @@ const { offeringSaleState, assertEventEditable } = require('../src/domain/event-
 const { eventEditor } = require('../src/http/business-schemas');
 const { summarizeEvent, createEventWorkspaceService } = require('../src/services/event-workspace-service');
 
-test('tier release requires sellout and respects both date boundaries', () => {
+test('tier release accepts sellout, scheduled close, or manual close while respecting its own window', () => {
   const now = new Date('2030-10-01T12:00:00Z');
-  const early = { id:'early',inventoryMode:'finite',quantityTotal:10,quantitySold:9 };
+  const early = { id:'early',isActive:true,inventoryMode:'finite',quantityTotal:10,quantitySold:9 };
   const late = { isActive:true,inventoryMode:'finite',quantityTotal:20,quantitySold:0,releaseAfterOfferingId:'early' };
   assert.equal(offeringSaleState(late,[early],now),'waiting_for_tier');
   early.quantitySold = 10;
+  assert.equal(offeringSaleState(late,[early],now),'on_sale');
+  early.quantitySold = 9;
+  early.salesEndAt = new Date('2030-10-01T11:59:59Z');
+  assert.equal(offeringSaleState(late,[early],now),'on_sale');
+  early.salesEndAt = new Date('2030-10-01T12:00:01Z');
+  assert.equal(offeringSaleState(late,[early],now),'waiting_for_tier');
+  early.isActive = false;
   assert.equal(offeringSaleState(late,[early],now),'on_sale');
   assert.equal(offeringSaleState({...late,salesStartAt:'2030-10-02'},[early],now),'scheduled');
   assert.equal(offeringSaleState({...late,salesEndAt:now},[early],now),'closed');
@@ -98,4 +105,8 @@ test('editor rejects cyclic, cross-kind and cheaper successor tiers', () => {
   assert.equal(eventEditor.safeParse({...event,offerings:[tier,{...event.offerings[1],releaseAfterIndex:1}]}).success,false);
   assert.equal(eventEditor.safeParse({...event,offerings:[tier,{...event.offerings[1],priceCents:500}]}).success,false);
   assert.equal(eventEditor.safeParse({...event,offerings:[tier,{...event.offerings[1],kind:'package'}]}).success,false);
+  assert.equal(eventEditor.safeParse({...event,offerings:[{...tier,isActive:false},event.offerings[1]]}).success,true,'a manually closed predecessor is a valid release rule');
+  assert.equal(eventEditor.safeParse({...event,offerings:[{...tier,kind:'package'}, {...event.offerings[1],kind:'package'}]}).success,true,'package ladders are supported');
+  assert.equal(eventEditor.safeParse({...event,offerings:[{...tier,inventoryMode:'unlimited',quantityTotal:null},event.offerings[1]]}).success,false);
+  assert.equal(eventEditor.safeParse({...event,offerings:[{...tier,kind:'reservation'}, {...event.offerings[1],kind:'reservation'}]}).success,false);
 });

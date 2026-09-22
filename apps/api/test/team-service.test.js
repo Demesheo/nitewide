@@ -7,15 +7,17 @@ test('only owners can invite a manager; managers can invite employees and promot
   const writes = [];
   const models = {
     Organization: { findByPk: async () => ({ name: 'Venue' }) },
-    TeamInvitation: { create: async (input) => { writes.push(input); return { id: 'invite', expiresAt: input.expiresAt }; } },
+    TeamInvitation: { create: async (input) => { writes.push(input); return { ...input, id: 'invite' }; } },
     AuditLog: { create: async () => {} },
   };
   const permissions = { assertManageOrganization: async () => {}, assertOwnOrganization: async () => { throw forbidden('Owner only'); } };
   const service = createTeamService({ models, permissions });
   await assert.rejects(() => service.invite('manager', 'org', { email: 'A@Example.com', role: 'manager' }), { code: 'FORBIDDEN' });
   assert.equal(writes.length, 0);
-  const employee = await service.invite('manager', 'org', { email: 'A@Example.com', role: 'employee' });
+  const employee = await service.invite('manager', 'org', { email: 'A@Example.com', phone: '+14075550123', role: 'employee' });
   assert.equal(employee.email, 'a@example.com');
+  assert.equal(employee.phone, '+14075550123');
+  assert.equal(writes[0].phone, '+14075550123');
   assert.equal(writes.length, 1);
   await service.invite('manager', 'org', { email: 'B@Example.com', role: 'affiliate' });
   assert.equal(writes.length, 2);
@@ -44,4 +46,25 @@ test('an invitation cannot be accepted from a different customer email', async (
     User: { findByPk: async () => ({ id: 'other', email: 'other@example.com' }) },
   };
   await assert.rejects(() => createTeamService({ models, permissions: {} }).accept('other', 'private-token'), { code: 'FORBIDDEN' });
+});
+
+test('event promoter invitations keep their optional contact phone on renewal', async () => {
+  const event = { id: 'event-1', title: 'Friday Night', organizationId: 'org-1', status: 'published', endsAt: new Date(Date.now() + 86400000) };
+  const saved = [];
+  let pending = null;
+  const models = {
+    Event: { findByPk: async () => event },
+    TeamInvitation: {
+      sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: true } }) },
+      findOne: async () => pending,
+      create: async (values) => { pending = { id: 'invite-1', ...values, update: async (updates) => Object.assign(pending, updates) }; saved.push(values); return pending; },
+    },
+    AuditLog: { create: async () => {} },
+  };
+  const service = createTeamService({ models, permissions: { assertManageEvent: async () => {} } });
+  await service.inviteEvent('owner', event.id, { email: 'promoter@example.com', phone: '+14075550123', commissionBps: 500 });
+  const renewed = await service.inviteEvent('owner', event.id, { email: 'promoter@example.com', phone: '+14075550123', commissionBps: 500 });
+  assert.equal(saved.length, 1);
+  assert.equal(renewed.phone, '+14075550123');
+  assert.equal(pending.phone, '+14075550123');
 });

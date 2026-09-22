@@ -15,10 +15,12 @@ export function AuthDialog({ open, onOpenChange, onSuccess }) {
   const [register, setRegister] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [phone, setPhone] = useState("");
   useEffect(() => {
     if (open) {
       setRegister(false);
       setError("");
+      setPhone("");
     }
   }, [open]);
   async function submit(event) {
@@ -30,7 +32,10 @@ export function AuthDialog({ open, onOpenChange, onSuccess }) {
     if (register)
       Object.assign(body, {
         displayName: form.get("name"),
+        phone: form.get("phone"),
         marketingConsent: form.get("marketing") === "on",
+        transactionalSmsConsent: form.get("transactionalSms") === "on",
+        marketingSmsConsent: form.get("marketingSms") === "on",
       });
     try {
       onSuccess(
@@ -57,7 +62,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess }) {
         }
       }}
     >
-      <DialogContent className="auth-modal">
+      <DialogContent className="auth-modal max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="mini-mark">n.</div>
           <p className="eyebrow">GOOD NIGHTS START HERE</p>
@@ -112,6 +117,10 @@ export function AuthDialog({ open, onOpenChange, onSuccess }) {
           </label>
           {register && (
             <>
+              <label>
+                Phone number <span className="optional-label">Optional</span>
+                <Input name="phone" type="tel" inputMode="tel" autoComplete="tel" maxLength={32} value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+1 407 555 0123" />
+              </label>
               <p className="fine-print">
                 Use 8+ characters, including uppercase, lowercase, and a number.
               </p>
@@ -119,6 +128,15 @@ export function AuthDialog({ open, onOpenChange, onSuccess }) {
                 <input type="checkbox" name="marketing" />
                 Email me event recommendations and updates.
               </label>
+              <label className="checkbox-label">
+                <input type="checkbox" name="transactionalSms" disabled={!phone.trim()} />
+                Text me booking, guestlist and event updates when available.
+              </label>
+              <label className="checkbox-label">
+                <input type="checkbox" name="marketingSms" disabled={!phone.trim()} />
+                Text me event recommendations and offers when available.
+              </label>
+              <p className="fine-print">Text messages are not active yet. You can skip the phone number and these choices.</p>
             </>
           )}
           {error && (

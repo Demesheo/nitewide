@@ -9,10 +9,12 @@ function initUser(sequelize) {
     displayName: { type: DataTypes.STRING(120), allowNull: false },
     phone: DataTypes.STRING(32),
     marketingConsentAt: DataTypes.DATE,
+    transactionalSmsConsentAt: DataTypes.DATE,
+    marketingSmsConsentAt: DataTypes.DATE,
+    phoneVerifiedAt: DataTypes.DATE,
     isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     isInternalAdmin: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   }, { sequelize, modelName: 'User', tableName: 'users' });
   return User;
 }
 module.exports = { User, initUser };
-

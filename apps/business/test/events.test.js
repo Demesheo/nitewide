@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { eventPhase, selectEvents, eventTeamRoles, filterEventTeam } from '../src/lib/events.js';
-import { editorDraft, eventPayload } from '../src/lib/business.js';
+import { editorDraft, eventPayload, releaseOptions } from '../src/lib/business.js';
 
 test('event team multiselect offers only present roles and combines selected roles', () => {
   const people = [{role:'Owner'},{role:'Employee'},{role:'Employee'},{role:'Manager'}];
@@ -32,4 +32,24 @@ test('venue editor uses saved venue location and maps chained tiers to request i
   assert.equal(independent.location.city,'Miami');
   const existing = editorDraft({organizationId:'org',location:{city:'Orlando',name:'Existing venue',timezone:'America/New_York'}},'org',[{id:'org',location:{city:'Tampa',timezone:'America/New_York'}}]);
   assert.equal(existing.location.city,'Orlando','editing preserves the selected venue instead of the organization default');
+});
+test('business editor builds a three-step GA ladder, supports windows, manual close, and package ladders', () => {
+  const draft = editorDraft(null, 'org', [{id:'org',location:{city:'Orlando',timezone:'America/New_York'}}]);
+  const base = {...draft.offerings[0], clientKey:'ga-10', name:'GA first 50',price:10,quantityTotal:50};
+  const middle = {...base,clientKey:'ga-20',name:'GA next 50',price:20,releaseAfterKey:'ga-10',salesStartAt:'2030-10-01T18:00'};
+  const final = {...base,clientKey:'ga-40',name:'GA final 100',price:40,quantityTotal:100,releaseAfterKey:'ga-20'};
+  const packageFirst = {...base,clientKey:'vip-300',kind:'package',name:'VIP early',price:300,isActive:false};
+  const packageNext = {...base,clientKey:'vip-400',kind:'package',name:'VIP later',price:400,releaseAfterKey:'vip-300',salesEndAt:'2030-10-02T00:00'};
+  draft.offerings = [base,middle,final,packageFirst,packageNext];
+  assert.deepEqual(releaseOptions(draft.offerings,2).map((item)=>item.key),['ga-10','ga-20']);
+  assert.deepEqual(releaseOptions(draft.offerings,4).map((item)=>item.key),['vip-300']);
+  const payload = eventPayload(draft);
+  assert.deepEqual(payload.offerings.map((item)=>item.releaseAfterIndex),[null,0,1,null,3]);
+  assert.deepEqual(payload.offerings.slice(0,3).map((item)=>[item.priceCents,item.quantityTotal]),[[1000,50],[2000,50],[4000,100]]);
+  assert.equal(payload.offerings[3].isActive,false);
+  assert.equal(payload.offerings[1].salesStartAt,'2030-10-01T22:00:00.000Z');
+  assert.equal(payload.offerings[4].salesEndAt,'2030-10-02T04:00:00.000Z');
+  const edited = editorDraft({organizationId:'org',location:{city:'Orlando',timezone:'America/New_York'},offerings:payload.offerings.map((item,index)=>({...item,id:`tier-${index}`,releaseAfterOfferingId:item.releaseAfterIndex == null ? null : `tier-${item.releaseAfterIndex}`}))},'org',[]);
+  assert.equal(edited.offerings[2].releaseAfterKey,'tier-1');
+  assert.equal(edited.offerings[3].isActive,false);
 });

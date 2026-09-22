@@ -962,6 +962,8 @@ h3 {
 .checkbox-label input {
   accent-color: var(--highlight);
 }
+.checkbox-label input:disabled { opacity: 0.45; }
+.optional-label { color: var(--text-muted); font-size: 11px; margin-left: 4px; }
 .fine-print {
   font-size: 11px;
   color: var(--text-muted);

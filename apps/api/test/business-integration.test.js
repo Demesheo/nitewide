@@ -411,7 +411,8 @@ test(
         location:{...input.location,city:'Forged city',addressLine1:'999 Wrong Address'},
         offerings:[{...input.offerings[0],id:tiers[0].id,quantityTotal:3},
           {...input.offerings[0],name:'Second release',priceCents:2000,releaseAfterIndex:0},
-          {...input.offerings[0],name:'Scheduled release',priceCents:3000,salesStartAt:new Date(Date.now()+3600000).toISOString()}],
+          {...input.offerings[0],name:'Scheduled release',priceCents:3000,salesStartAt:new Date(Date.now()+3600000).toISOString()},
+          {...input.offerings[0],name:'Third release',priceCents:4000,releaseAfterIndex:1}],
       };
       const tierUpdate = await req(`/business/events/${event.id}`,ids.manager,'PUT',tierEdit);
       assert.equal(tierUpdate.status,200,JSON.stringify(tierUpdate.body));
@@ -419,9 +420,11 @@ test(
       assert.equal((await m.Location.findByPk(venueLocation.id)).city,'Orlando');
       const updatedTiers = await m.Offering.findAll({where:{eventId:event.id},order:[['sortOrder','ASC']]});
       assert.equal(updatedTiers[1].releaseAfterOfferingId,tiers[0].id);
+      assert.equal(updatedTiers[3].releaseAfterOfferingId,updatedTiers[1].id);
       const buy = (offeringId, code = eventAffiliate.code) => req('/orders',ids.outsider,'POST',{eventId:event.id,idempotencyKey:randomUUID(),affiliateCode:code,items:[{offeringId,quantity:1}],payment:{provider:'test',reference:randomUUID(),status:'succeeded'}});
       assert.equal((await buy(updatedTiers[1].id)).body.error.code,'OFFERING_NOT_ON_SALE');
       assert.equal((await buy(updatedTiers[2].id)).body.error.code,'OFFERING_NOT_ON_SALE');
+      assert.equal((await buy(updatedTiers[3].id)).body.error.code,'OFFERING_NOT_ON_SALE');
       const lastEarly = await buy(tiers[0].id);
       assert.equal(lastEarly.status,201);
       assert.equal(lastEarly.body.data.order.affiliateCommissionCents,250);
@@ -444,6 +447,17 @@ test(
       assert.equal(afterDetail.people.find((p) => p.userId === ids.employee).role,'Employee');
       assert.equal(afterDetail.people.find((p) => p.userId === ids.manager).commissionBps,0);
       assert.equal(afterDetail.customers.find((c) => c.id === ids.outsider).salesCents,5000);
+      const tierSettings = () => updatedTiers.map((tier,index) => ({...tier.toJSON(),releaseAfterIndex:index === 1 ? 0 : index === 3 ? 1 : null}));
+      const saveTierSettings = async (changes) => req(`/business/events/${event.id}`,ids.manager,'PUT',{
+        ...tierEdit,version:(await m.Event.findByPk(event.id)).version,
+        offerings:tierSettings().map((tier,index) => index === 1 ? {...tier,...changes} : tier),
+      });
+      assert.equal((await saveTierSettings({salesEndAt:new Date(Date.now()-1000).toISOString()})).status,200);
+      assert.equal((await req(`/events/${event.id}`,null)).body.data.offerings.find((tier) => tier.id === updatedTiers[3].id).saleState,'on_sale','the prior window closing releases the next tier');
+      assert.equal((await saveTierSettings({salesEndAt:new Date(Date.now()+3600000).toISOString(),isActive:false})).status,200);
+      assert.equal((await req(`/events/${event.id}`,null)).body.data.offerings.find((tier) => tier.id === updatedTiers[3].id).saleState,'on_sale','manual close releases the next tier');
+      assert.equal((await buy(updatedTiers[1].id,'')).body.error.code,'OFFERING_NOT_ON_SALE','manually closed tiers reject checkout');
+      assert.equal((await buy(updatedTiers[3].id,'')).status,201,'the released tier is purchasable');
       // The stored end time, not the client, decides whether an event can be changed.
       const fixtureEvent = await m.Event.findByPk(event.id);
       await fixtureEvent.update({startsAt:new Date(Date.now()-7200000),endsAt:new Date(Date.now()-3600000)});
