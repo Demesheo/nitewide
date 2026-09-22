@@ -1,0 +1,87 @@
+/* Customer-only mobile interaction layer. Keep zoom enabled and accommodate
+   Safari browser chrome, the home indicator, and compact iPhone screens. */
+@media (max-width: 760px) {
+  .site-header .header-inner {
+    padding: max(8px, env(safe-area-inset-top)) 12px 6px;
+    column-gap: 8px;
+    row-gap: 4px;
+  }
+  .site-header .brand { font-size: 22px; }
+  .site-header .brand span { font-size: 26px; }
+  .site-header .header-actions { gap: 4px; min-width: 0; }
+  .site-header .header-actions > button,
+  .site-header .profile-trigger { min-width: 44px; min-height: 44px; }
+  .site-header .business-nav-link { min-height: 44px; display: inline-flex; align-items: center; font-size: 11px; }
+  .site-header .header-inner nav button { min-height: 44px; font-size: 13px; }
+  .wrap { padding-inline: max(16px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right)); }
+  .hero { padding-top: 16px; gap: 16px; }
+  .hero h1 { font-size: clamp(42px, 11vw, 58px); letter-spacing: -2px; margin-top: 12px; }
+  .hero-description { font-size: 14px; margin-top: 12px; }
+  .hero-tags { margin-top: 12px; }
+  .hero-art { height: 160px; margin-top: 0; border-top-left-radius: 40px; }
+  .floating-label { display: none; }
+  .hero-feature { bottom: 16px; left: 20px; right: 20px; }
+  .hero-feature h2 { font-size: 23px; }
+  /* 16px form text prevents iOS focus zoom without disabling pinch zoom. */
+  input:not([type="checkbox"]):not([type="radio"]), textarea, select,
+  .search-field input, .search-field [role="combobox"],
+  [data-slot="select-trigger"] { font-size: 16px; min-width: 0; }
+  .search-field { min-width: 0; }
+  .search-field input { width: 100%; max-width: 100%; }
+  .search-bar { padding: 8px; }
+  .search-submit { min-height: 48px; font-size: 15px; }
+  button, a, [role="tab"] { touch-action: manipulation; }
+  [data-slot="button"], [role="tab"], .quantity-row button,
+  .account-refresh, .period-switch button, .save-button,
+  .category-list [data-slot="button"], .filter-button { min-height: 44px; }
+  .quantity-row button, .account-refresh, .save-button { min-width: 44px; }
+  .category-list [data-slot="button"] { font-size: 12px; }
+  .category-list { overscroll-behavior-x: contain; }
+  .card-location, .card-date { font-size: 13px; }
+  .card-bottom small { font-size: 12px; }
+  .card-copy { padding: 16px; }
+  .discovery { padding-top: 28px; }
+  /* Spacious sheets with safe-area clearance; the dialog remains the scroll
+     container so returning from QR codes preserves the existing scroll logic. */
+  [data-slot="dialog-content"],
+  .event-modal[data-slot="dialog-content"],
+  .account-modal[data-slot="dialog-content"] {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px);
+    padding: 24px 16px max(24px, env(safe-area-inset-bottom));
+    border-radius: 20px;
+    overscroll-behavior-y: contain;
+    scroll-padding-block: 24px;
+  }
+  [data-slot="dialog-header"] { padding-right: 36px; }
+  [data-slot="dialog-content"] > [data-slot="dialog-close"] {
+    min-width: 44px; min-height: 44px; top: 0; right: auto;
+    position: sticky; order: -1; align-self: flex-end; justify-self: end;
+    margin-bottom: -44px; z-index: 5; border-radius: 50%; background: #100e20;
+    display: grid; place-items: center;
+  }
+  [data-slot="dialog-title"] { font-size: 24px; line-height: 1.2; overflow-wrap: anywhere; }
+  .detail-description { font-size: 14px; line-height: 1.65; }
+  .detail-location { overflow-wrap: anywhere; }
+  .offering b { font-size: 14px; }
+  .offering small { font-size: 12px; line-height: 1.5; }
+  .offering strong { font-size: 15px; white-space: nowrap; }
+  .account-tabs [role="tab"] { font-size: 12px; min-width: 0; gap: 5px; }
+  .account-heading p { font-size: 12px; overflow-wrap: anywhere; }
+  .account-toolbar { gap: 10px; }
+  .purchase-card { padding: 12px; gap: 12px; }
+  .purchase-card-copy h3 { overflow-wrap: anywhere; }
+  .purchase-card-copy > p, .purchase-card-items, .purchase-card-action { font-size: 12px; }
+  .purchase-card-footer { flex-wrap: wrap; gap: 8px; }
+  .booking-eyebrow { flex-wrap: wrap; }
+  .purchase-ticket-heading { align-items: flex-start; gap: 12px; }
+  .purchase-ticket-heading > div { min-width: 0; overflow-wrap: anywhere; }
+  .admission-pass { padding: 16px; }
+  .circle-grid { grid-template-columns: minmax(0, 1fr); }
+  .circle-grid button { font-size: 13px; white-space: normal; height: auto; }
+  .consent-choice { min-height: 44px; font-size: 14px; line-height: 1.5; }
+  .consent-choice input { flex-shrink: 0; width: 20px; height: 20px; }
+  .profile-form small { font-size: 12px; line-height: 1.5; }
+  .site-footer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+}

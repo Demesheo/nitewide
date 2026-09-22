@@ -1,5 +1,6 @@
 import { localDateInputValue } from "../discovery-defaults.js";
 import { checkoutFeeCents } from './checkout-fees.js';
+import { isPremiumHost } from './premium-host.js';
 export const money = (cents, currency = "USD") =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -18,6 +19,14 @@ export function eventDateKey(event) {
   }).formatToParts(new Date(event.startsAt));
   const value = (type) => parts.find((part) => part.type === type).value;
   return `${value("year")}-${value("month")}-${value("day")}`;
+}
+// Keep calendar days chronological in each venue's timezone. Within a day,
+// promote Premium hosts, then use name/ID rather than start time for stable order.
+export function compareEventListings(a, b) {
+  return eventDateKey(a).localeCompare(eventDateKey(b))
+    || Number(isPremiumHost(b)) - Number(isPremiumHost(a))
+    || (a.title || '').localeCompare(b.title || '', 'en', { sensitivity: 'base', numeric: true })
+    || String(a.id).localeCompare(String(b.id));
 }
 export function filterEvents(
   events,
@@ -90,7 +99,7 @@ export function filterUpcomingWeek(events, filters, now = new Date()) {
       const day = eventDateKey(event);
       return day >= start && day <= end;
     })
-    .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt));
+    .sort(compareEventListings);
 }
 export function availableQuantity(offering, now = new Date()) {
   if (

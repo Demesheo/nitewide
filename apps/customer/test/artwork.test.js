@@ -98,3 +98,8 @@ test('event detail artwork keeps one portrait frame for flyers, venue photos and
   assert.match(css, /\.event-modal\s*\{[^}]*overflow-anchor:\s*none/);
   assert.match(css, /\.event-modal\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0/);
 });
+test('opened event flyer is compact and centered on short mobile viewports', async () => {
+  const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.detail-art\s*\{[^}]*width:\s*min\(100%, 256px, 32svh\)/);
+  assert.match(css, /\.detail-art\s*\{[^}]*align-self:\s*center/);
+});

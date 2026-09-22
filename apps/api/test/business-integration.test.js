@@ -47,6 +47,7 @@ test(
       eventPromoter: randomUUID(),
       matrixCustomer: randomUUID(),
       org: randomUUID(),
+      secondOrg: randomUUID(),
       affiliate: randomUUID(),
     };
     const users = [ids.owner, ids.manager, ids.promoter, ids.employee, ids.outsider, ids.invitedDirect, ids.invitedReferral, ids.invitedEmployee, ids.eventPromoter, ids.matrixCustomer];
@@ -810,6 +811,64 @@ test(
         assert.equal(row.guestlistPlaces, 1, `${actor.role} analytics guestlist`);
       }
 
+      // Server wallet includes existing orders; access is always holder scoped.
+      assert.equal((await req('/customer/bookings', null)).status, 401);
+      const wallet = await req('/customer/bookings', ids.matrixCustomer);
+      assert.equal(wallet.status, 200, JSON.stringify(wallet.body));
+      const booked = wallet.body.data.orders.find((row) => row.event.id === matrixEvent.id);
+      assert.ok(booked); assert.equal(booked.subtotalCents, 1000);
+      const ticketId = booked.items[0].tickets[0].id;
+      const walletQr = await req(`/customer/tickets/${ticketId}`, ids.matrixCustomer);
+      assert.equal(walletQr.status, 200, JSON.stringify(walletQr.body));
+      assert.match(walletQr.body.data.qrImage, /^data:image\/png;base64,/);
+      assert.equal((await req(`/customer/tickets/${ticketId}`, ids.owner)).status, 404);
+      const ticketList = await req(`/customer/purchases/${booked.id}/tickets`, ids.matrixCustomer);
+      assert.equal(ticketList.status, 200, JSON.stringify(ticketList.body));
+      assert.equal(ticketList.body.data.tickets[0].status, 'valid');
+      assert.equal((await req(`/customer/purchases/${booked.id}/tickets`, ids.owner)).status, 404);
+      assert.ok(!JSON.stringify(wallet.body).includes('qrTokenHash'));
+      const savedProfile = await req('/customer/profile', ids.matrixCustomer, 'PATCH', { displayName: 'Updated customer', phone: '(407) 555-0199', marketingConsent: false, transactionalSmsConsent: true, marketingSmsConsent: false });
+      assert.equal(savedProfile.status, 200, JSON.stringify(savedProfile.body));
+      assert.equal(savedProfile.body.data.phone, '+14075550199');
+      assert.equal(savedProfile.body.data.phoneVerifiedAt, null);
+      assert.equal((await req('/customer/profile', ids.matrixCustomer, 'PATCH', { displayName: 'Escalate', isInternalAdmin: true })).status, 422);
+      // A previous promoter's new event feeds into normal checkout and business attribution.
+      await m.Organization.create({ id: ids.secondOrg, name: 'Another venue across town', slug: `cross-venue-${ids.secondOrg}`, locationId: venueLocation.id });
+      await m.OrganizationOwner.bulkCreate([{ organizationId: ids.secondOrg, userId: ids.owner, role: 'owner' }, { organizationId: ids.secondOrg, userId: ids.manager, role: 'admin' }]);
+      const nextNight = await req('/business/events', ids.owner, 'POST', { ...input, organizationId: ids.secondOrg, title: 'Connected next night', slug: `circle-${randomUUID()}`, isDiscoverable: true });
+      assert.equal(nextNight.status, 201, JSON.stringify(nextNight.body));
+      events.push(nextNight.body.data.id); locations.add(nextNight.body.data.locationId);
+      await m.EventAffiliate.create({ eventId: nextNight.body.data.id, userId: ids.eventPromoter, code: `CIRCLE-${randomUUID()}`, commissionBps: 2500, status: 'active' });
+      const connected = await req('/customer/connections', ids.matrixCustomer);
+      assert.equal(connected.status, 200, JSON.stringify(connected.body));
+      const nextLink = connected.body.data.find((row) => row.event.id === nextNight.body.data.id && row.referrer.id === ids.eventPromoter);
+      assert.ok(nextLink);
+      assert.equal(nextLink.event.organization.name, 'Another venue across town', 'Connections follow promoters across organizations, not just the original venue');
+      const nextTier = await m.Offering.findOne({ where: { eventId: nextNight.body.data.id } });
+      const repeatSale = await req('/orders', ids.matrixCustomer, 'POST', { eventId: nextNight.body.data.id, idempotencyKey: randomUUID(), affiliateCode: nextLink.code, items: [{ offeringId: nextTier.id, quantity: 1 }], payment: { provider: 'test', reference: randomUUID(), status: 'succeeded' } });
+      assert.equal(repeatSale.status, 201, JSON.stringify(repeatSale.body));
+      assert.equal(repeatSale.body.data.order.affiliateCommissionCents, 250);
+      const nextDetail = await req(`/business/events/${nextNight.body.data.id}/detail`, ids.manager);
+      assert.equal(nextDetail.body.data.people.find((row) => row.userId === ids.eventPromoter).commissionCents, 250);
+      await m.EventAffiliate.update({ status: 'inactive' }, { where: { eventId: nextNight.body.data.id, userId: ids.eventPromoter } });
+      assert.ok(!(await req('/customer/connections', ids.matrixCustomer)).body.data.some((row) => row.event.id === nextNight.body.data.id));
+      await m.Ticket.update({ status: 'void' }, { where: { id: ticketId } });
+      assert.equal((await req(`/customer/tickets/${ticketId}`, ids.matrixCustomer)).status, 409);
+      assert.equal((await req(`/customer/purchases/${booked.id}/tickets`, ids.matrixCustomer)).body.data.tickets[0].qrImage, null);
+      await m.Ticket.update({ status: 'valid' }, { where: { id: ticketId } });
+      await m.Event.update({ startsAt: new Date(Date.now() - 60000) }, { where: { id: matrixEvent.id } });
+      const scannedTicket = await m.Ticket.findByPk(ticketId);
+      const tokenForScan = require('../src/domain/wallet-qr').walletToken(scannedTicket, config.AUTH_TOKEN_SECRET);
+      const scanResult = await req('/check-ins', ids.manager, 'POST', { eventId: matrixEvent.id, qrToken: tokenForScan });
+      assert.equal(scanResult.status, 201, JSON.stringify(scanResult.body));
+      const updatedTickets = (await req(`/customer/purchases/${booked.id}/tickets`, ids.matrixCustomer)).body.data.tickets;
+      assert.equal(updatedTickets[0].status, 'checked_in'); assert.ok(updatedTickets[0].checkedInAt);
+      assert.equal((await req('/check-ins', ids.manager, 'POST', { eventId: matrixEvent.id, qrToken: tokenForScan })).status, 409);
+      // Time boundaries move purchases between lists without changing the order.
+      await m.Event.update({ startsAt: new Date(Date.now() - 172800000), endsAt: new Date(Date.now() - 86400000) }, { where: { id: nextNight.body.data.id } });
+      assert.ok((await req('/customer/bookings?period=past', ids.matrixCustomer)).body.data.orders.some((row) => row.event.id === nextNight.body.data.id));
+      assert.ok(!(await req('/customer/bookings', ids.matrixCustomer)).body.data.orders.some((row) => row.event.id === nextNight.body.data.id));
+
       const selloutEvent = await req('/business/events', ids.owner, 'POST', { ...input, slug: `sellout-${randomUUID()}`, offerings: [{ ...input.offerings[0], quantityTotal: 1 }] });
       assert.equal(selloutEvent.status, 201, JSON.stringify(selloutEvent.body));
       events.push(selloutEvent.body.data.id);
@@ -872,11 +931,11 @@ test(
           transaction,
         });
         await m.OrganizationOwner.destroy({
-          where: { organizationId: ids.org },
+          where: { organizationId: [ids.org, ids.secondOrg] },
           transaction,
         });
         await m.OrganizationEmployee.destroy({ where: { organizationId: ids.org }, transaction });
-        await m.Organization.destroy({ where: { id: ids.org }, transaction });
+        await m.Organization.destroy({ where: { id: [ids.org, ids.secondOrg] }, transaction });
         await m.Location.destroy({
           where: { id: [...locations].filter(Boolean) },
           transaction,

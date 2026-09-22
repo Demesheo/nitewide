@@ -2,6 +2,12 @@
 
 This guide covers `apps/customer`. Business and Admin currently have independent styling; changing the customer palette does not recolor those apps.
 
+The current visual system is [Nitewide Noir](CUSTOMER_DESIGN_SYSTEM.md): charcoal,
+crimson, subtle glass and gold Premium-host cards. `noir-theme.css` loads last and
+supersedes the legacy palette below; those older token definitions remain as
+compatibility defaults, not the current customer appearance. See
+[mobile layout rules](CUSTOMER_MOBILE.md) for touch targets and viewport behavior.
+
 ## Run and verify
 
 From the repository root, start the existing PostgreSQL service and API as described in the README, then run:
@@ -20,7 +26,8 @@ The app is served on port 5173. Vite proxies `/api` to port 4000. A separately h
 | File                                                 | Responsibility                                                                                                    |
 | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `src/main.jsx`                                       | React root, StrictMode, global stylesheet                                                                         |
-| `src/App.jsx`                                        | Discovery state, search, navigation, event details, booking review/confirmation, local wallet, guestlist requests |
+| `src/App.jsx`                                        | Discovery state, search, navigation, event details, booking review/confirmation, account integration, guestlist requests |
+| `src/components/account-dialog.jsx`                  | Server-backed My nights, mini-flyer purchase cards, grouped ticket QR lists with live entry states, profile editing, and cross-venue Connections; see [Customer account](CUSTOMER_ACCOUNT.md) |
 | `src/components/event-card.jsx`                      | Reusable discovery and weekly-results card; event selection and independent saved toggle                          |
 | `src/components/event-artwork.jsx`                   | Uploaded flyer → local mood artwork → CSS placeholder, with explicit illustrative labels and no error loops |
 | `src/components/auth-dialog.jsx`                     | Real login/registration, validation, loading/error states, session handoff                                        |
@@ -100,7 +107,7 @@ Detail artwork always uses a **4:5 portrait frame** for flyers, real venue photo
 
 The event dialog uses a non-shrinking flex column to prevent controls overlapping tall artwork. `overflow-anchor: none` prevents browser scroll anchoring from undoing the top reset when reopening content during the close animation.
 
-shadcn Dialog contains Tabs for tickets/tables and guestlist. Quantity controls respect sale windows, stock, and per-order minimum/maximum. Demo checkout shows the full amount plus **7.5% + $0.79 per paid order**, rounded to cents; free orders have no fee. Stripe processing is paid by the business/organization/creator and is not added to the customer total. `lib/checkout-fees.js` supplies the Customer and Business calculator fee and is parity-tested against the API. Existing stored preview receipts keep their original values. The demo collects no payment details and never calls `/orders`, changes inventory, or issues a valid admission credential. Guestlist submission does call the real API and remains pending until approved.
+shadcn Dialog contains Tabs for tickets/tables and guestlist. Quantity controls respect sale windows, stock, and per-order minimum/maximum. Demo checkout shows the full amount plus **7.5% + $0.79 per paid order**, rounded to cents; free orders have no fee. Stripe processing is paid by the business/organization/creator and is not added to the customer total. `lib/checkout-fees.js` supplies the Customer and Business calculator fee and is parity-tested against the API. Demo checkout calls `/orders` with the development-only demo provider, recording inventory, credentials, attribution and notifications without collecting payment details. Guestlist requests remain pending until approved. My nights loads account purchases and individual signed admission QR images from the API; demo tickets are explicitly labeled for local testing.
 
 ### Shared shadcn primitives
 
@@ -118,7 +125,7 @@ Use Button variants for primary/secondary/ghost actions, Badge for status labels
 
 ## State, limits and testing
 
-Saved events are browser-local (`nitewide.saved`). Demo bookings are browser-local and filtered by signed-in user (`nitewide.demo-bookings`); they are not a synchronized or encrypted wallet. `nitewide.session` holds the existing API bearer session. The API discovery response is currently capped at 100 events; server-side search/pagination remains a production follow-up.
+Saved events are browser-local (`nitewide.saved`). Purchases and tickets are server-backed and scoped to the authenticated customer; the old `nitewide.demo-bookings` list is no longer read or written. `nitewide.session` holds the existing API bearer session. Account requests use `no-store`; QR images are held in component memory. The API discovery response is currently capped at 100 events; server-side discovery search/pagination remains a production follow-up.
 
 Automated tests cover combined filtering, generic text fields, venue-local dates, next-week boundaries, month/year/leap/DST transitions, availability, and pricing parity with the API. For browser regression checks:
 

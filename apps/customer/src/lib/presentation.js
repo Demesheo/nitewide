@@ -47,3 +47,14 @@ export const eventTime = (event) =>
     minute: "2-digit",
     timeZone: event.location?.timezone,
   });
+
+export function eventAddress(location) {
+  if (!location) return 'Address not available yet';
+  const region = [location.city, location.region].filter(Boolean).join(', ');
+  const locality = [region, location.postalCode].filter(Boolean).join(' ');
+  if (location.privacy && location.privacy !== 'public') {
+    return [region, 'Exact address shared by the host'].filter(Boolean).join(' · ');
+  }
+  return [location.addressLine1, location.addressLine2, locality, location.countryCode]
+    .filter(Boolean).join(', ') || 'Address not available yet';
+}

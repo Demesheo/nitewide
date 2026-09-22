@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LoadingIndicator } from './loading-indicator';
 import { ArrowRight, LoaderCircle } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -147,7 +148,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
           )}
           <Button disabled={busy} className="primary-action">
             {busy ? (
-              <LoaderCircle className="animate-spin" />
+              <LoadingIndicator>{register ? 'Creating account…' : 'Signing in…'}</LoadingIndicator>
             ) : (
               <>
                 {register ? "Create account" : "Sign in"}

@@ -11,7 +11,7 @@ function fixture(eventStartsAt, now) {
     models: {
       Ticket: { findOne: async () => null },
       GuestlistEntry: { findOne: async () => entry },
-      Event: { findByPk: async () => ({ startsAt: new Date(eventStartsAt) }) },
+      Event: { findByPk: async () => ({ status: 'published', startsAt: new Date(eventStartsAt), endsAt: new Date(new Date(eventStartsAt).getTime() + 86400000) }) },
       CheckIn: { create: async (input) => input },
     },
   });

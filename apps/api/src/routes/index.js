@@ -12,8 +12,9 @@ const { createEventWorkspaceService } = require('../services/event-workspace-ser
 const { createReferralLinkService } = require('../services/referral-link-service');
 const { z } = require('zod');
 const { optionalPhone } = require('../domain/phone');
+const { createCustomerAccountService } = require('../services/customer-account-service');
 
-function createRouter({ publicController, managementController, commerceController, authController, requireUser, models, permissions, invitations, notifications }) {
+function createRouter({ publicController, managementController, commerceController, authController, requireUser, models, permissions, invitations, notifications, tokenSecret }) {
   const router = express.Router();
   const business = createBusinessService({ models, permissions });
   const admin = createAdminService({ models, permissions });
@@ -21,6 +22,14 @@ function createRouter({ publicController, managementController, commerceControll
   const team = createTeamService({ models, permissions });
   const eventWorkspace = createEventWorkspaceService({ models, permissions });
   const referralLinks = createReferralLinkService({ models });
+  const account = createCustomerAccountService({ models, tokenSecret });
+  router.use('/customer', requireUser, (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+  router.get('/customer/bookings', asyncHandler(async (req, res) => res.json({ data: await account.bookings(req.userId, z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), period: z.enum(['upcoming', 'past']).default('upcoming') }).parse(req.query)) })));
+  router.get('/customer/tickets/:id', asyncHandler(async (req, res) => res.json({ data: await account.ticket(req.userId, z.string().uuid().parse(req.params.id)) })));
+  router.get('/customer/purchases/:id/tickets', asyncHandler(async (req, res) => res.json({ data: await account.purchaseTickets(req.userId, z.string().uuid().parse(req.params.id)) })));
+  router.get('/customer/guestlists/:id/pass', asyncHandler(async (req, res) => res.json({ data: await account.guestlistPass(req.userId, z.string().uuid().parse(req.params.id)) })));
+  router.get('/customer/connections', asyncHandler(async (req, res) => res.json({ data: await account.connections(req.userId) })));
+  router.patch('/customer/profile', validate(z.object({ displayName: z.string().trim().min(1).max(120), phone: optionalPhone, marketingConsent: z.boolean(), transactionalSmsConsent: z.boolean(), marketingSmsConsent: z.boolean() }).strict()), asyncHandler(async (req, res) => res.json({ data: await account.updateProfile(req.userId, req.body) })));
   const eventPerson = z.object({ userId: z.string().uuid().optional(), email: z.string().trim().email().optional(), commissionBps: z.number().int().min(0).max(4000), status: z.enum(['active', 'inactive']).default('active') }).refine((v) => Boolean(v.userId) !== Boolean(v.email), 'Provide a user or an email');
   router.get('/business/events/:eventId/detail', requireUser, asyncHandler(async (req, res) => res.json({ data: await eventWorkspace.detail(req.userId, req.params.eventId) })));
   router.get('/business/events/:eventId/referral-link', requireUser, asyncHandler(async (req, res) => res.json({ data: await referralLinks.ownLink(req.userId, req.params.eventId) })));

@@ -3,6 +3,7 @@ import { Badge } from "./ui/badge";
 import { availableQuantity, cityName, money } from "../lib/discovery";
 import { eventDate, eventTime } from "../lib/presentation";
 import { EventArtwork } from "./event-artwork";
+import { isPremiumHost } from '../lib/premium-host';
 export function EventCard({ event, saved, onSave, onOpen }) {
   const offerings =
     event.offerings?.filter((o) => availableQuantity(o) > 0) || [];
@@ -10,11 +11,12 @@ export function EventCard({ event, saved, onSave, onOpen }) {
     ? Math.min(...offerings.map((o) => o.priceCents))
     : null;
   return (
-    <article className="event-card">
+    <article className={`event-card${isPremiumHost(event) ? ' premium-host-card' : ''}`}>
       <div className="card-image">
         <div className="image-link">
           <EventArtwork event={event} loading="lazy" />
         </div>
+        {isPremiumHost(event) && <span className="premium-host-badge"><span aria-hidden="true">✦</span> PREMIUM HOST</span>}
       </div>
       <div className="card-copy">
         <div className="card-meta">

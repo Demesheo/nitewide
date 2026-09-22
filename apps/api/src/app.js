@@ -29,10 +29,10 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
     checkout: services.checkout || createCheckoutService({ sequelize, models, environment: config.NODE_ENV }),
     requestGuestlist: services.requestGuestlist || guestlistService.request,
     reviewGuestlist: services.reviewGuestlist || guestlistService.review,
-    checkIn: services.checkIn || createCheckInService({ sequelize, models }),
+    checkIn: services.checkIn || createCheckInService({ sequelize, models, tokenSecret: config.AUTH_TOKEN_SECRET, environment: config.NODE_ENV }),
   };
   app.get('/health', async (_req, res) => { try { await healthCheck(); res.json({ status: 'ok', service: 'nitewide-api' }); } catch (_error) { res.status(503).json({ status: 'degraded', service: 'nitewide-api' }); } });
-  app.use('/api', createRouter({ publicController: createPublicController(dependencies), managementController: createManagementController(dependencies), commerceController: createCommerceController(dependencies), authController: createAuthController(dependencies), requireUser, models, permissions, invitations, notifications }));
+  app.use('/api', createRouter({ publicController: createPublicController(dependencies), managementController: createManagementController(dependencies), commerceController: createCommerceController(dependencies), authController: createAuthController(dependencies), requireUser, models, permissions, invitations, notifications, tokenSecret: config.AUTH_TOKEN_SECRET }));
   app.use((_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } })); app.use(errorHandler); return app;
 }
 module.exports = { createApp };

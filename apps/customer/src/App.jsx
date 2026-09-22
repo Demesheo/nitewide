@@ -14,7 +14,6 @@ import {
   Minus,
   Plus,
   Check,
-  LogOut,
   LoaderCircle,
   Compass,
   X,
@@ -39,9 +38,12 @@ import {
 } from "./components/ui/select";
 import { EventCard } from "./components/event-card";
 import { EventArtwork } from './components/event-artwork';
-import { NIGHTLIFE_ARTWORK, eventDate, eventTime } from "./lib/presentation";
+import { NIGHTLIFE_ARTWORK, eventAddress, eventDate, eventTime } from "./lib/presentation";
+import { LoadingIndicator } from './components/loading-indicator';
+import { upcomingSavedEvents } from './lib/saved-events';
 import { AuthDialog } from "./components/auth-dialog";
 import { Notifications } from "./components/notifications";
+import { AccountDialog, initials } from './components/account-dialog';
 import { focusEventDialogStart, openEventDialogAtTop } from './lib/dialog-focus';
 import { detectCurrentCity, localDateInputValue } from "./discovery-defaults";
 import { api } from "./lib/api";
@@ -55,6 +57,7 @@ import {
   filterEvents,
   filterUpcomingWeek,
   upcomingWeekRange,
+  compareEventListings,
   money,
   readStorage,
   writeStorage,
@@ -100,6 +103,7 @@ export default function App() {
   const [session, setSession] = useState(validSession),
     [authOpen, setAuthOpen] = useState(false),
     [walletOpen, setWalletOpen] = useState(false);
+  const [accountTab, setAccountTab] = useState('plans');
   const guestlistInviteToken = new URLSearchParams(window.location.search).get('guestlistInvite');
   const [referral, setReferral] = useState(null);
   const [demoBusy, setDemoBusy] = useState(false);
@@ -109,10 +113,7 @@ export default function App() {
     [offeringId, setOfferingId] = useState(""),
     [quantity, setQuantity] = useState(1),
     [stage, setStage] = useState("details");
-  const [booking, setBooking] = useState(null),
-    [bookings, setBookings] = useState(() =>
-      readStorage("nitewide.demo-bookings", []),
-    );
+  const [booking, setBooking] = useState(null);
   const [guestState, setGuestState] = useState(""),
     [guestBusy, setGuestBusy] = useState(false),
     [guestError, setGuestError] = useState("");
@@ -181,6 +182,8 @@ export default function App() {
     api("/auth/me", {
       token: session.accessToken,
       signal: controller.signal,
+    }).then((data) => {
+      setSession((current) => { if (!current || current.user.id !== data.user.id) return current; const updated = { ...current, user: data.user }; writeStorage('nitewide.session', updated); return updated; });
     }).catch((error) => {
       if (error.status === 401) {
         setSession(null);
@@ -218,6 +221,7 @@ export default function App() {
     savedIds: view === "saved" ? saved : null,
   };
   const results = filterEvents(events, filters);
+  const savedUpcoming = upcomingSavedEvents(events, saved);
   const weekRange = date ? upcomingWeekRange(date) : null;
   const weeklyEvents = date ? filterUpcomingWeek(events, filters) : [];
   const minimum = (event) =>
@@ -229,12 +233,10 @@ export default function App() {
     );
   results.sort((a, b) =>
     sort === "price"
-      ? minimum(a) - minimum(b)
-      : new Date(a.startsAt) - new Date(b.startsAt),
+      ? minimum(a) - minimum(b) || compareEventListings(a, b)
+      : compareEventListings(a, b),
   );
-  const upcoming = filterEvents(events, { city }).sort(
-    (a, b) => new Date(a.startsAt) - new Date(b.startsAt),
-  );
+  const upcoming = filterEvents(events, { city }).sort(compareEventListings);
   const featured = upcoming[0];
   const offering = selected?.offerings?.find((o) => o.id === offeringId);
   const totals = checkoutTotal(offering?.priceCents || 0, quantity);
@@ -328,9 +330,6 @@ export default function App() {
       currency: offering.currency,
       createdAt: new Date().toISOString(),
     };
-    const next = [receipt, ...bookings];
-    setBookings(next);
-    writeStorage("nitewide.demo-bookings", next);
     setBooking(receipt);
     setStage("complete");
     await loadEvents();
@@ -364,9 +363,6 @@ export default function App() {
       setGuestBusy(false);
     }
   }
-  const myBookings = bookings.filter(
-    (item) => item.userId === session?.user.id,
-  );
   return (
     <>
       <a className="skip-link" href="#discover">
@@ -380,6 +376,7 @@ export default function App() {
               className={view === "discover" ? "active" : ""}
               onClick={() => {
                 setView("discover");
+                setCategory('all');
                 document
                   .getElementById("discover")
                   .scrollIntoView({ behavior: "smooth" });
@@ -387,59 +384,23 @@ export default function App() {
             >
               Discover
             </button>
-            <button onClick={() => browse("vip")}>VIP & tables</button>
+            <button className={view === 'booked' ? 'active' : ''} onClick={() => { setView('booked'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Booked</button>
             <button
+              className={view === 'saved' ? 'active' : ''}
               onClick={() => {
                 setView("saved");
-                setDate("");
-                setCity("");
-                setQuery("");
-                setCategory("all");
-                setPriceCap("any");
-                locationEdited.current = true;
-                document
-                  .getElementById("discover")
-                  .scrollIntoView({ behavior: "smooth" });
+                window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
             >
-              Saved <span>{saved.length || ""}</span>
+              Saved
             </button>
           </nav>
           <div className="header-actions">
-            <button
-              className="ticket-nav"
-              aria-label="My bookings"
-              onClick={() => {
-                if (session) setWalletOpen(true);
-                else {
-                  pendingAuth.current = "wallet";
-                  setAuthOpen(true);
-                }
-              }}
-            >
-              <Ticket size={20} />
-            </button>
-            <a className="business-nav-link" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a>
+            {!session && <a className="business-nav-link" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a>}
             {session ? (
               <>
                 <Notifications session={session} onEvent={(eventId) => api(`/events/${encodeURIComponent(eventId)}`).then(openEvent).catch((error) => setNotice(error.message))} />
-                <Button
-                  variant="outline"
-                  className="account-button"
-                  onClick={() => setWalletOpen(true)}
-                >
-                  {session.user.displayName.split(" ")[0]}
-                </Button>
-                <button
-                  aria-label="Sign out"
-                  onClick={() => {
-                    setSession(null);
-                    writeStorage("nitewide.session", null);
-                    setNotice("You’re signed out.");
-                  }}
-                >
-                  <LogOut size={17} />
-                </button>
+                <button className="profile-avatar profile-trigger" aria-label={`Open ${session.user.displayName}'s profile`} title="Your profile and plans" onClick={() => { setAccountTab('profile'); setWalletOpen(true); }}>{initials(session.user.displayName)}</button>
               </>
             ) : (
               <Button
@@ -452,22 +413,29 @@ export default function App() {
           </div>
         </div>
       </header>
-      <main>
+      {view === 'booked' && <main className="booked-page wrap" id="booked">
+        <div className="booked-page-heading"><p className="eyebrow">YOUR NEXT NIGHT STARTS HERE</p><h1>Booked.</h1><p>Your tickets and guest list entries, all in one place.</p></div>
+        {session ? <AccountDialog embedded open session={session} onOpenChange={() => setView('discover')} /> : <div className="account-empty"><Ticket /><h2>Your nights are waiting.</h2><p>Sign in to see your upcoming bookings and guest list entries.</p><Button onClick={() => setAuthOpen(true)}>Sign in</Button></div>}
+      </main>}
+      {view === 'saved' && <main className="booked-page wrap" id="saved">
+        <div className="booked-page-heading"><p className="eyebrow">KEEP THE GOOD NIGHTS CLOSE</p><h1>Saved.</h1><p>Your shortlist of upcoming events.</p></div>
+        {loadState === 'loading' ? <LoadingIndicator>Finding your saved nights…</LoadingIndicator> : loadState === 'error' ? <div className="account-empty"><p>We couldn’t load your saved events.</p><Button onClick={loadEvents}>Try again</Button></div> : savedUpcoming.length ? <div className="event-grid">{savedUpcoming.map((event) => <EventCard key={event.id} event={event} saved onSave={() => save(event)} onOpen={() => openEvent(event)} />)}</div> : <div className="account-empty"><h2>No upcoming saved events yet.</h2><p>Tap the heart on an event to keep it here. Past events stay out of your shortlist.</p><Button onClick={() => setView('discover')}>Discover events</Button></div>}
+      </main>}
+      <main hidden={view !== 'discover'}>
         <section className="hero wrap">
           <div className="hero-copy">
             <p className="eyebrow">
               <span className="live-dot" />
-              YOUR CITY. AFTER DARK.
+              GOOD COMPANY. GREAT NIGHTS.
             </p>
             <h1>
-              Good nights.
+              The night
               <br />
-              Great <span>stories.</span>
+              <span className="hero-accent">is yours.</span>
             </h1>
             <p className="hero-description">
-              The dance floor. The rooftop. Your favorite table.
-              <br className="desktop-break" /> Find your people. Make it a
-              night.
+              Find your scene. Reserve your spot.
+              <br className="desktop-break" /> Tickets, tables, and guestlists for nights worth going out for.
             </p>
             <div className="hero-tags">
               <span>
@@ -721,7 +689,7 @@ export default function App() {
             )}
           </div>
           {loadState === "loading" ? (
-            <div className="event-grid" aria-label="Loading events">
+            <div className="event-grid" aria-label="Loading events" role="status" aria-busy="true">
               {[1, 2, 3].map((i) => (
                 <div className="skeleton-card" key={i}>
                   <div />
@@ -930,16 +898,15 @@ export default function App() {
         </section>
       </main>
       <footer className="site-footer wrap">
-        <div>
+        <div className="footer-identity">
           <Brand />
-          <p>For nights worth being there.</p>
+          <p className="copyright">© {new Date().getFullYear()} Nitewide</p>
         </div>
-        <div>
-          <span>STARTING IN FLORIDA. GOING EVERYWHERE.</span>
+        <div className="footer-markets">
           <p>Orlando · Miami · Fort Lauderdale · Tampa</p>
           <small>Event availability varies by city.</small>
         </div>
-        <p className="copyright">© {new Date().getFullYear()} Nitewide</p>
+        {session && <a className="business-nav-link footer-business" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a>}
       </footer>
 
       <Dialog
@@ -986,9 +953,7 @@ export default function App() {
                 <span>
                   {selected.location?.name || "Location shared with attendees"}
                   <small>
-                    {selected.location?.privacy === "public"
-                      ? selected.location?.addressLine1
-                      : "Exact address shared with confirmed attendees"}
+                    {eventAddress(selected.location)}
                   </small>
                 </span>
               </div>
@@ -1093,7 +1058,7 @@ export default function App() {
                       onClick={requestGuestlist}
                     >
                       {guestBusy ? (
-                        <LoaderCircle className="animate-spin" />
+                        <LoadingIndicator>Requesting approval…</LoadingIndicator>
                       ) : guestState === "pending" ? (
                         "Awaiting approval"
                       ) : !selected.guestlistCapacity ? (
@@ -1144,7 +1109,7 @@ export default function App() {
               </p>
               {demoError && <p role="alert">{demoError}</p>}
               <Button className="primary-action" onClick={completeDemo} disabled={demoBusy}>
-                {demoBusy ? 'Recording demo order…' : 'Confirm demo booking'} <ArrowRight />
+                {demoBusy ? <LoadingIndicator>Recording demo order…</LoadingIndicator> : <>Confirm demo booking <ArrowRight /></>}
               </Button>
               <Button variant="ghost" onClick={() => setStage("details")}>
                 Back to tickets & tables
@@ -1168,11 +1133,12 @@ export default function App() {
                 <b>{booking.id}</b>
                 <span>DEMO ONLY · NOT VALID FOR ENTRY</span>
               </div>
-              <p>No charge was made. This demo order is recorded for local business reporting and saved in My bookings on this device.</p>
+              <p>No charge was made. Your demo order and tickets are saved to your account and recorded in business reporting.</p>
               <Button
                 className="primary-action"
                 onClick={() => {
                   setSelected(null);
+                  setAccountTab('plans');
                   setWalletOpen(true);
                 }}
               >
@@ -1191,48 +1157,14 @@ export default function App() {
         }}
         onSuccess={authSuccess}
       />
-      <Dialog open={walletOpen} onOpenChange={setWalletOpen}>
-        <DialogContent className="wallet-modal">
-          <DialogHeader>
-            <p className="eyebrow">YOUR PLANS, IN ONE PLACE</p>
-            <DialogTitle>My bookings</DialogTitle>
-            <DialogDescription>
-              Demo bookings saved on this device. These are not admission
-              tickets.
-            </DialogDescription>
-          </DialogHeader>
-          {myBookings.length ? (
-            myBookings.map((item) => (
-              <article className="wallet-booking" key={item.id}>
-                <Badge variant="outline">DEMO</Badge>
-                <h3>{item.event.title}</h3>
-                <p>
-                  {eventDate(item.event)} · {item.offering} × {item.quantity}
-                </p>
-                <div>
-                  <span>{item.id}</span>
-                  <b>{money(item.total, item.currency)}</b>
-                </div>
-                <small>Not valid for entry · No payment collected</small>
-              </article>
-            ))
-          ) : (
-            <div className="empty-state">
-              <Ticket />
-              <h3>Your calendar has room for a story.</h3>
-              <p>Explore an event and try a demo booking.</p>
-              <Button
-                onClick={() => {
-                  setWalletOpen(false);
-                  browse();
-                }}
-              >
-                Discover events
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <AccountDialog open={walletOpen} onOpenChange={setWalletOpen} session={session} initialTab={accountTab}
+        onProfile={(user) => { const updated = { ...session, user }; setSession(updated); writeStorage('nitewide.session', updated); }}
+        onSignOut={() => { setWalletOpen(false); setSession(null); setReferral(null); writeStorage('nitewide.session', null); setNotice('You’re signed out.'); }}
+        onReferral={async (entry) => {
+          const [event, visit] = await Promise.all([api(`/events/${entry.event.id}`), api(`/events/${entry.event.id}/referral-visits`, { body: { code: entry.code, sessionKey: sessionStorage.getItem('nitewide.referral-session') || crypto.randomUUID() } })]);
+          setReferral({ eventId: event.id, code: visit.code, referrerName: visit.referrerName });
+          setWalletOpen(false); openEvent(event);
+        }} />
       {notice && (
         <div className="toast-message" role="status">
           <Check size={17} />
