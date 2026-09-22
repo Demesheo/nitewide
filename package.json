@@ -17,7 +17,9 @@
     "db:seed": "npm run db:seed --workspace @nitewide/api",
     "db:seed:sales": "npm run db:seed:sales --workspace @nitewide/api",
     "db:seed:guestlists": "npm run db:seed:guestlists --workspace @nitewide/api",
-    "db:seed:posh": "node apps/api/src/db/import-posh.js"
+    "db:seed:posh": "node apps/api/src/db/import-posh.js",
+    "db:seed:orlando": "node apps/api/src/db/refresh-orlando-seed.js",
+    "db:seed:clean-purchases": "node apps/api/src/db/clean-seed-purchases.js"
   },
   "devDependencies": { "concurrently": "^9.1.2" },
   "engines": { "node": ">=20" }

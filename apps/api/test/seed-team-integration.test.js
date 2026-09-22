@@ -28,16 +28,19 @@ test('seeded Team, Overview, and Analytics agree for every demo venue', { skip: 
     const businessService = createBusinessService({ models, permissions });
     const analyticsService = createAnalyticsService({ models, permissions });
     for (const [venueIndex, venue] of venues.entries()) {
-      const organization = await models.Organization.findOne({ where: { slug: venue.legacySlug || slugify(venue.name) } });
+      const slug = venue.legacySlug || slugify(venue.name);
+      const organization = await models.Organization.findOne({ where: { slug: slug === 'room-22' ? 'proper' : slug } });
       assert.ok(organization, `${venue.name} must be seeded`);
       const team = await teamService.roster(owner.id, organization.id);
       const overview = await businessService.workspace(owner.id, reportQuery.parse({ days: 30, organizationId: organization.id }));
       const analytics = await analyticsService.businessReport(owner.id, analyticsQuery.parse({ days: 30, organizationIds: [organization.id] }));
-      const counts = teamCountsForVenue(venueIndex);
+      const counts = ['room-22','proper'].includes(slug)
+        ? { managers:teamCountsForVenue(1).managers + teamCountsForVenue(3).managers, employees:teamCountsForVenue(1).employees + teamCountsForVenue(3).employees }
+        : teamCountsForVenue(venueIndex);
       assert.equal(team.people.filter((person) => person.role === 'Owner').length, 1, venue.name);
       assert.equal(team.people.filter((person) => person.role === 'Manager').length, counts.managers, venue.name);
       assert.equal(team.people.filter((person) => person.role === 'Employee').length, counts.employees, venue.name);
-      assert.equal(team.people.filter((person) => person.role === 'Promoter').length, 2, venue.name);
+      assert.equal(team.people.filter((person) => person.role === 'Promoter').length, ['room-22','proper'].includes(slug) ? 4 : 2, venue.name);
       const overviewById = new Map(overview.report.people.map((person) => [person.id, person]));
       const analyticsById = new Map(analytics.referrals.people.map((person) => [person.id, person]));
       const teamIds = [...team.people.map((person) => person.id)].sort();

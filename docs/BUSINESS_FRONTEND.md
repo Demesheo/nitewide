@@ -21,7 +21,7 @@ Demo password for every account below: `NitewideDemo!2026`.
 
 | Persona              | Email                                   | Expected workspace                                     |
 | -------------------- | --------------------------------------- | ------------------------------------------------------ |
-| Portfolio owner      | maya.owner@nitewide.test                | All 12 organizations; full event management            |
+| Portfolio owner      | maya.owner@nitewide.test                | Original venue portfolio; Proper includes Room 22       |
 | Venue manager        | sam.rivera.manager@nitewide.test        | Euphoria Downtown; management and approval             |
 | Venue employee       | tessa.ward.employee1@nitewide.test     | Euphoria events; own referrals and guestlists          |
 | Promoter             | leo.carter.promoter1@nitewide.test      | Euphoria events; own attributed sales; approval access |

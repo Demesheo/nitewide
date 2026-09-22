@@ -58,4 +58,7 @@ test('image downloader is bounded and only requests approved public images', asy
   await assert.rejects(readLimitedImage(snapshot.events[0].imageUrl, async () => new Response('html', { headers: { 'content-type': 'text/html' } })), /unavailable/);
   await assert.rejects(readLimitedImage(snapshot.events[0].imageUrl, async () => new Response('', { headers: { 'content-type': 'image/png', 'content-length': String(11 * 1024 * 1024) } })), /10 MB/);
   await assert.rejects(readLimitedImage(snapshot.events[0].imageUrl, async () => new Response(Buffer.alloc(10 * 1024 * 1024 + 1), { headers: { 'content-type': 'image/png' } })), /10 MB/);
+  const png = await require('sharp')({ create: { width:128, height:128, channels:3, background:'#121212' } }).png().toBuffer();
+  assert.deepEqual(await readLimitedImage(snapshot.events[0].imageUrl, async () => new Response(png)), png);
+  await assert.rejects(readLimitedImage(snapshot.events[0].imageUrl, async () => new Response(Buffer.from('<html>not an image</html>'))), /valid, static/);
 });

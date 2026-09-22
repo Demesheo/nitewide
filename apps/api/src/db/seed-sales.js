@@ -6,6 +6,7 @@ const { createSequelize } = require('./sequelize');
 const { initModels } = require('./models');
 const { createCheckoutService } = require('../services/checkout-service');
 const { createPasswordRecord } = require('../services/auth-service');
+const { createSeedBuyerPicker } = require('./seed-buyer-picker');
 const { venues, eventDays, packageTemplates, teamCountsForVenue, managerFixture, employeeFixture, demoPassword, recentWeekendDates, slugify } = require('./seed');
 
 async function addDemoSales() {
@@ -18,9 +19,11 @@ async function addDemoSales() {
     await sequelize.authenticate();
     const customers = await models.User.findAll({ where: { email: { [Op.like]: '%.customer%@nitewide.test' }, isActive: true }, order: [['email', 'ASC']] });
     if (customers.length < 12) throw new Error('Baseline demo customers are missing; run the baseline seed only on an empty development database');
+    const pickBuyer = await createSeedBuyerPicker(models, customers, demoPassword);
     let eventsAdded = 0; let salesAdded = 0; let employeesAdded = 0; let managersAdded = 0;
     for (const [venueIndex, venue] of venues.entries()) {
-      const organization = await models.Organization.findOne({ where: { slug: venue.legacySlug || slugify(venue.name) } });
+      const venueSlug = venue.legacySlug || slugify(venue.name);
+      const organization = await models.Organization.findOne({ where: { slug: venueSlug === 'room-22' ? 'proper' : venueSlug } });
       if (!organization) continue;
       const staffCode = `${organization.slug}-STAFF`.toUpperCase();
       const legacyManagerAffiliate = await models.OrgAffiliate.findOne({ where: { organizationId: organization.id, code: staffCode } });
@@ -57,7 +60,7 @@ async function addDemoSales() {
         const dayIndex = [5, 6, 0].indexOf(date.getDay());
         const day = eventDays[dayIndex];
         const dateKey = date.toISOString().slice(0, 10);
-        const slug = `${organization.slug}-${day.short.toLowerCase()}-${dateKey}`;
+        const slug = `${venueSlug}-${day.short.toLowerCase()}-${dateKey}`;
         let event = await models.Event.findOne({ where: { organizationId: organization.id, slug } });
         if (!event) {
           event = await models.Event.create({ organizationId: organization.id, creatorUserId: manager.userId, locationId: location.id,
@@ -68,7 +71,7 @@ async function addDemoSales() {
         }
         for (const [index, affiliate] of orgAffiliates.slice(0, 2).entries()) {
           await models.EventAffiliate.findOrCreate({ where: { eventId: event.id, userId: affiliate.userId }, defaults: { orgAffiliateId: affiliate.id,
-            code: `${organization.slug}-${day.short}-${dateKey}-P${index + 1}`.toUpperCase(), commissionBps: day.commissionBps + index * 100, guestlistAllocation: day.guestlistAllocation } });
+            code: `${venueSlug}-${day.short}-${dateKey}-P${index + 1}`.toUpperCase(), commissionBps: day.commissionBps + index * 100, guestlistAllocation: day.guestlistAllocation } });
         }
         const baseOfferings = [{ name: 'General Admission', description: 'Single admission credential.', kind: 'ticket', priceCents: 1000, quantityTotal: 350, entriesPerUnit: 1, maxPerOrder: 8 },
           ...packageTemplates.map((item) => ({ ...item, kind: 'package', entriesPerUnit: 4, maxPerOrder: 2 }))];
@@ -76,7 +79,8 @@ async function addDemoSales() {
           await models.Offering.findOrCreate({ where: { eventId: event.id, name: item.name }, defaults: { ...item, salesStartAt: new Date(date.getTime() - 30 * 86400000), salesEndAt: new Date(date.getTime() - 3600000), sortOrder: index + 1 } });
         }
       }
-      const events = await models.Event.findAll({ where: { organizationId: organization.id, status: 'published', startsAt: { [Op.gte]: new Date(Date.now() - 28 * 86400000) } }, order: [['startsAt', 'ASC']] });
+      const venueLocations = await models.Location.findAll({ where: { name: venue.name } });
+      const events = await models.Event.findAll({ where: { organizationId: organization.id, locationId: venueLocations.map(l => l.id), status: 'published', startsAt: { [Op.gte]: new Date(Date.now() - 28 * 86400000) } }, order: [['startsAt', 'ASC']] });
       for (const [eventIndex, event] of events.entries()) {
         const offerings = await models.Offering.findAll({ where: { eventId: event.id, isActive: true } });
         const ga = offerings.find((item) => item.kind === 'ticket');
@@ -87,11 +91,11 @@ async function addDemoSales() {
         const usable = [ga, ga, ga, ...packageTemplates.map((item) => byName.get(item.name))].filter(Boolean);
         const affiliates = await models.EventAffiliate.findAll({ where: { eventId: event.id, status: 'active' }, order: [['createdAt', 'ASC']] });
         for (const [saleIndex, offering] of usable.entries()) {
-          const buyer = customers[(venueIndex * 7 + eventIndex * 3 + saleIndex * 2) % customers.length];
           const paidAt = isPast ? new Date(event.startsAt.getTime() - (saleIndex + 2) * 3600000) : new Date(now.getTime() - saleIndex * 3600000);
           if (offering.salesStartAt && paidAt < offering.salesStartAt || offering.salesEndAt && paidAt > offering.salesEndAt) continue;
           const key = `demo-sales-${event.id}-${saleIndex}`;
-          if (await models.Order.count({ where: { buyerUserId: buyer.id, idempotencyKey: key } })) continue;
+          if (await models.Order.count({ where: { idempotencyKey: key } })) continue;
+          const buyer = await pickBuyer(venueIndex * 7 + eventIndex * 3 + saleIndex * 2, event);
           const affiliateCode = [2, 5].includes(saleIndex) ? undefined : affiliates[saleIndex % affiliates.length]?.code;
           const checkout = createCheckoutService({ sequelize, models, now: () => paidAt });
           await checkout({ buyerUserId: buyer.id, eventId: event.id, idempotencyKey: key, affiliateCode,

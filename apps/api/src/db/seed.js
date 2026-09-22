@@ -9,6 +9,7 @@ const { createPasswordRecord } = require('../services/auth-service');
 const { importPoshSnapshot } = require('./posh-importer');
 const { addDemoGuestlists } = require('./seed-guestlists');
 const poshSnapshot = require('./fixtures/posh-orlando-2026-09-21');
+const { createSeedBuyerPicker } = require('./seed-buyer-picker');
 
 const demoPassword = 'NitewideDemo!2026';
 
@@ -125,6 +126,7 @@ async function seed() {
     await models.UserCredential.bulkCreate(await Promise.all(seededUsers.map(async (user) => ({ userId: user.id, ...(await createPasswordRecord(demoPassword)) }))));
 
     const weekendDates = nextWeekend();
+    const pickBuyer = await createSeedBuyerPicker(models, customerUsers, demoPassword);
     const historicalDates = recentWeekendDates();
     const guestlistService = createGuestlistService({ sequelize, models });
     let sampleGuestlistQrToken;
@@ -196,7 +198,7 @@ async function seed() {
         // paidAt rather than treating every seeded sale as occurring today.
         const saleKinds = [0, 0, 0, 1, 2, 3];
         for (const [saleIndex, offeringIndex] of saleKinds.entries()) {
-          const buyer = customerUsers[(venueIndex * 7 + dateIndex * 3 + saleIndex * 2) % customerUsers.length];
+          const buyer = await pickBuyer(venueIndex * 7 + dateIndex * 3 + saleIndex * 2, event);
           const paidAt = isUpcoming
             ? new Date(Date.now() - (saleIndex + venueIndex % 3) * 3600000)
             : new Date(startsAt.getTime() - (saleIndex + 2) * 3600000);
@@ -223,8 +225,14 @@ async function seed() {
         });
       }
     }
+    if (config.NODE_ENV !== 'production') {
+      await require('./seed-venue-expansion').mergeRoom22({ sequelize, models, config, apply: true });
+    }
     if (config.NODE_ENV !== 'production' && !process.argv.includes('--skip-posh')) {
       console.log('Verified Orlando demo events:', await importPoshSnapshot({ sequelize, models, config, snapshot: poshSnapshot, apply: true }));
+      const expansion = require('./fixtures/posh-orlando-2026-09-22');
+      await require('./seed-venue-expansion').provisionDemoVenues({ sequelize, models, config, snapshot: expansion, apply: true });
+      console.log('Additional Orlando demo events:', await importPoshSnapshot({ sequelize, models, config, snapshot: expansion, apply: true }));
     }
     console.log('Guestlist demo fixtures:', await addDemoGuestlists({ models }));
     const counts = {

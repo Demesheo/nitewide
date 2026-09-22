@@ -21,7 +21,7 @@ One-off sources:
 - [Orange Cup vs Nakpin Warz — La Rosa](https://posh.vip/e/orlando-after-dark-orange-cup-vs-nakpin-warz)
 - [Pink Out / Libra Bash — La Rosa](https://posh.vip/e/orlando-after-dark-pink-out-the-biggest-libra-bash)
 
-No upcoming match was verified for Room 22, Parlay, Proper, Celine, Aura, Shakai, Fixtion, or The Beacham. Their original demo events remain unchanged. Research included the [public Orlando directory](https://posh.vip/explore-v2?location=custom&place=Orlando,+FL&lat=28.5383832&lng=-81.3789269), organizer pages, and venue-specific search. Absence from this snapshot does not mean a venue has no events. Other cities, unrecognized venues, past dates, and occurrences beyond the window were excluded. No new organization is created.
+In the September 21 snapshot, no upcoming match was verified for Room 22, Parlay, Proper, Celine, Aura, Shakai, Fixtion, or The Beacham. Research included the [public Orlando directory](https://posh.vip/explore-v2?location=custom&place=Orlando,+FL&lat=28.5383832&lng=-81.3789269), organizer pages, and venue-specific search. Absence from that snapshot does not mean a venue has no events. Other cities, unrecognized venues, past dates, and occurrences beyond the window were excluded. That original import creates no organizations. The [September 22 expansion](ORLANDO_SEED_REFRESH.md) subsequently verified Room22 and five additional venues, grouped Room 22 under Proper, and added separate repeatable provisioning/cleanup commands.
 
 ## Content and matching decisions
 
