@@ -15,18 +15,30 @@ tokens (`--surface-*`, `--text-*`, `--noir-*`) control colors. Avoid new literal
 palette values inside JSX. Shadcn Button variants remain the source of button
 behavior; style via `data-variant`, never replace buttons with decorative divs.
 
-- Discover: editorial hero, dark search panel, filter pills, inset portrait artwork,
-  legible event details and clear purchase pricing.
+- Discover: concise single-column intro and location/date/search panel, followed by
+  event cards with inset portrait artwork, legible details and clear purchase pricing.
+  No radar feature card, experience-type pills, or extra price/sort filters.
+  Empty dates lead directly from the result count into “Upcoming this week.”
+  Use the main search controls to change dates; no “All upcoming” link or redundant empty-state CTA.
 - Booked / Saved: focused main-page collections without discovery/search chrome.
+- Connections: conditional fourth header segment for referral/invitation history,
+  a compact multi-select people dialog, personal relationship counts, scoped search/city
+  filters and deduplicated shared event cards with explicit referral selection.
+  It uses the same main-page spacing, glass surfaces and Premium treatment.
+  See `CUSTOMER_ACCOUNT.md` for eligibility, attribution and privacy boundaries.
+- Branding uses a plain Nitewide wordmark without a star in the header or footer.
+  The bottom “Find your vibe” section uses concise, unnumbered Discover / Book / Enter steps.
 - `NightCard`: one consistent purchase/guest-pass component in both Booked and My nights.
 - Account: stable-height dialog with Profile, My nights and Connections. Loading
   and short-content states do not resize the outer window.
 - Cards/panels: `--noir-panel` layers a static diagonal reflection over an 88%-opaque
-  near-black surface, with darker lower edges and a diffused inset highlight. A modest
+  subtly lifted near-black surface (`#0f0e14`), with darker lower edges and a diffused inset highlight. A modest
   8px backdrop blur on listing cards and panels provides depth without moving effects.
 - All customer dialogs (event, checkout, account, auth, notifications) use
-  `--noir-dialog`: a corner reflection and diagonal sheen over a roughly 93%-opaque
-  near-black surface, with 20px blur. Highlights are CSS backgrounds, not overlays that
+  `--noir-dialog`: a corner reflection and diagonal sheen over a roughly 72%-opaque
+  near-black surface, with 24px blur and mild saturation. The lighter 50% scrim lets
+  page colors show through; nested cards use a 60%-opaque base. Flyer frames are glass,
+  but flyer pixels and QR images remain opaque. Highlights are CSS backgrounds, not overlays that
   can block clicks, tint artwork, or obscure text. Inputs retain dark native controls.
 - Admission passes: dark reflective shells with light text and opaque white,
   high-contrast QR images; checked-in status remains
@@ -40,6 +52,13 @@ smaller `--noir-control-shadow`; their muted charcoal-plum fill and subtle verti
 gloss replace the high-contrast horizontal multicolor gradient. Secondary actions
 remain dark glass; ghost/text actions stay quiet. Gold glow remains reserved for
 Premium cards. No animated glow or layout-changing hover effect is introduced.
+
+Main navigation and Tickets & tables / Guestlist use unified charcoal segmented
+tracks with one near-black glossy indicator that slides between equal-width
+segments. A soft purple inset edge and outer glow mark the active segment without
+a purple fill. Individual tabs have no fill or border.
+Targets remain at least 44px tall. Keyboard focus and Radix tab semantics are
+preserved; reduced-motion preferences disable the indicator transition.
 
 White primary-button labels meet 4.5:1 contrast against both normal and hover
 gradient endpoints. Focus outlines, selected tickets, validation errors and
@@ -61,11 +80,10 @@ not yet have a subscription field and remain undecorated. Future creator billing
 must extend the server entitlement resolver, not infer status from owned venues
 or add browser-only Premium flags. No billing or subscription changes are made here.
 
-Default Discover, upcoming-week, Saved and featured-event ordering groups events
+Default Discover, upcoming-week and Saved ordering groups events
 by venue-local calendar day (earliest day first), then Premium hosts first within
 that day. Within each host tier, title and ID provide a stable order; start time
-is deliberately not a ranking criterion. An explicit “Price: low to high” choice
-still prioritizes price. Purchased-booking history is not a promotional listing
+is deliberately not a ranking criterion. Purchased-booking history is not a promotional listing
 and retains its existing timeline order.
 
 ## Mobile, motion and accessibility

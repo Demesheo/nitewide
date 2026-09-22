@@ -1,3 +1,4 @@
+import { customerPresentation } from './demo-visibility.js';
 const API = import.meta.env.VITE_API_URL || "/api";
 export async function api(path, { token, body, signal, ...options } = {}) {
   let response;
@@ -27,5 +28,5 @@ export async function api(path, { token, body, signal, ...options } = {}) {
     error.status = response.status;
     throw error;
   }
-  return payload.data;
+  return customerPresentation(path, payload.data);
 }

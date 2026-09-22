@@ -28,7 +28,8 @@ function createRouter({ publicController, managementController, commerceControll
   router.get('/customer/tickets/:id', asyncHandler(async (req, res) => res.json({ data: await account.ticket(req.userId, z.string().uuid().parse(req.params.id)) })));
   router.get('/customer/purchases/:id/tickets', asyncHandler(async (req, res) => res.json({ data: await account.purchaseTickets(req.userId, z.string().uuid().parse(req.params.id)) })));
   router.get('/customer/guestlists/:id/pass', asyncHandler(async (req, res) => res.json({ data: await account.guestlistPass(req.userId, z.string().uuid().parse(req.params.id)) })));
-  router.get('/customer/connections', asyncHandler(async (req, res) => res.json({ data: await account.connections(req.userId) })));
+  router.get('/customer/connections', asyncHandler(async (req, res) => res.json({ data: await account.connections(req.userId, z.object({ eventId: z.string().uuid().optional() }).parse(req.query)) })));
+  router.get('/customer/connections/summary', asyncHandler(async (req, res) => res.json({ data: await account.connectionHistory(req.userId) })));
   router.patch('/customer/profile', validate(z.object({ displayName: z.string().trim().min(1).max(120), phone: optionalPhone, marketingConsent: z.boolean(), transactionalSmsConsent: z.boolean(), marketingSmsConsent: z.boolean() }).strict()), asyncHandler(async (req, res) => res.json({ data: await account.updateProfile(req.userId, req.body) })));
   const eventPerson = z.object({ userId: z.string().uuid().optional(), email: z.string().trim().email().optional(), commissionBps: z.number().int().min(0).max(4000), status: z.enum(['active', 'inactive']).default('active') }).refine((v) => Boolean(v.userId) !== Boolean(v.email), 'Provide a user or an email');
   router.get('/business/events/:eventId/detail', requireUser, asyncHandler(async (req, res) => res.json({ data: await eventWorkspace.detail(req.userId, req.params.eventId) })));

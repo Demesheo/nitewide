@@ -16,7 +16,7 @@ function eventSummary(event) {
     imageUrl: event.imageUrl, isPremiumHost: event.organization?.planTier === 'premium', organization: event.organization ? { name: event.organization.name } : null,
     location: redactLocation(event.location) };
 }
-function createCustomerAccountService({ models, tokenSecret, now = () => new Date() }) {
+function createCustomerAccountService({ models, tokenSecret, now = () => new Date(), referralLinks }) {
   const eventInclude = { model: models.Event, as: 'event', include: [
     { model: models.Location, as: 'location' }, { model: models.Organization, as: 'organization', attributes: ['id', 'name', 'planTier'] },
   ] };
@@ -90,46 +90,61 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
       return profile(user);
     });
   }
-  async function connections(userId) {
+  async function connectionHistory(userId) {
     const [orders, guests, invitations] = await Promise.all([
-      models.Order.findAll({ where: { buyerUserId: userId, status: 'paid' }, attributes: ['eventAffiliateId', 'orgAffiliateId'], group: ['eventAffiliateId', 'orgAffiliateId'] }),
-      models.GuestlistEntry.findAll({ where: { userId, status: { [Op.in]: ['confirmed', 'checked_in', 'no_show'] } }, attributes: ['eventAffiliateId'], group: ['eventAffiliateId'] }),
-      models.GuestlistInvitation.findAll({ where: { acceptedByUserId: userId, status: 'accepted' }, attributes: ['invitedByUserId'], group: ['invitedByUserId'] }),
+      models.Order.findAll({ where: { buyerUserId: userId, status: 'paid', [Op.or]: [{ eventAffiliateId: { [Op.ne]: null } }, { orgAffiliateId: { [Op.ne]: null } }] }, attributes: ['id', 'eventId', 'eventAffiliateId', 'orgAffiliateId', 'paidAt', 'createdAt'] }),
+      models.GuestlistEntry.findAll({ where: { userId, eventAffiliateId: { [Op.ne]: null } }, attributes: ['id', 'eventId', 'eventAffiliateId', 'status', 'createdAt'] }),
+      models.GuestlistInvitation.findAll({ where: { acceptedByUserId: userId, status: 'accepted' }, attributes: ['eventId', 'invitedByUserId', 'acceptedAt'] }),
     ]);
     const eventIds = [...new Set([...orders, ...guests].map((row) => row.eventAffiliateId).filter(Boolean))];
     const orgIds = [...new Set(orders.filter((row) => !row.eventAffiliateId).map((row) => row.orgAffiliateId).filter(Boolean))];
     const [eventRefs, orgRefs] = await Promise.all([
-      models.EventAffiliate.findAll({ where: { id: eventIds }, attributes: ['userId'] }),
-      models.OrgAffiliate.findAll({ where: { id: orgIds }, attributes: ['userId'] }),
+      models.EventAffiliate.findAll({ where: { id: eventIds }, attributes: ['id', 'userId'] }),
+      models.OrgAffiliate.findAll({ where: { id: orgIds }, attributes: ['id', 'userId'] }),
     ]);
     const referrerIds = [...new Set([...eventRefs, ...orgRefs].map((row) => row.userId).concat(invitations.map((row) => row.invitedByUserId)))].filter((id) => id !== userId);
+    const users = referrerIds.length ? await models.User.findAll({ where: { id: referrerIds, isActive: true }, attributes: ['id', 'displayName'] }) : [];
+    const people = users.map((user) => {
+      const purchases = orders.filter((row) => (row.eventAffiliateId ? eventRefs.find((ref) => ref.id === row.eventAffiliateId) : orgRefs.find((ref) => ref.id === row.orgAffiliateId))?.userId === user.id);
+      const entries = guests.filter((row) => eventRefs.find((ref) => ref.id === row.eventAffiliateId)?.userId === user.id);
+      const invites = invitations.filter((row) => row.invitedByUserId === user.id);
+      // An invitation and its resulting entry are one guestlist event, not two.
+      const guestEvents = new Set([...entries, ...invites].map((row) => row.eventId));
+      const dates = [...purchases.map((row) => row.paidAt || row.createdAt), ...entries.map((row) => row.createdAt), ...invites.map((row) => row.acceptedAt)].filter(Boolean).map((date) => new Date(date).toISOString()).sort();
+      return { id: user.id, name: user.displayName, bookings: purchases.length, guestlistEvents: guestEvents.size,
+        connectedEvents: new Set([...purchases.map((row) => row.eventId), ...guestEvents]).size, lastConnectedAt: dates.at(-1) || null };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+    return { eligible: referrerIds.length > 0, people };
+  }
+  async function connections(userId, { eventId } = {}) {
+    const history = await connectionHistory(userId);
+    const referrerIds = history.people.map((person) => person.id);
     if (!referrerIds.length) return [];
     // Connections belong to people. Deliberately query ALL current venues and
     // event-only assignments for each referrer, not only the original venue.
-    const [leaders, employees, promoters, assignments, users] = await Promise.all([
+    const [leaders, employees, promoters, assignments] = await Promise.all([
       models.OrganizationOwner.findAll({ where: { userId: referrerIds } }),
       models.OrganizationEmployee.findAll({ where: { userId: referrerIds, status: 'active' } }),
       models.OrgAffiliate.findAll({ where: { userId: referrerIds, status: 'active' } }),
       models.EventAffiliate.findAll({ where: { userId: referrerIds, status: 'active' } }),
-      models.User.findAll({ where: { id: referrerIds, isActive: true }, attributes: ['id', 'displayName'] }),
     ]);
     const organizations = [...new Set([...leaders, ...employees, ...promoters].map((row) => row.organizationId))];
-    const events = await models.Event.findAll({ where: { status: 'published', isDiscoverable: true, startsAt: { [Op.gt]: now() },
+    const events = await models.Event.findAll({ where: { ...(eventId ? { id: eventId } : {}), status: 'published', isDiscoverable: true, startsAt: { [Op.gt]: now() },
       [Op.or]: [{ organizationId: organizations }, { id: assignments.map((row) => row.eventId) }, { organizationId: null, creatorUserId: referrerIds }] },
       include: eventInclude.include, order: [['startsAt', 'ASC']], limit: 100 });
-    const links = createReferralLinkService({ models, now });
+    const links = referralLinks || createReferralLinkService({ models, now });
     const result = [];
-    for (const event of events) for (const user of users) {
+    for (const event of events) for (const user of history.people) {
       const eligible = [...leaders, ...employees, ...promoters].some((row) => row.userId === user.id && row.organizationId === event.organizationId)
         || assignments.some((row) => row.eventId === event.id && row.userId === user.id) || (!event.organizationId && event.creatorUserId === user.id);
       if (!eligible) continue;
       try {
         const link = await links.ownLink(user.id, event.id);
-        result.push({ event: eventSummary(event), referrer: { id: user.id, name: user.displayName }, code: link.code });
+        result.push({ event: eventSummary(event), referrer: { id: user.id, name: user.name }, code: link.code });
       } catch (error) { if (![403, 404, 409].includes(error.status) && error.code !== 'INVALID_AFFILIATE') throw error; }
     }
     return result;
   }
-  return { bookings, ticket, purchaseTickets, guestlistPass, updateProfile, connections };
+  return { bookings, ticket, purchaseTickets, guestlistPass, updateProfile, connections, connectionHistory };
 }
 module.exports = { createCustomerAccountService, profile, eventSummary };

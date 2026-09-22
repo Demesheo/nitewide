@@ -1,6 +1,6 @@
 # Customer account, tickets, and connections
 
-The customer header uses compact Discover / VIP & tables / Saved navigation, notifications, and an initials avatar. The avatar opens Profile; the My nights tab opens purchases and guest passes, alongside Connections. There is no separate ticket shortcut. Signed-in customers find For business in the footer; signed-out visitors retain the header link.
+The customer header uses compact Discover / Booked / Saved navigation, plus Connections for eligible signed-in customers, notifications, and an initials avatar. The avatar opens Profile; the My nights tab opens purchases and guest passes, alongside the compact Connections feed. There is no separate ticket shortcut. Signed-in customers find For business in the footer; signed-out visitors retain the header link.
 
 ## My nights
 
@@ -20,13 +20,32 @@ Approved guest list entries open through customer-scoped `/api/customer/guestlis
 
 ## Connections
 
-Connections derive from a customer's paid referred purchases, confirmed/checked-in/no-show referred guestlists, and accepted guestlist invitations. The connection is to the person, across all organizations and venues where that person currently has access. For example, one promoter can appear at La Rosa Thursday, Room 22 Friday, Euphoria Saturday, and Eden Sunday. No previous visit to the destination venue is required.
+Connections derive from a customer's paid referred purchases, referred guestlist entries (including requests), and accepted guestlist invitations. Past, current and future event dates all qualify. Direct-only purchases and direct guestlist entries do **not** unlock the tab; an accepted personal invitation to the direct venue pool does qualify through its inviter. Pending/unclaimed invitations and self-referrals do not qualify. The connection is to the person, across all organizations and venues where that person currently has access. For example, one promoter can appear at La Rosa Thursday, Room 22 Friday, Euphoria Saturday, and Eden Sunday. No previous visit to the destination venue is required.
 
-The feed includes future published, discoverable events for active owners, managers, employees, organization promoters, independent creators, and event-only promoters. It revalidates current membership, referral windows, and event removal through the shared referral-link service. Stable event assignments may be created for eligible staff/creators as part of obtaining their link. The feed covers the next 100 eligible candidate events with all qualifying connections for those events. Customers can filter by person and reveal cards twelve at a time. It exposes public referrer names only, never their contact information or other customers.
+`GET /api/customer/connections/summary` is authenticated, customer-scoped and no-store. It returns eligibility separately from current event availability, with public names and only this customer's booking/guestlist-event counts. Invitations and their resulting entries count once per person/event. People remain visible between events; inactive accounts are hidden without erasing history-based eligibility. No private contact details, commission amounts or unrelated customer data are exposed. The header refreshes on login, completed purchases/requests, focus and once per minute while visible, and clears session-specific data on logout/account changes.
+
+The main Connections page includes a compact multi-select dialog with name search, prior booking/guestlist counts and upcoming-event counts. Selections remain draft until Apply; Cancel, Escape and closing discard changes. Select all resets to all connections; at least one person must be selected to Apply. Person/city/search filters combine, with shared saved-event cards and nine-at-a-time loading. Multiple referrers for one event are deduplicated into one card with an explicit referrer selector. Its booking action and copy-link action always use the selected person's code; filters cannot leave a hidden person's code selected. No fake follow, messaging, discount or guaranteed-admission controls are offered. Empty and loading states remain part of the normal page layout.
+
+Event details show “Booking with [name]” above the Continue/price action and guestlist request action, and below the price breakdown immediately before checkout confirmation. It is plain, non-interactive text without a background, border, or shadow, with 12px vertical spacing to keep it separate from the buttons. This label appears only when a referral is applied to that specific event; direct bookings never inherit another event's label.
+
+Opened Discover and Saved events also offer a **Book with** selector when the signed-in customer has eligible connections for that event. The event-scoped `GET /customer/connections?eventId=<uuid>` lookup validates current authorization across venues and is not limited by the main feed's first 100 events. It excludes past/private events, removed referrers, and unrelated people. With no matches, the selector is hidden. An existing referral link is preserved until the customer explicitly chooses another connection or **Book directly**. Selecting someone records and validates the same referral visit used by Connections links, without resetting the selected ticket/package or quantity. Continue and guestlist submission wait for validation; failures keep the previous attribution and show an error. Purchases and guestlist requests continue using the existing server-side commission, reporting, and notification paths.
+
+The feed includes future published, discoverable events for active owners, managers, employees, organization promoters, independent creators, and event-only promoters. It revalidates current membership, referral windows, and event removal through the shared referral-link service. Stable event assignments may be created for eligible staff/creators as part of obtaining their link. The feed covers the next 100 eligible candidate events with all qualifying connections for those events. The compact profile feed retains its person filter and twelve-at-a-time loading. It exposes public referrer names only, never their contact information or other customers.
 
 Opening a card validates and applies that person's referral code for the destination event. Purchase and guestlist requests use the existing attribution services. The destination event's current commission applies to a new order; historical orders retain their snapshots. Business sales, customer, commission, analytics, and notification records receive the normal checkout updates. Being connected to someone does not grant them access to unrelated customer activity.
 
 ## Profile
+
+### Temporary customer demo presentation
+
+`apps/customer/src/lib/demo-visibility.js` excludes the seeded Maya Portfolio Owner
+identity from both Connections feeds, people selectors and eligibility counts.
+It matches the specific seed ID/name/email, never all owners or all people named
+Maya. The customer API adapter applies this only to returned view data. Directly
+opened owner referral links and actionable notifications use “Your host” instead
+of the debugging name; their codes, invitation actions and unread counts remain
+intact. No backend data, memberships, commissions, business/admin UI or access
+rules are removed or changed. Remove this presentation rule when retiring the demo.
 
 Customers can edit display name, E.164-normalized phone number, and separate email marketing / transactional SMS / marketing SMS choices. Email is displayed read-only pending a verified email-change flow. Changes are audited; editing the number clears phone verification. No SMS or email provider is enabled by this feature. Role and account-status changes are rejected by strict input validation.
 

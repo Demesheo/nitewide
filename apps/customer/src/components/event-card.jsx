@@ -4,7 +4,7 @@ import { availableQuantity, cityName, money } from "../lib/discovery";
 import { eventDate, eventTime } from "../lib/presentation";
 import { EventArtwork } from "./event-artwork";
 import { isPremiumHost } from '../lib/premium-host';
-export function EventCard({ event, saved, onSave, onOpen }) {
+export function EventCard({ event, saved, onSave, onOpen, children, actionLabel }) {
   const offerings =
     event.offerings?.filter((o) => availableQuantity(o) > 0) || [];
   const lowest = offerings.length
@@ -54,9 +54,10 @@ export function EventCard({ event, saved, onSave, onOpen }) {
           {cityName(event)}
           {event.location?.region ? `, ${event.location.region}` : ""}
         </p>
+        {children}
         <div className="card-bottom">
           <span>
-            {lowest === null ? (
+            {actionLabel || (lowest === null ? (
               "Explore guestlist"
             ) : lowest === 0 ? (
               "Free admission"
@@ -64,7 +65,7 @@ export function EventCard({ event, saved, onSave, onOpen }) {
               <>
                 <small>From</small> {money(lowest)} <small>+ fees</small>
               </>
-            )}
+            ))}
           </span>
           <span className="card-arrow" aria-hidden="true">
             <ArrowUpRight size={21} />

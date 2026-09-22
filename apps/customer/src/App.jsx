@@ -6,11 +6,8 @@ import {
   CalendarDays,
   Search,
   Ticket,
-  Sparkles,
   Wine,
-  Music2,
   Users,
-  SlidersHorizontal,
   Minus,
   Plus,
   Check,
@@ -29,21 +26,17 @@ import {
   DialogDescription,
 } from "./components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./components/ui/select";
 import { EventCard } from "./components/event-card";
 import { EventArtwork } from './components/event-artwork';
-import { NIGHTLIFE_ARTWORK, eventAddress, eventDate, eventTime } from "./lib/presentation";
+import { eventAddress, eventDate, eventTime } from "./lib/presentation";
 import { LoadingIndicator } from './components/loading-indicator';
 import { upcomingSavedEvents } from './lib/saved-events';
 import { AuthDialog } from "./components/auth-dialog";
 import { Notifications } from "./components/notifications";
 import { AccountDialog, initials } from './components/account-dialog';
+import { ConnectionsPage } from './components/connections-page';
+import { EventConnectionPicker } from './components/event-connection-picker';
+import { useConnections } from './lib/use-connections';
 import { focusEventDialogStart, openEventDialogAtTop } from './lib/dialog-focus';
 import { detectCurrentCity, localDateInputValue } from "./discovery-defaults";
 import { api } from "./lib/api";
@@ -63,12 +56,6 @@ import {
   writeStorage,
 } from "./lib/discovery";
 
-const categories = [
-  ["all", Compass, "All experiences"],
-  ["vip", Wine, "VIP & tables"],
-  ["music", Music2, "Live music"],
-  ["guestlist", Users, "Guestlists"],
-];
 const calendarLabel = (date) =>
   new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
     month: "short",
@@ -77,7 +64,7 @@ const calendarLabel = (date) =>
   });
 const Brand = () => (
   <a href="/" aria-label="Nitewide home" className="brand">
-    nitewide<span>✳</span>
+    nitewide
   </a>
 );
 function validSession() {
@@ -95,15 +82,19 @@ export default function App() {
   const [city, setCity] = useState(""),
     [date, setDate] = useState(localDateInputValue),
     [query, setQuery] = useState("");
-  const [category, setCategory] = useState("all"),
-    [sort, setSort] = useState("date"),
-    [priceCap, setPriceCap] = useState("any");
   const [saved, setSaved] = useState(() => readStorage("nitewide.saved", [])),
     [view, setView] = useState("discover");
   const [session, setSession] = useState(validSession),
     [authOpen, setAuthOpen] = useState(false),
     [walletOpen, setWalletOpen] = useState(false);
   const [accountTab, setAccountTab] = useState('plans');
+  const [connectionsRevision, setConnectionsRevision] = useState(0);
+  const connectionsHistory = useConnections(session, connectionsRevision);
+  const hasConnections = Boolean(session && connectionsHistory?.eligible);
+  const refreshConnections = () => setConnectionsRevision((value) => value + 1);
+  useEffect(() => {
+    if (view === 'connections' && !hasConnections) setView('discover');
+  }, [view, hasConnections]);
   const guestlistInviteToken = new URLSearchParams(window.location.search).get('guestlistInvite');
   const [referral, setReferral] = useState(null);
   const [demoBusy, setDemoBusy] = useState(false);
@@ -114,11 +105,17 @@ export default function App() {
     [quantity, setQuantity] = useState(1),
     [stage, setStage] = useState("details");
   const [booking, setBooking] = useState(null);
+  const [referralPending, setReferralPending] = useState(null), [referralError, setReferralError] = useState('');
+  const referralRequest = useRef(null);
+  const referralBusy = referralPending === `${session?.accessToken}:${selected?.id}`;
+  useEffect(() => {
+    setReferralError('');
+    return () => { referralRequest.current?.abort(); };
+  }, [selected?.id, session?.accessToken]);
   const [guestState, setGuestState] = useState(""),
     [guestBusy, setGuestBusy] = useState(false),
     [guestError, setGuestError] = useState("");
-  const [filtersOpen, setFiltersOpen] = useState(false),
-    [limit, setLimit] = useState(9),
+  const [limit, setLimit] = useState(9),
     [notice, setNotice] = useState("");
   const locationEdited = useRef(false),
     pendingAuth = useRef(null);
@@ -205,7 +202,7 @@ export default function App() {
   }, [session?.accessToken]);
   useEffect(() => {
     setLimit(9);
-  }, [city, date, query, category, sort, priceCap, view]);
+  }, [city, date, query, view]);
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 4500);
@@ -216,38 +213,15 @@ export default function App() {
     city,
     date,
     query,
-    category,
-    priceCap,
     savedIds: view === "saved" ? saved : null,
   };
   const results = filterEvents(events, filters);
   const savedUpcoming = upcomingSavedEvents(events, saved);
   const weekRange = date ? upcomingWeekRange(date) : null;
   const weeklyEvents = date ? filterUpcomingWeek(events, filters) : [];
-  const minimum = (event) =>
-    Math.min(
-      ...(event.offerings || [])
-        .filter((o) => availableQuantity(o))
-        .map((o) => o.priceCents),
-      Infinity,
-    );
-  results.sort((a, b) =>
-    sort === "price"
-      ? minimum(a) - minimum(b) || compareEventListings(a, b)
-      : compareEventListings(a, b),
-  );
-  const upcoming = filterEvents(events, { city }).sort(compareEventListings);
-  const featured = upcoming[0];
+  results.sort(compareEventListings);
   const offering = selected?.offerings?.find((o) => o.id === offeringId);
   const totals = checkoutTotal(offering?.priceCents || 0, quantity);
-  function browse(nextCategory = "all") {
-    setCategory(nextCategory);
-    setView("discover");
-    setDate("");
-    setQuery("");
-    setPriceCap("any");
-    document.getElementById("discover")?.scrollIntoView({ behavior: "smooth" });
-  }
   function openEvent(event) {
     setSelected(event);
     const first = event.offerings?.find((o) => availableQuantity(o));
@@ -256,6 +230,33 @@ export default function App() {
     setStage("details");
     setGuestState("");
     setGuestError("");
+  }
+  async function openConnection(entry) {
+    const sessionKey = sessionStorage.getItem('nitewide.referral-session') || crypto.randomUUID();
+    sessionStorage.setItem('nitewide.referral-session', sessionKey);
+    const [event, visit] = await Promise.all([
+      api(`/events/${encodeURIComponent(entry.event.id)}`),
+      api(`/events/${encodeURIComponent(entry.event.id)}/referral-visits`, { body: { code: entry.code, sessionKey } }),
+    ]);
+    setReferral({ eventId: event.id, code: visit.code, referrerName: visit.referrerName });
+    setWalletOpen(false); openEvent(event);
+  }
+  async function chooseEventConnection(entry) {
+    if (referralBusy || entry === undefined) return;
+    setReferralError('');
+    if (entry === null) { setReferral(null); return; }
+    if (entry.event.id !== selected?.id) return;
+    const controller = new AbortController();
+    referralRequest.current?.abort(); referralRequest.current = controller;
+    setReferralPending(`${session?.accessToken}:${selected.id}`);
+    try {
+      const sessionKey = sessionStorage.getItem('nitewide.referral-session') || crypto.randomUUID();
+      sessionStorage.setItem('nitewide.referral-session', sessionKey);
+      const visit = await api(`/events/${encodeURIComponent(entry.event.id)}/referral-visits`, { signal: controller.signal, body: { code: entry.code, sessionKey } });
+      if (!controller.signal.aborted) setReferral({ eventId: entry.event.id, code: visit.code, referrerName: visit.referrerName });
+    } catch (error) {
+      if (!controller.signal.aborted) setReferralError(`Couldn’t apply this connection. ${error.message}`);
+    } finally { if (referralRequest.current === controller) setReferralPending(null); }
   }
   function selectOffering(id) {
     setOfferingId(id);
@@ -278,7 +279,7 @@ export default function App() {
       try {
         const result = data.guestlistInvite || await api(`/guestlist-invitations/${encodeURIComponent(guestlistInviteToken)}/claim`, { token: data.accessToken, method: 'POST' });
         setNotice(result.status === 'confirmed' ? 'You are confirmed on the guestlist.' : result.status === 'full' ? 'The guestlist is full. Your invitation link can be tried again if space opens.' : 'Your account is ready, but this guestlist invitation could not be claimed.');
-        if (result.status === 'confirmed') { const url = new URL(window.location.href); url.searchParams.delete('guestlistInvite'); window.history.replaceState({}, '', url); }
+        if (result.status === 'confirmed') { refreshConnections(); const url = new URL(window.location.href); url.searchParams.delete('guestlistInvite'); window.history.replaceState({}, '', url); }
       } catch (error) { setNotice(`Signed in, but the guestlist invitation could not be claimed: ${error.message}`); }
     }
     const next = pendingAuth.current;
@@ -291,7 +292,7 @@ export default function App() {
     if (!session) { setAuthOpen(true); return; }
     inviteClaimAttempted.current = true;
     api(`/guestlist-invitations/${encodeURIComponent(guestlistInviteToken)}/claim`, { token: session.accessToken, method: 'POST' })
-      .then((result) => { setNotice(result.status === 'confirmed' ? 'You are confirmed on the guestlist.' : 'Your invitation is not confirmed; the guestlist may be full or closed.'); if (result.status === 'confirmed') { const url = new URL(window.location.href); url.searchParams.delete('guestlistInvite'); window.history.replaceState({}, '', url); } })
+      .then((result) => { setNotice(result.status === 'confirmed' ? 'You are confirmed on the guestlist.' : 'Your invitation is not confirmed; the guestlist may be full or closed.'); if (result.status === 'confirmed') { refreshConnections(); const url = new URL(window.location.href); url.searchParams.delete('guestlistInvite'); window.history.replaceState({}, '', url); } })
       .catch((error) => setNotice(`Guestlist invitation could not be claimed: ${error.message}`));
   }, [guestlistInviteToken, session]);
   function checkout() {
@@ -332,6 +333,7 @@ export default function App() {
     };
     setBooking(receipt);
     setStage("complete");
+    refreshConnections();
     await loadEvents();
     } catch (error) { setDemoError(error.message); }
     finally { setDemoBusy(false); }
@@ -349,6 +351,7 @@ export default function App() {
         body: { partySize: 1, affiliateCode: referralCodeForEvent(referral, selected.id) },
       });
       setGuestState("pending");
+      refreshConnections();
     } catch (error) {
       if (error.status === 401) {
         setSession(null);
@@ -371,12 +374,12 @@ export default function App() {
       <header className="site-header">
         <div className="header-inner">
           <Brand />
-          <nav aria-label="Main navigation">
+          <nav aria-label="Main navigation" data-view={view} data-connections={hasConnections}>
             <button
               className={view === "discover" ? "active" : ""}
+              aria-current={view === 'discover' ? 'page' : undefined}
               onClick={() => {
                 setView("discover");
-                setCategory('all');
                 document
                   .getElementById("discover")
                   .scrollIntoView({ behavior: "smooth" });
@@ -384,9 +387,10 @@ export default function App() {
             >
               Discover
             </button>
-            <button className={view === 'booked' ? 'active' : ''} onClick={() => { setView('booked'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Booked</button>
+            <button className={view === 'booked' ? 'active' : ''} aria-current={view === 'booked' ? 'page' : undefined} onClick={() => { setView('booked'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Booked</button>
             <button
               className={view === 'saved' ? 'active' : ''}
+              aria-current={view === 'saved' ? 'page' : undefined}
               onClick={() => {
                 setView("saved");
                 window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -394,6 +398,7 @@ export default function App() {
             >
               Saved
             </button>
+            {hasConnections && <button className={view === 'connections' ? 'active' : ''} aria-current={view === 'connections' ? 'page' : undefined} onClick={() => { setView('connections'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Connections</button>}
           </nav>
           <div className="header-actions">
             {!session && <a className="business-nav-link" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a>}
@@ -413,6 +418,7 @@ export default function App() {
           </div>
         </div>
       </header>
+      {view === 'connections' && hasConnections && <ConnectionsPage key={session.user.id} session={session} history={connectionsHistory} saved={saved} onSave={save} onReferral={openConnection} onRefresh={refreshConnections} />}
       {view === 'booked' && <main className="booked-page wrap" id="booked">
         <div className="booked-page-heading"><p className="eyebrow">YOUR NEXT NIGHT STARTS HERE</p><h1>Booked.</h1><p>Your tickets and guest list entries, all in one place.</p></div>
         {session ? <AccountDialog embedded open session={session} onOpenChange={() => setView('discover')} /> : <div className="account-empty"><Ticket /><h2>Your nights are waiting.</h2><p>Sign in to see your upcoming bookings and guest list entries.</p><Button onClick={() => setAuthOpen(true)}>Sign in</Button></div>}
@@ -434,8 +440,7 @@ export default function App() {
               <span className="hero-accent">is yours.</span>
             </h1>
             <p className="hero-description">
-              Find your scene. Reserve your spot.
-              <br className="desktop-break" /> Tickets, tables, and guestlists for nights worth going out for.
+              Tickets, tables, guestlists. Your night starts here.
             </p>
             <div className="hero-tags">
               <span>
@@ -456,42 +461,6 @@ export default function App() {
             <a className="text-link" href="#discover">
               Find your next night <ArrowDown />
             </a>
-          </div>
-          <div className="hero-art">
-            <img
-              className="hero-photo"
-              src={NIGHTLIFE_ARTWORK.dancefloor}
-              alt="Illustrative nightclub scene in blue and magenta light"
-              fetchPriority="high"
-            />
-            <div className="hero-grain" />
-            <span className="hero-stamp">
-              LESS SCROLLING.
-              <br />
-              MORE LIVING.
-            </span>
-            <div className="hero-feature">
-              <Badge variant="outline">ON OUR RADAR</Badge>
-              <h2>{featured?.organization?.name || "A little louder."}</h2>
-              <p>
-                {featured
-                  ? `${cityName(featured)} · ${eventDate(featured)}`
-                  : "A little later. A night to remember."}
-              </p>
-              <button
-                aria-label={
-                  featured
-                    ? `Explore ${featured.title}`
-                    : "Explore upcoming events"
-                }
-                onClick={() => (featured ? openEvent(featured) : browse())}
-              >
-                <ArrowUpRight size={26} />
-              </button>
-            </div>
-            <div className="floating-label">
-              <Sparkles size={14} /> MAKE TONIGHT A STORY
-            </div>
           </div>
         </section>
         <div className="wrap search-wrap">
@@ -605,74 +574,7 @@ export default function App() {
                   : "Find your kind of night."}
               </h2>
             </div>
-            <button
-              className="text-link"
-              onClick={() => {
-                setDate("");
-                setQuery("");
-                setPriceCap("any");
-                setCategory("all");
-              }}
-            >
-              All upcoming <ArrowUpRight size={17} />
-            </button>
           </div>
-          <div className="filter-row">
-            <div className="category-list" aria-label="Experience type">
-              {categories.map(([id, Icon, label]) => (
-                <Button
-                  key={id}
-                  variant={category === id ? "default" : "outline"}
-                  aria-pressed={category === id}
-                  onClick={() => setCategory(id)}
-                >
-                  <Icon size={16} />
-                  {label}
-                </Button>
-              ))}
-            </div>
-            <Button
-              variant="outline"
-              className="filter-button"
-              aria-expanded={filtersOpen}
-              onClick={() => setFiltersOpen(!filtersOpen)}
-            >
-              <SlidersHorizontal size={15} />
-              Filters{priceCap !== "any" && <span className="live-dot" />}
-            </Button>
-          </div>
-          {filtersOpen && (
-            <div className="expanded-filters">
-              <label>
-                Sort by
-                <Select value={sort} onValueChange={setSort}>
-                  <SelectTrigger aria-label="Sort events">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="date">Date: soonest first</SelectItem>
-                    <SelectItem value="price">Price: low to high</SelectItem>
-                  </SelectContent>
-                </Select>
-              </label>
-              <label>
-                Starting price
-                <Select value={priceCap} onValueChange={setPriceCap}>
-                  <SelectTrigger aria-label="Maximum starting price">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="any">Any price</SelectItem>
-                    <SelectItem value="0">Free</SelectItem>
-                    <SelectItem value="2500">Up to $25</SelectItem>
-                    <SelectItem value="10000">Up to $100</SelectItem>
-                    <SelectItem value="40000">Up to $400</SelectItem>
-                  </SelectContent>
-                </Select>
-              </label>
-              <p>Prices before service fees. Availability may change.</p>
-            </div>
-          )}
           <div aria-live="polite" className="results-summary">
             {loadState === "ready" && (
               <>
@@ -730,39 +632,7 @@ export default function App() {
                 </Button>
               )}
             </>
-          ) : (
-            <div className="empty-state">
-              <Search />
-              <h3>
-                {view === "saved" && !saved.length
-                  ? "Your next night, saved."
-                  : date
-                    ? `No experiences for ${calendarLabel(date)}.`
-                    : "No experiences match your search."}
-              </h3>
-              <p>
-                {view === "saved" && !saved.length
-                  ? "Tap the heart on any experience to keep it here."
-                  : date
-                    ? `We couldn’t find any experiences matching your search on this date. Below, explore the next seven days with the same filters.`
-                    : "Try another search or explore another city."}
-              </p>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setDate("");
-                  setQuery("");
-                  setCity("");
-                  locationEdited.current = true;
-                  setCategory("all");
-                  setPriceCap("any");
-                  setView("discover");
-                }}
-              >
-                Explore all upcoming events <ArrowRight size={16} />
-              </Button>
-            </div>
-          )}
+          ) : null}
         </section>
         {loadState === "ready" &&
           date &&
@@ -770,21 +640,7 @@ export default function App() {
           view === "discover" && (
             <section className="upcoming-preview wrap">
               <div className="section-heading">
-                <div>
-                  <p className="eyebrow">KEEP THE NIGHT GOING</p>
-                  <h2>Coming up in the next week.</h2>
-                </div>
-                <button
-                  className="text-link"
-                  onClick={() => {
-                    setDate("");
-                    setQuery("");
-                    setCategory("all");
-                    setPriceCap("any");
-                  }}
-                >
-                  All upcoming dates <ArrowUpRight size={16} />
-                </button>
+                <h2>Upcoming this week.</h2>
               </div>
               <p className="results-summary">
                 {calendarLabel(weekRange.start)} –{" "}
@@ -808,7 +664,7 @@ export default function App() {
                   <CalendarDays />
                   <h3>No matches in this seven-day window.</h3>
                   <p>
-                    Try another city or clear a filter to widen your search.
+                    Try another city or search to find more events.
                   </p>
                 </div>
               )}
@@ -823,72 +679,38 @@ export default function App() {
               )}
             </section>
           )}
-        <section className="vip-banner wrap">
-          <div className="vip-visual">
-            <img
-              src={NIGHTLIFE_ARTWORK.lounge}
-              alt="Illustrative velvet VIP lounge with atmospheric lighting"
-              loading="lazy"
-            />
-            <span>THE GOOD LIFE, RESERVED.</span>
-          </div>
-          <div className="vip-copy">
-            <p className="eyebrow">
-              <Wine size={15} /> A LITTLE EXTRA NEVER HURT
-            </p>
-            <h2>
-              Your people.
-              <br />
-              Your own space.
-            </h2>
-            <p>
-              Make it a table kind of night. Explore bottle packages and
-              reserved spots for the whole crew.
-            </p>
-            <Button onClick={() => browse("vip")}>
-              Find your table <ArrowUpRight size={18} />
-            </Button>
-            <span className="vip-note">
-              Full prices upfront. All payments in full.
-            </span>
-          </div>
-        </section>
         <section className="how-section wrap">
           <div>
-            <p className="eyebrow">LESS PLANNING. MORE DANCING.</p>
+            <p className="eyebrow">FIND YOUR VIBE</p>
             <h2>
-              From “what’s the plan?”
+              Your night.
               <br />
-              to “see you there.”
+              On your terms.
             </h2>
           </div>
           <div className="how-steps">
             {[
               [
                 Compass,
-                "01",
-                "Find your scene",
-                "Discover the nights, venues, and people that feel like you.",
+                "Discover your scene",
+                "Find events that match your energy.",
               ],
               [
                 Ticket,
-                "02",
-                "Make it official",
-                "Choose your ticket or table. Everything in one place.",
+                "Book your spot",
+                "Tickets, tables, or a place on the guestlist.",
               ],
               [
                 ArrowUpRight,
-                "03",
-                "Own the night",
-                "Keep your plans close. Make the rest a memory.",
+                "Make your entrance",
+                "Your entry pass, ready when you are.",
               ],
-            ].map(([Icon, num, title, description]) => (
-              <div key={num}>
+            ].map(([Icon, title, description]) => (
+              <div key={title}>
                 <span className="step-icon">
                   <Icon size={20} />
                 </span>
                 <div>
-                  <small>{num}</small>
                   <h3>{title}</h3>
                   <p>{description}</p>
                 </div>
@@ -912,7 +734,7 @@ export default function App() {
       <Dialog
         open={!!selected}
         onOpenChange={(open) => {
-          if (!open && !guestBusy) setSelected(null);
+          if (!open && !guestBusy && !referralBusy) setSelected(null);
         }}
       >
         <DialogContent
@@ -957,6 +779,8 @@ export default function App() {
                   </small>
                 </span>
               </div>
+              {session && <EventConnectionPicker key={`${session.user.id}:${selected.id}`} session={session} eventId={selected.id} referral={referral} busy={referralBusy} onSelect={chooseEventConnection} />}
+              {referralError && <p className="error-message" role="alert">{referralError}</p>}
               <Tabs defaultValue="tickets">
                 <TabsList className="booking-tabs">
                   <TabsTrigger value="tickets">Tickets & tables</TabsTrigger>
@@ -1017,10 +841,11 @@ export default function App() {
                           </Button>
                         </div>
                       </div>
+                      {referralCodeForEvent(referral, selected.id) && <p className="connection-context">Booking with <strong>{referral.referrerName}</strong></p>}
                       <Button
                         className="primary-action"
                         onClick={checkout}
-                        disabled={!availableQuantity(offering)}
+                        disabled={referralBusy || !availableQuantity(offering)}
                       >
                         Continue · {money(totals.total, offering.currency)}
                         <ArrowRight />
@@ -1049,9 +874,10 @@ export default function App() {
                         {guestError}
                       </p>
                     )}
+                    {referralCodeForEvent(referral, selected.id) && <p className="connection-context">Booking with <strong>{referral.referrerName}</strong></p>}
                     <Button
                       disabled={
-                        guestBusy ||
+                        guestBusy || referralBusy ||
                         guestState === "pending" ||
                         !selected.guestlistCapacity
                       }
@@ -1080,7 +906,6 @@ export default function App() {
               <p>
                 This creates a demo order and admission in local test data. No card details or charge; not valid for entry.
               </p>
-              {referralCodeForEvent(referral, selected.id) && <p>Referred by {referral.referrerName}</p>}
               <div className="order-summary">
                 <h3>{offering.name}</h3>
                 <p>
@@ -1108,6 +933,7 @@ export default function App() {
                 charges must be finalized before live payments launch.
               </p>
               {demoError && <p role="alert">{demoError}</p>}
+              {referralCodeForEvent(referral, selected.id) && <p className="connection-context">Booking with <strong>{referral.referrerName}</strong></p>}
               <Button className="primary-action" onClick={completeDemo} disabled={demoBusy}>
                 {demoBusy ? <LoadingIndicator>Recording demo order…</LoadingIndicator> : <>Confirm demo booking <ArrowRight /></>}
               </Button>
@@ -1160,11 +986,7 @@ export default function App() {
       <AccountDialog open={walletOpen} onOpenChange={setWalletOpen} session={session} initialTab={accountTab}
         onProfile={(user) => { const updated = { ...session, user }; setSession(updated); writeStorage('nitewide.session', updated); }}
         onSignOut={() => { setWalletOpen(false); setSession(null); setReferral(null); writeStorage('nitewide.session', null); setNotice('You’re signed out.'); }}
-        onReferral={async (entry) => {
-          const [event, visit] = await Promise.all([api(`/events/${entry.event.id}`), api(`/events/${entry.event.id}/referral-visits`, { body: { code: entry.code, sessionKey: sessionStorage.getItem('nitewide.referral-session') || crypto.randomUUID() } })]);
-          setReferral({ eventId: event.id, code: visit.code, referrerName: visit.referrerName });
-          setWalletOpen(false); openEvent(event);
-        }} />
+        onReferral={openConnection} />
       {notice && (
         <div className="toast-message" role="status">
           <Check size={17} />
