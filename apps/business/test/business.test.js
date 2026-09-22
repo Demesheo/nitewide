@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import {
   csv,
   dateInput,
+  eventDateLabel,
   zonedISO,
   defaultTiers,
   editorDraft,
@@ -28,6 +29,13 @@ test("venue-local time is converted independently of browser timezone", () => {
     dateInput("2026-09-26T02:00:00Z", "America/New_York"),
     "2026-09-25T22:00",
   );
+});
+test("guestlist event dates display as MM/DD/YYYY in the event's timezone", () => {
+  assert.equal(eventDateLabel({
+    startsAt: "2026-09-26T02:00:00Z",
+    location: { timezone: "America/New_York" },
+  }), "09/25/2026");
+  assert.equal(eventDateLabel({ startsAt: "2026-09-26T02:00:00Z" }), "09/26/2026");
 });
 test("winter time has the correct standard-time offset", () =>
   assert.equal(

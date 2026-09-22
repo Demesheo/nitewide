@@ -36,6 +36,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Choice, Empty } from "@/components/controls";
 import { EventEditor } from "@/components/EventEditor";
+import { Events } from '@/components/Events';
 import { Analytics } from "@/components/Analytics";
 import { MultiSelect } from "@/components/MultiSelect";
 import { SalesMixPie } from "@/components/SalesMixPie";
@@ -44,7 +45,7 @@ import { TeamPerformanceTable } from "@/components/TeamPerformanceTable";
 import { Team, TeamInviteLanding } from "@/components/Team";
 import { TablePagination, useTablePagination } from "@/components/TablePagination";
 import { api, readSession, SESSION_KEY } from "@/lib/api";
-import { csv, filterEvents, money } from "@/lib/business";
+import { csv, money } from "@/lib/business";
 import { salesMixSlices } from "@/lib/sales-mix";
 import { sortTableRows } from "@/lib/table-sort";
 
@@ -394,166 +395,6 @@ function Performance({ data, onEvents }) {
     </>
   );
 }
-function Events({ data, onEdit, onCreate }) {
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("all");
-  const [sortKey, setSortKey] = useState("eventName");
-  const [descending, setDescending] = useState(false);
-  const events = filterEvents(data.events, search, status);
-  const sortedEvents = sortTableRows(events.map((event) => ({
-    ...event,
-    eventName: event.title,
-    whenValue: Date.parse(event.startsAt),
-    salesValue: data.report.events.find((row) => row.id === event.id)?.salesCents || 0,
-    accessValue: event.canManage ? 'Manage' : 'Promoter',
-  })), sortKey, descending);
-  const pager = useTablePagination(sortedEvents, data, `${search}:${status}:${sortKey}:${descending}`);
-  const head = (label, key) => <th scope="col"><button type="button" className="analytics-sort" onClick={() => { if (sortKey === key) setDescending(!descending); else { setSortKey(key); setDescending(!['eventName', 'status', 'accessValue'].includes(key)); } }}>{label}<span aria-hidden="true">{sortKey === key ? (descending ? ' ↓' : ' ↑') : ' ↕'}</span></button></th>;
-  return (
-    <section className="panel">
-      <div className="section-heading">
-        <div>
-          <span className="eyebrow">MAKE IT MEMORABLE</span>
-          <h2>Your experiences</h2>
-          <p>Manage every detail, from the first ticket to the final entry.</p>
-        </div>
-        <Badge variant="outline">{data.events.length} events</Badge>
-      </div>
-      <div className="toolbar">
-        <div className="search-field">
-          <Search size={17} />
-          <Input
-            aria-label="Search events"
-            placeholder="Search events or cities"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <Choice
-          label="Filter event status"
-          value={status}
-          onChange={setStatus}
-          options={[
-            ["all", "All statuses"],
-            ["published", "Published"],
-            ["draft", "Draft"],
-            ["cancelled", "Cancelled"],
-            ["completed", "Completed"],
-          ]}
-        />
-      </div>
-      {events.length ? (
-        <><div className="table-wrap">
-          <table className="events-table">
-            <thead>
-              <tr>
-                {head('Event', 'eventName')}
-                {head('When', 'whenValue')}
-                {head('Status', 'status')}
-                {head('Sales / period', 'salesValue')}
-                {head('Access', 'accessValue')}
-                <th>
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {pager.rows.map((e) => {
-                const sales = data.report.events.find((s) => s.id === e.id);
-                const date = new Date(e.startsAt);
-                return (
-                  <tr key={e.id}>
-                    <td>
-                      <div className="event-name">
-                        <span className="event-date">
-                          <small>
-                            {date.toLocaleDateString("en-US", {
-                              month: "short",
-                              timeZone: e.location?.timezone || "UTC",
-                            })}
-                          </small>
-                          {date.toLocaleDateString("en-US", {
-                            day: "2-digit",
-                            timeZone: e.location?.timezone || "UTC",
-                          })}
-                        </span>
-                        <div>
-                          <strong>{e.title}</strong>
-                          <small>
-                            {e.location?.name || "Location pending"} ·{" "}
-                            {e.location?.city || "City pending"}
-                          </small>
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      {date.toLocaleDateString("en-US", {
-                        weekday: "short",
-                        timeZone: e.location?.timezone || "UTC",
-                      })}
-                      <small>
-                        {date.toLocaleTimeString("en-US", {
-                          hour: "numeric",
-                          minute: "2-digit",
-                          timeZone: e.location?.timezone || "UTC",
-                          timeZoneName: "short",
-                        })}
-                      </small>
-                    </td>
-                    <td>
-                      <span className={`status-pill ${e.status}`}>
-                        {e.status}
-                      </span>
-                    </td>
-                    <td className="numeric">
-                      {money(sales?.salesCents)}
-                      <small>
-                        {sales?.orders || 0} orders
-                        {!e.canManage ? " · your referrals" : ""}
-                      </small>
-                    </td>
-                    <td>{e.canManage ? "Manage" : "Promoter"}</td>
-                    <td>
-                      {e.canManage ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => onEdit(e)}
-                        >
-                          Edit
-                          <ArrowUpRight />
-                        </Button>
-                      ) : (
-                        <span className="hint">Read only</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div><TablePagination pager={pager}/></>
-      ) : (
-        <Empty
-          title={
-            data.events.length
-              ? "No matching events"
-              : "Every great night starts somewhere"
-          }
-        >
-          {data.events.length ? (
-            "Try another search or status."
-          ) : (
-            <Button onClick={onCreate}>
-              <Plus />
-              Create your first event
-            </Button>
-          )}
-        </Empty>
-      )}
-    </section>
-  );
-}
 
 export default function App() {
   const [session, setSession] = useState(readSession);
@@ -670,7 +511,7 @@ export default function App() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  if (inviteToken) return <TeamInviteLanding token={inviteToken} session={session} onSession={login} onAccepted={(updated) => { login(updated); setInviteToken(null); setNotice('Invitation accepted. Your team access is ready.'); setPage('team'); setRevision((value) => value + 1); }} />;
+  if (inviteToken) return <TeamInviteLanding token={inviteToken} session={session} onSession={login} onAccepted={(updated, accepted) => { login(updated); setInviteToken(null); setNotice('Invitation accepted. Your access is ready.'); setPage(accepted?.eventId ? 'events' : 'team'); setRevision((value) => value + 1); }} />;
   if (!session) return <SignIn onSession={login} notice={loginNotice} />;
   const title =
     page === "overview"
@@ -683,6 +524,7 @@ export default function App() {
         ? "Your people, together."
         : "The right people. A great night.";
   const activeOrg = selectedOrganizations.length === 1 ? data?.organizations.find((o) => o.id === selectedOrganizations[0]) : data?.organizations.length === 1 && !hasIndependentWorkspace ? data.organizations[0] : null;
+  const showOrganizationSelector = (data?.organizations.length || 0) + Number(hasIndependentWorkspace) > 1;
   return (
     <div className="app-shell">
       {mobileNav && (
@@ -812,8 +654,8 @@ export default function App() {
               </Button>
             )}
           </div>
-          {page !== "analytics" && page !== "team" && <div className="page-controls">
-            {(data?.organizations.length || 0) + (hasIndependentWorkspace ? 1 : 0) > 1 && <MultiSelect
+          {page !== "analytics" && page !== "team" && (page !== "guestlists" || showOrganizationSelector) && <div className="page-controls">
+            {showOrganizationSelector && <MultiSelect
               label="Organizations"
               selected={selectedOrganizations}
               onChange={setSelectedOrganizations}
@@ -822,7 +664,7 @@ export default function App() {
                 ...(data?.organizations || []).map((o) => ({ id: o.id, label: o.name })),
               ]}
             />}
-            <div>
+            {page !== "guestlists" && page !== "events" && <div>
               <Choice
                 label="Sales period"
                 value={days}
@@ -842,7 +684,7 @@ export default function App() {
                 <ArrowDownToLine />
                 Export report
               </Button>
-            </div>
+            </div>}
           </div>}
           {notice && (
             <div className="notice" role="status">
@@ -893,6 +735,8 @@ export default function App() {
               {page === "events" && (
                 <Events
                   data={data}
+                  session={session}
+                  onUnauthorized={expire}
                   onEdit={setEditor}
                   onCreate={() => setEditor({})}
                 />

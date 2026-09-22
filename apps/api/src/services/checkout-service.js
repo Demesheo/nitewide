@@ -3,6 +3,7 @@ const { calculatePricing } = require('../domain/pricing');
 const { createQrToken } = require('../domain/qr');
 const { DomainError, notFound, conflict } = require('../domain/errors');
 const { resolveAffiliate } = require('./affiliate-service');
+const { eventFinished, offeringSaleState } = require('../domain/event-policy');
 
 function createCheckoutService({ sequelize, models, now = () => new Date() }) {
   return async function checkout(input) {
@@ -13,13 +14,15 @@ function createCheckoutService({ sequelize, models, now = () => new Date() }) {
       if (!event) throw notFound('Event');
       const organization = event.organizationId ? await models.Organization.findByPk(event.organizationId, { transaction }) : null;
       const current = now();
-      if (event.status !== 'published') throw new DomainError('Event is not on sale', { code: 'EVENT_NOT_ON_SALE' });
+      if (event.status !== 'published' || eventFinished(event, current)) throw new DomainError('Event is not on sale', { code: 'EVENT_NOT_ON_SALE' });
       if (!Array.isArray(input.items) || !input.items.length) throw new DomainError('At least one item is required', { code: 'EMPTY_ORDER' });
 
       const normalized = new Map();
       for (const item of input.items) normalized.set(item.offeringId, (normalized.get(item.offeringId) || 0) + item.quantity);
       const offeringIds = [...normalized.keys()];
       const offerings = await models.Offering.findAll({ where: { id: offeringIds, eventId: event.id }, transaction, lock: transaction.LOCK.UPDATE });
+      const prerequisites = offerings.some((o) => o.releaseAfterOfferingId)
+        ? await models.Offering.findAll({ where: { eventId: event.id }, transaction, lock: transaction.LOCK.UPDATE }) : offerings;
       if (offerings.length !== offeringIds.length) throw notFound('Offering');
       if (new Set(offerings.map((offering) => offering.currency)).size !== 1) throw new DomainError('All order items must use the same currency', { code: 'MIXED_CURRENCY' });
       let subtotalCents = 0;
@@ -27,7 +30,8 @@ function createCheckoutService({ sequelize, models, now = () => new Date() }) {
       for (const offering of offerings) {
         const quantity = normalized.get(offering.id);
         if (!Number.isInteger(quantity) || quantity < offering.minPerOrder || quantity > offering.maxPerOrder) throw new DomainError(`Invalid quantity for ${offering.name}`, { code: 'INVALID_QUANTITY' });
-        if (!offering.isActive || (offering.salesStartAt && current < offering.salesStartAt) || (offering.salesEndAt && current > offering.salesEndAt)) throw new DomainError(`${offering.name} is not currently available`, { code: 'OFFERING_NOT_ON_SALE' });
+        const saleState = offeringSaleState(offering, prerequisites, current);
+        if (!['on_sale', 'sold_out'].includes(saleState)) throw new DomainError(`${offering.name} is not currently available`, { code: 'OFFERING_NOT_ON_SALE' });
         if (offering.inventoryMode === 'finite' && offering.quantitySold + quantity > offering.quantityTotal) throw conflict(`${offering.name} does not have enough inventory`, 'INSUFFICIENT_INVENTORY');
         subtotalCents += offering.priceCents * quantity;
         lines.push({ offering, quantity, lineTotalCents: offering.priceCents * quantity });
@@ -39,7 +43,7 @@ function createCheckoutService({ sequelize, models, now = () => new Date() }) {
       if (pricing.totalCents > 0 && !isPaid) throw new DomainError('Successful payment confirmation is required', { code: 'PAYMENT_REQUIRED', status: 402 });
       const order = await models.Order.create({
         buyerUserId: input.buyerUserId, eventId: event.id, status: 'paid', currency: offerings[0].currency,
-        subtotalCents, ...pricing, orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id,
+        subtotalCents, ...pricing, pricingPlanSnapshot: { ...pricing.pricingPlanSnapshot, commissionBps: affiliate.commissionBps }, orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id,
         idempotencyKey: input.idempotencyKey, paidAt: current,
       }, { transaction });
       const credentials = [];

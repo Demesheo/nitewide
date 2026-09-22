@@ -967,7 +967,7 @@ export default function App() {
                         <strong>
                           {money(item.priceCents, item.currency)}
                           <small>
-                            {availableQuantity(item) ? "+ fees" : "Unavailable"}
+                            {availableQuantity(item) ? "+ fees" : ({ waiting_for_tier: 'Opens after earlier tier sells out', scheduled: 'Opens later', sold_out: 'Sold out', closed: 'Sales closed' }[item.saleState] || 'Unavailable')}
                           </small>
                         </strong>
                       </button>

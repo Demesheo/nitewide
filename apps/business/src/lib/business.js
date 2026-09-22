@@ -10,6 +10,16 @@ export const slugify = (text) =>
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+export function eventDateLabel(event) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: event.location?.timezone || "UTC",
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  }).formatToParts(new Date(event.startsAt));
+  const get = (type) => parts.find((part) => part.type === type).value;
+  return `${get("month")}/${get("day")}/${get("year")}`;
+}
 export function dateInput(value, timezone = "America/New_York") {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
@@ -57,8 +67,11 @@ export const defaultTiers = () =>
     visibility: "public",
     description: "",
   }));
-export function editorDraft(event, organizationId = null) {
-  const timezone = event?.location?.timezone || "America/New_York";
+export function editorDraft(event, organizationId = null, organizations = []) {
+  const venueLocation = event?.organizationId && event.location
+    ? event.location
+    : organizations.find((o) => o.id === (event ? event.organizationId : organizationId))?.location;
+  const timezone = venueLocation?.timezone || event?.location?.timezone || "America/New_York";
   const start = new Date();
   start.setDate(start.getDate() + 1);
   start.setHours(22, 0, 0, 0);
@@ -89,11 +102,14 @@ export function editorDraft(event, organizationId = null) {
       countryCode: "US",
       privacy: "public",
       ...event?.location,
+      ...venueLocation,
       timezone,
     },
     offerings:
       event?.offerings?.map((t) => ({
         ...t,
+        clientKey: t.id,
+        releaseAfterKey: t.releaseAfterOfferingId || '',
         price: t.priceCents / 100,
         salesStartAt: t.salesStartAt ? dateInput(t.salesStartAt, timezone) : "",
         salesEndAt: t.salesEndAt ? dateInput(t.salesEndAt, timezone) : "",
@@ -110,6 +126,7 @@ export function eventPayload(draft, version) {
     guestlistCapacity: Number(draft.guestlistCapacity),
     offerings: draft.offerings.map((t) => ({
       ...t,
+      releaseAfterIndex: t.releaseAfterKey ? draft.offerings.findIndex((other) => (other.clientKey || other.id) === t.releaseAfterKey) : null,
       priceCents: Math.round(Number(t.price) * 100),
       quantityTotal:
         t.inventoryMode === "unlimited" ? null : Number(t.quantityTotal),

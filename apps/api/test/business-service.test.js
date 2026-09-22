@@ -194,6 +194,7 @@ function harness({ denied = false, sold = 4 } = {}) {
     },
   };
   const models = {
+    Organization: { findByPk: async () => ({ locationId: 'venue-location' }) },
     Event: {
       sequelize: {
         transaction: async (_opts, fn) => fn({ LOCK: { UPDATE: "UPDATE" } }),
@@ -202,6 +203,7 @@ function harness({ denied = false, sold = 4 } = {}) {
     },
     Offering: { findAll: async () => [offering] },
     Location: {
+      findByPk: async () => ({ id: 'venue-location', city: 'Orlando' }),
       create: async () => {
         calls.push("location");
         return { id: "location" };
@@ -285,8 +287,8 @@ test("direct guestlist cannot shrink below approved guests", async () => {
     /approved guests/,
   );
 });
-test("valid save updates location, event, tier and audit atomically", async () => {
+test("valid venue save reuses the organization location and updates event, tier and audit atomically", async () => {
   const h = harness();
   await h.service.saveEvent("owner", "e", input());
-  assert.deepEqual(h.calls, ["location", "update", "tier", "audit"]);
+  assert.deepEqual(h.calls, ["update", "tier", "audit"]);
 });

@@ -12,22 +12,29 @@ function createPermissionService(models) {
   async function assertManageEvent(userId, eventId) {
     const event = await models.Event.findByPk(eventId); if (!event) throw notFound('Event');
     const user = await models.User.findByPk(userId);
-    if (user?.isInternalAdmin || event.creatorUserId === userId || (event.organizationId && await canManageOrganization(userId, event.organizationId))) return event;
+    if (user?.isInternalAdmin || (!event.organizationId && event.creatorUserId === userId) || (event.organizationId && await canManageOrganization(userId, event.organizationId))) return event;
     throw forbidden('Event manager access required');
   }
-  async function assertGuestlistApprover(userId, eventId) {
+  async function guestlistReviewScope(userId, eventId) {
     const event = await models.Event.findByPk(eventId); if (!event) throw notFound('Event');
     const user = await models.User.findByPk(userId);
-    if (user?.isInternalAdmin || event.creatorUserId === userId || (event.organizationId && await canManageOrganization(userId, event.organizationId))) return event;
-    const [eventAffiliate, orgAffiliate, employee] = await Promise.all([
-      models.EventAffiliate.findOne({ where: { eventId, userId, status: 'active' } }),
-      event.organizationId ? models.OrgAffiliate.findOne({ where: { organizationId: event.organizationId, userId, status: 'active' } }) : null,
-      event.organizationId ? models.OrganizationEmployee.findOne({ where: { organizationId: event.organizationId, userId, status: 'active' } }) : null,
-    ]);
-    if (eventAffiliate || orgAffiliate || employee) return event;
+    if (!user?.isActive) throw forbidden('An active account is required');
+    if (user?.isInternalAdmin || event.creatorUserId === userId || (event.organizationId && await canManageOrganization(userId, event.organizationId))) {
+      return { event, canReviewAny: true, eventAffiliateIds: [] };
+    }
+    let affiliates = await models.EventAffiliate.findAll({ where: { eventId, userId, status: 'active' }, attributes: ['id', 'code'] });
+    // A current venue leader already returned above; a former leader's automatic
+    // referral record must not grant fresh guestlist approval access.
+    affiliates = affiliates.filter((a) => !a.code?.startsWith('LEADEV-'));
+    if (affiliates.some((a) => a.code?.startsWith('STAFFEV-'))) {
+      const employee = await models.OrganizationEmployee.findOne({ where: { organizationId: event.organizationId, userId, status: 'active' } });
+      if (!employee) affiliates = affiliates.filter((a) => !a.code?.startsWith('STAFFEV-'));
+    }
+    if (affiliates.length) return { event, canReviewAny: false, eventAffiliateIds: affiliates.map((affiliate) => affiliate.id) };
     throw forbidden('Guestlist approval access required');
   }
+  async function assertGuestlistApprover(userId, eventId) { return (await guestlistReviewScope(userId, eventId)).event; }
   async function assertInternal(userId) { const user = await models.User.findByPk(userId); if (!user?.isInternalAdmin) throw forbidden('Internal administrator access required'); return user; }
-  return { canManageOrganization, assertManageOrganization, assertOwnOrganization, assertManageEvent, assertGuestlistApprover, assertInternal };
+  return { canManageOrganization, assertManageOrganization, assertOwnOrganization, assertManageEvent, guestlistReviewScope, assertGuestlistApprover, assertInternal };
 }
 module.exports = { createPermissionService };

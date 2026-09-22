@@ -14,16 +14,17 @@ export function Choice({
   options,
   disabled,
   className = "",
+  title,
 }) {
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger id={id} aria-label={label} className={className}>
+      <SelectTrigger id={id} aria-label={label} className={className} title={title}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {options.map(([v, title]) => (
-          <SelectItem value={v} key={v}>
-            {title}
+        {options.map(([v, optionLabel, fullTitle]) => (
+          <SelectItem value={v} key={v} title={fullTitle}>
+            {optionLabel}
           </SelectItem>
         ))}
       </SelectContent>

@@ -1,30 +1,51 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, X, Users, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Choice, Empty, Field } from "./controls";
 import { api } from "@/lib/api";
 import { TablePagination, useTablePagination } from '@/components/TablePagination';
 import { sortTableRows } from '@/lib/table-sort';
+import { eventDateLabel } from '@/lib/business';
+import { MultiSelect } from './MultiSelect';
+import { guestlistEventName, guestlistStatuses, guestlistStatusesForEvent, guestlistStatusQuery, reviewableGuestlistEvents } from '@/lib/guestlists';
 
 export function Guestlists({ events, session, expire }) {
-  const [eventId, setEventId] = useState(events[0]?.id || "");
-  const [status, setStatus] = useState("pending");
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const availableEvents = reviewableGuestlistEvents(events, currentTime);
+  const hasReviewableEvent = events.some((event) => event.canReviewGuestlist ?? event.canManage);
+  const [eventId, setEventId] = useState(availableEvents[0]?.id || "");
+  const [statuses, setStatuses] = useState(['pending']);
   const [entries, setEntries] = useState([]);
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [activeEntryId, setActiveEntryId] = useState(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const entryTriggerRef = useRef(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [revision, setRevision] = useState(0);
   const [sortKey, setSortKey] = useState('guestName');
   const [descending, setDescending] = useState(false);
-  const selected = events.find((e) => e.id === eventId);
-  const sortedEntries = sortTableRows(entries.map((entry) => ({ ...entry, guestName: entry.user?.displayName || 'Guest', partyValue: entry.partySize, sourceValue: entry.eventAffiliate?.code || 'Direct guestlist', requestedValue: Date.parse(entry.createdAt) })), sortKey, descending);
-  const pager = useTablePagination(sortedEntries, entries, `${eventId}:${status}:${sortKey}:${descending}`);
+  const selected = availableEvents.find((e) => e.id === eventId);
+  const availableStatuses = guestlistStatusesForEvent(selected, currentTime);
+  const pendingOnly = statuses.length === 1 && statuses[0] === 'pending';
+  const activeEntry = entries.find((entry) => entry.id === activeEntryId);
+  const sortedEntries = sortTableRows(entries.map((entry) => ({ ...entry, guestName: entry.user?.displayName || 'Guest', partyValue: entry.partySize, sourceValue: entry.source === 'affiliate' ? entry.eventAffiliate?.user?.displayName || 'Unknown referrer' : 'Direct', requestedValue: Date.parse(entry.createdAt) })), sortKey, descending);
+  const pager = useTablePagination(sortedEntries, entries, `${eventId}:${statuses.join(',')}:${sortKey}:${descending}`);
   const head = (label, key) => <th scope="col"><button type="button" className="analytics-sort" onClick={() => { if (sortKey === key) setDescending(!descending); else { setSortKey(key); setDescending(key === 'partyValue' || key === 'requestedValue'); } }}>{label}<span aria-hidden="true">{sortKey === key ? (descending ? ' ↓' : ' ↑') : ' ↕'}</span></button></th>;
   useEffect(() => {
-    if (!selected) setEventId(events[0]?.id || "");
-  }, [events, selected]);
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (!selected) setEventId(availableEvents[0]?.id || "");
+  }, [events, currentTime, selected]);
+  useEffect(() => {
+    const allowed = new Set(availableStatuses.map((item) => item.id));
+    setStatuses((current) => current.every((status) => allowed.has(status)) ? current : current.filter((status) => allowed.has(status)));
+  }, [selected?.startsAt, currentTime]);
   useEffect(() => {
     let active = true;
     setError("");
@@ -33,7 +54,7 @@ export function Guestlists({ events, session, expire }) {
     if (!eventId || !selected) return;
     setLoading(true);
     Promise.all([
-      api(`/business/events/${eventId}/guestlist?status=${status}`, session),
+      api(`/business/events/${eventId}/guestlist?${guestlistStatusQuery(statuses)}`, session),
       selected.canManage
         ? api(`/business/events/${eventId}/guestlist-settings`, session)
         : null,
@@ -56,7 +77,7 @@ export function Guestlists({ events, session, expire }) {
     return () => {
       active = false;
     };
-  }, [eventId, status, revision, session, selected?.canManage]);
+  }, [eventId, statuses, revision, session, selected?.canManage]);
   async function decide(id, decision) {
     setBusy(true);
     setError("");
@@ -70,8 +91,10 @@ export function Guestlists({ events, session, expire }) {
       setNotice(
         decision === "approve"
           ? "Request approved. Admission credential created."
-          : "Request declined.",
+          : decision === 'cancel' ? 'Approval cancelled. The guestlist space is available again.' : "Request declined.",
       );
+      setActiveEntryId(null);
+      setConfirmCancel(false);
       setRevision((v) => v + 1);
     } catch (e) {
       if (e.status === 401) expire();
@@ -107,35 +130,61 @@ export function Guestlists({ events, session, expire }) {
       setBusy(false);
     }
   }
-  if (!events.length)
+  if (!availableEvents.length)
     return (
-      <Empty title="Your guestlists start here">
-        Create an event to start accepting requests.
+      <Empty title={hasReviewableEvent ? 'No recent or upcoming guestlists' : 'No guestlists assigned'}>
+        {hasReviewableEvent ? 'Events appear here until 24 hours after they end. Future events are always available.' : 'Basic employees and promoters can review only requests they referred for a selected event.'}
       </Empty>
     );
   return (
     <>
+      <Dialog open={Boolean(activeEntry)} onOpenChange={(open) => { if (!open) { setActiveEntryId(null); setConfirmCancel(false); setError(''); } }}>
+        {activeEntry && <DialogContent className="guestlist-detail-dialog sm:max-w-xl max-h-[90vh] overflow-y-auto" onCloseAutoFocus={(event) => { event.preventDefault(); entryTriggerRef.current?.focus(); }}>
+          <DialogHeader>
+            <span className="eyebrow">GUESTLIST REQUEST</span>
+            <DialogTitle>{activeEntry.user?.displayName || 'Guest'}</DialogTitle>
+            <DialogDescription>{activeEntry.user?.email || 'No email on file'}</DialogDescription>
+          </DialogHeader>
+          <dl className="guestlist-detail-grid">
+            <div><dt>Status</dt><dd>{guestlistStatuses.find((item) => item.id === activeEntry.status)?.label || activeEntry.status}</dd></div>
+            <div><dt>Party size</dt><dd>{activeEntry.partySize} {activeEntry.partySize === 1 ? 'person' : 'people'}</dd></div>
+            <div><dt>Event</dt><dd>{selected?.title || 'Event'} · {selected ? eventDateLabel(selected) : '—'}</dd></div>
+            <div><dt>Source</dt><dd>{activeEntry.source === 'affiliate' ? `Referred by ${activeEntry.eventAffiliate?.user?.displayName || 'Unknown referrer'}` : 'Direct'}</dd></div>
+            {activeEntry.user?.phone && <div><dt>Phone</dt><dd>{activeEntry.user.phone}</dd></div>}
+            {activeEntry.eventAffiliate?.code && <div><dt>Referral code</dt><dd>{activeEntry.eventAffiliate.code}</dd></div>}
+            <div><dt>Requested</dt><dd>{new Date(activeEntry.createdAt).toLocaleString()}</dd></div>
+            {activeEntry.reviewedAt && <div><dt>Reviewed</dt><dd>{new Date(activeEntry.reviewedAt).toLocaleString()}</dd></div>}
+            {activeEntry.reviewer?.displayName && <div><dt>Reviewed by</dt><dd>{activeEntry.reviewer.displayName}</dd></div>}
+            {activeEntry.reviewNote && <div><dt>Review note</dt><dd>{activeEntry.reviewNote}</dd></div>}
+            {activeEntry.checkedInAt && <div><dt>Checked in</dt><dd>{new Date(activeEntry.checkedInAt).toLocaleString()}</dd></div>}
+            <div><dt>Request ID</dt><dd className="guestlist-request-id">{activeEntry.id}</dd></div>
+          </dl>
+          {error && <p className="error" role="alert">{error}</p>}
+          {confirmCancel && <p className="guestlist-cancel-warning">Cancelling invalidates this guest’s entry credential and releases {activeEntry.partySize} {activeEntry.partySize === 1 ? 'place' : 'places'} from the {activeEntry.source === 'affiliate' ? 'referrer' : 'venue'} guestlist.</p>}
+          <DialogFooter>
+            <DialogClose asChild><Button variant="outline" disabled={busy}>Close</Button></DialogClose>
+            {activeEntry.status === 'pending' && <>
+              <Button variant="outline" disabled={busy} onClick={() => decide(activeEntry.id, 'reject')}><X /> Decline</Button>
+              <Button disabled={busy} onClick={() => decide(activeEntry.id, 'approve')}><Check /> Approve</Button>
+            </>}
+            {activeEntry.status === 'confirmed' && (confirmCancel
+              ? <><Button variant="outline" disabled={busy} onClick={() => setConfirmCancel(false)}>Keep approval</Button><Button variant="destructive" disabled={busy} onClick={() => decide(activeEntry.id, 'cancel')}>Confirm cancellation</Button></>
+              : <Button variant="destructive" disabled={busy} onClick={() => setConfirmCancel(true)}>Cancel approval</Button>)}
+          </DialogFooter>
+        </DialogContent>}
+      </Dialog>
       <div className="toolbar">
         <Choice
           label="Guestlist event"
+          title={selected?.title}
           value={eventId}
           onChange={(v) => {
             setEventId(v);
             setNotice("");
           }}
-          options={events.map((e) => [e.id, e.title])}
+          options={availableEvents.map((e) => [e.id, `${guestlistEventName(e.title)} · ${eventDateLabel(e)}`, e.title])}
         />
-        <Choice
-          label="Request status"
-          value={status}
-          onChange={setStatus}
-          options={[
-            ["pending", "Awaiting approval"],
-            ["confirmed", "Approved"],
-            ["rejected", "Declined"],
-            ["checked_in", "Checked in"],
-          ]}
-        />
+        <MultiSelect label="Request status" options={availableStatuses} selected={statuses.filter((status) => availableStatuses.some((item) => item.id === status))} onChange={setStatuses} />
       </div>
       {error && (
         <p className="error" role="alert">
@@ -152,12 +201,12 @@ export function Guestlists({ events, session, expire }) {
           <div>
             <span className="eyebrow">GUEST EXPERIENCE</span>
             <h2>
-              {status === "pending"
+              {pendingOnly
                 ? "A good night starts with a yes."
                 : "Your guestlist"}
             </h2>
             <p>
-              Approvals respect the independent venue and promoter allocations.
+              Approvals respect the independent venue and referrer allocations.
             </p>
           </div>
           <Users size={22} />
@@ -169,12 +218,12 @@ export function Guestlists({ events, session, expire }) {
         ) : !entries.length ? (
           <Empty
             title={
-              status === "pending"
+              pendingOnly
                 ? "You’re all caught up"
                 : "No guests in this view"
             }
           >
-            {status === "pending"
+            {pendingOnly
               ? "New requests will appear here, ready for your review."
               : "Choose another event or status."}
           </Empty>
@@ -187,50 +236,19 @@ export function Guestlists({ events, session, expire }) {
                   {head('Party', 'partyValue')}
                   {head('Source', 'sourceValue')}
                   {head('Requested', 'requestedValue')}
-                  <th>
-                    <span className="sr-only">Actions</span>
-                  </th>
+                  {head('Status', 'status')}
                 </tr>
               </thead>
               <tbody>
                 {pager.rows.map((entry) => (
                   <tr key={entry.id}>
                     <td>
-                      <strong>{entry.user?.displayName || "Guest"}</strong>
-                      <small>{entry.user?.email}</small>
+                      <button type="button" className="guestlist-guest-link" onClick={(event) => { entryTriggerRef.current = event.currentTarget; setError(''); setConfirmCancel(false); setActiveEntryId(entry.id); }}>{entry.user?.displayName || 'Guest'}</button>
                     </td>
                     <td>{entry.partySize} people</td>
-                    <td>{entry.eventAffiliate?.code || "Direct guestlist"}</td>
+                    <td>{entry.sourceValue}</td>
                     <td>{new Date(entry.createdAt).toLocaleDateString()}</td>
-                    <td>
-                      {status === "pending" ? (
-                        <div className="row-actions">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={busy}
-                            aria-label={`Decline ${entry.user?.displayName || "guest"}`}
-                            onClick={() => decide(entry.id, "reject")}
-                          >
-                            <X />
-                            Decline
-                          </Button>
-                          <Button
-                            size="sm"
-                            disabled={busy}
-                            aria-label={`Approve ${entry.user?.displayName || "guest"}`}
-                            onClick={() => decide(entry.id, "approve")}
-                          >
-                            <Check />
-                            Approve
-                          </Button>
-                        </div>
-                      ) : (
-                        <span className="status-pill">
-                          {entry.status.replace("_", " ")}
-                        </span>
-                      )}
-                    </td>
+                    <td><span className="status-pill">{guestlistStatuses.find((item) => item.id === entry.status)?.label || entry.status.replaceAll('_', ' ')}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -245,7 +263,7 @@ export function Guestlists({ events, session, expire }) {
               <span className="eyebrow">CAPACITY CONTROL</span>
               <h2>Separate pools. Clear limits.</h2>
               <p>
-                Each promoter allocation is additional to the direct
+                Each referrer allocation is additional to the direct
                 guestlist—not deducted from it. Counts are people, including
                 party members.
               </p>

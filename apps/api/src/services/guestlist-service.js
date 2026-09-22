@@ -6,7 +6,7 @@ const { resolveAffiliate } = require('./affiliate-service');
 function createGuestlistService({ sequelize, models, now = () => new Date() }) {
   async function request(input) {
     return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
-      const event = await models.Event.findByPk(input.eventId, { transaction });
+      const event = await models.Event.findByPk(input.eventId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!event) throw notFound('Event');
       if (event.status !== 'published') throw new DomainError('Guestlist is not open', { code: 'GUESTLIST_CLOSED' });
       const requestedAt = now();
@@ -30,6 +30,15 @@ function createGuestlistService({ sequelize, models, now = () => new Date() }) {
       if (!event) throw notFound('Event');
       const entry = await models.GuestlistEntry.findOne({ where: { id: input.entryId, eventId: event.id }, transaction, lock: transaction.LOCK.UPDATE });
       if (!entry) throw notFound('Guestlist request');
+      if (input.decision === 'cancel') {
+        if (entry.status !== 'confirmed' || entry.checkedInAt) throw conflict('Only an approved, unused guestlist entry can be cancelled', 'GUESTLIST_NOT_CANCELLABLE');
+        await entry.update({ status: 'cancelled', qrTokenHash: null }, { transaction });
+        await models.AuditLog.create({ actorUserId: input.reviewedByUserId, organizationId: event.organizationId,
+          entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.cancelled',
+          before: { status: 'confirmed', partySize: entry.partySize, eventAffiliateId: entry.eventAffiliateId },
+          after: { status: 'cancelled', note: input.note || null } }, { transaction });
+        return { entry, qrToken: null };
+      }
       if (entry.status !== 'pending') throw conflict('Guestlist request has already been reviewed', 'GUESTLIST_ALREADY_REVIEWED');
       const reviewedAt = now();
       if (input.decision === 'reject') {

@@ -34,6 +34,7 @@ const tier = z
     visibility: z.enum(["public", "hidden", "password"]).default("public"),
     salesStartAt: z.coerce.date().nullish(),
     salesEndAt: z.coerce.date().nullish(),
+    releaseAfterIndex: z.number().int().min(0).max(49).nullish(),
   })
   .refine(
     (t) => t.inventoryMode === "unlimited" || t.quantityTotal !== null,
@@ -53,17 +54,17 @@ const eventEditor = z
     organizationId: uuid.nullable(),
     imageAssetId: uuid.nullish(),
     title: text(180).min(2),
-    slug: text(200).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+    slug: text(200).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
     summary: text(500),
     description: text(20000),
-    category: text(80).min(1),
+    category: text(80).min(1).optional(),
     startsAt: z.coerce.date(),
     endsAt: z.coerce.date(),
     guestlistCapacity: z.number().int().min(0).max(1000000),
     capacity: z.number().int().min(0).max(1000000).nullable(),
     status: z.enum(["draft", "published", "cancelled", "completed"]),
     isDiscoverable: z.boolean(),
-    location,
+    location: location.optional(),
     offerings: z.array(tier).min(1).max(50),
   })
   .refine((e) => e.endsAt > e.startsAt, {
@@ -75,7 +76,17 @@ const eventEditor = z
       new Set(e.offerings.filter((t) => t.id).map((t) => t.id)).size ===
       e.offerings.filter((t) => t.id).length,
     "Duplicate tier IDs",
-  );
+  )
+  .refine((e) => e.organizationId || e.location, 'Independent events require a location')
+  .superRefine((e, ctx) => {
+    e.offerings.forEach((t, i) => {
+      if (t.releaseAfterIndex == null) return;
+      const previous = e.offerings[t.releaseAfterIndex];
+      if (t.kind !== 'ticket' || !previous || t.releaseAfterIndex >= i || previous.kind !== 'ticket' || previous.inventoryMode !== 'finite' || !previous.isActive || previous.quantityTotal < 1 || previous.priceCents >= t.priceCents) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['offerings', i, 'releaseAfterIndex'], message: 'Choose an earlier, active, limited admission tier with a lower price.' });
+      }
+    });
+  });
 const reportQuery = z.object({
   organizationId: z.union([uuid, z.literal("independent")]).optional(),
   organizationIds: z.preprocess((value) => value === undefined ? [] : Array.isArray(value) ? value : [value], z.array(z.union([uuid, z.literal('independent')])).max(50).default([])),

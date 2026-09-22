@@ -13,10 +13,12 @@ const initializers = [
 function initModels(sequelize) {
   for (const initialize of initializers) initialize(sequelize);
   const m = sequelize.models;
+  m.Organization.belongsTo(m.Location, { as: 'location', foreignKey: 'locationId' });
   m.Event.belongsTo(m.MediaAsset, { as: 'imageAsset', foreignKey: 'imageAssetId' });
 
   m.User.hasOne(m.UserCredential, { as: 'credential', foreignKey: 'userId' }); m.UserCredential.belongsTo(m.User, { as: 'user', foreignKey: 'userId' });
   m.TeamInvitation.belongsTo(m.Organization, { as: 'organization', foreignKey: 'organizationId' });
+  m.TeamInvitation.belongsTo(m.Event, { as: 'event', foreignKey: 'eventId' });
   m.OrganizationOwner.belongsTo(m.User, { as: 'user', foreignKey: 'userId' });
   m.OrganizationEmployee.belongsTo(m.User, { as: 'user', foreignKey: 'userId' });
   m.User.hasMany(m.Event, { as: 'createdEvents', foreignKey: 'creatorUserId' });
@@ -37,8 +39,10 @@ function initModels(sequelize) {
   m.Offering.hasMany(m.OrderItem, { as: 'orderItems', foreignKey: 'offeringId' }); m.OrderItem.belongsTo(m.Offering, { as: 'offering', foreignKey: 'offeringId' });
   m.Order.hasMany(m.Payment, { as: 'payments', foreignKey: 'orderId' }); m.Payment.belongsTo(m.Order, { as: 'order', foreignKey: 'orderId' });
   m.OrderItem.hasMany(m.Ticket, { as: 'tickets', foreignKey: 'orderItemId' }); m.Ticket.belongsTo(m.OrderItem, { as: 'orderItem', foreignKey: 'orderItemId' });
+  m.Ticket.belongsTo(m.User, { as: 'holder', foreignKey: 'holderUserId' });
   m.Event.hasMany(m.GuestlistEntry, { as: 'guestlistEntries', foreignKey: 'eventId' }); m.GuestlistEntry.belongsTo(m.Event, { as: 'event', foreignKey: 'eventId' });
   m.User.hasMany(m.GuestlistEntry, { as: 'guestlistEntries', foreignKey: 'userId' }); m.GuestlistEntry.belongsTo(m.User, { as: 'user', foreignKey: 'userId' });
+  m.GuestlistEntry.belongsTo(m.User, { as: 'reviewer', foreignKey: 'reviewedByUserId' });
   m.EventAffiliate.hasMany(m.GuestlistEntry, { as: 'guestlistEntries', foreignKey: 'eventAffiliateId' }); m.GuestlistEntry.belongsTo(m.EventAffiliate, { as: 'eventAffiliate', foreignKey: 'eventAffiliateId' });
   m.Event.hasMany(m.CheckIn, { as: 'checkIns', foreignKey: 'eventId' }); m.CheckIn.belongsTo(m.Event, { as: 'event', foreignKey: 'eventId' });
   m.User.hasMany(m.AuditLog, { as: 'auditActions', foreignKey: 'actorUserId' }); m.AuditLog.belongsTo(m.User, { as: 'actor', foreignKey: 'actorUserId' });

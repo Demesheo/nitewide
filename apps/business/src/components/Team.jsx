@@ -102,9 +102,9 @@ export function TeamInviteLanding({ token, session, onSession, onAccepted }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => { api(`/team/invitations/${encodeURIComponent(token)}`, null).then(setInvite).catch((err) => setError(err.message)); }, [token]);
   async function accept(currentSession) {
-    await api(`/team/invitations/${encodeURIComponent(token)}/accept`, currentSession, { method: 'POST' });
+    const accepted = await api(`/team/invitations/${encodeURIComponent(token)}/accept`, currentSession, { method: 'POST' });
     const updated = await api('/auth/me', currentSession);
-    onAccepted({ ...currentSession, ...updated });
+    onAccepted({ ...currentSession, ...updated }, accepted);
   }
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError('');
@@ -114,5 +114,15 @@ export function TeamInviteLanding({ token, session, onSession, onAccepted }) {
       await accept(currentSession);
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
-  return <main className="signin"><section className="signin-story"><h1>Join the team.</h1><p>One Nitewide account, more ways to work together.</p></section><section className="signin-form-wrap"><div className="signin-form"><span className="eyebrow">TEAM INVITATION</span><h2>{invite ? `${invite.organizationName} invited you to join as ${roleLabel(invite.role)}` : 'Checking invitation…'}</h2><p>Accept with {invite?.email || 'the invited email address'}. Your existing roles stay intact.</p>{session ? <Button disabled={busy || !invite} onClick={async () => { setBusy(true); setError(''); try { await accept(session); } catch (err) { setError(err.message); } finally { setBusy(false); } }}>Accept invitation</Button> : <form onSubmit={submit}><label>Email<Input name="email" type="email" required defaultValue={invite?.email || ''} /></label>{register && <label>Name<Input name="name" required /></label>}<label>Password<Input name="password" type="password" required minLength={register ? 8 : 1} /></label><Button disabled={!invite || busy}>{register ? 'Create account and accept' : 'Sign in and accept'}</Button></form>}<Button variant="ghost" onClick={() => setRegister(!register)}>{register ? 'Already have an account? Sign in' : 'New to Nitewide? Create an account'}</Button>{error && <p role="alert" className="error">{error}</p>}</div></section></main>;
+  return <main className="signin">
+    <section className="signin-story"><h1>{invite?.eventId ? 'Make this event yours.' : 'Join the team.'}</h1><p>One Nitewide account, more ways to work together.</p></section>
+    <section className="signin-form-wrap"><div className="signin-form">
+      <span className="eyebrow">{invite?.eventId ? 'EVENT PROMOTER INVITATION' : 'TEAM INVITATION'}</span>
+      <h2>{invite ? invite.eventId ? `Promote ${invite.eventTitle}` : `${invite.organizationName} invited you to join as ${roleLabel(invite.role)}` : 'Checking invitation…'}</h2>
+      <p>Accept with {invite?.email || 'the invited email address'}. Your existing roles stay intact.</p>
+      {invite?.eventId && <><p><strong>{(invite.commissionBps ?? 0)/100}% event commission</strong> on future referred ticket/package sales before fees. Previously completed sales stay unchanged.</p><p>Access your own sales, performance and referred guestlists for this event only. You are not joining the venue team.</p></>}
+      {session ? <Button disabled={busy || !invite} onClick={async () => { setBusy(true); setError(''); try { await accept(session); } catch (err) { setError(err.message); } finally { setBusy(false); } }}>Accept invitation</Button> : <form onSubmit={submit}><label>Email<Input name="email" type="email" required defaultValue={invite?.email || ''} /></label>{register && <label>Name<Input name="name" required /></label>}<label>Password<Input name="password" type="password" required minLength={register ? 8 : 1} /></label><Button disabled={!invite || busy}>{register ? 'Create account and accept' : 'Sign in and accept'}</Button></form>}
+      <Button variant="ghost" onClick={() => setRegister(!register)}>{register ? 'Already have an account? Sign in' : 'New to Nitewide? Create an account'}</Button>{error && <p role="alert" className="error">{error}</p>}
+    </div></section>
+  </main>;
 }

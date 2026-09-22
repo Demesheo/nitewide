@@ -68,3 +68,34 @@ test('direct approvals only consume the venue guestlist pool', async () => {
   const approved = await service.review({ eventId: event.id, entryId: requested.entry.id, reviewedByUserId: 'employee-1', decision: 'approve' });
   assert.equal(approved.entry.status, 'confirmed');
 });
+
+test('cancelling an approved direct entry invalidates its QR and frees its allocation', async () => {
+  const { service, event, auditActions } = fixture();
+  const requested = await service.request({ eventId: event.id, userId: 'customer-1', partySize: 2 });
+  const approved = await service.review({ eventId: event.id, entryId: requested.entry.id, reviewedByUserId: 'employee-1', decision: 'approve' });
+  assert.ok(approved.entry.qrTokenHash);
+  const cancelled = await service.review({ eventId: event.id, entryId: requested.entry.id, reviewedByUserId: 'manager-1', decision: 'cancel' });
+  assert.equal(cancelled.entry.status, 'cancelled');
+  assert.equal(cancelled.entry.qrTokenHash, null);
+  assert.deepEqual(auditActions, ['guestlist.requested', 'guestlist.approved', 'guestlist.cancelled']);
+  assert.equal(cancelled.entry.status === 'confirmed' || cancelled.entry.status === 'checked_in', false);
+  await assert.rejects(service.review({ eventId: event.id, entryId: requested.entry.id, reviewedByUserId: 'manager-1', decision: 'cancel' }), { code: 'GUESTLIST_NOT_CANCELLABLE' });
+});
+
+test('checked-in guestlist entries cannot be cancelled', async () => {
+  const { service, event } = fixture();
+  const requested = await service.request({ eventId: event.id, userId: 'customer-1', partySize: 1 });
+  await service.review({ eventId: event.id, entryId: requested.entry.id, reviewedByUserId: 'employee-1', decision: 'approve' });
+  requested.entry.status = 'checked_in';
+  requested.entry.checkedInAt = new Date();
+  await assert.rejects(service.review({ eventId: event.id, entryId: requested.entry.id, reviewedByUserId: 'manager-1', decision: 'cancel' }), { code: 'GUESTLIST_NOT_CANCELLABLE' });
+});
+
+test('a referred guestlist request can be declined by its referrer', async () => {
+  const { service, event, affiliate, auditActions } = fixture();
+  const requested = await service.request({ eventId: event.id, userId: 'customer-1', partySize: 1, affiliateCode: affiliate.code });
+  const denied = await service.review({ eventId: event.id, entryId: requested.entry.id, reviewedByUserId: affiliate.userId, decision: 'reject' });
+  assert.equal(denied.entry.status, 'rejected');
+  assert.equal(denied.entry.reviewedByUserId, affiliate.userId);
+  assert.deepEqual(auditActions, ['guestlist.requested', 'guestlist.rejected']);
+});

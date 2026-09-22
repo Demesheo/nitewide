@@ -8,6 +8,7 @@ const adminSchemas = require('../http/admin-schemas');
 const { analyticsQuery } = require('../http/analytics-schemas');
 const { createAnalyticsService } = require('../services/analytics-service');
 const { createTeamService } = require('../services/team-service');
+const { createEventWorkspaceService } = require('../services/event-workspace-service');
 const { z } = require('zod');
 
 function createRouter({ publicController, managementController, commerceController, authController, requireUser, models, permissions }) {
@@ -16,7 +17,14 @@ function createRouter({ publicController, managementController, commerceControll
   const admin = createAdminService({ models, permissions });
   const analytics = createAnalyticsService({ models, permissions });
   const team = createTeamService({ models, permissions });
+  const eventWorkspace = createEventWorkspaceService({ models, permissions });
+  const eventPerson = z.object({ userId: z.string().uuid().optional(), email: z.string().trim().email().optional(), commissionBps: z.number().int().min(0).max(4000), status: z.enum(['active', 'inactive']).default('active') }).refine((v) => Boolean(v.userId) !== Boolean(v.email), 'Provide a user or an email');
+  router.get('/business/events/:eventId/detail', requireUser, asyncHandler(async (req, res) => res.json({ data: await eventWorkspace.detail(req.userId, req.params.eventId) })));
+  router.put('/business/events/:eventId/people', requireUser, validate(eventPerson), asyncHandler(async (req, res) => res.json({ data: await eventWorkspace.savePerson(req.userId, req.params.eventId, req.body) })));
   const inviteInput = z.object({ email: z.string().trim().email().max(320), role: z.enum(['manager', 'employee', 'affiliate']) });
+  router.get('/business/events/:eventId/invitations',requireUser,asyncHandler(async (req,res) => res.json({data:await team.eventInvitations(req.userId,req.params.eventId)})));
+  router.post('/business/events/:eventId/invitations',requireUser,validate(inviteInput.pick({email:true}).extend({commissionBps:z.number().int().min(0).max(4000).default(0)})),asyncHandler(async (req,res) => res.status(201).json({data:await team.inviteEvent(req.userId,req.params.eventId,req.body)})));
+  router.delete('/business/events/:eventId/invitations/:invitationId',requireUser,asyncHandler(async (req,res) => res.json({data:await team.revokeEvent(req.userId,req.params.eventId,req.params.invitationId)})));
   router.get('/business/organizations/:organizationId/team', requireUser, asyncHandler(async (req, res) => res.json({ data: await team.roster(req.userId, req.params.organizationId) })));
   router.post('/business/organizations/:organizationId/invitations', requireUser, validate(inviteInput), asyncHandler(async (req, res) => res.status(201).json({ data: await team.invite(req.userId, req.params.organizationId, req.body) })));
   router.delete('/business/organizations/:organizationId/invitations/:invitationId', requireUser, asyncHandler(async (req, res) => res.json({ data: await team.revoke(req.userId, req.params.organizationId, req.params.invitationId) })));

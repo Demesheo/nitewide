@@ -39,11 +39,12 @@ test(
       owner: randomUUID(),
       manager: randomUUID(),
       promoter: randomUUID(),
+      employee: randomUUID(),
       outsider: randomUUID(),
       org: randomUUID(),
       affiliate: randomUUID(),
     };
-    const users = [ids.owner, ids.manager, ids.promoter, ids.outsider];
+    const users = [ids.owner, ids.manager, ids.promoter, ids.employee, ids.outsider];
     const events = [];
     const locations = new Set();
     let server;
@@ -93,15 +94,19 @@ test(
           isActive: true,
         })),
       );
+      const venueLocation = await m.Location.create(input.location);
+      locations.add(venueLocation.id);
       await m.Organization.create({
         id: ids.org,
         name: "Integration fixture",
         slug: `qa-${ids.org}`,
+        locationId: venueLocation.id,
       });
       await m.OrganizationOwner.bulkCreate([
         { organizationId: ids.org, userId: ids.owner, role: "owner" },
         { organizationId: ids.org, userId: ids.manager, role: "admin" },
       ]);
+      await m.OrganizationEmployee.create({ organizationId: ids.org, userId: ids.employee, status: 'active' });
       await m.OrgAffiliate.create({
         id: ids.affiliate,
         organizationId: ids.org,
@@ -302,9 +307,10 @@ test(
           .status,
         403,
       );
+      assert.equal((await req(`/business/events/${event.id}/guestlist/${request.body.data.entry.id}/decision`, ids.promoter, "POST", { decision: "approve" })).status, 403);
       const approval = await req(
         `/business/events/${event.id}/guestlist/${request.body.data.entry.id}/decision`,
-        ids.promoter,
+        ids.manager,
         "POST",
         { decision: "approve" },
       );
@@ -347,10 +353,104 @@ test(
         ids.manager,
       );
       assert.equal(settings.body.data.direct.capacity, 50);
+      assert.equal(settings.body.data.direct.used, 2);
       assert.equal(
         settings.body.data.promoters[0].effectiveGuestlistAllocation,
         20,
       );
+      const cancelledDirect = await req(
+        `/business/events/${event.id}/guestlist/${request.body.data.entry.id}/decision`,
+        ids.manager,
+        "POST",
+        { decision: "cancel" },
+      );
+      assert.equal(cancelledDirect.status, 200, JSON.stringify(cancelledDirect.body));
+      assert.equal(cancelledDirect.body.data.entry.status, "cancelled");
+      assert.equal(cancelledDirect.body.data.entry.qrTokenHash, null);
+      assert.equal((await req(`/business/events/${event.id}/guestlist-settings`, ids.manager)).body.data.direct.used, 0);
+      const referredRequest = await req(`/events/${event.id}/guestlist`, ids.manager, "POST", { partySize: 2, affiliateCode: eventAffiliate.code });
+      assert.equal(referredRequest.status, 202);
+      assert.equal((await req(`/business/events/${event.id}/guestlist/${referredRequest.body.data.entry.id}/decision`, ids.promoter, "POST", { decision: "approve" })).status, 200);
+      const referredSettings = await req(`/business/events/${event.id}/guestlist-settings`, ids.manager);
+      assert.equal(referredSettings.body.data.promoters.find((person) => person.id === eventAffiliate.id).used, 2);
+      assert.equal((await req(`/business/events/${event.id}/guestlist/${referredRequest.body.data.entry.id}/decision`, ids.owner, "POST", { decision: "cancel" })).status, 200);
+      const releasedSettings = await req(`/business/events/${event.id}/guestlist-settings`, ids.manager);
+      assert.equal(releasedSettings.body.data.promoters.find((person) => person.id === eventAffiliate.id).used, 0);
+      const declinedReferral = await req(`/events/${event.id}/guestlist`, ids.owner, "POST", { partySize: 1, affiliateCode: eventAffiliate.code });
+      assert.equal(declinedReferral.status, 202);
+      const deniedByReferrer = await req(`/business/events/${event.id}/guestlist/${declinedReferral.body.data.entry.id}/decision`, ids.promoter, "POST", { decision: "reject" });
+      assert.equal(deniedByReferrer.status, 200);
+      assert.equal(deniedByReferrer.body.data.entry.status, 'rejected');
+      assert.equal(deniedByReferrer.body.data.entry.reviewedByUserId, ids.promoter);
+      // Event detail uses full paid history, authorizes each role, and snapshots commissions.
+      assert.equal((await req(`/business/events/${event.id}/detail`, ids.outsider)).status, 403);
+      const detail = await req(`/business/events/${event.id}/detail`, ids.owner);
+      assert.equal(detail.status, 200, JSON.stringify(detail.body));
+      assert.equal(detail.body.data.summary.salesCents, 2000);
+      assert.equal(detail.body.data.summary.admissions, 2);
+      assert.equal(detail.body.data.customers.find((c) => c.id === ids.outsider).paidCents, 2229);
+      assert.equal(detail.body.data.candidates.find((p) => p.userId === ids.employee).role, 'Employee');
+      assert.equal((await req(`/business/events/${event.id}/detail`, ids.employee)).body.data.summary.salesCents, 0);
+      for (const actor of [ids.employee, ids.promoter, ids.outsider]) {
+        assert.equal((await req(`/business/events/${event.id}/people`, actor, 'PUT', {userId:ids.promoter,commissionBps:2500,status:'active'})).status,403);
+      }
+      assert.equal((await req(`/business/events/${event.id}/people`, ids.manager, 'PUT', {userId:ids.outsider,commissionBps:1000,status:'active'})).status,403);
+      assert.equal((await req(`/business/events/${event.id}/people`, ids.manager, 'PUT', {userId:ids.promoter,commissionBps:4001,status:'active'})).status,422);
+      assert.equal((await req(`/business/events/${event.id}/people`, ids.manager, 'PUT', {userId:ids.promoter,commissionBps:2500,status:'active'})).status,200);
+      assert.equal((await req(`/business/events/${event.id}/people`, ids.owner, 'PUT', {userId:ids.employee,commissionBps:1500,status:'active'})).status,200);
+      assert.equal((await req(`/business/events/${event.id}/people`, ids.owner, 'PUT', {userId:ids.manager,commissionBps:0,status:'active'})).status,200);
+      const beforeOrder = await m.Order.findByPk(checkout.body.data.order.id);
+      assert.equal(beforeOrder.affiliateCommissionCents,200);
+      assert.equal(beforeOrder.pricingPlanSnapshot.commissionBps,1000);
+      // Organization editor ignores forged location, generates URL, and releases tiers transactionally.
+      const otherVenue = await m.Location.create({ ...input.location, name:'Another venue', addressLine1:'22 Other Street' });
+      locations.add(otherVenue.id);
+      await m.Organization.update({locationId:otherVenue.id},{where:{id:ids.org}});
+      const tierEdit = {
+        ...input, slug:undefined, category:undefined, version:detail.body.data.event.version,
+        location:{...input.location,city:'Forged city',addressLine1:'999 Wrong Address'},
+        offerings:[{...input.offerings[0],id:tiers[0].id,quantityTotal:3},
+          {...input.offerings[0],name:'Second release',priceCents:2000,releaseAfterIndex:0},
+          {...input.offerings[0],name:'Scheduled release',priceCents:3000,salesStartAt:new Date(Date.now()+3600000).toISOString()}],
+      };
+      const tierUpdate = await req(`/business/events/${event.id}`,ids.manager,'PUT',tierEdit);
+      assert.equal(tierUpdate.status,200,JSON.stringify(tierUpdate.body));
+      assert.equal(tierUpdate.body.data.locationId,venueLocation.id,'editing preserves this event’s venue even when the organization default differs');
+      assert.equal((await m.Location.findByPk(venueLocation.id)).city,'Orlando');
+      const updatedTiers = await m.Offering.findAll({where:{eventId:event.id},order:[['sortOrder','ASC']]});
+      assert.equal(updatedTiers[1].releaseAfterOfferingId,tiers[0].id);
+      const buy = (offeringId, code = eventAffiliate.code) => req('/orders',ids.outsider,'POST',{eventId:event.id,idempotencyKey:randomUUID(),affiliateCode:code,items:[{offeringId,quantity:1}],payment:{provider:'test',reference:randomUUID(),status:'succeeded'}});
+      assert.equal((await buy(updatedTiers[1].id)).body.error.code,'OFFERING_NOT_ON_SALE');
+      assert.equal((await buy(updatedTiers[2].id)).body.error.code,'OFFERING_NOT_ON_SALE');
+      const lastEarly = await buy(tiers[0].id);
+      assert.equal(lastEarly.status,201);
+      assert.equal(lastEarly.body.data.order.affiliateCommissionCents,250);
+      const publicTiers = (await req(`/events/${event.id}`,null)).body.data.offerings;
+      assert.equal(publicTiers.find((t) => t.id === updatedTiers[1].id).saleState,'on_sale');
+      assert.equal(publicTiers.find((t) => t.id === updatedTiers[2].id).saleState,'scheduled');
+      assert.equal((await req(`/business/events/${event.id}/people`,ids.manager,'PUT',{userId:ids.promoter,commissionBps:4000,status:'active'})).status,200);
+      const lateOrder = await buy(updatedTiers[1].id);
+      assert.equal(lateOrder.status,201);
+      assert.equal(lateOrder.body.data.order.affiliateCommissionCents,800);
+      assert.equal((await beforeOrder.reload()).affiliateCommissionCents,200);
+      assert.equal((await req(`/business/events/${event.id}/people`,ids.manager,'PUT',{userId:ids.promoter,commissionBps:4000,status:'inactive'})).status,200);
+      assert.equal((await buy(updatedTiers[1].id)).body.error.code,'INVALID_AFFILIATE');
+      const orgCode = (await m.OrgAffiliate.findByPk(ids.affiliate)).code;
+      assert.equal((await buy(updatedTiers[1].id,orgCode)).body.error.code,'INVALID_AFFILIATE','removal also blocks the organization referral code');
+      const afterDetail = (await req(`/business/events/${event.id}/detail`,ids.owner)).body.data;
+      assert.equal(afterDetail.summary.salesCents,5000);
+      assert.equal(afterDetail.summary.commissionCents,1250);
+      assert.equal(afterDetail.people.find((p) => p.userId === ids.promoter).commissionCents,1250);
+      assert.equal(afterDetail.people.find((p) => p.userId === ids.employee).role,'Employee');
+      assert.equal(afterDetail.people.find((p) => p.userId === ids.manager).commissionBps,0);
+      assert.equal(afterDetail.customers.find((c) => c.id === ids.outsider).salesCents,5000);
+      // The stored end time, not the client, decides whether an event can be changed.
+      const fixtureEvent = await m.Event.findByPk(event.id);
+      await fixtureEvent.update({startsAt:new Date(Date.now()-7200000),endsAt:new Date(Date.now()-3600000)});
+      assert.equal((await req(`/business/events/${event.id}/detail`,ids.owner)).body.data.event.canEdit,false);
+      assert.equal((await req(`/business/events/${event.id}`,ids.owner,'PUT',{...tierEdit,version:fixtureEvent.version})).body.error.code,'EVENT_FINISHED');
+      assert.equal((await req(`/business/events/${event.id}/people`,ids.owner,'PUT',{userId:ids.employee,commissionBps:1000,status:'inactive'})).body.error.code,'EVENT_FINISHED');
+      assert.equal((await buy(updatedTiers[1].id)).body.error.code,'EVENT_NOT_ON_SALE');
       const audits = await m.AuditLog.findAll({
         where: { entityType: "Event", entityId: event.id },
       });
@@ -362,6 +462,7 @@ test(
         slug: `independent-${randomUUID()}`,
       });
       assert.equal(independent.status, 201);
+      assert.equal((await req(`/business/events/${independent.body.data.id}/people`,ids.outsider,'PUT',{email:`${ids.employee}@integration.nitewide.test`,commissionBps:0,status:'active'})).status,200);
       events.push(independent.body.data.id);
       locations.add(independent.body.data.locationId);
       const independentScope = await req(
@@ -414,6 +515,127 @@ test(
       assert.equal(removed.status, 200);
       locations.add(removed.body.data.locationId);
       assert.equal(removed.body.data.imageUrl, null);
+      // Employee referrals work immediately on a brand-new venue event, without selection.
+      const employeeEvent = await req('/business/events',ids.owner,'POST',{...input,slug:`staff-default-${randomUUID()}`});
+      assert.equal(employeeEvent.status,201,JSON.stringify(employeeEvent.body));
+      const employeeEventId = employeeEvent.body.data.id;
+      events.push(employeeEventId);
+      const employeeTier = await m.Offering.findOne({where:{eventId:employeeEventId}});
+      const employeeDetail = (await req(`/business/events/${employeeEventId}/detail`,ids.employee)).body.data;
+      const employeeCode = employeeDetail.people[0].code;
+      assert.match(employeeCode,/^STAFF-/);
+      assert.equal(await m.EventAffiliate.count({where:{eventId:employeeEventId}}),0,'reading does not generate assignments');
+      const employeeBuy = () => req('/orders',ids.outsider,'POST',{eventId:employeeEventId,idempotencyKey:randomUUID(),affiliateCode:employeeCode,items:[{offeringId:employeeTier.id,quantity:1}],payment:{provider:'test',reference:randomUUID(),status:'succeeded'}});
+      const firstStaffSale = await employeeBuy();
+      assert.equal(firstStaffSale.status,201,JSON.stringify(firstStaffSale.body));
+      assert.equal(firstStaffSale.body.data.order.affiliateCommissionCents,0);
+      assert.ok(firstStaffSale.body.data.order.eventAffiliateId);
+      const staffRequest = await req(`/events/${employeeEventId}/guestlist`,ids.outsider,'POST',{partySize:1,affiliateCode:employeeCode});
+      assert.equal(staffRequest.status,202,JSON.stringify(staffRequest.body));
+      assert.equal(staffRequest.body.data.entry.eventAffiliateId,firstStaffSale.body.data.order.eventAffiliateId);
+      assert.equal((await req(`/business/events/${employeeEventId}/guestlist/${staffRequest.body.data.entry.id}/decision`,ids.employee,'POST',{decision:'approve'})).body.error.code,'AFFILIATE_GUESTLIST_FULL');
+      assert.equal((await req(`/business/events/${employeeEventId}/affiliates/${firstStaffSale.body.data.order.eventAffiliateId}/guestlist-allocation`,ids.manager,'PATCH',{guestlistAllocation:3})).status,200);
+      assert.equal((await req(`/business/events/${employeeEventId}/guestlist/${staffRequest.body.data.entry.id}/decision`,ids.employee,'POST',{decision:'approve'})).status,200);
+      const directStaffEvent = await req(`/events/${employeeEventId}/guestlist`,ids.owner,'POST',{partySize:1});
+      assert.equal((await req(`/business/events/${employeeEventId}/guestlist/${directStaffEvent.body.data.entry.id}/decision`,ids.employee,'POST',{decision:'approve'})).status,403);
+      assert.equal((await req(`/business/events/${employeeEventId}/people`,ids.manager,'PUT',{userId:ids.employee,commissionBps:2000,status:'active'})).status,200);
+      assert.equal((await employeeBuy()).body.data.order.affiliateCommissionCents,200);
+      assert.equal((await m.Order.findByPk(firstStaffSale.body.data.order.id)).affiliateCommissionCents,0,'new rate does not rewrite the first sale');
+      assert.equal(await m.EventAffiliate.count({where:{eventId:employeeEventId,userId:ids.employee}}),1);
+      assert.equal((await req(`/business/events/${employeeEventId}/people`,ids.manager,'PUT',{userId:ids.employee,commissionBps:2000,status:'inactive'})).status,200);
+      assert.equal((await employeeBuy()).body.error.code,'INVALID_AFFILIATE');
+      // A default employee can also be explicitly removed before their first referral.
+      const unusedEvent = await req('/business/events',ids.owner,'POST',{...input,slug:`staff-unused-${randomUUID()}`});
+      assert.equal(unusedEvent.status,201);
+      events.push(unusedEvent.body.data.id);
+      assert.equal((await req(`/business/events/${unusedEvent.body.data.id}/people`,ids.manager,'PUT',{userId:ids.employee,commissionBps:0,status:'inactive'})).status,200);
+      assert.equal((await req(`/events/${unusedEvent.body.data.id}/guestlist`,ids.outsider,'POST',{partySize:1,affiliateCode:employeeCode})).body.error.code,'INVALID_AFFILIATE');
+      // Invited promoters belong to one event, not to its venue; every report stays scoped.
+      const isolatedEvent = await req('/business/events',ids.owner,'POST',{...input,slug:`event-promoter-${randomUUID()}`});
+      assert.equal(isolatedEvent.status,201);
+      const inviteEventId = isolatedEvent.body.data.id;
+      events.push(inviteEventId);
+      const invitePath = `/business/events/${inviteEventId}/invitations`;
+      const inviteEmail = `${ids.outsider}@integration.nitewide.test`;
+      assert.equal((await req(invitePath,ids.employee,'POST',{email:inviteEmail})).status,403);
+      const firstInvite = await req(invitePath,ids.manager,'POST',{email:inviteEmail});
+      assert.equal(firstInvite.status,201,JSON.stringify(firstInvite.body));
+      assert.equal((await req(invitePath,ids.manager,'POST',{email:inviteEmail,commissionBps:4001})).status,422);
+      assert.equal((await req(invitePath,ids.manager,'POST',{email:inviteEmail,commissionBps:-1})).status,422);
+      const renewedInvite = await req(invitePath,ids.manager,'POST',{email:inviteEmail,commissionBps:1250});
+      assert.equal((await req(`/team/invitations/${firstInvite.body.data.token}`,null)).status,404,'renewal invalidates old link');
+      assert.equal((await req(invitePath,ids.owner)).body.data.length,1);
+      const inviteToken = renewedInvite.body.data.token;
+      const preview = await req(`/team/invitations/${inviteToken}`,null);
+      assert.equal(preview.body.data.eventId,inviteEventId);
+      assert.equal(preview.body.data.organizationName,undefined);
+      assert.equal(preview.body.data.commissionBps,1250);
+      assert.equal((await req(`/team/invitations/${inviteToken}/accept`,ids.employee,'POST')).status,403);
+      assert.equal((await req(`/team/invitations/${inviteToken}/accept`,ids.outsider,'POST')).status,200);
+      assert.equal((await req(`/team/invitations/${inviteToken}/accept`,ids.outsider,'POST')).status,404);
+      assert.equal(await m.OrgAffiliate.count({where:{organizationId:ids.org,userId:ids.outsider}}),0);
+      assert.equal(await m.OrganizationEmployee.count({where:{organizationId:ids.org,userId:ids.outsider}}),0);
+      const eventOnlyRef = await m.EventAffiliate.findOne({where:{eventId:inviteEventId,userId:ids.outsider}});
+      assert.equal(eventOnlyRef.commissionBps,1250,'accepted commission is the offered rate');
+      assert.equal(eventOnlyRef.orgAffiliateId,null);
+      assert.equal((await req(`/business/events/${inviteEventId}/people`,ids.manager,'PUT',{userId:ids.outsider,commissionBps:1500,status:'active'})).status,200,'event-only promoters can have their rates edited');
+      const inviteTier = await m.Offering.findOne({where:{eventId:inviteEventId}});
+      for (const affiliateCode of [eventOnlyRef.code,undefined]) {
+        const sale = await req('/orders',ids.manager,'POST',{eventId:inviteEventId,idempotencyKey:randomUUID(),affiliateCode,items:[{offeringId:inviteTier.id,quantity:1}],payment:{provider:'test',reference:randomUUID(),status:'succeeded'}});
+        assert.equal(sale.status,201);
+      }
+      const ownDetail = (await req(`/business/events/${inviteEventId}/detail`,ids.outsider)).body.data;
+      assert.equal(ownDetail.scope,'own');
+      assert.equal(ownDetail.summary.salesCents,1000,'direct sales are excluded');
+      assert.equal(ownDetail.summary.commissionCents,150);
+      assert.deepEqual(ownDetail.people.map((p)=>p.userId),[ids.outsider]);
+      const ownReport = (await req(`/business/analytics?days=30&organizationIds=${ids.org}`,ids.outsider)).body.data;
+      assert.equal(ownReport.summary.salesCents,1000);
+      const ownWorkspace = (await req(`/business/workspace?organizationId=${ids.org}`,ids.outsider)).body.data;
+      assert.deepEqual(ownWorkspace.events.map((e)=>e.id),[inviteEventId]);
+      assert.equal((await req(`/business/events/${employeeEventId}/detail`,ids.outsider)).status,403);
+      assert.equal((await req(`/business/organizations/${ids.org}/team`,ids.outsider)).status,403);
+      assert.equal((await req(invitePath,ids.outsider)).status,403);
+      const ownGuest = await req(`/events/${inviteEventId}/guestlist`,ids.manager,'POST',{partySize:1,affiliateCode:eventOnlyRef.code});
+      const directGuest = await req(`/events/${inviteEventId}/guestlist`,ids.owner,'POST',{partySize:1});
+      assert.equal(ownGuest.status,202);
+      assert.equal(directGuest.status,202);
+      const ownGuestlist = await req(`/business/events/${inviteEventId}/guestlist`,ids.outsider);
+      assert.equal(ownGuestlist.status,200);
+      assert.deepEqual(ownGuestlist.body.data.map((entry)=>entry.id),[ownGuest.body.data.entry.id]);
+      assert.equal((await req(`/business/events/${inviteEventId}/guestlist/${directGuest.body.data.entry.id}/decision`,ids.outsider,'POST',{decision:'reject'})).status,403);
+      assert.equal((await req(`/business/events/${inviteEventId}/guestlist/${ownGuest.body.data.entry.id}/decision`,ids.outsider,'POST',{decision:'reject'})).status,200);
+      const revocable = await req(invitePath,ids.owner,'POST',{email:inviteEmail});
+      assert.equal((await req(`${invitePath}/${revocable.body.data.id}`,ids.manager,'DELETE')).status,200);
+      assert.equal((await req(`/team/invitations/${revocable.body.data.token}/accept`,ids.outsider,'POST')).status,404);
+      const expired = await req(invitePath,ids.owner,'POST',{email:inviteEmail});
+      await m.Event.update({startsAt:new Date(Date.now()-3600000),endsAt:new Date(Date.now()-1000)},{where:{id:inviteEventId}});
+      assert.equal((await req(`/team/invitations/${expired.body.data.token}/accept`,ids.outsider,'POST')).status,409);
+      assert.equal((await req(invitePath,ids.owner,'POST',{email:inviteEmail})).status,409);
+      // Owners and managers have usable referral codes before saving any rate.
+      const leadershipEvent = await req('/business/events',ids.owner,'POST',{...input,slug:`leader-referrals-${randomUUID()}`});
+      assert.equal(leadershipEvent.status,201);
+      const leadershipEventId = leadershipEvent.body.data.id;
+      events.push(leadershipEventId);
+      const leadershipTier = await m.Offering.findOne({where:{eventId:leadershipEventId}});
+      const leaders = (await req(`/business/events/${leadershipEventId}/detail`,ids.owner)).body.data.people;
+      for (const leaderId of [ids.owner,ids.manager]) {
+        const person = leaders.find((p)=>p.userId===leaderId);
+        assert.equal(person.commissionBps,0);
+        assert.match(person.code,/^LEAD-/);
+        const buyLeader = () => req('/orders',ids.outsider,'POST',{eventId:leadershipEventId,idempotencyKey:randomUUID(),affiliateCode:person.code,items:[{offeringId:leadershipTier.id,quantity:1}],payment:{provider:'test',reference:randomUUID(),status:'succeeded'}});
+        const first = await buyLeader();
+        assert.equal(first.status,201,JSON.stringify(first.body));
+        assert.equal(first.body.data.order.affiliateCommissionCents,0);
+        assert.equal((await m.EventAffiliate.findByPk(first.body.data.order.eventAffiliateId)).userId,leaderId);
+        assert.equal((await req(`/business/events/${leadershipEventId}/people`,leaderId,'PUT',{userId:leaderId,commissionBps:1000,status:'active'})).status,200);
+        assert.equal((await buyLeader()).body.data.order.affiliateCommissionCents,100);
+        assert.equal((await m.Order.findByPk(first.body.data.order.id)).affiliateCommissionCents,0);
+        const credited = (await req(`/business/events/${leadershipEventId}/detail`,leaderId)).body.data.people.find((p)=>p.userId===leaderId);
+        assert.equal(credited.salesCents,2000);
+        assert.equal(credited.orders,2);
+        assert.equal(credited.commissionCents,100);
+      }
     } finally {
       if (server) await new Promise((resolve) => server.close(resolve));
       // Resolve all fixture locations, including any created just before a failed assertion.
@@ -469,6 +691,7 @@ test(
           where: { organizationId: ids.org },
           transaction,
         });
+        await m.OrganizationEmployee.destroy({ where: { organizationId: ids.org }, transaction });
         await m.Organization.destroy({ where: { id: ids.org }, transaction });
         await m.Location.destroy({
           where: { id: [...locations].filter(Boolean) },

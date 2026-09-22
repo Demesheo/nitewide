@@ -50,6 +50,8 @@ The seed command is intentionally destructive to local data: it truncates platfo
 
 For a **non-destructive** demo refresh, run `npm run db:seed:sales`. This repeatable local-only command adds up to four weeks of Friday/Saturday/Sunday venue history, varied paid orders across GA and all three bottle packages, and a stable varied team for each venue: 1–3 managers plus the owner, 9–12 employees, and two promoters. Those counts are demo fixtures, not product limits. Two of each six demo orders are direct purchases with no promoter or employee attribution. It preserves existing accounts, edits, and sales, and fills the 30-day analytics and event → paid-customer drill-downs.
 
+For a **non-destructive guestlist refresh**, run `npm run db:seed:guestlists`. It adds guestlist-only demo customers (with no purchases) and pending, approved, declined, and cancelled requests to every future published demo-venue event. Referrals come from actual demo owners, managers, employees, and promoters, weighted toward employees and promoters. The two most recent completed events per venue also get checked-in and no-show guests with no purchases. Future events never receive checked-in or no-show statuses. The command preserves existing requests and is safe to rerun; the baseline seed includes the same fixtures.
+
 For a **non-destructive Orlando event refresh**, use `npm run db:seed:posh -- --dry-run`, then `npm run db:seed:posh -- --apply`. The reviewed September 21–October 20, 2026 snapshot adds 23 Posh-sourced demo events and 11 flyers across Euphoria, Eden, La Rosa and OHM (formerly Tier). Dates expire instead of rolling forward. Existing accounts, events, sales and guestlists are preserved. The baseline seed also includes eligible snapshot events; an uncached import needs internet access. See [sources, matching decisions, demo pricing, image permissions, and exact import/test steps](docs/POSH_DEMO_DATA.md).
 
 The sample marketplace includes 12 Orlando venues with events on the next Friday, Saturday, and Sunday plus the previous four weeks of weekend events. Every event has $10 general-admission presales plus $300 regular-bottle, $400 premium-bottle, and $1,000 Clase Azul/1942 packages. Friday events demonstrate a 50-person direct venue list plus two independent 20-person promoter lists, for 90 possible guestlist admissions. Venue owners, managers, employees, promoters, attributed sales, guestlist requests and approvals, payments, and admission credentials provide useful customer, business, and admin data. Team members appear in Overview and Analytics even with zero personal referral sales; venue-wide sales are not attributed to them automatically. Customer discovery defaults to the visitor's current city (with browser consent and an IP/event-city fallback) and their current local calendar date.
@@ -68,6 +70,9 @@ npm run db:seed
 
 # Add missing historical/direct demo sales without clearing local data
 npm run db:seed:sales
+
+# Add missing demo guestlist requests without clearing local data
+npm run db:seed:guestlists
 ```
 
 The initial migration enables PostGIS and stores a `geography(Point, 4326)` alongside normalized address fields. Exact addresses and coordinates are removed from public API responses when a location is `attendees_only` or `private`.
@@ -139,6 +144,10 @@ Customer checks: `npm test --workspace @nitewide/customer`. Production build: `n
 
 ## Business experience
 
+The redesigned **Events** workspace includes upcoming/live, past and draft views, full-event sales, ticket/package breakdowns, team/promoter performance, and attendee spending dialogs. Venue addresses come from the selected authorized organization; independent creators can enter their own location. Admission tiers support date windows and automatic release after cheaper tiers sell out. Owners/managers/independent creators can set each event referrer's commission from 0–40% without changing earlier sales. Past events are read-only. See [Event operations, permissions, release rules, API and tests](docs/EVENT_OPERATIONS.md). Run `npm run db:migrate` and restart the API for the additive event-workspace migration; no reseed is needed.
+
+In an event's **Team** tab, **Add promoter** creates an event-only invitation with a 0–40% commission offer. Accepted promoters see their own performance, sales and referred guestlists without joining the venue. Invitations currently use copied private links or your email app, not automatic email delivery. Apply all migrations (including `202609220002-event-invitations`) and restart the API; no reseed is required.
+
 The public [Nitewide Business splash page](http://127.0.0.1:5174/) introduces the product, sourced competitor positioning, planned pricing, and the roadmap. **For business** beside customer sign-in links here; its sign-in buttons open `/sign-in`, then authenticated sessions enter `/app`. See [splash-page components and deployment](docs/BUSINESS_LANDING.md). Set `VITE_BUSINESS_URL` in the Customer build and `VITE_CUSTOMER_URL` in the Business build for deployed cross-app navigation.
 
 The business app is a dark, responsive shadcn/ui workspace with real sign-in, organization/period filters, sales charts by event and ticket/package, team/promoter performance, and CSV export. It includes role-enforced event creation/editing, draft/publication controls, location privacy, flexible ticket/package/reservation tiers, inventory and sales-window controls, plus guestlist approval and independent venue/promoter limits.
@@ -176,8 +185,8 @@ See [Business frontend, roles, reporting, tests, and styling](docs/BUSINESS_FRON
 | `PATCH` | `/api/business/events/:id/affiliates/:affiliateId/guestlist-allocation` | Set or clear one promoter's event-specific guestlist limit |
 | `GET` | `/api/business/events/:id/guestlist-settings` | View direct and per-promoter limits and usage |
 | `POST` | `/api/events/:id/guestlist` | Submit a direct or promoter guestlist request |
-| `GET` | `/api/business/events/:id/guestlist` | List guestlist requests for authorized staff/promoters |
-| `POST` | `/api/business/events/:id/guestlist/:entryId/decision` | Approve or reject a guestlist request |
+| `GET` | `/api/business/events/:id/guestlist` | List all requests for owner/manager/creator/admin; only own referrals for basic employees/promoters |
+| `POST` | `/api/business/events/:id/guestlist/:entryId/decision` | Approve or decline a pending request; cancel an approved, unused entry |
 | `POST` | `/api/orders` | Transactional checkout and QR credential issuance |
 | `GET` | `/api/orders/:id` | Customer order detail (stored QR hashes are never returned) |
 | `POST` | `/api/check-ins` | Validate and consume a QR credential |

@@ -11,6 +11,7 @@
     "db:migrate:undo": "sequelize-cli db:migrate:undo",
     "db:seed": "node src/db/seed.js",
     "db:seed:sales": "node src/db/seed-sales.js",
+    "db:seed:guestlists": "node src/db/seed-guestlists.js",
     "db:seed:posh": "node src/db/import-posh.js"
   },
   "dependencies": {

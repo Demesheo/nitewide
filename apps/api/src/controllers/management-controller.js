@@ -1,4 +1,5 @@
 const { notFound, conflict } = require('../domain/errors');
+const { assertEventEditable } = require('../domain/event-policy');
 
 function createManagementController({ models, permissions }) {
   return {
@@ -14,15 +15,23 @@ function createManagementController({ models, permissions }) {
     addOrgAffiliate: async (req, res) => { await permissions.assertManageOrganization(req.userId, req.params.organizationId); const data = await models.OrgAffiliate.create({ ...req.body, organizationId: req.params.organizationId }); res.status(201).json({ data }); },
     createEvent: async (req, res) => {
       if (req.body.organizationId) await permissions.assertManageOrganization(req.userId, req.body.organizationId);
-      const data = await models.Event.create({ ...req.body, creatorUserId: req.userId }); res.status(201).json({ data });
+      let locationId = req.body.locationId;
+      if (req.body.organizationId) {
+        const org = await models.Organization.findByPk(req.body.organizationId);
+        if (!org?.locationId) throw conflict('This organization needs a saved venue address before creating an event.');
+        locationId = org.locationId;
+      }
+      assertEventEditable(req.body);
+      const data = await models.Event.create({ ...req.body, locationId, creatorUserId: req.userId }); res.status(201).json({ data });
     },
-    addOffering: async (req, res) => { await permissions.assertManageEvent(req.userId, req.params.eventId); const data = await models.Offering.create({ ...req.body, eventId: req.params.eventId }); res.status(201).json({ data }); },
-    addEventAffiliate: async (req, res) => { await permissions.assertManageEvent(req.userId, req.params.eventId); const data = await models.EventAffiliate.create({ ...req.body, eventId: req.params.eventId }); res.status(201).json({ data }); },
+    addOffering: async (req, res) => { const event = await permissions.assertManageEvent(req.userId, req.params.eventId); assertEventEditable(event); const data = await models.Offering.create({ ...req.body, eventId: req.params.eventId }); res.status(201).json({ data }); },
+    addEventAffiliate: async (req, res) => { const event = await permissions.assertManageEvent(req.userId, req.params.eventId); assertEventEditable(event); const data = await models.EventAffiliate.create({ ...req.body, commissionBps: req.body.commissionBps ?? 0, eventId: req.params.eventId }); res.status(201).json({ data }); },
     updateGuestlistCapacity: async (req, res) => {
       await permissions.assertManageEvent(req.userId, req.params.eventId);
       const data = await models.Event.sequelize.transaction(async (transaction) => {
         const event = await models.Event.findByPk(req.params.eventId, { transaction, lock: transaction.LOCK.UPDATE });
         if (!event) throw notFound('Event');
+        assertEventEditable(event);
         const used = Number(await models.GuestlistEntry.sum('partySize', { where: { eventId: event.id, eventAffiliateId: null, status: ['confirmed', 'checked_in'] }, transaction })) || 0;
         if (req.body.guestlistCapacity < used) throw conflict(`Direct guestlist already has ${used} approved guests`);
         const before = { guestlistCapacity: event.guestlistCapacity };
@@ -35,7 +44,8 @@ function createManagementController({ models, permissions }) {
     updateAffiliateGuestlistAllocation: async (req, res) => {
       const event = await permissions.assertManageEvent(req.userId, req.params.eventId);
       const data = await models.Event.sequelize.transaction(async (transaction) => {
-        await models.Event.findByPk(event.id, { transaction, lock: transaction.LOCK.UPDATE });
+        const lockedEvent = await models.Event.findByPk(event.id, { transaction, lock: transaction.LOCK.UPDATE });
+        assertEventEditable(lockedEvent);
         const affiliate = await models.EventAffiliate.findOne({ where: { id: req.params.eventAffiliateId, eventId: event.id }, transaction, lock: transaction.LOCK.UPDATE });
         if (!affiliate) throw notFound('Event promoter');
         const parent = req.body.guestlistAllocation === null && affiliate.orgAffiliateId ? await models.OrgAffiliate.findByPk(affiliate.orgAffiliateId, { transaction, lock: transaction.LOCK.UPDATE }) : null;

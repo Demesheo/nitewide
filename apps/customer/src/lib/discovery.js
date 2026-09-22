@@ -95,6 +95,7 @@ export function filterUpcomingWeek(events, filters, now = new Date()) {
 export function availableQuantity(offering, now = new Date()) {
   if (
     offering.isActive === false ||
+    (offering.saleState && offering.saleState !== 'on_sale') ||
     (offering.salesStartAt && new Date(offering.salesStartAt) > now) ||
     (offering.salesEndAt && new Date(offering.salesEndAt) < now)
   )

@@ -7,6 +7,7 @@ const { createCheckoutService } = require('../services/checkout-service');
 const { createGuestlistService } = require('../services/guestlist-service');
 const { createPasswordRecord } = require('../services/auth-service');
 const { importPoshSnapshot } = require('./posh-importer');
+const { addDemoGuestlists } = require('./seed-guestlists');
 const poshSnapshot = require('./fixtures/posh-orlando-2026-09-21');
 
 const demoPassword = 'NitewideDemo!2026';
@@ -139,6 +140,7 @@ async function seed() {
         latitude: venue.latitude, longitude: venue.longitude, geo: { type: 'Point', coordinates: [venue.longitude, venue.latitude] }, privacy: 'public',
       });
       const manager = managerUsersByVenue[venueIndex][0];
+      await organization.update({ locationId: location.id });
       const venuePromoters = promoterUsers.slice(venueIndex * 2, venueIndex * 2 + 2);
       await models.OrganizationOwner.bulkCreate([
         { organizationId: organization.id, userId: ids.owner, role: 'owner' },
@@ -224,6 +226,7 @@ async function seed() {
     if (config.NODE_ENV !== 'production' && !process.argv.includes('--skip-posh')) {
       console.log('Verified Orlando demo events:', await importPoshSnapshot({ sequelize, models, config, snapshot: poshSnapshot, apply: true }));
     }
+    console.log('Guestlist demo fixtures:', await addDemoGuestlists({ models }));
     const counts = {
       users: await models.User.count(), organizations: await models.Organization.count(), events: await models.Event.count(),
       offerings: await models.Offering.count(), orgAffiliates: await models.OrgAffiliate.count(),

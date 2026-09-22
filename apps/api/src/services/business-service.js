@@ -1,4 +1,6 @@
-const { Op, Transaction } = require("sequelize");
+const { Op, Transaction, fn, col } = require("sequelize");
+const { randomUUID } = require('node:crypto');
+const { assertEventEditable, eventFinished } = require('../domain/event-policy');
 const {
   forbidden,
   conflict,
@@ -152,7 +154,7 @@ function createBusinessService({
   const canManage = (ctx, event) =>
     Boolean(
       ctx.user.isInternalAdmin ||
-      event.creatorUserId === ctx.user.id ||
+      (!event.organizationId && event.creatorUserId === ctx.user.id) ||
       ctx.managedOrgIds.includes(event.organizationId),
     );
   async function workspace(userId, query) {
@@ -185,6 +187,7 @@ function createBusinessService({
     ];
     const organizations = await models.Organization.findAll({
       where: ctx.user.isInternalAdmin ? {} : { id: organizationIds },
+      include: [{ model: models.Location, as: 'location' }],
       order: [["name", "ASC"]],
     });
     const eventIds = events.map((e) => e.id);
@@ -236,6 +239,14 @@ function createBusinessService({
     ];
     const ownOrgIds = ctx.orgAffiliates.map((a) => a.id);
     const ownEventIds = ctx.eventAffiliates.map((a) => a.id);
+    const eventSales = await models.Order.findAll({
+      where: { eventId: eventIds, status: 'paid', currency: 'USD', [Op.or]: [
+        { eventId: managedEventIds }, { eventAffiliateId: ownEventIds }, { eventAffiliateId: null, orgAffiliateId: ownOrgIds },
+      ] },
+      attributes: ['eventId', [fn('SUM', col('subtotal_cents')), 'salesCents'], [fn('COUNT', col('id')), 'paidOrders']],
+      group: ['eventId'], raw: true,
+    });
+    const lifetimeSales = new Map(eventSales.map((row) => [row.eventId, { salesCents: Number(row.salesCents), paidOrders: Number(row.paidOrders) }]));
     const until = now();
     const since = new Date(until);
     since.setUTCDate(since.getUTCDate() - query.days + 1);
@@ -294,6 +305,7 @@ function createBusinessService({
         id: o.id,
         name: o.name,
         planTier: o.planTier,
+        location: o.location,
         canManage: Boolean(
           ctx.user.isInternalAdmin || ctx.managedOrgIds.includes(o.id),
         ),
@@ -302,7 +314,10 @@ function createBusinessService({
       events: events.map((e) => ({
         ...e.toJSON(),
         canManage: canManage(ctx, e),
-        offerings: e.offerings.map((o) => {
+        canEdit: canManage(ctx, e) && !eventFinished(e, now()),
+        lifetimeSales: lifetimeSales.get(e.id) || { salesCents: 0, paidOrders: 0 },
+        canReviewGuestlist: canManage(ctx, e) || ctx.eventAffiliates.some((affiliate) => affiliate.eventId === e.id),
+        offerings: [...e.offerings].sort((a, b) => a.sortOrder - b.sortOrder).map((o) => {
           const data = o.toJSON();
           delete data.accessCodeHash;
           if (!canManage(ctx, e)) delete data.quantitySold;
@@ -341,6 +356,8 @@ function createBusinessService({
             })
           : null;
         if (eventId && !event) throw notFound("Event");
+        if (event) assertEventEditable(event, now());
+        if (input.endsAt <= now() || input.status === 'completed') throw conflict('Create or edit events with a future end time. Past events are read-only.');
         if (event && event.organizationId !== input.organizationId)
           throw forbidden("Event organization cannot be changed");
         if (event && (input.version == null || input.version !== event.version))
@@ -409,11 +426,19 @@ function createBusinessService({
         const before = event
           ? { ...event.toJSON(), offerings: existing.map((o) => o.toJSON()) }
           : null;
-        // Copy on write: a shared venue location must not mutate other events.
+        // Venue addresses are controlled by the organization, never by editor input.
+        let venueLocation;
+        if (input.organizationId) {
+          const organization = await models.Organization.findByPk(input.organizationId, { transaction });
+          const venueLocationId = event?.locationId || organization?.locationId;
+          venueLocation = venueLocationId ? await models.Location.findByPk(venueLocationId, { transaction }) : null;
+          if (!venueLocation) throw conflict('This organization needs a saved venue address before creating an event.');
+        }
+        // Independent locations are copied on write to preserve other events.
         const previousLocation = event?.locationId ? await models.Location.findByPk(event.locationId, { transaction }) : null;
-        const sameAddress = previousLocation && ['addressLine1', 'city', 'region', 'postalCode', 'countryCode'].every((key) => (previousLocation[key] || '') === (input.location[key] || ''));
+        const sameAddress = previousLocation && input.location && ['addressLine1', 'city', 'region', 'postalCode', 'countryCode'].every((key) => (previousLocation[key] || '') === (input.location[key] || ''));
         const coordinates = sameAddress ? { addressLine2: previousLocation.addressLine2, latitude: previousLocation.latitude, longitude: previousLocation.longitude, geo: previousLocation.geo } : {};
-        const location = await models.Location.create({ ...input.location, ...coordinates }, {
+        const location = venueLocation || await models.Location.create({ ...input.location, ...coordinates }, {
           transaction,
         });
         const {
@@ -422,6 +447,8 @@ function createBusinessService({
           version: _version,
           ...fields
         } = input;
+        fields.slug = event?.slug || `${input.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 150) || 'event'}-${randomUUID().slice(0, 8)}`;
+        fields.category = event?.category || 'other';
         const saved = event
           ? await event.update(
               { ...fields, locationId: location.id },
@@ -431,17 +458,19 @@ function createBusinessService({
               { ...fields, creatorUserId: userId, locationId: location.id },
               { transaction },
             );
+        const savedTiers = [];
         for (const [sortOrder, tier] of offerings.entries()) {
-          const { id, ...values } = tier;
+          const { id, releaseAfterIndex, ...values } = tier;
+          values.releaseAfterOfferingId = releaseAfterIndex == null ? null : savedTiers[releaseAfterIndex].id;
           if (id)
-            await byId
+            savedTiers.push(await byId
               .get(id)
-              .update({ ...values, sortOrder }, { transaction });
+              .update({ ...values, sortOrder }, { transaction }));
           else
-            await models.Offering.create(
+            savedTiers.push(await models.Offering.create(
               { ...values, eventId: saved.id, currency: "USD", sortOrder },
               { transaction },
-            );
+            ));
         }
         await models.AuditLog.create(
           {

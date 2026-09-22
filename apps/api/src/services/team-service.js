@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const { Op } = require('sequelize');
 const { forbidden, notFound, conflict } = require('../domain/errors');
+const { assertEventEditable } = require('../domain/event-policy');
 
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 function rosterPeople(leaders, employees, promoters) {
@@ -43,9 +44,37 @@ function createTeamService({ models, permissions }) {
     return { id: invitation.id, organizationName: organization.name, email, role: input.role, token, expiresAt: invitation.expiresAt };
   }
   async function invitation(token) {
-    const row = await models.TeamInvitation.findOne({ where: { tokenHash: hash(token), acceptedAt: null, expiresAt: { [Op.gt]: new Date() } }, include: [{ model: models.Organization, as: 'organization', attributes: ['id', 'name'] }] });
+    const row = await models.TeamInvitation.findOne({ where: { tokenHash: hash(token), acceptedAt: null, expiresAt: { [Op.gt]: new Date() } }, include: [{ model: models.Organization, as: 'organization', attributes: ['id', 'name'] }, { model: models.Event, as: 'event', attributes: ['id','title','endsAt','status'] }] });
     if (!row) throw notFound('Active invitation');
-    return { email: row.email, role: row.role, organizationName: row.organization.name, expiresAt: row.expiresAt };
+    if (row.eventId) assertEventEditable(row.event);
+    return { email: row.email, role: row.role, organizationName: row.organization?.name, eventId:row.eventId, eventTitle:row.event?.title, commissionBps:row.commissionBps, expiresAt: row.expiresAt };
+  }
+  async function eventInvitations(userId, eventId) {
+    await permissions.assertManageEvent(userId,eventId);
+    return models.TeamInvitation.findAll({where:{eventId,acceptedAt:null,expiresAt:{[Op.gt]:new Date()}},attributes:['id','email','expiresAt','commissionBps'],order:[['createdAt','DESC']]});
+  }
+  async function inviteEvent(userId, eventId, input) {
+    await permissions.assertManageEvent(userId,eventId);
+    return models.TeamInvitation.sequelize.transaction(async (transaction) => {
+      const event = await models.Event.findByPk(eventId,{transaction,lock:transaction.LOCK.UPDATE});
+      assertEventEditable(event);
+      const email = input.email.trim().toLowerCase();
+      const token = crypto.randomBytes(32).toString('base64url');
+      const expiresAt = new Date(Math.min(Date.now()+7*86400000,new Date(event.endsAt).getTime()));
+      // Renew pending invitations so repeated sends leave only one valid link.
+      const pending = await models.TeamInvitation.findOne({where:{eventId,email,acceptedAt:null},transaction,lock:transaction.LOCK.UPDATE});
+      const values = {tokenHash:hash(token),expiresAt,invitedByUserId:userId,commissionBps:input.commissionBps ?? 0};
+      const row = pending ? await pending.update(values,{transaction}) : await models.TeamInvitation.create({...values,eventId,organizationId:null,email,role:'affiliate'},{transaction});
+      await models.AuditLog.create({actorUserId:userId,organizationId:event.organizationId,entityType:'TeamInvitation',entityId:row.id,action:'event.promoter.invited',after:{eventId,email,commissionBps:values.commissionBps}},{transaction});
+      return {id:row.id,eventId,eventTitle:event.title,email,role:'affiliate',commissionBps:values.commissionBps,token,expiresAt,delivery:'manual'};
+    });
+  }
+  async function revokeEvent(userId,eventId,invitationId) {
+    await permissions.assertManageEvent(userId,eventId);
+    const row = await models.TeamInvitation.findOne({where:{id:invitationId,eventId,acceptedAt:null}});
+    if (!row) throw notFound('Pending invitation');
+    await row.update({expiresAt:new Date(0)});
+    return {revoked:true};
   }
   async function revoke(userId, organizationId, invitationId) {
     await assertManager(userId, organizationId);
@@ -68,11 +97,28 @@ function createTeamService({ models, permissions }) {
   }
   async function accept(userId, token) {
     return models.TeamInvitation.sequelize.transaction(async (transaction) => {
+      // Use the same event → invitation lock order as issuing/renewing a link.
+      const scope = await models.TeamInvitation.findOne({where:{tokenHash:hash(token)},transaction});
+      if (scope?.eventId) await models.Event.findByPk(scope.eventId,{transaction,lock:transaction.LOCK.UPDATE});
       const row = await models.TeamInvitation.findOne({ where: { tokenHash: hash(token) }, transaction, lock: transaction.LOCK.UPDATE });
       if (!row || row.acceptedAt || row.expiresAt <= new Date()) throw notFound('Active invitation');
       const user = await models.User.findByPk(userId, { transaction });
       if (!user || user.email.toLowerCase() !== row.email) throw forbidden('Sign in with the invited email address');
-      if (row.role === 'employee') {
+      if (row.eventId) {
+        if (!user.isActive || row.role !== 'affiliate') throw forbidden();
+        const event = await models.Event.findByPk(row.eventId,{transaction,lock:transaction.LOCK.UPDATE});
+        assertEventEditable(event);
+        await permissions.assertManageEvent(row.invitedByUserId,row.eventId);
+        const inviter = await models.User.findByPk(row.invitedByUserId,{transaction});
+        if (!inviter?.isActive) throw forbidden('The inviter no longer has access');
+        const [assignment,created] = await models.EventAffiliate.findOrCreate({where:{eventId:row.eventId,userId},defaults:{code:`NW-${crypto.randomUUID()}`,commissionBps:row.commissionBps,guestlistAllocation:0,status:'active'},transaction});
+        const before = created ? null : assignment.toJSON();
+        if (!created) await assignment.update({status:'active',commissionBps:row.commissionBps},{transaction});
+        await models.AuditLog.create({actorUserId:userId,organizationId:event.organizationId,entityType:'EventAffiliate',entityId:assignment.id,action:'event.promoter.invitation_terms_accepted',before,after:assignment.toJSON()},{transaction});
+        await row.update({acceptedAt:new Date(),acceptedByUserId:userId},{transaction});
+        await models.AuditLog.create({actorUserId:userId,organizationId:event.organizationId,entityType:'TeamInvitation',entityId:row.id,action:'event.promoter.accepted',after:{eventId:row.eventId,userId}},{transaction});
+        return {eventId:row.eventId,role:'affiliate'};
+      } else if (row.role === 'employee') {
         const membership = await models.OrganizationEmployee.findOne({ where: { organizationId: row.organizationId, userId }, transaction });
         if (membership) await membership.update({ status: 'active' }, { transaction });
         else await models.OrganizationEmployee.create({ organizationId: row.organizationId, userId, status: 'active' }, { transaction });
@@ -89,6 +135,6 @@ function createTeamService({ models, permissions }) {
       return { organizationId: row.organizationId, role: row.role };
     });
   }
-  return { roster, invite, invitation, accept, revoke, resend };
+  return { roster, invite, invitation, accept, revoke, resend, inviteEvent, eventInvitations, revokeEvent };
 }
 module.exports = { createTeamService, rosterPeople };

@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Field, SelectField } from "./controls";
-import { editorDraft, eventPayload, slugify } from "@/lib/business";
+import { editorDraft, eventPayload } from "@/lib/business";
 import { api } from "@/lib/api";
 import { ImageUpload } from "./ImageUpload";
 
@@ -30,13 +30,12 @@ export function EventEditor({
   onClose,
   onSaved,
 }) {
-  const [draft, setDraft] = useState(() =>
-    editorDraft(event, defaultOrganization),
-  );
+  const [draft, setDraft] = useState(() => { const initial = editorDraft(event, defaultOrganization, organizations); initial.offerings = initial.offerings.map((t) => ({ ...t, clientKey: t.id || crypto.randomUUID() })); return initial; });
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  const organization = organizations.find((o) => o.id === draft.organizationId);
   const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
   const loc = (key, value) =>
     setDraft((d) => ({ ...d, location: { ...d.location, [key]: value } }));
@@ -51,6 +50,7 @@ export function EventEditor({
     e.preventDefault();
     if (uploading) return;
     setError("");
+    if (draft.organizationId && !(event?.location || organization?.location)) { setError('This organization needs a saved venue address before creating an event.'); return; }
     if (step < 2) {
       setStep(step + 1);
       return;
@@ -58,6 +58,8 @@ export function EventEditor({
     setBusy(true);
     try {
       const payload = eventPayload(draft, event?.version);
+      delete payload.slug;
+      delete payload.category;
       await api(`/business/events${event ? `/${event.id}` : ""}`, session, {
         method: event ? "PUT" : "POST",
         body: JSON.stringify(payload),
@@ -132,9 +134,11 @@ export function EventEditor({
                     label="Organization"
                     disabled={Boolean(event)}
                     value={draft.organizationId || "independent"}
-                    onChange={(v) =>
-                      set("organizationId", v === "independent" ? null : v)
-                    }
+                    onChange={(v) => {
+                      const organizationId = v === 'independent' ? null : v;
+                      const location = organizations.find((o) => o.id === organizationId)?.location;
+                      setDraft((d) => ({ ...d, organizationId, location: location ? {...location} : { name:'', addressLine1:'', city:'', region:'FL', postalCode:'', countryCode:'US', timezone:'America/New_York', privacy:'public' } }));
+                    }}
                     options={[
                       ["independent", "Independent event · owned by you"],
                       ...organizations
@@ -156,27 +160,9 @@ export function EventEditor({
                     value={draft.title}
                     onChange={(e) => {
                       set("title", e.target.value);
-                      if (!event) set("slug", slugify(e.target.value));
                     }}
                   />
                 </div>
-                <Field
-                  id="event-slug"
-                  label="URL slug"
-                  required
-                  pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                  maxLength={200}
-                  value={draft.slug}
-                  onChange={(e) => set("slug", e.target.value)}
-                />
-                <Field
-                  id="event-category"
-                  label="Category"
-                  required
-                  maxLength={80}
-                  value={draft.category}
-                  onChange={(e) => set("category", e.target.value)}
-                />
                 <div className="full">
                   <Field
                     id="event-summary"
@@ -214,27 +200,21 @@ export function EventEditor({
                   onChange={(e) => set("endsAt", e.target.value)}
                 />
                 <p className="hint full">
-                  Times use the location’s time zone, set in the next step.
+                  Enter the event’s local start and end times.
                   Overnight events should end on the following day.
                 </p>
               </div>
             )}
             {step === 1 && (
               <div className="form-grid">
+                {draft.organizationId && <div className="venue-address-card full"><MapPin size={22}/><div><strong>{draft.location.name || organization?.name}</strong><p>{draft.location.addressLine1}</p><p>{[draft.location.city,draft.location.region,draft.location.postalCode].filter(Boolean).join(', ')}</p><small>Uses venue’s saved address</small></div></div>}
+                {!draft.organizationId && <>
                 <Field
                   id="venue-name"
                   label="Venue / location name"
                   value={draft.location.name || ""}
                   onChange={(e) => loc("name", e.target.value)}
                   maxLength={180}
-                />
-                <Field
-                  id="venue-timezone"
-                  label="Time zone"
-                  required
-                  placeholder="America/New_York"
-                  value={draft.location.timezone}
-                  onChange={(e) => loc("timezone", e.target.value)}
                 />
                 <div className="full">
                   <Field
@@ -289,6 +269,7 @@ export function EventEditor({
                     ["private", "Private"],
                   ]}
                 />
+                </>}
                 <Field
                   id="guestlist-capacity"
                   label="Direct guestlist limit (people)"
@@ -320,8 +301,8 @@ export function EventEditor({
               <>
                 <div className="section-heading">
                   <div>
-                    <h3>Build your offering</h3>
-                    <p>Flexible tiers. One seamless checkout. Prices in USD.</p>
+                    <h3>Build your ticket ladder</h3>
+                    <p>Open tiers now, on a schedule, or after an earlier tier sells out. Prices in USD.</p>
                   </div>
                   <Button
                     type="button"
@@ -332,9 +313,10 @@ export function EventEditor({
                       set("offerings", [
                         ...draft.offerings,
                         {
+                          clientKey: crypto.randomUUID(),
                           name: "",
                           kind: "ticket",
-                          price: 10,
+                          price: Math.max(10, ...draft.offerings.filter((t) => t.kind === 'ticket').map((t) => Number(t.price) || 0)) + 5,
                           quantityTotal: 100,
                           inventoryMode: "finite",
                           entriesPerUnit: 1,
@@ -352,7 +334,7 @@ export function EventEditor({
                   </Button>
                 </div>
                 {draft.offerings.map((t, i) => (
-                  <fieldset className="tier-card" key={t.id || i}>
+                  <fieldset className="tier-card" key={t.clientKey}>
                     <legend>
                       Tier {i + 1}
                       {t.quantitySold > 0 ? ` · ${t.quantitySold} sold` : ""}
@@ -371,7 +353,7 @@ export function EventEditor({
                         label="Type"
                         disabled={t.quantitySold > 0}
                         value={t.kind}
-                        onChange={(v) => tier(i, "kind", v)}
+                        onChange={(v) => { tier(i, "kind", v); if (v !== 'ticket') tier(i, 'releaseAfterKey', ''); }}
                         options={[
                           ["ticket", "Ticket"],
                           ["package", "Package"],
@@ -446,6 +428,10 @@ export function EventEditor({
                         value={t.maxPerOrder}
                         onChange={(e) => tier(i, "maxPerOrder", e.target.value)}
                       />
+                      {t.kind === 'ticket' && <div className="full"><SelectField id={`tier-release-${i}`} label="Release rule" value={t.releaseAfterKey || 'immediate'} onChange={(v) => tier(i, 'releaseAfterKey', v === 'immediate' ? '' : v)} options={[
+                        ['immediate', 'No sellout requirement'],
+                        ...draft.offerings.slice(0, i).filter((p) => p.kind === 'ticket' && p.inventoryMode === 'finite' && Number(p.price) < Number(t.price) && p.isActive).map((p) => [p.clientKey, `After ${p.name || 'earlier tier'} sells out`]),
+                      ]}/></div>}
                       <Field
                         id={`tier-sales-start-${i}`}
                         label="Sales open (venue time, optional)"
@@ -485,6 +471,7 @@ export function EventEditor({
                         />
                         Available for sale
                       </label>
+                      {t.releaseAfterKey && <p className="hint full">Opens when the selected lower-priced tier sells out. Any date window must also be open.</p>}
                     </div>
                     {!t.id && draft.offerings.length > 1 && (
                       <Button
@@ -494,7 +481,7 @@ export function EventEditor({
                         onClick={() =>
                           set(
                             "offerings",
-                            draft.offerings.filter((_, index) => i !== index),
+                            draft.offerings.filter((_, index) => i !== index).map((p) => p.releaseAfterKey === t.clientKey ? { ...p, releaseAfterKey: '' } : p),
                           )
                         }
                       >
@@ -522,7 +509,6 @@ export function EventEditor({
                       ...(event
                         ? [
                             ["cancelled", "Cancelled"],
-                            ["completed", "Completed"],
                           ]
                         : []),
                     ]}
