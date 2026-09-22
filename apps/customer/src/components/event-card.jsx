@@ -4,6 +4,7 @@ import { availableQuantity, cityName, money } from "../lib/discovery";
 import { eventDate, eventTime } from "../lib/presentation";
 import { EventArtwork } from "./event-artwork";
 import { isPremiumHost } from '../lib/premium-host';
+import { eventVenueName } from '../lib/event-venue';
 export function EventCard({ event, saved, onSave, onOpen, children, actionLabel }) {
   const offerings =
     event.offerings?.filter((o) => availableQuantity(o) > 0) || [];
@@ -38,7 +39,7 @@ export function EventCard({ event, saved, onSave, onOpen, children, actionLabel 
           <time dateTime={event.startsAt}>{eventDate(event)} <span>· {eventTime(event)}</span></time>
         </p>
         <p className="venue-name">
-          {event.organization?.name || "Independent experience"}
+          {eventVenueName(event)}
         </p>
         <h3 className="card-title">
           <button

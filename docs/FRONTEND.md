@@ -95,9 +95,9 @@ Props: `open`, `onOpenChange`, `onSuccess(session)`. Uses shadcn Dialog for focu
 
 The form has three fields: **Where to?**, **When?**, and **Search**. Search is a generic, case-insensitive, all-words match over public title, summary, description, venue/organization, city/region, category, and offering name/description. City/date/type/price filters still narrow it. The form submission reads named fields explicitly; filters also update on edits.
 
-An empty selected date displays that date and explains the lack of matching experiences. The following section shows **selected date + 1 through selected date + 7, inclusive**; for September 21, that is September 22–28. It preserves city, query, category, and maximum starting price, sorts by earliest start, and supports loading more cards. If the whole week is empty, it explicitly says so. It never silently shows events outside the window. **All upcoming dates** is an explicit user action that removes the date restriction and resets query/type/price.
+Discover opens with **Next 7 days**: today in the browser's local calendar through today + 6, inclusive. For September 22, that is September 22–28. The date input starts empty to represent this default range; selecting a date switches to that exact day, including dates outside the default week. Clearing the date restores the seven-day range without clearing the city or search. `discoveryDateRange()` and `filterDiscoveryEvents()` keep this policy limited to Discover; Saved, Booked, Connections, Business, and Admin are unchanged. Pagination still exposes every matching result.
 
-`upcomingWeekRange()` does calendar arithmetic in UTC to avoid DST changing window boundaries. Comparisons use each event's `location.timezone` via `eventDateKey()`, falling back to browser local time when absent. Expired events are excluded. The hero feature remains a separately labeled upcoming highlight for the city, independent of the search date.
+If an explicitly selected date has no matches, an explanation precedes a separate upcoming section for **selected date + 1 through selected date + 7**. No-match default weeks show a clear empty state rather than expanding beyond their window. Both ranges use calendar arithmetic to avoid DST boundary shifts and compare each event's venue-local start date (`eventDateKey()`). Expired events are excluded, city/search remain applied, and Premium hosts lead within each chronological day. Regression coverage: `test/discovery-week.test.js` and `test/discovery.test.js`.
 
 ### Event details and booking
 
@@ -138,3 +138,6 @@ Artwork tests additionally cover uploaded-image priority, missing/broken images,
 5. Inspect desktop and mobile widths for overflow, readable text, visible focus, and a correctly themed dialog/search form.
 
 No production payment behavior or backend fee policy should be changed solely to adjust presentation.
+# Venue identity
+
+Customer event cards, booking cards, ticket details, Connections, and artwork use the event's physical `location.name` before the parent `organization.name`. Room 22 remains Room 22 even when Proper owns it. Venue-specific fallback photography never borrows another venue's image merely because they share an owner. Organization plan entitlements still determine Premium styling.

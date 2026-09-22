@@ -232,6 +232,7 @@ async function seed() {
       console.log('Verified Orlando demo events:', await importPoshSnapshot({ sequelize, models, config, snapshot: poshSnapshot, apply: true }));
       const expansion = require('./fixtures/posh-orlando-2026-09-22');
       await require('./seed-venue-expansion').provisionDemoVenues({ sequelize, models, config, snapshot: expansion, apply: true });
+      await require('./replace-room22-friday').replaceRoom22Friday({ sequelize, models, config, apply: true });
       console.log('Additional Orlando demo events:', await importPoshSnapshot({ sequelize, models, config, snapshot: expansion, apply: true }));
     }
     console.log('Guestlist demo fixtures:', await addDemoGuestlists({ models }));

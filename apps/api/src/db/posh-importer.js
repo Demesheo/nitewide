@@ -187,4 +187,4 @@ async function importPoshSnapshot({ sequelize, models: m, config, snapshot, appl
   });
   return report;
 }
-module.exports = { importPoshSnapshot, validateSnapshot, upcomingEvents, stableId, assertLocalDemoDatabase, readLimitedImage, demoOfferings };
+module.exports = { importPoshSnapshot, validateSnapshot, upcomingEvents, stableId, assertLocalDemoDatabase, readLimitedImage, demoOfferings, prepareImage, DEMO_NOTICE };

@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const { DomainError, forbidden } = require('../domain/errors');
 const { activeEventAffiliates } = require('./event-affiliate-scope');
+const { venueKey, venueOptions, filterVenues } = require('./venue-scope');
 
 const json = (record) => record?.toJSON ? record.toJSON() : record;
 const amount = (value) => Number(value || 0);
@@ -12,13 +13,15 @@ function resolveRange(query, now = new Date()) {
   return { startDate, endDate, since: new Date(`${startDate}T00:00:00Z`), until: new Date(Date.parse(`${endDate}T00:00:00Z`) + 86400000), timezone: 'UTC' };
 }
 
-function aggregateHierarchy(eventsInput, ordersInput, { admin = false, includeCustomers = admin, search = '' } = {}) {
+function aggregateHierarchy(eventsInput, ordersInput, { admin = false, includeCustomers = admin, search = '', venueEntities = false } = {}) {
+  const groupEntity = event => venueEntities && event.organization && event.location?.name
+    ? { id: venueKey(event), label: event.location.name, kind: 'venue' } : entityFor(event);
   const events = eventsInput.map(json);
   const orders = ordersInput.map(json);
   const term = search.trim().toLowerCase();
   const eligible = events.filter((event) => {
     if (!term) return true;
-    const entity = entityFor(event);
+    const entity = groupEntity(event);
     const haystack = [regionKey(event.location), entity.label, event.title, event.category, event.summary].join(' ').toLowerCase();
     return haystack.includes(term) || (admin && orders.some((order) => order.eventId === event.id && [order.buyer?.displayName, order.buyer?.email].join(' ').toLowerCase().includes(term)));
   });
@@ -31,7 +34,7 @@ function aggregateHierarchy(eventsInput, ordersInput, { admin = false, includeCu
   const children = new Map();
   const addChild = (parent, child) => { if (!children.has(parent)) children.set(parent, new Set()); children.get(parent).add(child); };
   for (const event of eligible) {
-    const region = regionKey(event.location); const entity = entityFor(event);
+    const region = regionKey(event.location); const entity = groupEntity(event);
     const regionId = `region:${region}`; const entityId = `${regionId}:entity:${entity.id}`; const eventId = `event:${event.id}`;
     const r = get(regionId, region, { level: 'region', region });
     const o = get(entityId, entity.label, { level: 'entity', region, entityId: entity.id, kind: entity.kind });
@@ -42,7 +45,7 @@ function aggregateHierarchy(eventsInput, ordersInput, { admin = false, includeCu
   const daily = new Map(); const category = new Map(); const offering = new Map(); const customer = new Map();
   for (const order of orders) {
     if (!eventIds.has(order.eventId)) continue;
-    const event = byEvent.get(order.eventId); const region = regionKey(event.location); const entity = entityFor(event);
+    const event = byEvent.get(order.eventId); const region = regionKey(event.location); const entity = groupEntity(event);
     const path = ['all', `region:${region}`, `region:${region}:entity:${entity.id}`, `event:${event.id}`];
     const units = (order.items || []).reduce((sum, item) => sum + amount(item.quantity), 0);
     const admissions = (order.items || []).reduce((sum, item) => sum + amount(item.quantity) * amount(item.entriesPerUnitSnapshot), 0);
@@ -156,15 +159,17 @@ function createAnalyticsService({ models, permissions, now = () => new Date() })
     const accessWhere = admin || user.isInternalAdmin ? {} : { [Op.or]: [
       { creatorUserId: userId, organizationId: null }, { organizationId: { [Op.in]: [...managedOrgIds, ...employees.map((row) => row.organizationId), ...orgAffiliates.map((row) => row.organizationId)] } }, { id: { [Op.in]: currentEventAffiliates.map((row) => row.eventId) } },
     ] };
-    const rawEvents = await models.Event.findAll({ where: accessWhere, attributes: ['id', 'title', 'summary', 'category', 'status', 'startsAt', 'organizationId', 'creatorUserId'], include: [
-      { model: models.Location, as: 'location', attributes: ['city', 'region', 'countryCode'] },
+    const rawEvents = await models.Event.findAll({ where: accessWhere, attributes: ['id', 'title', 'summary', 'category', 'status', 'startsAt', 'organizationId', 'creatorUserId', 'locationId'], include: [
+      { model: models.Location, as: 'location', attributes: ['id', 'name', 'addressLine1', 'city', 'region', 'countryCode'] },
       { model: models.Organization, as: 'organization', attributes: ['id', 'name'], required: false },
       { model: models.User, as: 'creator', attributes: ['id', 'displayName'], required: false },
     ], limit: 5001 });
     if (rawEvents.length > 5000) throw new DomainError('Narrow the report: more than 5,000 events are in scope', { status: 422 });
     const allEvents = rawEvents.map(json).filter((event) => event.status !== 'draft' || admin || user.isInternalAdmin || managedOrgIds.has(event.organizationId) || (!event.organizationId && event.creatorUserId === userId) || currentEventAffiliates.some((affiliate) => affiliate.eventId === event.id));
     const options = { regions: [...new Set(allEvents.map((event) => regionKey(event.location)))].sort(), organizations: [...new Map(allEvents.map((event) => { const entity = entityFor(event); return [entity.kind === 'creator' ? 'independent' : entity.id, { id: entity.kind === 'creator' ? 'independent' : entity.id, label: entity.kind === 'creator' ? 'Independent creators' : entity.label }]; })).values()].sort((a, b) => a.label.localeCompare(b.label)) };
-    const events = allEvents.filter((event) => (!query.regions.length || query.regions.includes(regionKey(event.location))) && (!query.organizationIds.length || query.organizationIds.includes(event.organizationId || 'independent')));
+    const selectedEvents = allEvents.filter((event) => (!query.regions.length || query.regions.includes(regionKey(event.location))) && (!query.organizationIds.length || query.organizationIds.includes(event.organizationId || 'independent')));
+    options.venues = venueOptions(selectedEvents).map(({ id, label, organizationId }) => ({ id, label, organizationId }));
+    const events = filterVenues(selectedEvents, query.venueIds);
     const eventIds = events.map((event) => event.id);
     if (!admin) {
       const historical = await models.EventAffiliate.findAll({ where: { userId, eventId: { [Op.in]: eventIds } }, attributes: ['id'] });
@@ -198,7 +203,7 @@ function createAnalyticsService({ models, permissions, now = () => new Date() })
     const refById = new Map([...orgRefs, ...eventRefs].map((raw) => { const ref = json(raw); return [ref.id, ref]; }));
     const matchedEvents = query.search ? events.filter((event) => {
       const term = query.search.toLowerCase();
-      return [regionKey(event.location), entityFor(event).label, event.title, event.category, event.summary].join(' ').toLowerCase().includes(term) || orders.some((order) => {
+      return [regionKey(event.location), entityFor(event).label, event.location?.name, event.title, event.category, event.summary].join(' ').toLowerCase().includes(term) || orders.some((order) => {
         if (order.eventId !== event.id) return false;
         const ref = refById.get(order.eventAffiliateId || order.orgAffiliateId);
         return [order.buyer?.displayName, order.buyer?.email, ref?.user?.displayName].filter(Boolean).join(' ').toLowerCase().includes(term);
@@ -219,7 +224,7 @@ function createAnalyticsService({ models, permissions, now = () => new Date() })
       const inSelection = ref.eventId ? matchedEventIds.has(ref.eventId) : matchedOrganizationIds.has(ref.organizationId);
       return inSelection && (user.isInternalAdmin || ref.userId === userId || managedOrgIds.has(ref.organizationId || event?.organizationId) || (!event?.organizationId && event?.creatorUserId === userId));
     }).map((raw) => { const ref = json(raw); const event = eventById.get(ref.eventId); return { ...ref, role: event && !event.organizationId && event.creatorUserId === ref.userId ? 'Creator' : undefined }; });
-    return { range: { startDate: range.startDate, endDate: range.endDate, timezone: 'UTC', currency: 'USD' }, options, ...aggregateHierarchy(matchedEvents, visibleOrders, { admin, includeCustomers: true }), ...(admin ? {} : { referrals: aggregateReferrals(visibleOrders, scopedRefs, scopedMemberships.filter((row) => matchedOrganizationIds.has(row.organizationId)), scopedEmployees.filter((row) => matchedOrganizationIds.has(row.organizationId)), visibleGuests) }), scope: admin ? 'platform' : managedOrgIds.size || user.isInternalAdmin || allEvents.some((event) => !event.organizationId && event.creatorUserId === userId) ? 'managed_or_mixed' : 'own' };
+    return { range: { startDate: range.startDate, endDate: range.endDate, timezone: 'UTC', currency: 'USD' }, options, ...aggregateHierarchy(matchedEvents, visibleOrders, { admin, includeCustomers: true, venueEntities: !admin }), ...(admin ? {} : { referrals: aggregateReferrals(visibleOrders, scopedRefs, scopedMemberships.filter((row) => matchedOrganizationIds.has(row.organizationId)), scopedEmployees.filter((row) => matchedOrganizationIds.has(row.organizationId)), visibleGuests) }), scope: admin ? 'platform' : managedOrgIds.size || user.isInternalAdmin || allEvents.some((event) => !event.organizationId && event.creatorUserId === userId) ? 'managed_or_mixed' : 'own' };
   }
   return { adminReport: (userId, query) => report(userId, query, true), businessReport: (userId, query) => report(userId, query, false) };
 }

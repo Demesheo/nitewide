@@ -38,7 +38,7 @@ import { ConnectionsPage } from './components/connections-page';
 import { EventConnectionPicker } from './components/event-connection-picker';
 import { useConnections } from './lib/use-connections';
 import { focusEventDialogStart, openEventDialogAtTop } from './lib/dialog-focus';
-import { detectCurrentCity, localDateInputValue } from "./discovery-defaults";
+import { detectCurrentCity } from "./discovery-defaults";
 import { api } from "./lib/api";
 import { businessLink } from './lib/business-link';
 import { referralCodeForEvent, referralFromSearch } from './lib/referral';
@@ -47,10 +47,10 @@ import {
   offeringAvailabilityLabel,
   checkoutTotal,
   cityName,
-  filterEvents,
+  filterDiscoveryEvents,
+  discoveryDateRange,
   filterUpcomingWeek,
   upcomingWeekRange,
-  compareEventListings,
   money,
   readStorage,
   writeStorage,
@@ -80,7 +80,7 @@ export default function App() {
   const [events, setEvents] = useState([]),
     [loadState, setLoadState] = useState("loading");
   const [city, setCity] = useState(""),
-    [date, setDate] = useState(localDateInputValue),
+    [date, setDate] = useState(""),
     [query, setQuery] = useState("");
   const [saved, setSaved] = useState(() => readStorage("nitewide.saved", [])),
     [view, setView] = useState("discover");
@@ -215,11 +215,11 @@ export default function App() {
     query,
     savedIds: view === "saved" ? saved : null,
   };
-  const results = filterEvents(events, filters);
+  const results = filterDiscoveryEvents(events, filters);
+  const discoveryRange = discoveryDateRange(date);
   const savedUpcoming = upcomingSavedEvents(events, saved);
   const weekRange = date ? upcomingWeekRange(date) : null;
   const weeklyEvents = date ? filterUpcomingWeek(events, filters) : [];
-  results.sort(compareEventListings);
   const offering = selected?.offerings?.find((o) => o.id === offeringId);
   const totals = checkoutTotal(offering?.priceCents || 0, quantity);
   function openEvent(event) {
@@ -517,7 +517,7 @@ export default function App() {
             <label className="search-field date-field">
               <CalendarDays />
               <span>
-                <b>WHEN?</b>
+                <b>{date ? 'WHEN?' : 'NEXT 7 DAYS'}</b>
                 <input
                   aria-label="Event date"
                   name="date"
@@ -529,7 +529,7 @@ export default function App() {
               {date && (
                 <button
                   type="button"
-                  aria-label="Clear date for all upcoming events"
+                  aria-label="Reset to next 7 days"
                   onClick={() => setDate("")}
                 >
                   <X size={14} />
@@ -586,7 +586,7 @@ export default function App() {
                       month: "short",
                       day: "numeric",
                     })
-                  : "All upcoming dates"}
+                  : `Next 7 days · ${calendarLabel(discoveryRange.start)} – ${calendarLabel(discoveryRange.end)}`}
               </>
             )}
           </div>
@@ -632,7 +632,13 @@ export default function App() {
                 </Button>
               )}
             </>
-          ) : null}
+          ) : (
+            <div className="empty-state">
+              <CalendarDays />
+              <h3>{date ? 'No experiences on this date.' : 'No experiences in the next 7 days.'}</h3>
+              <p>{date ? 'Upcoming events for the following week are shown below.' : 'Try another date, city, or search.'}</p>
+            </div>
+          )}
         </section>
         {loadState === "ready" &&
           date &&

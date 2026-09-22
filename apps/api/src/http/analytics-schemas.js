@@ -10,6 +10,7 @@ const analyticsQuery = z.object({
   endDate: date.optional(),
   regions: list(z.string().trim().min(1).max(160)),
   organizationIds: list(z.union([z.string().uuid(), z.literal('independent')])),
+  venueIds: list(z.string().regex(/^[a-f0-9]{64}$/)),
   search: z.string().trim().max(120).default(''),
 }).superRefine((value, context) => {
   if (Boolean(value.startDate) !== Boolean(value.endDate)) context.addIssue({ code: 'custom', message: 'Choose both start and end dates', path: ['startDate'] });

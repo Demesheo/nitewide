@@ -8,7 +8,7 @@ test('Discover stays focused on location, date and search without radar or extra
   assert.doesNotMatch(app, /ON OUR RADAR|className="hero-art"|className="category-list"|className="expanded-filters"|setCategory|setPriceCap|setFiltersOpen/);
   assert.match(app, /Tickets, tables, guestlists\. Your night starts here\./);
   for (const name of ['city', 'date', 'query']) assert.ok(app.includes(`name="${name}"`));
-  assert.match(app, /results\.sort\(compareEventListings\)/);
+  assert.match(app, /filterDiscoveryEvents\(events, filters\)/);
   assert.match(app, /filterUpcomingWeek\(events, filters\)/);
   assert.doesNotMatch(app, /Explore all upcoming events|We couldn’t find any experiences matching|All upcoming(?: dates)? <|KEEP THE NIGHT GOING/);
   assert.match(app, /Upcoming this week\./);

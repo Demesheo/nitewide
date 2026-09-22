@@ -27,9 +27,12 @@ const normalize = (value) => typeof value === 'string' ? value.trim().toLowerCas
 export function curatedVenue(event) {
   const { organization, location } = event;
   // Avoid applying Orlando venue imagery to same-name organizations elsewhere.
-  if (!organization || normalize(location?.city) !== 'orlando') return null;
+  if (normalize(location?.city) !== 'orlando') return null;
   if (location.region && !['fl', 'florida'].includes(normalize(location.region))) return null;
   if (location.countryCode && normalize(location.countryCode) !== 'us') return null;
+  // Never borrow artwork from a different venue owned by the same organization.
+  if (normalize(location.name)) return VENUE_ARTWORK.find(venue => venue.names.some(name => normalize(name) === normalize(location.name))) || null;
+  if (!organization) return null;
   const slug = normalize(organization.slug);
   return VENUE_ARTWORK.find((venue) => slug
     ? venue.slug === slug

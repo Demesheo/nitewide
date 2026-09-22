@@ -175,3 +175,14 @@ Browser smoke checklist: invalid/valid sign-in; organization and period selectio
 This is a functioning local business MVP, not a claim of launch readiness. Existing payment endpoints still accept development payment confirmations; the business UI does not invoke payment/settlement. Ship verified Stripe webhooks/Connect before real-money use. Also add managed/secure-cookie auth, recovery/verification/revocation, rate limiting, stronger production-secret enforcement, pagination/aggregates, overall occupancy enforcement, role administration UI, fine-grained approval scopes, notification delivery, refund/cancellation operations, geocoding, S3/CDN image storage and moderation, real check-in UI, and Premium entitlement gates. No live payouts, SMS/email, billing, or CRM is simulated as complete in this app.
 
 Dependency check (2026-09-21): `npm audit` reports two moderate findings in the existing Sequelize → uuid chain (GHSA-w5hq-g745-h8pq). The suggested automatic fix downgrades Sequelize across major versions and was not applied. Track an upstream-compatible remediation separately; the upload dependencies do not introduce the reported chain.
+# Multi-venue organizations
+
+Organizations are ownership/permission containers; their event locations identify the physical venues. Proper and Room 22 share the Proper organization and authorized ownership/management, but remain separate venues.
+
+- Overview, Events, Guestlists, and Analytics offer a **Venues** multi-select when more than one authorized venue exists. Choose either venue, several, or clear the selection for all within the organization scope.
+- Organization changes clear venue selections. The options remain available when one venue is selected; single-venue workspaces do not show an unnecessary selector.
+- Workspace and analytics requests send repeated `venueIds` parameters. The server first enforces existing organization/event permissions, then intersects venue filters. Employees/promoters retain their own-data restrictions; knowing a venue key grants no access.
+- Business analytics drilldowns separate physical venues. Admin organization aggregation is unchanged. Duplicate imported Location rows with matching normalized names/addresses under the same organization share one stable venue key.
+- This is a reporting/event-list filter, not a new Venue entity or a change to event creation/address permissions. Existing events keep their saved locations; new organization events still use the organization's saved default location.
+
+Regression checks: `node --test apps/api/test/venue-scope.test.js`, `npm test --workspace @nitewide/business`, and the read-only seeded database check `RUN_DB_TESTS=1 node --test apps/api/test/venue-selection-integration.test.js`. The database check requires the refreshed Orlando fixtures and verifies owners/managers, either/both selections, report totals, and unrelated-manager isolation.

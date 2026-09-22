@@ -88,6 +88,7 @@ const eventEditor = z
     });
   });
 const reportQuery = z.object({
+  venueIds: z.preprocess(value => value === undefined ? [] : Array.isArray(value) ? value : [value], z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(100).default([])),
   organizationId: z.union([uuid, z.literal("independent")]).optional(),
   organizationIds: z.preprocess((value) => value === undefined ? [] : Array.isArray(value) ? value : [value], z.array(z.union([uuid, z.literal('independent')])).max(50).default([])),
   days: z.coerce.number().int().min(1).max(366).default(30),

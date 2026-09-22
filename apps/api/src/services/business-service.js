@@ -121,6 +121,7 @@ function aggregateSales(orders, events, affiliates, memberships, employees = [],
   };
 }
 
+const { venueOptions, filterVenues } = require('./venue-scope');
 function createBusinessService({
   models,
   permissions,
@@ -193,7 +194,9 @@ function createBusinessService({
         "Choose an organization to narrow this workspace (500 event limit)",
         { status: 422 },
       );
-    const events = foundEvents.filter((event) => event.status !== 'draft' || canManage(ctx, event) || ctx.eventAffiliates.some((affiliate) => affiliate.eventId === event.id));
+    const accessibleEvents = foundEvents.filter((event) => event.status !== 'draft' || canManage(ctx, event) || ctx.eventAffiliates.some((affiliate) => affiliate.eventId === event.id));
+    const venues = venueOptions(accessibleEvents);
+    const events = filterVenues(accessibleEvents, query.venueIds);
     const organizationIds = [
       ...new Set([
         ...ctx.orgIds,
@@ -329,6 +332,7 @@ function createBusinessService({
       return { date, salesCents: daily.get(date) || 0 };
     });
     return {
+      venues,
       organizations: organizations.map((o) => ({
         id: o.id,
         name: o.name,

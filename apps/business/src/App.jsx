@@ -404,6 +404,7 @@ export default function App() {
   const [inviteToken, setInviteToken] = useState(() => new URLSearchParams(window.location.search).get('invite'));
   const [page, setPage] = useState("overview");
   const [selectedOrganizations, setSelectedOrganizations] = useState([]);
+  const [selectedVenues, setSelectedVenues] = useState([]);
   const [hasIndependentWorkspace, setHasIndependentWorkspace] = useState(false);
   const [days, setDays] = useState("30");
   const [data, setData] = useState(null);
@@ -423,6 +424,7 @@ export default function App() {
     setData(null);
     setEditor(null);
     setSelectedOrganizations([]);
+    setSelectedVenues([]);
     setHasIndependentWorkspace(false);
     setNotice("");
     setError("");
@@ -452,8 +454,9 @@ export default function App() {
     setError("");
     const query = new URLSearchParams({ days });
     selectedOrganizations.forEach((id) => query.append('organizationIds', id));
+    selectedVenues.forEach((id) => query.append('venueIds', id));
     api(`/business/workspace?${query}`, session, { signal: controller.signal })
-      .then((result) => { setData(result); if (!selectedOrganizations.length) setHasIndependentWorkspace(result.events.some((event) => !event.organizationId)); })
+      .then((result) => { setData(result); if (!selectedOrganizations.length && !selectedVenues.length) setHasIndependentWorkspace(result.events.some((event) => !event.organizationId)); })
       .catch((err) => {
         if (err.name === "AbortError") return;
         if (err.status === 401) expire();
@@ -463,7 +466,7 @@ export default function App() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [session, selectedOrganizations, days, revision, expire]);
+  }, [session, selectedOrganizations, selectedVenues, days, revision, expire]);
   function login(value) {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(value));
     setSession(value);
@@ -531,6 +534,7 @@ export default function App() {
         ? "Your people, together."
         : "The right people. A great night.";
   const activeOrg = selectedOrganizations.length === 1 ? data?.organizations.find((o) => o.id === selectedOrganizations[0]) : data?.organizations.length === 1 && !hasIndependentWorkspace ? data.organizations[0] : null;
+  const showVenueSelector = (data?.venues?.length || 0) > 1;
   const showOrganizationSelector = (data?.organizations.length || 0) + Number(hasIndependentWorkspace) > 1;
   const { canManage, ownOnly } = workspaceAccess(data, session.user);
   const canManageTeam = Boolean(session.user.isInternalAdmin || data?.organizations?.some((org) => org.canManage));
@@ -666,16 +670,17 @@ export default function App() {
               </Button>
             )}
           </div>
-          {visiblePage !== "analytics" && visiblePage !== "team" && (visiblePage !== "guestlists" || showOrganizationSelector) && <div className="page-controls">
+          {visiblePage !== "analytics" && visiblePage !== "team" && (visiblePage !== "guestlists" || showOrganizationSelector || showVenueSelector) && <div className="page-controls">
             {showOrganizationSelector && <MultiSelect
               label="Organizations"
               selected={selectedOrganizations}
-              onChange={setSelectedOrganizations}
+              onChange={(ids) => { setSelectedOrganizations(ids); setSelectedVenues([]); }}
               options={[
                 ...(hasIndependentWorkspace ? [{ id: 'independent', label: 'Independent events' }] : []),
                 ...(data?.organizations || []).map((o) => ({ id: o.id, label: o.name })),
               ]}
             />}
+            {showVenueSelector && <MultiSelect label="Venues" options={data.venues} selected={selectedVenues} onChange={setSelectedVenues} />}
             {page !== "guestlists" && page !== "events" && <div>
               <Choice
                 label="Sales period"
@@ -791,6 +796,7 @@ export default function App() {
             setEditor(null);
             setNotice(message);
             setSelectedOrganizations([]);
+            setSelectedVenues([]);
             setRevision((r) => r + 1);
             setPage("events");
           }}

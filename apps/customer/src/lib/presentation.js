@@ -11,7 +11,7 @@ export function eventImageSource(event, apiBase) {
     : event.imageUrl;
 }
 export const artIndex = (event) =>
-  [...(event.organization?.name || event.title || 'Nitewide')].reduce(
+  [...(event.location?.name || event.organization?.name || event.title || 'Nitewide')].reduce(
     (n, char) => n + char.charCodeAt(0),
     0,
   );
