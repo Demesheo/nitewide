@@ -1,12 +1,12 @@
 const test = require('node:test'); const assert = require('node:assert/strict'); const { createApp } = require('../src/app');
 const { Op } = require('sequelize');
 async function request(app, path, options = {}) { const server = app.listen(0); await new Promise((resolve) => server.once('listening', resolve)); try { const response = await fetch(`http://127.0.0.1:${server.address().port}${path}`, options); return { status: response.status, body: await response.json() }; } finally { await new Promise((resolve) => server.close(resolve)); } }
-function setup(onGuestlistQuery, guestlistScope = { canReviewAny: true, eventAffiliateIds: [] }) {
+function setup(onGuestlistQuery, guestlistScope = { canReviewAny: true, eventAffiliateIds: [] }, onPublicEventQuery) {
   const event = { id: 'e1', organizationId: 'org-1', status: 'published', location: null, guestlistCapacity: 50, update: async (changes) => Object.assign(event, changes), toJSON: () => ({ id: event.id, title: 'Afterglow', status: event.status, guestlistCapacity: event.guestlistCapacity }) };
   const affiliate = { id: 'a1', eventId: event.id, code: 'PROMOTER', status: 'active', guestlistAllocation: 20, user: { id: 'p1', displayName: 'Promoter One' }, orgAffiliate: null, update: async (changes) => Object.assign(affiliate, changes) };
   const sequelize = { transaction: async (work) => work({ LOCK: { UPDATE: 'UPDATE' } }) };
   const models = {
-    Event: { sequelize, findAll: async () => [event], findByPk: async () => event }, Location: {}, Organization: {}, Offering: {},
+    Event: { sequelize, findAll: async (query) => { onPublicEventQuery?.(query); return [event]; }, findByPk: async () => event }, Location: {}, Organization: {}, Offering: {},
     Order: { findOne: async () => null }, OrderItem: {}, Ticket: {}, User: {}, OrganizationOwner: {}, OrgAffiliate: {}, EventAffiliate: { findOne: async () => affiliate, findAll: async () => [affiliate] }, GuestlistEntry: { sum: async (_field, { where }) => where.eventAffiliateId ? 3 : 5, findAll: async ({ where, include }) => { onGuestlistQuery?.(where, include); return []; }, findOne: async ({ where }) => where.id === 'owned-entry' ? { id: 'owned-entry' } : null }, CheckIn: {}, AuditLog: { create: async () => ({}) },
   };
   const authSession = { accessToken: 'test-token', user: { id: 'user-1', email: 'customer@example.com', displayName: 'Test Customer' }, roles: ['customer'] };
@@ -15,6 +15,16 @@ function setup(onGuestlistQuery, guestlistScope = { canReviewAny: true, eventAff
 }
 test('health endpoint reports the API is ready', async () => { const response = await request(setup(), '/health'); assert.equal(response.status, 200); assert.equal(response.body.service, 'nitewide-api'); });
 test('public discovery returns published events', async () => { const response = await request(setup(), '/api/events'); assert.equal(response.status, 200); assert.equal(response.body.data[0].title, 'Afterglow'); });
+test('public discovery filters finished events before applying its limit', async () => {
+  let query;
+  const response = await request(setup(undefined, undefined, (value) => { query = value; }), '/api/events?limit=100');
+  assert.equal(response.status, 200);
+  assert.equal(query.where.status, 'published');
+  assert.equal(query.where.isDiscoverable, true);
+  assert.ok(query.where.endsAt[Op.gte] instanceof Date);
+  assert.deepEqual(query.order, [['startsAt', 'ASC']]);
+  assert.equal(query.limit, 100);
+});
 test('anyone can register a customer identity', async () => { const response = await request(setup(), '/api/auth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ displayName: 'Test Customer', email: 'customer@example.com', password: 'Customer123' }) }); assert.equal(response.status, 201); assert.deepEqual(response.body.data.roles, ['customer']); assert.equal(response.body.data.accessToken, 'test-token'); });
 test('a customer can sign in and receive a session', async () => { const response = await request(setup(), '/api/auth/sign-in', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'customer@example.com', password: 'Customer123' }) }); assert.equal(response.status, 200); assert.equal(response.body.data.user.email, 'customer@example.com'); });
 test('a bearer session resolves the signed-in user', async () => { const response = await request(setup(), '/api/auth/me', { headers: { authorization: 'Bearer test-token' } }); assert.equal(response.status, 200); assert.deepEqual(response.body.data.roles, ['customer']); });

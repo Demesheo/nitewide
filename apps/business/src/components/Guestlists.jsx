@@ -290,6 +290,9 @@ export function Guestlists({ events, session, expire }) {
                 <Save />
                 Save limit
               </Button>
+              <small className="allocation-note-placeholder">
+                Direct requests use this venue guestlist pool.
+              </small>
             </form>
             {settings.promoters.map((p) => (
               <form

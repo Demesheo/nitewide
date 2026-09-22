@@ -959,6 +959,10 @@ td small {
   font-size: 10px;
   color: #ac9dbd;
 }
+.allocation-note-placeholder {
+  /* Match the two-line helper area used by referrer allocation cards. */
+  min-height: 3em;
+}
 .field {
   display: grid;
   gap: 7px;

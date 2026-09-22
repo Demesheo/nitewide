@@ -1,4 +1,5 @@
 const { offeringSaleState, eventFinished } = require('../domain/event-policy');
+const { Op } = require('sequelize');
 function publicEvent(event) {
   const json = event.toJSON();
   const offerings = event.offerings || [];
@@ -15,7 +16,13 @@ function redactLocation(location) {
 function createPublicController({ models }) {
   return {
     listEvents: async (req, res) => {
-      const where = { status: 'published', isDiscoverable: true };
+      // Apply the active-event boundary before pagination. Otherwise historical
+      // events can consume the public limit and leave discovery with no results.
+      const where = {
+        status: 'published',
+        isDiscoverable: true,
+        endsAt: { [Op.gte]: new Date() },
+      };
       if (req.query.category) where.category = req.query.category;
       const events = await models.Event.findAll({ where, include: [{ model: models.Location, as: 'location' }, { model: models.Organization, as: 'organization', attributes: ['id', 'name', 'slug'] }, { model: models.Offering, as: 'offerings', required: false }], order: [['startsAt', 'ASC']], limit: Math.min(Number(req.query.limit) || 50, 100) });
       res.json({ data: events.map(publicEvent) });
