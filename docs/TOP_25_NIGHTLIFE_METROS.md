@@ -1,5 +1,7 @@
 # Nitewide top 25 U.S. nightlife metros
 
+> September 23, 2026 pricing update: Historical pricing and financial projections below are superseded by [current fee policy](FEE_POLICY.md) and the [margin-protected pricing design](MARGIN_PROTECTED_PRICING_DESIGN.md). The demo baseline is standard 8% + $0.80 (automatic discounts and minimum-cost exceptions apply) per paid unit, Nitewide-paid processing; competitive caps remain design only. Re-run the financial model before using old projected revenue or contribution figures.
+
 **Working market-prioritization note — September 20, 2026**
 
 This is Nitewide's ranked working list of U.S. metropolitan nightlife markets. It is not presented as an objective national league table: nightlife quality is subjective, city rankings usually measure municipal boundaries rather than complete metro areas, and venue/event supply changes quickly. Nitewide should refresh the ranking at least annually and replace judgment with first-party marketplace evidence as markets launch.

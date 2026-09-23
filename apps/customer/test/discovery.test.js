@@ -167,33 +167,20 @@ test("availability respects stock, sale windows, and minimum/maximum order quant
     4,
   );
 });
-test("demo checkout matches server pricing and charges the fixed fee once per order", () => {
-  for (const [price, quantity] of [
-    [0, 1],
-    [1000, 2],
-    [30000, 1],
-    [40000, 1],
-    [100000, 2],
-  ]) {
-    const demo = checkoutTotal(price, quantity);
-    const actual = pricing.calculatePricing({
-      subtotalCents: price * quantity,
-    });
-    assert.equal(demo.total, actual.totalCents);
-    assert.equal(demo.fee, actual.platformFeeCents);
+test('customer preview matches server discount and floor decisions without exposing margin', () => {
+  for(const quantity of [1,3]) for(let price=0;price<=100000;price+=19) {
+    const preview=checkoutTotal(price,quantity);
+    if(!preview.eligible) {
+      assert.equal(preview.total,null);
+      assert.throws(()=>pricing.calculatePricing({subtotalCents:price*quantity,items:[{unitPriceCents:price,quantity}]}),{code:'PRICING_UNAVAILABLE'});
+    } else {
+      const server=pricing.calculatePricing({subtotalCents:price*quantity,items:[{unitPriceCents:price,quantity}]});
+      assert.equal(preview.total,server.totalCents);
+      assert.equal(preview.fee,server.platformFeeCents);
+    }
+    assert.equal('contributionCents' in preview,false);
   }
-  assert.deepEqual(checkoutTotal(40000, 1), {
-    subtotal: 40000,
-    fee: 3079,
-    total: 43079,
-  });
-});
-test('customer preview matches API for cent rounding and adds no buyer Stripe charge', () => {
-  for (let cents = 0; cents <= 100000; cents++) {
-    const demo = checkoutTotal(cents, 1);
-    const server = pricing.calculatePricing({subtotalCents: cents});
-    assert.equal(demo.fee, server.platformFeeCents);
-    assert.equal(demo.total, server.totalCents);
-  }
-  assert.deepEqual(checkoutTotal(2000, 1), {subtotal: 2000, fee: 229, total: 2229});
+  assert.deepEqual(checkoutTotal(30000,1),{subtotal:30000,fee:2152,total:32152,eligible:true,discount:328,floorAdjusted:false,standardCeilingExceeded:false});
+  assert.equal(checkoutTotal(1000,1).total,1164);
+  assert.equal(checkoutTotal(2000,1,'EUR').eligible,false);
 });

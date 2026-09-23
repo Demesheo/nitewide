@@ -320,6 +320,10 @@ test(
         },
       });
       assert.equal(checkout.status, 201, JSON.stringify(checkout.body));
+      assert.equal(checkout.body.data.order.subtotalCents, 2000);
+      assert.equal(checkout.body.data.order.platformFeeCents, 320);
+      assert.equal(checkout.body.data.order.totalCents, 2320);
+      assert.equal(checkout.body.data.order.pricingPlanSnapshot.processingPaidBy, 'platform');
       const buyerNotifications = (await req('/notifications', ids.outsider)).body.data.items;
       assert.ok(buyerNotifications.some((item) => item.kind === 'purchase_confirmed' && item.eventId === event.id));
       const referrerNotifications = (await req('/notifications', ids.promoter)).body.data.items;

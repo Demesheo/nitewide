@@ -36,7 +36,7 @@ test('changing connection revalidates attribution without resetting tickets or q
   assert.match(handler, /entry.event.id !== selected\?\.id/);
   assert.match(handler, /entry === null\) \{ setReferral\(null\)/);
   assert.doesNotMatch(handler, /openEvent\(|setQuantity\(|setOfferingId\(/);
-  assert.match(app, /disabled=\{referralBusy \|\| !availableQuantity\(offering\)\}/);
+  assert.match(app, /disabled=\{referralBusy \|\| !availableQuantity\(offering\) \|\| !totals.eligible\}/);
   assert.match(app, /guestBusy \|\| referralBusy \|\|/);
   assert.match(app, /\{session && <EventConnectionPicker/);
 });

@@ -88,15 +88,15 @@ export const roadmap = [
 export const pricing = {
   freeMonthly: 0,
   premiumMonthly: 249,
-  feePercent: 7.5,
-  feeFixed: 0.79,
+  feePercent: 8,
+  feeFixed: 0.80,
   status: "planned",
 };
 
 export const questions = [
   [
     "What does my business pay?",
-    "Core platform use is free. Customers pay Nitewide’s 7.5% + $0.79 service fee per paid order. The business, organization, or creator pays Stripe processing fees; there is no Nitewide organizer listing or transaction fee. Premium is optional at $249/month. Taxes, refunds, disputes and agreed promoter rewards remain separate obligations. Live payments and subscriptions are not yet enabled.",
+    "Core platform use is free. Standard customer fees are 8% + $0.80 per paid ticket or package. Automatic discounts target modeled Posh and Eventbrite buyer fees. Minimum-cost adjustments take priority and may exceed the standard rate or competitor price. Nitewide covers Stripe processing fees; there is no Nitewide organizer listing or transaction fee. Premium is optional at $249/month. Taxes, refunds, disputes and agreed promoter rewards remain separate obligations. Live payments and subscriptions are not yet enabled.",
   ],
   [
     "Do I need to own a venue?",

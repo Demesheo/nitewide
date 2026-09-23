@@ -39,8 +39,8 @@ test("planned pricing uses the latest policy with no Premium fee discount", () =
   assert.deepEqual(pricing, {
     freeMonthly: 0,
     premiumMonthly: 249,
-    feePercent: 7.5,
-    feeFixed: 0.79,
+    feePercent: 8,
+    feeFixed: 0.80,
     status: "planned",
   });
 });

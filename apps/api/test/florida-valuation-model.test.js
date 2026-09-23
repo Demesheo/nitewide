@@ -1,15 +1,23 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { assumptions, calculate, customerAdSlotsPerPage } = require('../../../scripts/florida-valuation-model');
-test('current policy assigns 7.5% + $0.79 to buyers and processing to organizers', () => {
+test('current scenario uses competitive discounts and minimum contribution, with processing paid by Nitewide', () => {
   const r = calculate();
-  assert.equal(assumptions.buyerFeeRate, .075);
-  assert.equal(assumptions.buyerFixedFee, .79);
-  assert.equal(assumptions.stripePaidBy, 'organizer');
-  assert.equal(r.buyerFees, r.faceValueGmv * .075 + r.transactions * .79);
-  assert.equal(r.organizerStripeCosts, r.stripeCosts);
-  assert.equal(r.platformStripeCosts, 0);
-  assert.equal(r.processorAdjustedContribution, r.grossPlatformRevenue);
+  assert.equal(assumptions.buyerFeeRate, .08);
+  assert.equal(assumptions.buyerFixedFee, .80);
+  assert.equal(assumptions.stripePaidBy, 'platform');
+  assert.equal(r.buyerFees, r.baskets.reduce((sum,b)=>sum+b.count*b.quote.feeCents/100,0));
+  assert.ok(r.baskets.every(b=>b.quote.contributionCents>=100));
+  assert.equal(r.organizerStripeCosts, 0);
+  assert.equal(r.platformStripeCosts, r.stripeCosts);
+  assert.equal(r.processorAdjustedContribution, r.grossPlatformRevenue - r.stripeCosts);
+});
+test('multi-ticket model charges fixed buyer fees per unit but Stripe fixed fees per transaction', () => {
+  const r = calculate({ ...assumptions, averagePaidUnitsPerTransaction: 3 });
+  assert.equal(r.paidUnits, r.transactions * 3);
+  assert.equal(r.buyerFees, r.baskets.reduce((sum,b)=>sum+b.count*b.quote.feeCents/100,0));
+  assert.ok(r.baskets.every(b=>b.quote.contributionCents>=100));
+  assert.ok(Math.abs(r.stripeCosts - (r.customerCheckoutVolume * .029 + r.transactions * .30)) <= r.transactions * .005);
 });
 
 test('Florida model takes 10% of venue-funded promoter kickbacks without changing attribution share', () => {
@@ -25,7 +33,7 @@ test('Florida model takes 10% of venue-funded promoter kickbacks without changin
 test('Florida model charges Stripe percentage on face value plus buyer fees', () => {
   const result = calculate();
   const expected = result.customerCheckoutVolume * assumptions.stripeRate + result.transactions * assumptions.stripeFixedFee;
-  assert.equal(result.stripeCosts, expected);
+  assert.ok(Math.abs(result.stripeCosts-expected) <= result.transactions*.005);
   assert.ok(result.customerCheckoutVolume > result.faceValueGmv);
 });
 

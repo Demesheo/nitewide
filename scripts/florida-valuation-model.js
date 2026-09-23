@@ -1,4 +1,5 @@
 'use strict';
+const { quoteOrder, DEMO_COSTS } = require('../apps/pricing/index.cjs');
 
 const assumptions = Object.freeze({
   venues: 80,
@@ -12,9 +13,10 @@ const assumptions = Object.freeze({
   nonNightclubEventsPerNightclubEvent: 0.10,
   nonNightclubGmvPerEvent: 5_000,
   averageNonNightclubTransaction: 40,
-  buyerFeeRate: 0.075,
-  buyerFixedFee: 0.79,
-  stripePaidBy: 'organizer',
+  buyerFeeRate: 0.08,
+  buyerFixedFee: 0.80,
+  stripePaidBy: 'platform',
+  averagePaidUnitsPerTransaction: 1,
   promoterAttributedTransactionShare: 0.50,
   vipGrossPromoterKickback: 50,
   gaGrossPromoterKickback: 5,
@@ -62,9 +64,23 @@ function calculate(input = assumptions) {
   const nonNightclubTransactions = nonNightclubGmv / input.averageNonNightclubTransaction;
   const transactions = vipTransactions + gaTransactions + nonNightclubTransactions;
 
-  const buyerFees = faceValueGmv * input.buyerFeeRate + transactions * input.buyerFixedFee;
+  const paidUnits = transactions * (input.averagePaidUnitsPerTransaction ?? 1);
+  const units = input.averagePaidUnitsPerTransaction ?? 1;
+  if (!Number.isInteger(units) || units < 1) throw new RangeError('Paid units must be a positive integer');
+  // Weighted example baskets, not a forecast of real customer mix.
+  const baskets = [[input.averageVipTransaction, vipTransactions],
+    [input.averageGaTransaction, gaTransactions], [input.averageNonNightclubTransaction, nonNightclubTransactions]].map(([value, count]) => {
+    const cents = Math.round(value * 100), each = Math.floor(cents / units);
+    const items = Array.from({length: units}, (_, i) => ({ unitPriceCents: each + (i < cents % units ? 1 : 0), quantity: 1 }));
+    const quote = quoteOrder({items, now:new Date('2026-09-23T12:00:00Z'),
+      costs:{...DEMO_COSTS,processorBps:Math.round(input.stripeRate*10000),processorFixedCents:Math.round(input.stripeFixedFee*100),
+        reserveBps:Math.round(input.otherDirectCostReserveRate*10000)}});
+    if (!quote.eligible) throw new Error('Invalid financial scenario costs');
+    return {count,quote};
+  });
+  const buyerFees = baskets.reduce((sum,b)=>sum+b.count*b.quote.feeCents/100,0);
   const customerCheckoutVolume = faceValueGmv + buyerFees;
-  const stripeCosts = customerCheckoutVolume * input.stripeRate + transactions * input.stripeFixedFee;
+  const stripeCosts = baskets.reduce((sum,b)=>sum+b.count*b.quote.processingCents/100,0);
 
   const vipGrossKickbacks = vipTransactions * input.promoterAttributedTransactionShare * input.vipGrossPromoterKickback;
   const gaGrossKickbacks = gaTransactions * input.promoterAttributedTransactionShare * input.gaGrossPromoterKickback;
@@ -105,6 +121,8 @@ function calculate(input = assumptions) {
     gaTransactions,
     nonNightclubTransactions,
     transactions,
+    paidUnits,
+    baskets,
     buyerFees,
     customerCheckoutVolume,
     stripeCosts,

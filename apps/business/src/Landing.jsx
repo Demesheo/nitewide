@@ -380,13 +380,13 @@ export default function Landing() {
             </div>
             <p>
               Compare pricing, working features, and our next chapter with Posh,
-              Discotech, Tabler, and Sections. Published rates where available.
+              Eventbrite, Discotech, Tabler, and Sections. Published rates where available.
               Clear labels where we are still building.
             </p>
           </div>
           <FeeComparison />
           <p className="lp-fine-print">
-            Based on linked official product information reviewed September 21,
+            Based on linked official product information reviewed September 23,
             2026. Features overlap; unverified does not mean unavailable.
             Upcoming capabilities are not live. Nitewide is a working demo, not
             yet a live-payment alternative.
@@ -405,7 +405,7 @@ export default function Landing() {
             </div>
             <p>
               No organizer listing fees or standard platform transaction fees.
-              Customers pay 7.5% + $0.79 per order. Your business pays Stripe
+              Standard customer fees are 8% + $0.80 per paid ticket or package, with automatic competitive discounts and minimum-cost adjustments. Nitewide pays Stripe
               processing fees. Your only core software charge is the optional
               $249/month Premium subscription.
             </p>
@@ -473,11 +473,11 @@ export default function Landing() {
             <div>
               <strong>
                 {pricing.feePercent}% + ${pricing.feeFixed.toFixed(2)} per paid
-                order. Both plans.
+                ticket/package. Both plans.
               </strong>
               <p>
-                Customers pay Nitewide’s service fee; the organization or
-                independent creator pays Stripe processing from their proceeds.
+                Customers pay Nitewide’s service fee; Nitewide covers routine
+                Stripe processing from that fee, not your venue proceeds.
                 Free has no subscription; Premium is optional and does not
                 reduce checkout fees. Demo checkout collects no money; billing
                 is not live.

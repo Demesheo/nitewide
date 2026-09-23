@@ -1,43 +1,20 @@
+const { POLICY, quoteOrder, bps: roundBasisPoints } = require('@nitewide/pricing');
+const { DomainError } = require('./errors');
 const PLAN_POLICIES = Object.freeze({
-  free: Object.freeze({
-    monthlyFeeCents: 0,
-    percentageBps: 750,
-    perPaidOrderCents: 79,
-    processingPaidBy: "organizer",
-    version: "2026-09-21-organizer-processing",
-  }),
-  premium: Object.freeze({
-    monthlyFeeCents: 24_900,
-    percentageBps: 750,
-    perPaidOrderCents: 79,
-    processingPaidBy: "organizer",
-    version: "2026-09-21-organizer-processing",
-  }),
+  free: Object.freeze({ monthlyFeeCents: 0, ...POLICY }),
+  premium: Object.freeze({ monthlyFeeCents: 24900, ...POLICY }),
 });
-
-function roundBasisPoints(cents, bps) {
-  return Math.round((cents * bps) / 10_000);
-}
-function calculatePricing({
-  subtotalCents,
-  planTier = "free",
-  commissionBps = 0,
-}) {
-  if (!Number.isSafeInteger(subtotalCents) || subtotalCents < 0)
-    throw new RangeError("Subtotal must be non-negative integer cents");
-  const policy = PLAN_POLICIES[planTier] || PLAN_POLICIES.free;
-  // Buyer service fee only. Stripe is an organizer expense, not another buyer fee.
-  // Actual processor costs/settlement must come from verified provider records.
-  const platformFeeCents =
-    subtotalCents > 0
-      ? roundBasisPoints(subtotalCents, policy.percentageBps) +
-        policy.perPaidOrderCents
-      : 0;
-  return {
-    platformFeeCents,
-    totalCents: subtotalCents + platformFeeCents,
+function calculatePricing({ subtotalCents, planTier = 'free', commissionBps = 0,
+  items = [{ unitPriceCents: subtotalCents, quantity: 1 }], currency = 'USD', costs, now, benchmark }) {
+  if (!Number.isSafeInteger(subtotalCents) || subtotalCents < 0) throw new RangeError('Invalid subtotal');
+  if (!Number.isSafeInteger(commissionBps) || commissionBps < 0 || commissionBps > 4000) throw new RangeError('Invalid commission');
+  const quote = quoteOrder({ items, currency, costs, now, benchmark });
+  if (quote.subtotalCents !== subtotalCents) throw new RangeError('Item subtotal mismatch');
+  if (!quote.eligible) throw new DomainError('This combination is not available at our current pricing. Try another offering or quantity.',
+    { code: 'PRICING_UNAVAILABLE', status: 422 });
+  return { platformFeeCents: quote.feeCents, totalCents: quote.totalCents,
     affiliateCommissionCents: roundBasisPoints(subtotalCents, commissionBps),
-    pricingPlanSnapshot: { tier: planTier, ...policy },
-  };
+    pricingPlanSnapshot: { tier: planTier, ...(PLAN_POLICIES[planTier] || PLAN_POLICIES.free),
+      pricingDecision: quote } };
 }
 module.exports = { PLAN_POLICIES, roundBasisPoints, calculatePricing };

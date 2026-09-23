@@ -856,7 +856,7 @@
 }
 .lp-calculator-results {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 25px;
   margin-top: 28px;
   padding-top: 24px;
@@ -876,7 +876,9 @@
 }
 .lp-calculator-results small {
   display: block;
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 6px;
   color: #b3a7c2;
 }
 .lp-fee-calculator p.lp-savings-result {
@@ -1380,3 +1382,7 @@
     scroll-behavior: auto !important;
   }
 }
+.lp-deck-matrix { min-width: 980px; }
+.lp-deck-matrix th:first-child { min-width: 265px; }
+.lp-deck-matrix td, .lp-deck-matrix thead th:not(:first-child) { text-align: center; white-space: nowrap; }
+.lp-deck-matrix .lp-nitewide-cell { background: rgb(139 110 185 / 12%); color: #e6d4a4; font-weight: 600; }

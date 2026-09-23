@@ -14,7 +14,7 @@ function fixture({ sold = 0, total = 5, environment = 'development' } = {}) {
 }
 test('checkout snapshots a sale, increments inventory, and creates credentials', async () => {
   const f = fixture(); const result = await f.checkout({ buyerUserId: 'u1', eventId: 'e1', idempotencyKey: 'unique-key', items: [{ offeringId: '50000000-0000-4000-8000-000000000001', quantity: 2 }], payment: { provider: 'test', reference: 'pay-1', status: 'succeeded' } });
-  assert.equal(result.order.subtotalCents, 4000); assert.equal(result.order.platformFeeCents, 379); assert.equal(result.order.totalCents, 4379); assert.equal(result.order.pricingPlanSnapshot.processingPaidBy, 'organizer'); assert.equal(f.getIncrements(), 2); assert.equal(result.credentials.length, 2);
+  assert.equal(result.order.subtotalCents, 4000); assert.equal(result.order.platformFeeCents, 480); assert.equal(result.order.totalCents, 4480); assert.equal(result.order.pricingPlanSnapshot.processingPaidBy, 'platform'); assert.equal(f.created.payment.amountCents, 4480); assert.equal(f.getIncrements(), 2); assert.equal(result.credentials.length, 2);
 });
 test('checkout rejects inventory oversells before writing an order', async () => {
   const f = fixture({ sold: 4, total: 5 }); await assert.rejects(() => f.checkout({ buyerUserId: 'u1', eventId: 'e1', idempotencyKey: 'unique-key', items: [{ offeringId: '50000000-0000-4000-8000-000000000001', quantity: 2 }], payment: { provider: 'test', reference: 'pay-1', status: 'succeeded' } }), (error) => error.code === 'INSUFFICIENT_INVENTORY'); assert.equal(f.getIncrements(), 0);

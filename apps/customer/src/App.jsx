@@ -221,7 +221,7 @@ export default function App() {
   const weekRange = date ? upcomingWeekRange(date) : null;
   const weeklyEvents = date ? filterUpcomingWeek(events, filters) : [];
   const offering = selected?.offerings?.find((o) => o.id === offeringId);
-  const totals = checkoutTotal(offering?.priceCents || 0, quantity);
+  const totals = checkoutTotal(offering?.priceCents || 0, quantity, offering?.currency || 'USD');
   function openEvent(event) {
     setSelected(event);
     const first = event.offerings?.find((o) => availableQuantity(o));
@@ -296,6 +296,7 @@ export default function App() {
       .catch((error) => setNotice(`Guestlist invitation could not be claimed: ${error.message}`));
   }, [guestlistInviteToken, session]);
   function checkout() {
+    if (!totals.eligible) return;
     if (!session) {
       pendingAuth.current = "checkout";
       setAuthOpen(true);
@@ -307,12 +308,13 @@ export default function App() {
       setAuthOpen(true);
       return;
     }
-    if (!offering || availableQuantity(offering) < quantity) return;
+    if (!offering || availableQuantity(offering) < quantity || !totals.eligible) return;
     setDemoBusy(true);
     setDemoError('');
     try {
     const result = await api('/orders', { token: session.accessToken, body: {
       eventId: selected.id, idempotencyKey: crypto.randomUUID(),
+      expectedTotalCents: totals.total,
       affiliateCode: referralCodeForEvent(referral, selected.id),
       items: [{ offeringId: offering.id, quantity }],
       payment: { provider: 'demo', reference: crypto.randomUUID(), status: 'succeeded' },
@@ -327,7 +329,7 @@ export default function App() {
       },
       offering: offering.name,
       quantity,
-      total: totals.total,
+      total: result.order.totalCents,
       currency: offering.currency,
       createdAt: new Date().toISOString(),
     };
@@ -851,11 +853,13 @@ export default function App() {
                       <Button
                         className="primary-action"
                         onClick={checkout}
-                        disabled={referralBusy || !availableQuantity(offering)}
+                        disabled={referralBusy || !availableQuantity(offering) || !totals.eligible}
                       >
-                        Continue · {money(totals.total, offering.currency)}
+                        {totals.eligible ? `Continue · ${money(totals.total, offering.currency)}` : 'Pricing unavailable'}
                         <ArrowRight />
                       </Button>
+                      {!totals.eligible && <p role="alert" className="fine-print">This combination is not available at our current pricing. Try another offering or quantity.</p>}
+                      {totals.discount > 0 && <p className="fine-print">A {money(totals.discount, offering.currency)} competitive fee discount is included.</p>}
                     </>
                   )}
                   <p className="demo-note">
@@ -924,7 +928,7 @@ export default function App() {
                   </div>
                   <div>
                     <dt>
-                      Service fee <small>(7.5% + $0.79 / order; Stripe fees paid by organizer)</small>
+                      Service fee <small>(standard 8% + $0.80 per paid ticket/package; discounts and minimum-cost adjustments may apply)</small>
                     </dt>
                     <dd>{money(totals.fee, offering.currency)}</dd>
                   </div>
@@ -938,9 +942,11 @@ export default function App() {
                 Booking as {session?.user.email}. Taxes and any additional
                 charges must be finalized before live payments launch.
               </p>
+              {totals.floorAdjusted && <p className="fine-print">A minimum-cost adjustment is included in the service fee to cover this order. Processing is included; no additional processing charge applies.</p>}
+              {totals.discount > 0 && <p className="fine-print">Includes a {money(totals.discount, offering.currency)} competitive fee discount.</p>}
               {demoError && <p role="alert">{demoError}</p>}
               {referralCodeForEvent(referral, selected.id) && <p className="connection-context">Booking with <strong>{referral.referrerName}</strong></p>}
-              <Button className="primary-action" onClick={completeDemo} disabled={demoBusy}>
+              <Button className="primary-action" onClick={completeDemo} disabled={demoBusy || !totals.eligible}>
                 {demoBusy ? <LoadingIndicator>Recording demo order…</LoadingIndicator> : <>Confirm demo booking <ArrowRight /></>}
               </Button>
               <Button variant="ghost" onClick={() => setStage("details")}>

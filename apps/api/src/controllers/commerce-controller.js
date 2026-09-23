@@ -2,10 +2,15 @@ const { Op } = require('sequelize');
 const { guestlistQuery } = require('../http/schemas');
 const { forbidden } = require('../domain/errors');
 
+function customerOrder(order) {
+  const data = order.toJSON ? order.toJSON() : { ...order };
+  const { tier, monthlyFeeCents, percentageBps, perPaidUnitCents, processingPaidBy, version, demo } = data.pricingPlanSnapshot || {};
+  return { ...data, pricingPlanSnapshot: { tier, monthlyFeeCents, percentageBps, perPaidUnitCents, processingPaidBy, version, demo } };
+}
 function createCommerceController({ checkout, requestGuestlist, reviewGuestlist, checkIn, permissions, models }) {
   return {
-    checkout: async (req, res) => { const result = await checkout({ ...req.body, buyerUserId: req.userId }); res.status(result.replayed ? 200 : 201).json({ data: result }); },
-    getOrder: async (req, res) => { const order = await models.Order.findOne({ where: { id: req.params.orderId, buyerUserId: req.userId }, include: [{ model: models.OrderItem, as: 'items', include: [{ model: models.Ticket, as: 'tickets', attributes: { exclude: ['qrTokenHash'] } }] }] }); if (!order) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Order not found' } }); res.json({ data: order }); },
+    checkout: async (req, res) => { const result = await checkout({ ...req.body, buyerUserId: req.userId }); res.status(result.replayed ? 200 : 201).json({ data: { ...result, order: customerOrder(result.order) } }); },
+    getOrder: async (req, res) => { const order = await models.Order.findOne({ where: { id: req.params.orderId, buyerUserId: req.userId }, include: [{ model: models.OrderItem, as: 'items', include: [{ model: models.Ticket, as: 'tickets', attributes: { exclude: ['qrTokenHash'] } }] }] }); if (!order) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Order not found' } }); res.json({ data: customerOrder(order) }); },
     requestGuestlist: async (req, res) => { const result = await requestGuestlist({ ...req.body, eventId: req.params.eventId, userId: req.userId }); res.status(202).json({ data: result }); },
     listGuestlistRequests: async (req, res) => {
       const scope = await permissions.guestlistReviewScope(req.userId, req.params.eventId);
@@ -35,4 +40,4 @@ function createCommerceController({ checkout, requestGuestlist, reviewGuestlist,
     checkIn: async (req, res) => { await permissions.assertManageEvent(req.userId, req.body.eventId); const result = await checkIn({ ...req.body, checkedInByUserId: req.userId }); res.status(201).json({ data: result }); },
   };
 }
-module.exports = { createCommerceController };
+module.exports = { createCommerceController, customerOrder };

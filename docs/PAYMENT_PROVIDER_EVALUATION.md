@@ -1,5 +1,7 @@
 # Payment provider evaluation
 
+> September 23, 2026 pricing update: Historical pricing and financial projections below are superseded by [current fee policy](FEE_POLICY.md) and the [margin-protected pricing design](MARGIN_PROTECTED_PRICING_DESIGN.md). The demo baseline is standard 8% + $0.80 (automatic discounts and minimum-cost exceptions apply) per paid unit, Nitewide-paid processing; competitive caps remain design only. Re-run the financial model before using old projected revenue or contribution figures.
+
 Last updated: September 21, 2026
 
 Founder call preparation, projected volumes, commercial thresholds, compliance requirements, and the full question list are in [STAX_SALES_CALL_BRIEF.txt](STAX_SALES_CALL_BRIEF.txt).

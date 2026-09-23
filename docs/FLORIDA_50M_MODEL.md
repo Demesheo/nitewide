@@ -1,5 +1,7 @@
 # Florida operating model and $50M value gate
 
+> September 23, 2026 pricing update: Historical pricing and financial projections below are superseded by [current fee policy](FEE_POLICY.md) and the [margin-protected pricing design](MARGIN_PROTECTED_PRICING_DESIGN.md). The demo baseline is standard 8% + $0.80 (automatic discounts and minimum-cost exceptions apply) per paid unit, Nitewide-paid processing; competitive caps remain design only. Re-run the financial model before using old projected revenue or contribution figures.
+
 Last updated: September 21, 2026 — [current fee policy](FEE_POLICY.md)
 
 This model turns the Florida rollout into a measurable operating target. It is a planning scenario, not a valuation, forecast, appraisal, financing promise, or representation that adoption will occur. The reproducible calculation lives in [`scripts/florida-valuation-model.js`](../scripts/florida-valuation-model.js).

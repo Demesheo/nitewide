@@ -1,5 +1,7 @@
 # Linear setup and initial backlog
 
+> September 23, 2026 pricing update: Historical pricing and financial projections below are superseded by [current fee policy](FEE_POLICY.md) and the [margin-protected pricing design](MARGIN_PROTECTED_PRICING_DESIGN.md). The demo baseline is standard 8% + $0.80 (automatic discounts and minimum-cost exceptions apply) per paid unit, Nitewide-paid processing; competitive caps remain design only. Re-run the financial model before using old projected revenue or contribution figures.
+
 This document is the import map for the Nitewide Linear workspace. It keeps the external tracker reproducible and prevents product decisions from living only in tickets.
 
 ## Workspace structure

@@ -1,0 +1,6 @@
+{
+  "name": "@nitewide/pricing",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.cjs"
+}

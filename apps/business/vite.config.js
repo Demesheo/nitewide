@@ -4,8 +4,10 @@ import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath, URL } from "node:url";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  optimizeDeps: { include: ['@nitewide/pricing'] },
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   build: {
+    commonjsOptions: { include: [/node_modules/, /apps\/pricing/] },
     rollupOptions: {
       output: {
         manualChunks: { charts: ["recharts"], primitives: ["radix-ui"] },

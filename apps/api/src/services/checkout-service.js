@@ -40,7 +40,9 @@ function createCheckoutService({ sequelize, models, now = () => new Date(), envi
       }
       const affiliate = await resolveAffiliate(models, { event, code: input.affiliateCode, now: current, transaction, lock: transaction.LOCK.UPDATE });
       if (affiliate.eventAffiliate?.userId === input.buyerUserId || affiliate.orgAffiliate?.userId === input.buyerUserId) throw new DomainError('Self-referrals do not earn commission', { code: 'SELF_REFERRAL' });
-      const pricing = calculatePricing({ subtotalCents, planTier: organization?.planTier || 'free', commissionBps: affiliate.commissionBps });
+      const pricing = calculatePricing({ subtotalCents, items: lines.map(({ offering, quantity }) => ({ unitPriceCents: offering.priceCents, quantity })), currency: offerings[0].currency, now: current, planTier: organization?.planTier || 'free', commissionBps: affiliate.commissionBps });
+      if (input.expectedTotalCents !== undefined && input.expectedTotalCents !== pricing.totalCents)
+        throw conflict('Pricing changed. Review the updated total before confirming.', 'PRICE_CHANGED');
       const demo = input.payment?.provider === 'demo';
       if (demo && environment === 'production') throw new DomainError('Demo checkout is disabled in production', { code: 'DEMO_DISABLED' });
       const isPaid = pricing.totalCents > 0 && input.payment?.status === 'succeeded';

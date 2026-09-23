@@ -1,5 +1,5 @@
 import { localDateInputValue } from "../discovery-defaults.js";
-import { checkoutFeeCents } from './checkout-fees.js';
+import { checkoutQuote } from './checkout-fees.js';
 import { isPremiumHost } from './premium-host.js';
 export const money = (cents, currency = "USD") =>
   new Intl.NumberFormat("en-US", {
@@ -142,10 +142,11 @@ export function offeringAvailabilityLabel(offering, offerings = []) {
   if (offering.saleState === 'closed') return 'Sales closed';
   return 'Unavailable';
 }
-export function checkoutTotal(priceCents, quantity) {
-  const subtotal = priceCents * quantity;
-  const fee = checkoutFeeCents(subtotal);
-  return { subtotal, fee, total: subtotal + fee };
+export function checkoutTotal(priceCents, quantity, currency = 'USD') {
+  const quote = checkoutQuote(priceCents, quantity, currency);
+  return { subtotal: quote.subtotalCents, fee: quote.feeCents, total: quote.totalCents,
+    eligible: quote.eligible, discount: quote.discountCents || 0, floorAdjusted: Boolean(quote.floorAdjusted),
+    standardCeilingExceeded: Boolean(quote.standardCeilingExceeded) };
 }
 export function readStorage(key, fallback) {
   try {
