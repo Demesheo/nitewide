@@ -18,7 +18,7 @@ export function customerPresentation(path, data) {
     // Keep existing attribution intact for a directly opened demo-owner link.
     return { ...data, referrerName: 'Your host' };
   }
-  if (route === '/notifications') {
+  if (route === '/notifications' && Array.isArray(data?.items)) {
     // Preserve actionable status updates rather than dropping invitations or approvals.
     const hideName = (text) => text?.replace(/\bMaya Portfolio Owner\b/gi, 'Your host');
     return { ...data, items: data.items.map((item) => ({ ...item, title: hideName(item.title), message: hideName(item.message) })) };

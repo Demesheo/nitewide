@@ -77,6 +77,8 @@ function createRouter({ publicController, managementController, commerceControll
   router.post('/guestlist-invitations/:token/claim', requireUser, asyncHandler(async (req, res) => res.json({ data: await invitations.claim(req.params.token, req.userId) })));
   router.get('/notifications', requireUser, asyncHandler(async (req, res) => res.json({ data: { items: await notifications.list(req.userId), unreadCount: await notifications.unreadCount(req.userId) } })));
   router.post('/notifications/:id/read', requireUser, asyncHandler(async (req, res) => res.json({ data: await notifications.markRead(req.userId, req.params.id) })));
+  router.delete('/notifications', requireUser, asyncHandler(async (req, res) => res.json({ data: await notifications.clearAll(req.userId) })));
+  router.delete('/notifications/:id', requireUser, asyncHandler(async (req, res) => res.json({ data: await notifications.dismiss(req.userId, req.params.id) })));
   router.post('/events/:eventId/guestlist', requireUser, validate(schemas.guestlist), asyncHandler(commerceController.requestGuestlist));
   router.get('/business/events/:eventId/guestlist', requireUser, asyncHandler(commerceController.listGuestlistRequests));
   router.post('/business/events/:eventId/guestlist/:entryId/decision', requireUser, validate(schemas.guestlistDecision), asyncHandler(commerceController.reviewGuestlist));

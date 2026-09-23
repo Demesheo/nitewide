@@ -17,7 +17,7 @@ const statusLabel = { pending: 'Awaiting approval', confirmed: 'Approved', rejec
 
 function InlineAccount({ children }) { return children; }
 
-export function AccountDialog({ open, onOpenChange, session, initialTab = 'plans', onProfile, onSignOut, onReferral, embedded = false }) {
+export function AccountDialog({ open, onOpenChange, session, initialTab = 'plans', onProfile, onSignOut, onReferral, embedded = false, notificationBooking, onNotificationOpened }) {
   const Container = embedded ? InlineAccount : Dialog;
   const Content = embedded ? 'div' : DialogContent;
   const scrollContainer = useRef(null), ticketReturn = useRef(null), restoreTicketPosition = useRef(false);
@@ -61,6 +61,14 @@ export function AccountDialog({ open, onOpenChange, session, initialTab = 'plans
     return () => { controller.abort(); clearInterval(interval); window.removeEventListener('focus', refreshTickets); };
   }, [open, ticket?.id, tab, session?.accessToken]);
   useEffect(() => { if (open) { setTab(initialTab); setTicket(null); setError(''); setMessage(''); } }, [open, initialTab]);
+  useEffect(() => {
+    if (!open || !notificationBooking) return;
+    const { ticket } = notificationBooking;
+    ticketReturn.current = null; restoreTicketPosition.current = false;
+    setTab('plans'); setTicket(ticket); setError(''); setPage(1);
+    setPeriod(new Date(ticket.event.endsAt) <= new Date() ? 'past' : 'upcoming');
+    onNotificationOpened?.();
+  }, [open, notificationBooking, onNotificationOpened]);
   useEffect(() => {
     setName(session?.user.displayName || ''); setPhone(session?.user.phone || '');
     setConsents({ marketingConsent: Boolean(session?.user.marketingConsentAt), transactionalSmsConsent: Boolean(session?.user.transactionalSmsConsentAt), marketingSmsConsent: Boolean(session?.user.marketingSmsConsentAt) });

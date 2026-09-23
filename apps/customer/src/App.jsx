@@ -33,6 +33,7 @@ import { LoadingIndicator } from './components/loading-indicator';
 import { upcomingSavedEvents } from './lib/saved-events';
 import { AuthDialog } from "./components/auth-dialog";
 import { Notifications } from "./components/notifications";
+import { notificationTarget, loadNotificationBooking } from './lib/notification-target';
 import { AccountDialog, initials } from './components/account-dialog';
 import { ConnectionsPage } from './components/connections-page';
 import { EventConnectionPicker } from './components/event-connection-picker';
@@ -88,6 +89,20 @@ export default function App() {
     [authOpen, setAuthOpen] = useState(false),
     [walletOpen, setWalletOpen] = useState(false);
   const [accountTab, setAccountTab] = useState('plans');
+  const [notificationBooking, setNotificationBooking] = useState(null);
+  async function openNotification(item) {
+    const target = notificationTarget(item);
+    if (target?.type === 'booking') {
+      const ticket = await loadNotificationBooking(target, api, session.accessToken);
+      setSelected(null); setWalletOpen(false); setView('booked');
+      setNotificationBooking({ ticket });
+      window.scrollTo({ top: 0 });
+      return true;
+    } else if (target?.type === 'event') {
+      openEvent(await api(`/events/${encodeURIComponent(target.id)}`));
+    }
+    return false;
+  }
   const [connectionsRevision, setConnectionsRevision] = useState(0);
   const connectionsHistory = useConnections(session, connectionsRevision);
   const hasConnections = Boolean(session && connectionsHistory?.eligible);
@@ -406,7 +421,7 @@ export default function App() {
             {!session && <a className="business-nav-link" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a>}
             {session ? (
               <>
-                <Notifications session={session} onEvent={(eventId) => api(`/events/${encodeURIComponent(eventId)}`).then(openEvent).catch((error) => setNotice(error.message))} />
+                <Notifications session={session} onNotification={openNotification} />
                 <button className="profile-avatar profile-trigger" aria-label={`Open ${session.user.displayName}'s profile`} title="Your profile and plans" onClick={() => { setAccountTab('profile'); setWalletOpen(true); }}>{initials(session.user.displayName)}</button>
               </>
             ) : (
@@ -423,7 +438,7 @@ export default function App() {
       {view === 'connections' && hasConnections && <ConnectionsPage key={session.user.id} session={session} history={connectionsHistory} saved={saved} onSave={save} onReferral={openConnection} onRefresh={refreshConnections} />}
       {view === 'booked' && <main className="booked-page wrap" id="booked">
         <div className="booked-page-heading"><p className="eyebrow">YOUR NEXT NIGHT STARTS HERE</p><h1>Booked.</h1><p>Your tickets and guest list entries, all in one place.</p></div>
-        {session ? <AccountDialog embedded open session={session} onOpenChange={() => setView('discover')} /> : <div className="account-empty"><Ticket /><h2>Your nights are waiting.</h2><p>Sign in to see your upcoming bookings and guest list entries.</p><Button onClick={() => setAuthOpen(true)}>Sign in</Button></div>}
+        {session ? <AccountDialog embedded open session={session} notificationBooking={notificationBooking} onNotificationOpened={() => setNotificationBooking(null)} onOpenChange={() => setView('discover')} /> : <div className="account-empty"><Ticket /><h2>Your nights are waiting.</h2><p>Sign in to see your upcoming bookings and guest list entries.</p><Button onClick={() => setAuthOpen(true)}>Sign in</Button></div>}
       </main>}
       {view === 'saved' && <main className="booked-page wrap" id="saved">
         <div className="booked-page-heading"><p className="eyebrow">KEEP THE GOOD NIGHTS CLOSE</p><h1>Saved.</h1><p>Your shortlist of upcoming events.</p></div>

@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { customerPresentation, isHiddenDemoPerson } from '../src/lib/demo-visibility.js';
 const owner = { id: '10000000-0000-4000-8000-000000000002', name: 'Maya Portfolio Owner' };
 const promoter = { id: 'promoter', name: 'Maya Flores' };
+test('clear-all notification responses pass through without list transformation', () => {
+  const response = { dismissed: 55 };
+  assert.equal(customerPresentation('/notifications', response), response);
+});
 test('only the development owner is hidden, never unrelated Mayas or real owners', () => {
   assert.equal(isHiddenDemoPerson(owner), true);
   assert.equal(isHiddenDemoPerson({ id: owner.id, name: 'Renamed debugging owner' }), true);

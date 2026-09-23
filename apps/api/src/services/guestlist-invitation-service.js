@@ -39,7 +39,7 @@ function createGuestlistInvitationService({ sequelize, models, permissions, now 
     const entry = await models.GuestlistEntry.create({ eventId: event.id, userId: user.id, eventAffiliateId, source: eventAffiliateId ? 'affiliate' : 'event', partySize, status: 'pending' }, { transaction });
     await entry.update({ status: 'confirmed', qrTokenHash: qr.hash, reviewedByUserId: actorId, reviewedAt: now(), reviewNote: 'Invited by event team' }, { transaction });
     await models.AuditLog.create({ actorUserId: actorId, organizationId: event.organizationId, entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.invited_and_confirmed', after: { partySize: entry.partySize, eventAffiliateId } }, { transaction });
-    await notifications.emit({ userId: user.id, eventId: event.id, kind: 'guestlist_invited', title: 'You are on the guestlist', message: `You have a confirmed guestlist place for ${event.title}.` }, transaction);
+    await notifications.emit({ userId: user.id, eventId: event.id, kind: 'guestlist_invited', title: 'You are on the guestlist', message: `You have a confirmed guestlist place for ${event.title}.`, metadata: { entryId: entry.id } }, transaction);
     return entry;
   }
   async function invite(userId, eventId, input) {
