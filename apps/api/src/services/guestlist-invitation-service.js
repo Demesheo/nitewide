@@ -6,13 +6,15 @@ const { assertGuestlistCapacity } = require('./guestlist-capacity');
 const { createNotificationService } = require('./notification-service');
 
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
+const invitationsOpen = (event, at) => event?.status === 'published' && new Date(event.endsAt) > at;
 function createGuestlistInvitationService({ sequelize, models, permissions, now = () => new Date() }) {
   const notifications = createNotificationService(models);
   async function pools(userId, eventId) {
     const scope = await permissions.guestlistReviewScope(userId, eventId);
+    if (!invitationsOpen(scope.event, now())) return { direct: false, own: [], open: false };
     const affiliates = await models.EventAffiliate.findAll({ where: { eventId, userId, status: 'active' }, attributes: ['id', 'code', 'guestlistAllocation', 'startsAt', 'endsAt'], include: [{ model: models.OrgAffiliate, as: 'orgAffiliate', attributes: ['defaultGuestlistAllocation', 'status', 'startsAt', 'endsAt'], required: false }] });
     const current = now();
-    return { direct: scope.canReviewAny, own: affiliates.filter((a) =>
+    return { direct: scope.canReviewAny, open: true, own: affiliates.filter((a) =>
       (scope.canReviewAny || scope.eventAffiliateIds.includes(a.id)) &&
       (!a.startsAt || a.startsAt <= current) && (!a.endsAt || a.endsAt >= current) &&
       (!a.orgAffiliate || (a.orgAffiliate.status === 'active' && (!a.orgAffiliate.startsAt || a.orgAffiliate.startsAt <= current) && (!a.orgAffiliate.endsAt || a.orgAffiliate.endsAt >= current))) &&
@@ -21,6 +23,7 @@ function createGuestlistInvitationService({ sequelize, models, permissions, now 
   }
   async function assertPool(userId, eventId, pool, eventAffiliateId) {
     const options = await pools(userId, eventId);
+    if (!options.open) throw conflict('Guestlist invitations are closed for this event', 'GUESTLIST_CLOSED');
     if (pool === 'direct') {
       if (!options.direct || eventAffiliateId) throw forbidden('Direct guestlist access required');
       return null;
@@ -44,7 +47,7 @@ function createGuestlistInvitationService({ sequelize, models, permissions, now 
     return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
       const event = await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!event) throw notFound('Event');
-      if (event.status !== 'published' || new Date(event.endsAt) <= now()) throw conflict('Guestlist invitations are closed for this event', 'GUESTLIST_CLOSED');
+      if (!invitationsOpen(event, now())) throw conflict('Guestlist invitations are closed for this event', 'GUESTLIST_CLOSED');
       const normalizedEmail = input.email?.toLowerCase() || null;
       const pending = await models.GuestlistInvitation.findOne({ where: { eventId, status: 'pending', ...(normalizedEmail ? { email: normalizedEmail } : { phone: input.phone }) }, transaction });
       if (pending && pending.expiresAt > now()) throw conflict('This guest already has a pending invitation for the event', 'INVITE_EXISTS');
@@ -72,7 +75,7 @@ function createGuestlistInvitationService({ sequelize, models, permissions, now 
       }
       if (invitation.status !== 'pending' || invitation.expiresAt <= now()) throw new DomainError('Guestlist invitation is invalid or expired', { status: 404, code: 'INVITE_INVALID' });
       const event = await models.Event.findByPk(invitation.eventId, { transaction, lock: transaction.LOCK.UPDATE });
-      if (!event || event.status !== 'published' || new Date(event.endsAt) <= now()) return { status: 'event_closed' };
+      if (!invitationsOpen(event, now())) return { status: 'event_closed' };
       try {
         const entry = await confirm(event, user, invitation.eventAffiliateId, invitation.partySize, invitation.invitedByUserId, transaction);
         await invitation.update({ status: 'accepted', acceptedAt: now(), acceptedByUserId: user.id }, { transaction });
@@ -87,4 +90,4 @@ function createGuestlistInvitationService({ sequelize, models, permissions, now 
   }
   return { pools, invite, claim };
 }
-module.exports = { createGuestlistInvitationService };
+module.exports = { createGuestlistInvitationService, invitationsOpen };

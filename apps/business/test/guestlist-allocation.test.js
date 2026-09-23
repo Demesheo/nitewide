@@ -75,7 +75,7 @@ test('request status filter belongs to the Guest Experience controls, not the ev
 });
 
 test('guest invitation action is right aligned in the event toolbar', () => {
-  assert.match(guestlistsSource, /className="guestlist-invite-button" type="button"/);
+  assert.match(guestlistsSource, /selected\?\.status === 'published' && invitePools\?\.open && \(invitePools\.direct \|\| invitePools\.own\.length > 0\) && <Button className="guestlist-invite-button" type="button"/);
   assert.match(styles, /\.guestlist-invite-button \{ margin-left: auto; \}/);
   assert.match(guestlistsSource, /className="guestlist-invitation-actions"><Button[^>]*type="submit">\{busy \? 'Checking…' : 'Create invitation'\}/);
   assert.match(styles, /\.guestlist-invitation-actions \{ display: flex; justify-content: flex-end; \}/);

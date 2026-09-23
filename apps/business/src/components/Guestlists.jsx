@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, X, Save, UserPlus, Pencil } from "lucide-react";
+import { Check, X, Save, UserPlus, Pencil, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -12,6 +12,8 @@ import { MultiSelect } from './MultiSelect';
 import { guestlistEventName, guestlistStatuses, guestlistStatusesForEvent, guestlistStatusQuery, reviewableGuestlistEvents } from '@/lib/guestlists';
 import { customerLink } from '@/lib/customer-link';
 import { MobileTableSort } from './MobileTableSort';
+import { LoadingState } from './LoadingState';
+import { searchRows } from '@/lib/table-search';
 import { allocationInputIsReadOnly, closeOtherAllocationEditors, focusAllocationInput, normalizeAllocationInput } from '@/lib/guestlist-allocation';
 
 const guestColumns = [['guestName', 'Guest'], ['partyValue', 'Party'], ['sourceValue', 'Source'], ['requestedValue', 'Requested'], ['status', 'Status']].map(([key, label]) => ({ key, label }));
@@ -23,6 +25,7 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
   const [eventId, setEventId] = useState(initialEventId || availableEvents[0]?.id || "");
   const [statuses, setStatuses] = useState(initialEntryId ? [] : ['pending']);
   const [entries, setEntries] = useState([]);
+  const [loadedEventId, setLoadedEventId] = useState(null);
   const [settings, setSettings] = useState(null);
   const [editingAllocationKey, setEditingAllocationKey] = useState(null);
   const [invitePools, setInvitePools] = useState(null);
@@ -36,11 +39,13 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
   const [activeEntryId, setActiveEntryId] = useState(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const entryTriggerRef = useRef(null);
+  const entriesEventRef = useRef(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [revision, setRevision] = useState(0);
   const [sortKey, setSortKey] = useState('guestName');
   const [descending, setDescending] = useState(false);
+  const [search, setSearch] = useState('');
   const selected = availableEvents.find((e) => e.id === eventId);
   const availableStatuses = guestlistStatusesForEvent(selected, currentTime);
   const pendingOnly = statuses.length === 1 && statuses[0] === 'pending';
@@ -62,8 +67,10 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
     return () => { active = false; };
   }, [eventId, selected, session]);
   useEffect(() => { if (initialEntryId && entries.some((entry) => entry.id === initialEntryId)) setActiveEntryId(initialEntryId); }, [initialEntryId, entries]);
-  const sortedEntries = sortTableRows(entries.map((entry) => ({ ...entry, guestName: entry.user?.displayName || 'Guest', partyValue: entry.partySize, sourceValue: entry.source === 'affiliate' ? entry.eventAffiliate?.user?.displayName || 'Unknown referrer' : 'Direct', requestedValue: Date.parse(entry.createdAt) })), sortKey, descending);
-  const pager = useTablePagination(sortedEntries, entries, `${eventId}:${statuses.join(',')}:${sortKey}:${descending}`);
+  const searchableEntries = entries.map((entry) => ({ ...entry, guestName: entry.user?.displayName || 'Guest', guestEmail: entry.user?.email || entry.email || '', guestPhone: entry.user?.phone || '', partyValue: entry.partySize, sourceValue: entry.source === 'affiliate' ? entry.eventAffiliate?.user?.displayName || 'Unknown referrer' : 'Direct', requestedValue: Date.parse(entry.createdAt) }));
+  const visibleEntries = searchRows(searchableEntries, search, ['guestName', 'guestEmail', 'guestPhone', 'sourceValue', 'status']);
+  const sortedEntries = sortTableRows(visibleEntries, sortKey, descending);
+  const pager = useTablePagination(sortedEntries, entries, `${eventId}:${statuses.join(',')}:${sortKey}:${descending}:${search}`);
   const head = (label, key) => <th scope="col"><button type="button" className="analytics-sort" onClick={() => { if (sortKey === key) setDescending(!descending); else { setSortKey(key); setDescending(key === 'partyValue' || key === 'requestedValue'); } }}>{label}<span aria-hidden="true">{sortKey === key ? (descending ? ' ↓' : ' ↑') : ' ↕'}</span></button></th>;
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(Date.now()), 60_000);
@@ -79,9 +86,13 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
   useEffect(() => {
     let active = true;
     setError("");
-    setEntries([]);
-    setSettings(null);
-    setInvitePools(null);
+    if (entriesEventRef.current !== eventId) {
+      entriesEventRef.current = eventId;
+      setEntries([]);
+      setLoadedEventId(null);
+      setSettings(null);
+      setInvitePools(null);
+    }
     if (!eventId || !selected) return;
     setLoading(true);
     Promise.all([
@@ -94,6 +105,7 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
       .then(([list, limits, pools]) => {
         if (active) {
           setEntries(list);
+          setLoadedEventId(eventId);
           setSettings(limits);
           setInvitePools(pools);
         }
@@ -280,7 +292,7 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
           }}
           options={availableEvents.map((e) => [e.id, `${guestlistEventName(e.title)} · ${eventDateLabel(e)}`, e.title])}
         />
-        {invitePools && (invitePools.direct || invitePools.own.length > 0) && <Button className="guestlist-invite-button" type="button" onClick={() => { setInviteResult(null); setInviteOpen(true); }}><UserPlus size={16}/> Invite guest</Button>}
+        {selected?.status === 'published' && invitePools?.open && (invitePools.direct || invitePools.own.length > 0) && <Button className="guestlist-invite-button" type="button" onClick={() => { setInviteResult(null); setInviteOpen(true); }}><UserPlus size={16}/> Invite guest</Button>}
       </div>
       {referralUrl && <section className="panel guestlist-referral-card"><div className="guestlist-referral-copy"><div><span className="eyebrow">SHARE THIS EVENT</span><h3>Your referral link</h3><p>Purchases and guestlist requests made through this link are attributed to you for this event.</p></div><Input readOnly aria-label="Your event referral link" value={referralUrl} onFocus={(event) => event.target.select()} /></div><Button type="button" variant="outline" onClick={copyReferralUrl}>{referralCopyMessage === 'Referral link copied.' ? 'Copied' : 'Copy link'}</Button>{referralCopyMessage && <p className="guestlist-referral-status" role="status">{referralCopyMessage}</p>}</section>}
       {error && (
@@ -297,11 +309,7 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
         <div className="section-heading">
           <div>
             <span className="eyebrow">GUEST EXPERIENCE</span>
-            <h2>
-              {pendingOnly
-                ? "A good night starts with a yes."
-                : "Your guestlist"}
-            </h2>
+            <h2>Your guestlist</h2>
             <p>
               Approvals respect the independent venue and referrer allocations.
             </p>
@@ -310,11 +318,12 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
             <MultiSelect label="Request status" options={availableStatuses} selected={statuses.filter((status) => availableStatuses.some((item) => item.id === status))} onChange={setStatuses} />
           </div>
         </div>
-        <div className="guest-experience-content">
-          {loading ? (
-            <p className="loading guest-experience-state" role="status">
-              Loading requests…
-            </p>
+        <div className="guest-experience-content" aria-busy={loading}>
+          <MobileTableSort columns={guestColumns} value={sortKey} descending={descending} onChange={(key) => { setSortKey(key); setDescending(['partyValue', 'requestedValue'].includes(key)); }} onToggle={() => setDescending(!descending)}/>
+          <div className="table-search"><div className="search-field"><Search size={16} aria-hidden="true"/><Input aria-label="Search guestlist" placeholder="Search" value={search} onChange={(event) => setSearch(event.target.value)}/></div></div>
+          {loading && loadedEventId === eventId && <LoadingState className="guest-experience-refresh">Updating requests…</LoadingState>}
+          {loading && loadedEventId !== eventId ? (
+            <LoadingState className="guest-experience-state">Loading requests…</LoadingState>
           ) : !entries.length ? (
             <div className="guest-experience-state"><Empty
               title={
@@ -328,7 +337,7 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
                 : "Choose another event or status."}
             </Empty></div>
           ) : (
-          <><MobileTableSort columns={guestColumns} value={sortKey} descending={descending} onChange={(key) => { setSortKey(key); setDescending(['partyValue', 'requestedValue'].includes(key)); }} onToggle={() => setDescending(!descending)}/><div className="guestlist-table-surface"><div className="table-wrap responsive-event-table">
+          <>{visibleEntries.length ? <div className="guestlist-table-surface"><div className="table-wrap responsive-event-table">
             <table>
               <thead>
                 <tr>
@@ -353,7 +362,8 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
                 ))}
               </tbody>
             </table>
-          </div></div><TablePagination pager={pager}/></>
+          </div></div> : <div className="guest-experience-state"><Empty title="No matching guests">Try a different name, contact, source, or status.</Empty></div>}
+          <TablePagination pager={pager}/></>
           )}
         </div>
       </section>

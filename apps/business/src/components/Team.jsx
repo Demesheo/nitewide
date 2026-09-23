@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -8,7 +9,10 @@ import { TablePagination, useTablePagination } from '@/components/TablePaginatio
 import { sortTableRows } from '@/lib/table-sort';
 import { money } from '@/lib/business';
 import { MobileTableSort } from './MobileTableSort';
+import { MultiSelect } from './MultiSelect';
+import { searchRows } from '@/lib/table-search';
 import { Choice } from './controls';
+import { LoadingState } from './LoadingState';
 
 const teamColumns = [['name', 'Name'], ['role', 'Role'], ['email', 'Email'], ['status', 'Status'], ['salesCents', 'Referred sales'], ['orders', 'Orders'], ['customers', 'Customers']].map(([key, label]) => ({ key, label }));
 
@@ -30,12 +34,15 @@ export function Team({ session, organizations, onUnauthorized }) {
   const memberTriggerRef = useRef(null);
   const [sortKey, setSortKey] = useState('name');
   const [descending, setDescending] = useState(false);
+  const [search, setSearch] = useState('');
+  const [selectedRoles, setSelectedRoles] = useState([]);
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState('employee');
   const [link, setLink] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
   const currentOrganization = organizations.find((org) => org.id === organizationId);
   const canInviteManager = Boolean(session.user.isInternalAdmin || currentOrganization?.canInviteManager || currentOrganization?.canManage);
   const canManageTeam = Boolean(session.user.isInternalAdmin || currentOrganization?.canManage);
@@ -46,11 +53,14 @@ export function Team({ session, organizations, onUnauthorized }) {
   useEffect(() => {
     if (!organizationId) return;
     const controller = new AbortController();
+    setLoading(true);
+    setRoster(null);
     Promise.all([
       api(`/business/organizations/${organizationId}/team`, session, { signal: controller.signal }),
       api(`/business/analytics?days=30&organizationIds=${organizationId}`, session, { signal: controller.signal }),
     ]).then(([team, report]) => { setRoster(team); setAnalytics(report); setSelectedMember(null); })
-      .catch((err) => { if (err.status === 401) onUnauthorized(); else if (err.name !== 'AbortError') setError(err.message); });
+      .catch((err) => { if (err.status === 401) onUnauthorized(); else if (err.name !== 'AbortError') setError(err.message); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [organizationId, session, onUnauthorized]);
   async function submit(event) {
@@ -110,16 +120,20 @@ export function Team({ session, organizations, onUnauthorized }) {
   }
   const figures = new Map((analytics?.referrals?.people || []).map((person) => [person.id, person]));
   const members = (roster?.people || []).map((member) => ({ ...member, salesCents: figures.get(member.id)?.salesCents || 0, orders: figures.get(member.id)?.orders || 0, customers: figures.get(member.id)?.customers || 0, commissionCents: figures.get(member.id)?.commissionCents || 0 }));
-  const sortedMembers = sortTableRows(members, sortKey, descending);
-  const pager = useTablePagination(sortedMembers, roster?.people, `${organizationId}:${sortKey}:${descending}`);
+  const roleOptions = [...new Set(members.map((member) => member.role))].sort((a, b) => a.localeCompare(b)).map((value) => ({ id: value, label: value }));
+  const activeRoles = selectedRoles.filter((value) => roleOptions.some((option) => option.id === value));
+  const visibleMembers = searchRows(members.filter((member) => !activeRoles.length || activeRoles.includes(member.role)), search, ['name', 'role', 'email', 'status']);
+  const sortedMembers = sortTableRows(visibleMembers, sortKey, descending);
+  const pager = useTablePagination(sortedMembers, roster?.people, `${organizationId}:${sortKey}:${descending}:${search}:${activeRoles.join(',')}`);
   const selected = members.find((member) => member.id === selectedMember);
   function sort(key) { if (sortKey === key) setDescending(!descending); else { setSortKey(key); setDescending(['salesCents', 'orders', 'customers'].includes(key)); } }
   if (!organizations.length) return <div className="surface-card p-6">Team invitations are available to organization owners and managers.</div>;
+  if (loading && !roster) return <LoadingState className="panel">Loading team…</LoadingState>;
   return <div className="team-page">
-    {organizations.length > 1 && <label>Organization<select value={organizationId} onChange={(event) => { setOrganizationId(event.target.value); setLink(''); }}>{organizations.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}</select></label>}
-    <div className="surface-card team-invite-summary"><div><span className="eyebrow">TEAM ACCESS</span><h2>Build your team</h2><p>Invite managers, employees, or promoters and manage their access in one place.</p></div>
+    {organizations.length > 1 && <label>Organization<select value={organizationId} onChange={(event) => { setOrganizationId(event.target.value); setSelectedRoles([]); setLink(''); }}>{organizations.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}</select></label>}
+    <section className="panel team-invite-summary"><div><span className="eyebrow">TEAM ACCESS</span><h2>Build your team</h2><p>Invite managers, employees, or promoters and manage their access in one place.</p></div>
       <Button ref={inviteTriggerRef} onClick={() => { setError(''); setInviteOpen(true); }}>Invite team member</Button>
-    </div>
+    </section>
     <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
       <DialogContent className="team-invite-dialog" onCloseAutoFocus={(event) => { event.preventDefault(); inviteTriggerRef.current?.focus(); }}>
         <DialogHeader>
@@ -140,12 +154,14 @@ export function Team({ session, organizations, onUnauthorized }) {
       </DialogContent>
     </Dialog>
     <Dialog open={Boolean(selected)} onOpenChange={(open) => { if (!open) setSelectedMember(null); }}>
-      <div className="surface-card team-roster"><h2>Current team</h2><p className="team-caption">Showing referred paid sales from the last 30 days. Click a member for details.</p>
+      <section className="panel team-roster"><h2>Current team</h2><p className="team-caption">Showing referred paid sales from the last 30 days. Click a member for details.</p>
+        {roleOptions.length > 0 && <div className="team-roster-filters"><MultiSelect label="Roles" options={roleOptions} selected={activeRoles} onChange={setSelectedRoles}/></div>}
         <MobileTableSort columns={teamColumns} value={sortKey} descending={descending} onChange={sort} onToggle={() => setDescending(!descending)}/>
+        <div className="table-search"><div className="search-field"><Search size={16} aria-hidden="true"/><Input aria-label="Search team" placeholder="Search" value={search} onChange={(event) => setSearch(event.target.value)}/></div></div>
         <div className="table-wrap responsive-event-table"><Table><TableHeader><TableRow>{teamColumns.map(({ key, label }) => <TableHead key={key} scope="col" aria-sort={sortKey === key ? descending ? 'descending' : 'ascending' : 'none'}><button className="table-sort" onClick={() => sort(key)}>{label} {sortKey === key ? (descending ? '↓' : '↑') : '↕'}</button></TableHead>)}</TableRow></TableHeader><TableBody>{pager.rows.map((member) => <TableRow key={member.id}>
           <TableCell data-label="Name"><button className="team-member-link" onClick={(event) => { memberTriggerRef.current = event.currentTarget; setRoleError(''); setEditingMember(false); setConfirmRemove(false); setEditRole(member.role === 'Manager' ? 'manager' : member.role === 'Promoter' ? 'affiliate' : 'employee'); setSelectedMember(member.id); }}>{member.name}</button></TableCell>
           <TableCell data-label="Role">{member.role}</TableCell><TableCell data-label="Email">{member.email}</TableCell><TableCell data-label="Status">{member.status}</TableCell><TableCell data-label="Referred sales">{money(member.salesCents)}</TableCell><TableCell data-label="Orders">{member.orders}</TableCell><TableCell data-label="Customers">{member.customers}</TableCell>
-        </TableRow>)}</TableBody></Table></div>{!members.length && <p>No team members yet.</p>}<TablePagination pager={pager}/></div>
+        </TableRow>)}</TableBody></Table></div>{!members.length ? <p>No team members yet.</p> : !visibleMembers.length && <p role="status">No team members match those filters.</p>}<TablePagination pager={pager}/></section>
       {selected && <DialogContent className="team-member-dialog sm:max-w-xl max-h-[90vh] overflow-y-auto" onCloseAutoFocus={(event) => { event.preventDefault(); (memberTriggerRef.current?.isConnected ? memberTriggerRef.current : inviteTriggerRef.current)?.focus(); }}>
         <DialogHeader>
           <span className="eyebrow">TEAM MEMBER</span>
@@ -167,7 +183,7 @@ export function Team({ session, organizations, onUnauthorized }) {
         <DialogFooter className="team-remove-dialog-actions"><Button variant="destructive" disabled={memberRemoving} onClick={removeMember}>{memberRemoving ? 'Removing…' : 'Confirm removal'}</Button><Button variant="outline" disabled={memberRemoving} onClick={() => setConfirmRemove(false)}>Keep member</Button></DialogFooter>
       </DialogContent>}
     </Dialog>
-    <div className="surface-card team-pending"><h2>Pending invitations</h2>{roster?.invitations.length ? <ul>{roster.invitations.map((invitation) => <li key={invitation.id}><span><strong>{invitation.email}</strong><small>{roleLabel(invitation.role)}{invitation.phone ? ` · ${invitation.phone}` : ''} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</small></span><div><Button variant="outline" size="sm" onClick={() => resend(invitation)}>Resend</Button><Button variant="ghost" size="sm" onClick={() => revoke(invitation)}>Delete</Button></div></li>)}</ul> : <p>No pending invitations.</p>}<small>Resend creates a new private link and opens your email app. Nitewide does not send email automatically yet.</small></div>
+    <section className="panel team-pending"><h2>Pending invitations</h2>{roster?.invitations.length ? <ul>{roster.invitations.map((invitation) => <li key={invitation.id}><span><strong>{invitation.email}</strong><small>{roleLabel(invitation.role)}{invitation.phone ? ` · ${invitation.phone}` : ''} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</small></span><div><Button variant="outline" size="sm" onClick={() => resend(invitation)}>Resend</Button><Button variant="ghost" size="sm" onClick={() => revoke(invitation)}>Delete</Button></div></li>)}</ul> : <p>No pending invitations.</p>}<small>Resend creates a new private link and opens your email app. Nitewide does not send email automatically yet.</small></section>
   </div>;
 }
 

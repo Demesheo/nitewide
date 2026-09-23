@@ -17,12 +17,13 @@ import {
   Check,
   ChevronRight,
   CircleDollarSign,
+  CircleUserRound,
   Command,
   LayoutDashboard,
+  LoaderCircle,
   LogOut,
   Menu,
   Plus,
-  RefreshCw,
   Search,
   ShieldCheck,
   Sparkles,
@@ -46,6 +47,8 @@ import { TeamPerformanceTable } from "@/components/TeamPerformanceTable";
 import { PersonalOverview } from "@/components/PersonalOverview";
 import { Notifications } from "@/components/Notifications";
 import { Team, TeamInviteLanding } from "@/components/Team";
+import { BusinessProfile } from "@/components/BusinessProfile";
+import { LoadingState } from "@/components/LoadingState";
 import { TablePagination, useTablePagination } from "@/components/TablePagination";
 import { api, readSession, SESSION_KEY } from "@/lib/api";
 import { csv, money } from "@/lib/business";
@@ -170,8 +173,9 @@ function SignIn({ onSession, notice }) {
               </p>
             )}
             <Button disabled={busy} type="submit" size="lg">
+              {busy && <LoaderCircle className="nw-loading-icon" aria-hidden="true" />}
               {busy ? "Signing in…" : "Sign in to Nitewide"}
-              <ArrowRight />
+              {!busy && <ArrowRight />}
             </Button>
           </form>
           <div className="signin-note">
@@ -418,6 +422,7 @@ export default function App() {
   const [eventToOpen, setEventToOpen] = useState(null);
   const [guestlistEntryToOpen, setGuestlistEntryToOpen] = useState(null);
   const [mobileNav, setMobileNav] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const menuTrigger = useRef(null);
   useEffect(() => {
     // Each phone destination starts at its heading, not the previous page's scroll offset.
@@ -436,6 +441,7 @@ export default function App() {
     setData(null);
     setEditor(null);
     setMobileNav(false);
+    setProfileOpen(false);
     setSelectedOrganizations([]);
     setSelectedVenues([]);
     setHasIndependentWorkspace(false);
@@ -621,6 +627,13 @@ export default function App() {
           <div className="sidebar mobile-nav-content">{sidebarContent}</div>
         </DialogContent>
       </Dialog>
+      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+        <DialogContent className="business-profile-dialog">
+          <DialogTitle className="sr-only">Your profile</DialogTitle>
+          <DialogDescription className="sr-only">View and edit your Nitewide account details.</DialogDescription>
+          <BusinessProfile session={session} onUpdated={(user) => { const updated = { ...session, user: { ...session.user, ...user } }; sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated)); setSession(updated); }} />
+        </DialogContent>
+      </Dialog>
       <nav className="mobile-bottom-nav" aria-label="Business navigation">
         {visibleNavigation.map(([id, Icon, label]) => <button type="button" key={id} aria-current={visiblePage === id ? 'page' : undefined} onClick={() => navigate(id)}><Icon size={20} aria-hidden="true"/><span>{label}</span></button>)}
       </nav>
@@ -652,11 +665,12 @@ export default function App() {
             <Button
               variant="ghost"
               size="icon"
-              aria-label="Refresh data"
-              disabled={loading}
-              onClick={() => setRevision((r) => r + 1)}
+              aria-label="Your profile"
+              aria-expanded={profileOpen}
+              aria-haspopup="dialog"
+              onClick={() => setProfileOpen(true)}
             >
-              <RefreshCw size={17} className={loading ? "spin" : ""} />
+              <CircleUserRound size={20} />
             </Button>
           </div>
         </header>
@@ -748,11 +762,7 @@ export default function App() {
               </Button>
             </div>
           )}
-          {loading && (
-            <div className="loading" role="status">
-              Updating your workspace…
-            </div>
-          )}
+          {loading && <LoadingState className="workspace-loading">{data ? 'Updating your workspace…' : 'Opening your workspace…'}</LoadingState>}
           {data && !error && (
             <div
               className={loading ? "content-updating" : ""}

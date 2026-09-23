@@ -17,9 +17,11 @@ const columns = [{ key: 'name', label: 'Name' }, { key: 'sales', label: 'Sales' 
 test('mobile sorting renders all columns and announces the inverse sort action', () => {
   const html = renderToStaticMarkup(React.createElement(MobileTableSort, { columns, value: 'sales', descending: true, onChange() {}, onToggle() {} }));
   assert.match(html, /aria-label="Sort table by"/);
-  assert.match(html, /value="name">Name/);
-  assert.match(html, /value="sales" selected="">Sales/);
+  assert.match(html, /value="name">Sort by · Name/);
+  assert.match(html, /value="sales" selected="">Sort by · Sales/);
   assert.match(html, /aria-label="Sort ascending"/);
+  assert.match(html, /title="Descending — switch to ascending"/);
+  assert.match(html, /<span aria-hidden="true">↓<\/span>/);
   assert.match(html, /type="button"/);
 });
 

@@ -90,6 +90,32 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
       return profile(user);
     });
   }
+  async function updateIdentity(userId, input) {
+    return models.User.sequelize.transaction(async (transaction) => {
+      const user = await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!user?.isActive) throw notFound('User');
+      const email = input.email.trim().toLowerCase();
+      if (email !== user.email && input.confirmEmail?.trim().toLowerCase() !== email) {
+        throw conflict('Email confirmation does not match', 'PROFILE_CONFIRMATION_MISMATCH');
+      }
+      if (input.phone !== user.phone && (input.confirmPhone === undefined || input.confirmPhone !== input.phone)) {
+        throw conflict('Phone confirmation does not match', 'PROFILE_CONFIRMATION_MISMATCH');
+      }
+      if (email !== user.email && await models.User.findOne({ where: { email }, transaction })) {
+        throw conflict('This email is already in use', 'EMAIL_IN_USE');
+      }
+      const before = profile(user);
+      const updates = { email, displayName: input.displayName.trim(), phone: input.phone };
+      if (input.phone !== user.phone) updates.phoneVerifiedAt = null;
+      try { await user.update(updates, { transaction }); }
+      catch (error) {
+        if (error.name === 'SequelizeUniqueConstraintError') throw conflict('This email is already in use', 'EMAIL_IN_USE');
+        throw error;
+      }
+      await models.AuditLog.create({ actorUserId: userId, entityType: 'User', entityId: userId, action: 'user.identity_updated', before, after: profile(user) }, { transaction });
+      return profile(user);
+    });
+  }
   async function connectionHistory(userId) {
     const [orders, guests, invitations] = await Promise.all([
       models.Order.findAll({ where: { buyerUserId: userId, status: 'paid', [Op.or]: [{ eventAffiliateId: { [Op.ne]: null } }, { orgAffiliateId: { [Op.ne]: null } }] }, attributes: ['id', 'eventId', 'eventAffiliateId', 'orgAffiliateId', 'paidAt', 'createdAt'] }),
@@ -145,6 +171,6 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     }
     return result;
   }
-  return { bookings, ticket, purchaseTickets, guestlistPass, updateProfile, connections, connectionHistory };
+  return { bookings, ticket, purchaseTickets, guestlistPass, updateProfile, updateIdentity, connections, connectionHistory };
 }
 module.exports = { createCustomerAccountService, profile, eventSummary };

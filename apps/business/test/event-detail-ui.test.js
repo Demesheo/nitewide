@@ -41,11 +41,46 @@ test('attendee table uses concise admission labels and aligns the three entry co
   assert.match(mobileStyles, /td:first-child button \{ min-height: 44px !important; padding: 0 2px; \}/);
 });
 
+test('attendee purchase details align their values beneath labels in a compact mobile card', () => {
+  assert.match(eventDetail, /className="event-customer-purchases"><EventTable/);
+  assert.match(mobileStyles, /\.event-customer-purchases \.responsive-event-table tbody tr \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
+  assert.match(mobileStyles, /\.event-customer-purchases \.responsive-event-table td:first-child \{ grid-column: 1 \/ -1;/);
+  assert.match(mobileStyles, /\.event-customer-purchases \.responsive-event-table td:not\(:first-child\) \{ display: grid; grid-template-columns: minmax\(0, 1fr\); justify-items: center;/);
+});
+
 test('event detail tabs have a consistent segmented layout on desktop and mobile', () => {
   assert.match(styles, /\.event-detail-tabs > \[data-slot="tabs-list"\] \{ display: grid; grid-template-columns: repeat\(3, minmax\(0,1fr\)\);/);
   assert.match(styles, /\.event-detail-tabs \[data-slot="tabs-trigger"\]\[data-state="active"\] \{ border-color: #66517d; background: linear-gradient/);
   assert.match(mobileStyles, /\.event-detail-tabs > \[data-slot="tabs-list"\] \{ display: grid; grid-template-columns: repeat\(3, minmax\(0,1fr\)\); flex-wrap: nowrap;/);
   assert.match(mobileStyles, /\.event-detail-tabs \[data-slot="tabs-trigger"\] \{ min-width: 0; min-height: 44px; height: auto; flex: initial;/);
+});
+
+test('redundant tier schedule cards stay available on desktop but are hidden on mobile', () => {
+  assert.match(eventDetail, /className="tier-schedule-list"/);
+  assert.match(styles, /\.tier-schedule-list \{ display: grid;/);
+  assert.match(mobileStyles, /@media \(max-width: 850px\) \{\s*\.event-detail \.tier-schedule-list \{ display: none; \}/);
+});
+
+test('event Team keeps role filtering and Add promoter on one mobile control row', () => {
+  assert.match(eventDetail, /className="event-team-controls">\{data\.scope !== 'own' && <MultiSelect label="Roles"/);
+  assert.match(eventDetail, /\{event\.canEdit && <EventPromoterInvite event=\{event\}/);
+  assert.match(styles, /\.event-team-controls \{ display: flex; align-items: center; justify-content: space-between;/);
+  assert.match(mobileStyles, /\.event-team-controls \.multi-select-control \{ flex: none; min-width: 0; \}/);
+  assert.match(mobileStyles, /\.event-team-controls \.multi-select-control button \{ min-width: 0; width: auto; \}/);
+  assert.match(eventDetail, /className="event-team-table"><EventTable/);
+  assert.match(mobileStyles, /\.table-mobile-sort \{ display: flex; align-items: center; justify-content: space-between;/);
+  assert.match(mobileStyles, /\.table-mobile-sort label \{ display: block; min-width: 0; \}/);
+  assert.match(mobileStyles, /\.table-mobile-sort select \{ width: auto; min-width: 166px; max-width: min\(228px, calc\(100vw - 112px\)\);/);
+});
+
+test('event Team pagination returns to its heading without changing other tables', () => {
+  const eventTable = readFileSync(new URL('../src/components/EventTable.jsx', import.meta.url), 'utf8');
+  const pagination = readFileSync(new URL('../src/components/TablePagination.jsx', import.meta.url), 'utf8');
+  assert.match(eventDetail, /ref=\{teamHeadingRef\} className="section-heading event-people-heading"/);
+  assert.match(eventDetail, /onPageChange=\{scrollToTeam\}/);
+  assert.match(eventTable, /<TablePagination pager=\{pager\} onPageChange=\{onPageChange\}\/>/);
+  assert.match(pagination, /onPageChange\?\.\(\)/);
+  assert.match(mobileStyles, /\.event-people-heading \{ scroll-margin-top: 80px; \}/);
 });
 
 test('event detail card separates status, venue identity, address and full-width description', () => {

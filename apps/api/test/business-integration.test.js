@@ -251,6 +251,18 @@ test(
       const inviteAffiliate = await m.EventAffiliate.create({ eventId: guestInviteEventId, userId: ids.promoter, orgAffiliateId: ids.affiliate, code: `QAI-${guestInviteEventId.slice(0,8)}`, guestlistAllocation: 2 });
       const employeeInviteAffiliate = await m.EventAffiliate.create({ eventId: guestInviteEventId, userId: ids.employee, code: `QASTAFF-${guestInviteEventId.slice(0,8)}`, guestlistAllocation: 1 });
       const guestInvitePath = `/business/events/${guestInviteEventId}/guestlist-invitations`;
+      const draftInviteEvent = await req('/business/events', ids.owner, 'POST', { ...input, status: 'draft', slug: `draft-invite-${randomUUID()}` });
+      assert.equal(draftInviteEvent.status, 201, JSON.stringify(draftInviteEvent.body));
+      const draftInviteEventId = draftInviteEvent.body.data.id;
+      events.push(draftInviteEventId);
+      locations.add(draftInviteEvent.body.data.locationId);
+      const closedPools = await req(`/business/events/${draftInviteEventId}/guestlist-invite-pools`, ids.owner);
+      assert.equal(closedPools.status, 200);
+      assert.deepEqual(closedPools.body.data, { direct: false, own: [], open: false });
+      const draftInvite = await req(`/business/events/${draftInviteEventId}/guestlist-invitations`, ids.owner, 'POST', { pool: 'direct', email: `draft-${randomUUID()}@integration.nitewide.test`, partySize: 1 });
+      assert.equal(draftInvite.status, 409);
+      assert.equal(draftInvite.body.error.code, 'GUESTLIST_CLOSED');
+      assert.equal((await req(`/business/events/${draftInviteEventId}/guestlist-invitations`, ids.outsider, 'POST', { pool: 'direct', email: `draft-${randomUUID()}@integration.nitewide.test`, partySize: 1 })).status, 403);
       const pools = await req(`/business/events/${guestInviteEventId}/guestlist-invite-pools`, ids.promoter);
       assert.equal(pools.body.data.direct, false);
       assert.ok(pools.body.data.own.some((pool) => pool.id === inviteAffiliate.id));

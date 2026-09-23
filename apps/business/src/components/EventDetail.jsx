@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Pencil, LockKeyhole, MapPin, CalendarDays, Users, Ticket, CircleDollarSign, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -8,6 +8,7 @@ import { Empty } from './controls';
 import { MultiSelect } from './MultiSelect';
 import { EventPromoterInvite } from './EventPromoterInvite';
 import { EventTable } from './EventTable';
+import { LoadingState } from './LoadingState';
 import { SalesMixPie } from './SalesMixPie';
 import { api, mediaSrc } from '@/lib/api';
 import { money, eventDateLabel } from '@/lib/business';
@@ -47,6 +48,7 @@ function EventAttendees({ customers, onSelect }) {
 }
 
 function EventPeople({ data, session, onSaved, onUnauthorized }) {
+  const teamHeadingRef = useRef(null);
   const [editing, setEditing] = useState(null);
   const [personId, setPersonId] = useState('');
   const [rate, setRate] = useState(0);
@@ -66,9 +68,10 @@ function EventPeople({ data, session, onSaved, onUnauthorized }) {
       setEditing(null); onSaved(status === 'inactive' ? 'Referrer removed. Existing sales and approved guestlists are preserved.' : 'Event commission saved for future purchases.');
     } catch (e) { if (e.status === 401) onUnauthorized(); else setError(e.message); } finally { setBusy(false); }
   }
-  return <><div className="section-heading event-people-heading"><div><h3>{data.scope === 'own' ? 'Your referral' : 'Team'}</h3><p>{event.canEdit ? 'Click a person to view performance or manage their event commission.' : event.canManage ? 'This event has ended. Commission rates and earned amounts are read-only.' : 'Your sales, performance, referral code and commission earnings for this event.'}</p></div>{event.canEdit && <EventPromoterInvite event={event} session={session} onUnauthorized={onUnauthorized}/>}</div>
-    {data.scope !== 'own' && <div className="toolbar"><MultiSelect label="Roles" selected={roles.filter((r)=>roleOptions.some((option)=>option.id===r))} onChange={setRoles} options={roleOptions}/></div>}
-    <EventTable rows={filterEventTeam(people,roles)} onSelect={(p) => open(p)} selectRow defaultSort="salesCents" defaultDescending columns={[
+  const scrollToTeam = () => requestAnimationFrame(() => teamHeadingRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }));
+  return <><div ref={teamHeadingRef} className="section-heading event-people-heading"><div><h3>{data.scope === 'own' ? 'Your referral' : 'Team'}</h3><p>{event.canEdit ? 'Click a person to view performance or manage their event commission.' : event.canManage ? 'This event has ended. Commission rates and earned amounts are read-only.' : 'Your sales, performance, referral code and commission earnings for this event.'}</p></div></div>
+    {(data.scope !== 'own' || event.canEdit) && <div className="event-team-controls">{data.scope !== 'own' && <MultiSelect label="Roles" selected={roles.filter((r)=>roleOptions.some((option)=>option.id===r))} onChange={setRoles} options={roleOptions}/>} {event.canEdit && <EventPromoterInvite event={event} session={session} onUnauthorized={onUnauthorized}/>}</div>}
+    <div className="event-team-table"><EventTable rows={filterEventTeam(people,roles)} onSelect={(p) => open(p)} onPageChange={scrollToTeam} selectRow defaultSort="salesCents" defaultDescending columns={[
       {key:'name',label:'Person',render:(p) => <><strong>{p.name}</strong>{p.status === 'inactive' && <small>Removed · history retained</small>}</>},
       {key:'role',label:'Role'},
       {key:'commissionBps',label:'Commission',numeric:true,render:(p) => `${(p.commissionBps ?? 0) / 100}%`},
@@ -77,7 +80,7 @@ function EventPeople({ data, session, onSaved, onUnauthorized }) {
       {key:'guestlistPlaces',label:'Guestlist requested',numeric:true},
       {key:'approvedGuestlistPlaces',label:'Guestlist approved',numeric:true},
       {key:'commissionCents',label:'Earned commission',numeric:true,render:(p) => money(p.commissionCents)},
-    ]}/>
+    ]}/></div>
     <Dialog open={Boolean(editing)} onOpenChange={(v) => { if (!v && !busy) setEditing(null); }}><DialogContent className="sm:max-w-lg event-person-dialog"><DialogHeader><DialogTitle>{editing?.userId ? editing.name : 'Add an event referrer'}</DialogTitle><DialogDescription>{editing?.userId ? `${editing.role} · Performance and commission for this event.` : 'Choose a team member and set their commission for this event.'}</DialogDescription></DialogHeader>
       {editing && <form onSubmit={(e) => {e.preventDefault(); if (canEditPerson) save();}} className="event-person-form">
         {editing.userId && <div className="event-financials"><div><span>Referred sales</span><strong>{money(editing.salesCents || 0)}</strong></div><div><span>Earned commission</span><strong>{money(editing.commissionCents || 0)}</strong></div><div><span>Orders</span><strong>{editing.orders || 0}</strong></div><div><span>Customers</span><strong>{editing.customers || 0}</strong></div><div><span>Guestlist requested</span><strong>{editing.guestlistPlaces || 0}</strong></div><div><span>Guestlist approved</span><strong>{editing.approvedGuestlistPlaces || 0}</strong></div></div>}
@@ -105,7 +108,7 @@ export function EventDetail({ eventId, session, refreshToken, onBack, onEdit, on
   }, [eventId, session, revision, refreshToken]);
   const saved = (message) => {setNotice(message); setRevision((v) => v + 1);};
   if (error) return <section className="panel"><Button variant="ghost" onClick={onBack}><ArrowLeft/> Events</Button><p className="error" role="alert">{error}</p><Button onClick={() => setRevision((v) => v + 1)}>Try again</Button></section>;
-  if (!data) return <p className="loading" role="status">Loading event performance…</p>;
+  if (!data) return <LoadingState className="panel">Loading event performance…</LoadingState>;
   const {event, summary:s, scope} = data;
   const phase = eventPhase(event);
   const ownOnly = scope === 'own';
@@ -123,6 +126,6 @@ export function EventDetail({ eventId, session, refreshToken, onBack, onEdit, on
       ]}/>{!ownOnly && <div className="tier-schedule-list">{event.offerings.map((o) => <div key={o.id}><strong>{o.name}</strong><span>{money(o.priceCents)} · {o.entriesPerUnit} admissions per unit</span><small>{!o.isActive ? 'Closed manually. ' : ''}{o.releaseAfterOfferingId ? `Opens when ${event.offerings.find((t) => t.id === o.releaseAfterOfferingId)?.name || 'previous tier'} sells out or closes. ` : ''}{o.salesStartAt ? `From ${new Date(o.salesStartAt).toLocaleString('en-US',{timeZone:event.location?.timezone || 'UTC'})}. ` : ''}{o.salesEndAt ? `Until ${new Date(o.salesEndAt).toLocaleString('en-US',{timeZone:event.location?.timezone || 'UTC'})}. ` : ''}{!o.releaseAfterOfferingId && !o.salesStartAt && !o.salesEndAt && o.isActive ? 'Available while the event is on sale.' : ''}</small></div>)}</div>}</section></TabsContent>
       <TabsContent value="people"><section className="panel"><EventPeople data={data} session={session} onSaved={saved} onUnauthorized={onUnauthorized}/></section></TabsContent>
     </Tabs>
-    <Dialog open={Boolean(customer)} onOpenChange={(v) => {if (!v) setCustomer(null);}}><DialogContent className="event-customer-dialog"><DialogHeader><DialogTitle>{customer?.name}</DialogTitle><DialogDescription>{customer?.email}</DialogDescription></DialogHeader>{customer && <><div className="event-financials"><div><span>Event spending</span><strong>{money(customer.salesCents)}</strong></div><div><span>Guestlist status</span><strong>{customer.guestlistStatuses.map((v) => v.replaceAll('_',' ')).join(', ') || 'No request'}</strong></div></div><EventTable rows={customer.purchases.map((p,i) => ({...p,id:String(i)}))} defaultSort="salesCents" defaultDescending empty="No purchases for this event" columns={[{key:'name',label:'Purchased'},{key:'quantity',label:'Quantity',numeric:true},{key:'salesCents',label:'Amount',numeric:true,render:(p) => money(p.salesCents)},{key:'referredBy',label:'Source'}]}/></>}</DialogContent></Dialog>
+    <Dialog open={Boolean(customer)} onOpenChange={(v) => {if (!v) setCustomer(null);}}><DialogContent className="event-customer-dialog"><DialogHeader><DialogTitle>{customer?.name}</DialogTitle><DialogDescription>{customer?.email}</DialogDescription></DialogHeader>{customer && <><div className="event-financials"><div><span>Event spending</span><strong>{money(customer.salesCents)}</strong></div><div><span>Guestlist status</span><strong>{customer.guestlistStatuses.map((v) => v.replaceAll('_',' ')).join(', ') || 'No request'}</strong></div></div><div className="event-customer-purchases"><EventTable rows={customer.purchases.map((p,i) => ({...p,id:String(i)}))} defaultSort="salesCents" defaultDescending empty="No purchases for this event" columns={[{key:'name',label:'Purchased'},{key:'quantity',label:'Quantity',numeric:true},{key:'salesCents',label:'Amount',numeric:true,render:(p) => money(p.salesCents)},{key:'referredBy',label:'Source'}]}/></div></>}</DialogContent></Dialog>
   </div>;
 }

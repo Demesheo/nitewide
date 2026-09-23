@@ -2,6 +2,7 @@
 .mobile-bottom-nav, .table-mobile-sort { display: none; }
 
 @media (max-width: 850px) {
+  .event-detail .tier-schedule-list { display: none; }
   .app-shell { min-height: 100svh; }
   .desktop-sidebar { display: none; }
   .main-shell, .main-content, .panel, .dashboard-grid > *, .events-workspace, .event-detail, [data-slot="tabs-content"] { min-width: 0; max-width: 100%; }
@@ -10,6 +11,10 @@
   .breadcrumb { gap: 8px; min-width: 0; font-size: 15px; }
   .breadcrumb > span, .breadcrumb > svg, .live-label { display: none; }
   .topbar-right { gap: 4px; }
+  .business-profile-panel { padding: 18px; }
+  .business-profile-heading { gap: 12px; }
+  .business-profile-heading h2 { font-size: 20px; }
+  .business-profile-actions > button { min-width: 96px; }
   .mobile-bottom-nav { position: fixed; inset: auto 0 0; z-index: 35; display: flex; padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); border-top: 1px solid #41394f; background: #15121df5; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); box-shadow: 0 -8px 28px #0003; }
   .mobile-bottom-nav button { flex: 1; min-width: 0; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; border: 0; border-radius: 12px; background: transparent; color: #aaa3b8; font-size: 10px; font-weight: 600; }
   .mobile-bottom-nav button[aria-current="page"] { background: #b9a9ff15; color: #e0d5ff; box-shadow: inset 0 1px #c8b9f72b; }
@@ -95,6 +100,11 @@
   .event-detail-heading h2 { margin: 0; font-size: 19px; overflow-wrap: anywhere; }
   .event-detail-summary { padding-top: 11px; font-size: 12px; line-height: 1.6; }
   .event-people-heading > div:first-child { min-width: 0; }
+  .event-people-heading { scroll-margin-top: 80px; }
+  .event-team-controls { gap: 8px; }
+  .event-team-controls .multi-select-control { flex: none; min-width: 0; }
+  .event-team-controls .multi-select-control button { min-width: 0; width: auto; }
+  .event-team-controls > button { flex: none; white-space: nowrap; }
   .event-people-actions { width: 100%; }
   .event-people-actions button, .event-people-actions .multi-select-control { flex: 1; }
   .event-people-actions .multi-select-control button { min-width: 0; width: 100%; }
@@ -111,6 +121,7 @@
   .allocation-edit-button { min-height: 44px; }
   .allocation-actions { gap: 10px; }
   .guest-experience-content { gap: 12px; padding: 0 16px 16px; }
+  .guest-experience-content .table-mobile-sort { margin-bottom: 0; }
   .guest-experience-filters { width: 100%; }
   .guest-experience-filters .multi-select-control, .guest-experience-filters .multi-select-control > button { width: 100%; min-width: 0; }
   .guest-experience-state { padding: 16px; }
@@ -139,6 +150,7 @@
   .team-remove-dialog-actions > button { width: 100%; min-width: 0; white-space: normal; }
   .team-pending { padding: 16px; }
   .team-invite-summary, .team-roster { padding: 16px; min-width: 0; }
+  .team-roster-filters .multi-select-control, .team-roster-filters .multi-select-control > button { width: 100%; min-width: 0; }
   .team-invite-summary { align-items: stretch; flex-direction: column; gap: 14px; }
   .team-invite-form { grid-template-columns: 1fr; }
   .team-invite-form label:first-child { grid-column: auto; }
@@ -199,10 +211,11 @@
 
 @media (max-width: 600px) {
   /* Operational tables become readable cards; desktop columns are unchanged. */
-  .table-mobile-sort { display: flex; align-items: end; gap: 10px; margin: 0 0 12px; padding-inline: 2px; }
-  .table-mobile-sort label { display: grid; gap: 6px; flex: 1; min-width: 0; font-size: 11px; color: #b6acc6; }
-  .table-mobile-sort select { width: 100%; border: 1px solid #453a51; border-radius: 10px; background: #211c2c; padding: 8px 12px; color: #ece4f8; }
-  .table-mobile-sort button { border: 1px solid #453a51; background: #211c2c; border-radius: 10px; min-height: 44px; padding: 8px 12px; color: #ece4f8; font-size: 13px; }
+  .table-mobile-sort { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 14px; }
+  .table-mobile-sort label { display: block; min-width: 0; }
+  .table-mobile-sort select { width: auto; min-width: 166px; max-width: min(228px, calc(100vw - 112px)); min-height: 44px; border: 1px solid #453a51; border-radius: var(--nw-control-radius); background: #211c2c; padding: 8px 30px 8px 12px; color: #ece4f8; font-size: 14px; }
+  .table-mobile-sort button { display: grid; place-items: center; width: 44px; min-width: 44px; height: 44px; border: 1px solid #453a51; border-radius: var(--nw-control-radius); background: #211c2c; color: #ece4f8; font-size: 21px; line-height: 1; }
+  .table-mobile-sort button:focus-visible { outline: 2px solid #b9a9ff; outline-offset: 2px; }
   .responsive-event-table thead { display: none; }
   .responsive-event-table table, .responsive-event-table tbody { display: block; white-space: normal; }
   .responsive-event-table tbody tr { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); border: 1px solid #3b3149; border-radius: 12px; margin-bottom: 12px; padding: 4px 12px 12px; background: #201d2b; gap: 0 12px; }
@@ -245,6 +258,10 @@
   .event-attendees-table .responsive-event-table td[data-label="Tickets"]::before, .event-attendees-table .responsive-event-table td[data-label="Guestlist spots"]::before, .event-attendees-table .responsive-event-table td[data-label="Checked in"]::before, .event-attendees-table .responsive-event-table td[data-label="Orders"]::before, .event-attendees-table .responsive-event-table td[data-label="Total spend"]::before { display: block; margin-bottom: 5px; color: #b6acc6; font-size: 11px; font-weight: 500; line-height: 1.2; letter-spacing: 0; }
   .event-attendees-table .responsive-event-table .attendee-metric-value { font-variant-numeric: tabular-nums; }
   .event-attendees-table .responsive-event-table td[data-label="Orders"], .event-attendees-table .responsive-event-table td[data-label="Total spend"] { padding-top: 10px; padding-bottom: 2px; }
+  .event-customer-purchases .responsive-event-table tbody tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; padding: 4px 14px 12px; }
+  .event-customer-purchases .responsive-event-table td:first-child { grid-column: 1 / -1; padding-block: 12px; color: #f2eefa; font-size: 16px; font-weight: 650; line-height: 1.25; }
+  .event-customer-purchases .responsive-event-table td:not(:first-child) { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; min-width: 0; padding: 10px 2px 2px; text-align: center; color: #f2eefa; font-size: 15px; font-weight: 650; line-height: 1.25; font-variant-numeric: tabular-nums; }
+  .event-customer-purchases .responsive-event-table td:not(:first-child)::before { margin-bottom: 5px; color: #b6acc6; font-size: 11px; font-weight: 500; line-height: 1.2; letter-spacing: 0; }
   .guest-experience-panel .responsive-event-table tbody tr { margin-bottom: 8px; padding: 4px 12px 10px; gap: 0 10px; }
   .guest-experience-panel .responsive-event-table td { padding-top: 8px; }
   .guest-experience-panel .responsive-event-table td:first-child { padding-block: 10px; }
