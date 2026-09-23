@@ -57,7 +57,7 @@ test('single-origin demo maps each app and assets without swallowing unknown API
   for (const app of ['customer', 'business', 'admin']) {
     const dist = path.join(root, 'apps', app, 'dist');
     await mkdir(path.join(dist, 'assets'), { recursive: true });
-    await writeFile(path.join(dist, 'index.html'), `<html><body><main>${app}</main></body></html>`);
+    await writeFile(path.join(dist, 'index.html'), app === 'admin' ? '<main>admin</main>' : `<html><body><main>${app}</main></body></html>`);
     await writeFile(path.join(dist, 'assets', 'app.js'), `// ${app}`);
   }
   const app = express(); installDemoStatic(app, root);
