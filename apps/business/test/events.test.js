@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { eventPhase, selectEvents, eventTeamRoles, filterEventTeam } from '../src/lib/events.js';
+import { eventPhase, selectEvents, eventTeamRoles, filterEventTeam, eventTeamSalesSlices } from '../src/lib/events.js';
 import { editorDraft, eventPayload, releaseOptions } from '../src/lib/business.js';
 
 test('event collection defaults to the earliest event date and time first', () => {
   const component = readFileSync(new URL('../src/components/Events.jsx', import.meta.url), 'utf8');
-  assert.match(component, /<EventTable searchable=\{false\} rows=\{rows\} onSelect=\{\(e\) => setSelectedId\(e\.id\)\} defaultSort="date" defaultDescending=\{false\}/);
+  assert.match(component, /<EventTable searchable=\{false\} rows=\{rows\} onSelect=\{\(e\) => setSelectedId\(e\.id\)\} onPageChange=\{scrollToCollection\} defaultSort="date" defaultDescending=\{false\}/);
 });
 
 test('event team multiselect offers only present roles and combines selected roles', () => {
@@ -16,6 +16,17 @@ test('event team multiselect offers only present roles and combines selected rol
   assert.equal(filterEventTeam(people,[]).length,4);
   assert.equal(filterEventTeam(people,['Promoter']).length,4,'a stale role must not hide the entire new roster');
   assert.deepEqual(eventTeamRoles([]),[]);
+});
+
+test('event team sales mix reconciles people, direct sales, and unmatched referrals', () => {
+  const slices = eventTeamSalesSlices({
+    people: [{ userId: 'a', name: 'Alex', salesCents: 5000 }, { userId: 'b', name: 'Blair', salesCents: 0 }],
+    channels: [{ name: 'Direct', salesCents: 3000 }, { name: 'Other referral', salesCents: 1000 }],
+    summary: { salesCents: 9000 },
+  });
+  assert.deepEqual(slices.map(({ name, salesCents }) => [name, salesCents]), [['Alex', 5000], ['Direct sales', 3000], ['Other referrals', 1000]]);
+  assert.equal(slices.reduce((sum, row) => sum + row.salesCents, 0), 9000);
+  assert.deepEqual(eventTeamSalesSlices({ people: [], channels: [], summary: { salesCents: 0 } }).map(({ name, salesCents }) => [name, salesCents]), [['Direct sales', 0]]);
 });
 
 test('event timelines distinguish live, future, drafts and past in venue time', () => {

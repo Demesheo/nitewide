@@ -17,9 +17,9 @@ test('approved guest list passes are customer-scoped and bind the approved party
   assert.match(pass.tickets[0].qrImage, /^data:image\/png;base64,/);
   assert.equal(pass.tickets[0].offering, 'Guest list entry');
   await assert.rejects(service.guestlistPass('other', entry.id), { code: 'NOT_FOUND' });
-  for (const status of ['pending', 'rejected', 'cancelled', 'no_show']) { entry.status = status; assert.equal((await service.guestlistPass(entry.userId, entry.id)).tickets[0].qrImage, null); }
+  for (const status of ['pending', 'rejected', 'no_show']) { entry.status = status; assert.equal((await service.guestlistPass(entry.userId, entry.id)).tickets[0].qrImage, null); }
 });
-test('guest list wallet QR checks in the approved party once and cancellation invalidates it', async () => {
+test('guest list wallet QR checks in the approved party once and revocation invalidates it', async () => {
   const entry = { id: ticket.id, userId: 'customer-a', eventId: 'event-a', partySize: 3, status: 'confirmed', qrTokenHash: 'approved-hash', update: async (values) => Object.assign(entry, values) };
   const token = guestlistWalletToken(entry, secret);
   const service = createCheckInService({ tokenSecret: secret, now: () => new Date('2026-09-22T12:00:00Z'), sequelize: { transaction: async (_opts, callback) => callback({ LOCK: { UPDATE: 'UPDATE' } }) }, models: {
@@ -32,7 +32,7 @@ test('guest list wallet QR checks in the approved party once and cancellation in
   assert.equal((await scan()).credential.partySize, 3);
   assert.equal(entry.status, 'checked_in');
   await assert.rejects(scan(), { code: 'CREDENTIAL_ALREADY_USED' });
-  entry.status = 'cancelled'; entry.qrTokenHash = null;
+  entry.status = 'rejected'; entry.qrTokenHash = null;
   await assert.rejects(scan(), { code: 'NOT_FOUND' });
 });
 test('wallet QR supports seeded tickets and is bound to holder, event and original credential', () => {

@@ -101,7 +101,7 @@ function createEventWorkspaceService({ models: m, permissions, now = () => new D
     const activeAssignment = assignments.some((a) => a.userId === userId && a.status === 'active' && !a.code?.startsWith('STAFFEV-') && !a.code?.startsWith('LEADEV-'));
     const ownOrg = event.organizationId ? await m.OrgAffiliate.findOne({ where: { organizationId: event.organizationId, userId, status: 'active' } }) : null;
     if (!canManage && !members.some((p) => p.userId === userId) && !activeAssignment) throw forbidden('Event access required');
-    const allPeople = assignments.map((a) => ({ id: a.id, userId: a.userId, name: a.user.displayName, role: members.find((p) => p.userId === a.userId)?.role || (a.userId === event.creatorUserId && !event.organizationId ? 'Creator' : 'Promoter'), orgAffiliateId: a.orgAffiliateId, status: a.status, code: a.code, commissionBps: a.commissionBps ?? a.orgAffiliate?.defaultCommissionBps ?? 0 }));
+    const allPeople = assignments.map((a) => ({ id: a.id, userId: a.userId, name: a.user.displayName, email: a.user.email, role: members.find((p) => p.userId === a.userId)?.role || (a.userId === event.creatorUserId && !event.organizationId ? 'Creator' : 'Promoter'), orgAffiliateId: a.orgAffiliateId, status: a.status, code: a.code, commissionBps: a.commissionBps ?? a.orgAffiliate?.defaultCommissionBps ?? 0 }));
     // Show the full current venue team, even without an event assignment or sales.
     // Owners, managers and employees can refer at 0% immediately.
     for (const member of members) if (!allPeople.some((p) => p.userId === member.userId)) allPeople.push({ ...member, id: null, code: member.defaultReferralCode, status: member.defaultReferralCode ? 'default' : 'not_selected', commissionBps: 0 });

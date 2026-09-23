@@ -6,7 +6,7 @@ import { LoadingIndicator } from './loading-indicator';
 import { isPremiumHost } from '../lib/premium-host';
 import { eventVenueName } from '../lib/event-venue';
 
-const guestStatuses = { pending: 'Awaiting approval', confirmed: 'Approved', rejected: 'Declined', checked_in: 'Checked in', cancelled: 'Cancelled', no_show: 'Not attended' };
+const guestStatuses = { pending: 'Awaiting approval', confirmed: 'Approved', rejected: 'Declined', checked_in: 'Checked in', no_show: 'Not attended' };
 
 export function NightCard({ entry, kind, busy, onOpen }) {
   const guestlist = kind === 'guestlist';

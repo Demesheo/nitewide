@@ -22,7 +22,7 @@ Open `http://127.0.0.1:5174/app` and use a README demo account. Restart a runnin
 - Clicking a customer opens their contact details, guestlist state, and historical purchased items with referral sources. Spending is recorded Nitewide event purchases, not unrecorded bar/venue spending. Buyers, ticket holders and guestlist requesters may differ. Anonymous package guests are represented by admission credentials, not invented customer identities.
 - Sales are paid-order subtotals; payments include customer fees; commission earnings use stored order amounts. This is not a processor settlement or payout reconciliation report. Fully refunded/cancelled orders are excluded from paid sales. Partially refunded accounting needs the future refund ledger.
 - The attendee table in Sales overview shows **Total spend**: ticket/package subtotals before fees. It does not display the fee-inclusive customer-payment column.
-- Active admissions count valid/checked-in tickets; guestlist places count confirmed/checked-in party sizes. Checked in combines tickets and checked-in guestlist party members. These are admission counts, not deduplicated physical people across both pools. Declined, pending, cancelled and no-show requests do not consume approved guestlist places.
+- Active admissions count valid/checked-in tickets; guestlist places count confirmed/checked-in party sizes. Checked in combines tickets and checked-in guestlist party members. These are admission counts, not deduplicated physical people across both pools. Declined, pending and no-show requests do not consume approved guestlist places. A declined request can be approved later if its pool has room; revoking an unused approval invalidates its QR and returns it to declined.
 
 ## Roles and locations
 

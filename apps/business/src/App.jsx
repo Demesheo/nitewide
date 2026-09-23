@@ -42,7 +42,6 @@ import { Events } from '@/components/Events';
 import { Analytics } from "@/components/Analytics";
 import { MultiSelect } from "@/components/MultiSelect";
 import { SalesMixPie } from "@/components/SalesMixPie";
-import { Guestlists } from "@/components/Guestlists";
 import { TeamPerformanceTable } from "@/components/TeamPerformanceTable";
 import { PersonalOverview } from "@/components/PersonalOverview";
 import { Notifications } from "@/components/Notifications";
@@ -51,17 +50,17 @@ import { BusinessProfile } from "@/components/BusinessProfile";
 import { LoadingState } from "@/components/LoadingState";
 import { TablePagination, useTablePagination } from "@/components/TablePagination";
 import { api, readSession, SESSION_KEY } from "@/lib/api";
-import { csv, money } from "@/lib/business";
+import { csv, eventDateLabel, money } from "@/lib/business";
 import { salesMixSlices } from "@/lib/sales-mix";
 import { sortTableRows } from "@/lib/table-sort";
 import { workspaceAccess } from "@/lib/workspace-access";
+import { reviewableGuestlistEvents } from "@/lib/guestlists";
 
 const navigation = [
   ["overview", LayoutDashboard, "Overview"],
   ["analytics", BarChart3, "Analytics"],
   ["events", CalendarDays, "Events"],
-  ["guestlists", Users, "Guestlists"],
-  ["team", Users, "Team"],
+  ["team", Users, "Organization"],
 ];
 function Brand() {
   return (
@@ -219,7 +218,7 @@ function RankBars({ rows, empty, total }) {
           <div>
             <span className="rank-index">{String(i + 1).padStart(2, "0")}</span>
             <span className="rank-name">
-              {r.name}
+              <span className="rank-title"><span className="rank-title-name" title={r.name}>{r.name}</span>{r.dateLabel && <span className="rank-date">· {r.dateLabel}</span>}</span>
               <small>
                 {r.units ?? r.orders} {r.units != null ? "units" : "orders"}
               </small>
@@ -251,6 +250,8 @@ function SalesMix({ rows, total, empty }) {
 function Performance({ data, onEvents }) {
   const { report } = data;
   const s = report.summary;
+  const eventDates = new Map(data.events.map((event) => [event.id, eventDateLabel(event)]));
+  const eventRows = report.events.filter((event) => event.salesCents).map((event) => ({ ...event, dateLabel: eventDates.get(event.id) }));
   return (
     <>
       <div className="metric-grid">
@@ -386,9 +387,9 @@ function Performance({ data, onEvents }) {
                 empty="Your ticket and package sales will appear here."
               />
             </TabsContent>
-            <TabsContent value="events">
+            <TabsContent value="events" className="event-sales-mix">
               <SalesMix
-                rows={report.events.filter((e) => e.salesCents)}
+                rows={eventRows}
                 total={s.salesCents}
                 empty="Publish an event and make your first sale."
               />
@@ -421,6 +422,8 @@ export default function App() {
   const [editor, setEditor] = useState(null);
   const [eventToOpen, setEventToOpen] = useState(null);
   const [guestlistEntryToOpen, setGuestlistEntryToOpen] = useState(null);
+  const [eventTabToOpen, setEventTabToOpen] = useState(null);
+  const [eventNavigationRevision, setEventNavigationRevision] = useState(0);
   const [mobileNav, setMobileNav] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const menuTrigger = useRef(null);
@@ -491,10 +494,12 @@ export default function App() {
     setSession(value);
     setLoginNotice("");
   }
-  function navigate(value, eventId = null, entryId = null) {
+  function navigate(value, eventId = null, entryId = null, eventTab = null) {
     setPage(value);
     setEventToOpen(eventId);
     setGuestlistEntryToOpen(entryId);
+    setEventTabToOpen(eventTab);
+    setEventNavigationRevision((revision) => revision + 1);
     setMobileNav(false);
   }
   function exportReport() {
@@ -550,7 +555,7 @@ export default function App() {
       : page === "events"
         ? "Set the stage for something great."
       : page === "team"
-        ? "Your people, together."
+        ? "Your organization, together."
         : "The right people. A great night.";
   const activeOrg = selectedOrganizations.length === 1 ? data?.organizations.find((o) => o.id === selectedOrganizations[0]) : data?.organizations.length === 1 && !hasIndependentWorkspace ? data.organizations[0] : null;
   const showVenueSelector = (data?.venues?.length || 0) > 1;
@@ -704,7 +709,7 @@ export default function App() {
               </Button>
             )}
           </div>
-          {visiblePage !== "analytics" && visiblePage !== "team" && (visiblePage !== "guestlists" || showOrganizationSelector || showVenueSelector) && <div className="page-controls">
+          {visiblePage !== "analytics" && visiblePage !== "team" && <div className="page-controls">
             {showOrganizationSelector && <MultiSelect
               label="Organizations"
               selected={selectedOrganizations}
@@ -715,7 +720,7 @@ export default function App() {
               ]}
             />}
             {showVenueSelector && <MultiSelect label="Venues" options={data.venues} selected={selectedVenues} onChange={setSelectedVenues} />}
-            {page !== "guestlists" && page !== "events" && <div>
+            {page !== "events" && <div>
               <Choice
                 label="Sales period"
                 value={days}
@@ -776,27 +781,21 @@ export default function App() {
                 </p>
               )}
               {visiblePage === "overview" && (
-                ownOnly ? <PersonalOverview data={data} onEvents={(eventId) => navigate('events', eventId)} onAnalytics={() => navigate('analytics')} onGuestlists={() => navigate('guestlists')}/> : <Performance data={data} onEvents={() => navigate("events")} />
+                ownOnly ? <PersonalOverview data={data} onEvents={(eventId) => navigate('events', eventId)} onAnalytics={() => navigate('analytics')} onGuestlists={() => { const event = reviewableGuestlistEvents(data.events)[0]; navigate('events', event?.id || null, null, event ? 'guestlist' : null); }}/> : <Performance data={data} onEvents={() => navigate("events")} />
               )}
               {visiblePage === "analytics" && <Analytics session={session} ownOnly={ownOnly} />}
               {visiblePage === "events" && (
                 <Events
+                  key={eventNavigationRevision}
                   data={data}
                   session={session}
                   ownOnly={ownOnly}
                   initialEventId={eventToOpen}
+                  initialTab={eventTabToOpen}
+                  initialGuestlistEntryId={guestlistEntryToOpen}
                   onUnauthorized={expire}
                   onEdit={setEditor}
                   onCreate={() => setEditor({})}
-                />
-              )}
-              {visiblePage === "guestlists" && (
-                <Guestlists
-                  events={data.events}
-                  session={session}
-                  expire={expire}
-                  initialEventId={eventToOpen}
-                  initialEntryId={guestlistEntryToOpen}
                 />
               )}
               {visiblePage === "team" && canManageTeam && <Team session={session} organizations={data.organizations.filter((org) => org.canManage)} onUnauthorized={expire} />}

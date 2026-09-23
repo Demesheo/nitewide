@@ -10,7 +10,7 @@ function setup(onGuestlistQuery, guestlistScope = { canReviewAny: true, eventAff
     Order: { findOne: async () => null }, OrderItem: {}, Ticket: {}, User: {}, OrganizationOwner: {}, OrgAffiliate: {}, EventAffiliate: { findOne: async () => affiliate, findAll: async () => [affiliate] }, GuestlistEntry: { sum: async (_field, { where }) => where.eventAffiliateId ? 3 : 5, findAll: async ({ where, include }) => { onGuestlistQuery?.(where, include); return []; }, findOne: async ({ where }) => where.id === 'owned-entry' ? { id: 'owned-entry' } : null }, CheckIn: {}, AuditLog: { create: async () => ({}) },
   };
   const authSession = { accessToken: 'test-token', user: { id: 'user-1', email: 'customer@example.com', displayName: 'Test Customer' }, roles: ['customer'] };
-  const services = { auth: { register: async () => authSession, signIn: async () => authSession, authenticate: async () => ({ id: 'user-1' }), me: async () => ({ user: authSession.user, roles: authSession.roles }) }, permissions: { assertManageEvent: async () => event, guestlistReviewScope: async () => guestlistScope, assertInternal: async () => ({}) }, checkout: async (input) => ({ order: { id: 'o1', buyerUserId: input.buyerUserId }, credentials: [], replayed: false }), requestGuestlist: async () => ({ entry: { status: 'pending' }, requiresApproval: true }), reviewGuestlist: async (input) => ({ entry: { status: input.decision === 'cancel' ? 'cancelled' : 'confirmed' }, qrToken: input.decision === 'cancel' ? null : 'approved-token' }), checkIn: async () => ({}) };
+  const services = { auth: { register: async () => authSession, signIn: async () => authSession, authenticate: async () => ({ id: 'user-1' }), me: async () => ({ user: authSession.user, roles: authSession.roles }) }, permissions: { assertManageEvent: async () => event, guestlistReviewScope: async () => guestlistScope, assertInternal: async () => ({}) }, checkout: async (input) => ({ order: { id: 'o1', buyerUserId: input.buyerUserId }, credentials: [], replayed: false }), requestGuestlist: async () => ({ entry: { status: 'pending' }, requiresApproval: true }), reviewGuestlist: async (input) => ({ entry: { status: input.decision === 'cancel' ? 'rejected' : 'confirmed' }, qrToken: input.decision === 'cancel' ? null : 'approved-token' }), checkIn: async () => ({}) };
   return createApp({ sequelize: {}, models, services, config: { NODE_ENV: 'test', corsOrigins: [], AUTH_TOKEN_SECRET: 'test-secret-at-least-32-characters' }, healthCheck: async () => {} });
 }
 test('health endpoint reports the API is ready', async () => { const response = await request(setup(), '/health'); assert.equal(response.status, 200); assert.equal(response.body.service, 'nitewide-api'); });
@@ -44,13 +44,14 @@ test('guestlist status filter accepts multiple selections and all', async () => 
   assert.equal((await request(app, `${route}?status=all`, options)).status, 200);
   assert.equal(Object.hasOwn(queries[1].where, 'status'), false);
   assert.equal((await request(app, `${route}?status=unknown`, options)).status, 422);
+  assert.equal((await request(app, `${route}?status=cancelled`, options)).status, 422);
 });
-test('authorized staff can cancel an approved guestlist through the decision route', async () => {
+test('authorized staff can revoke an approved guestlist through the decision route', async () => {
   const response = await request(setup(), '/api/business/events/40000000-0000-4000-8000-000000000001/guestlist/90000000-0000-4000-8000-000000000001/decision', {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-user-id': '10000000-0000-4000-8000-000000000005' }, body: JSON.stringify({ decision: 'cancel' }),
   });
   assert.equal(response.status, 200);
-  assert.equal(response.body.data.entry.status, 'cancelled');
+  assert.equal(response.body.data.entry.status, 'rejected');
   assert.equal(response.body.data.qrToken, null);
 });
 test('a non-manager referrer sees only their own entries and cannot review direct or another person’s entry', async () => {

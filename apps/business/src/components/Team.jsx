@@ -25,6 +25,7 @@ export function Team({ session, organizations, onUnauthorized }) {
   const [selectedMember, setSelectedMember] = useState(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const inviteTriggerRef = useRef(null);
+  const rosterRef = useRef(null);
   const [editRole, setEditRole] = useState('employee');
   const [editingMember, setEditingMember] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -127,6 +128,7 @@ export function Team({ session, organizations, onUnauthorized }) {
   const pager = useTablePagination(sortedMembers, roster?.people, `${organizationId}:${sortKey}:${descending}:${search}:${activeRoles.join(',')}`);
   const selected = members.find((member) => member.id === selectedMember);
   function sort(key) { if (sortKey === key) setDescending(!descending); else { setSortKey(key); setDescending(['salesCents', 'orders', 'customers'].includes(key)); } }
+  const scrollToRoster = () => requestAnimationFrame(() => rosterRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }));
   if (!organizations.length) return <div className="surface-card p-6">Team invitations are available to organization owners and managers.</div>;
   if (loading && !roster) return <LoadingState className="panel">Loading team…</LoadingState>;
   return <div className="team-page">
@@ -154,14 +156,14 @@ export function Team({ session, organizations, onUnauthorized }) {
       </DialogContent>
     </Dialog>
     <Dialog open={Boolean(selected)} onOpenChange={(open) => { if (!open) setSelectedMember(null); }}>
-      <section className="panel team-roster"><h2>Current team</h2><p className="team-caption">Showing referred paid sales from the last 30 days. Click a member for details.</p>
+      <section ref={rosterRef} className="panel team-roster"><h2>Current team</h2><p className="team-caption">Showing referred paid sales from the last 30 days. Click a member for details.</p>
         {roleOptions.length > 0 && <div className="team-roster-filters"><MultiSelect label="Roles" options={roleOptions} selected={activeRoles} onChange={setSelectedRoles}/></div>}
         <MobileTableSort columns={teamColumns} value={sortKey} descending={descending} onChange={sort} onToggle={() => setDescending(!descending)}/>
         <div className="table-search"><div className="search-field"><Search size={16} aria-hidden="true"/><Input aria-label="Search team" placeholder="Search" value={search} onChange={(event) => setSearch(event.target.value)}/></div></div>
         <div className="table-wrap responsive-event-table"><Table><TableHeader><TableRow>{teamColumns.map(({ key, label }) => <TableHead key={key} scope="col" aria-sort={sortKey === key ? descending ? 'descending' : 'ascending' : 'none'}><button className="table-sort" onClick={() => sort(key)}>{label} {sortKey === key ? (descending ? '↓' : '↑') : '↕'}</button></TableHead>)}</TableRow></TableHeader><TableBody>{pager.rows.map((member) => <TableRow key={member.id}>
           <TableCell data-label="Name"><button className="team-member-link" onClick={(event) => { memberTriggerRef.current = event.currentTarget; setRoleError(''); setEditingMember(false); setConfirmRemove(false); setEditRole(member.role === 'Manager' ? 'manager' : member.role === 'Promoter' ? 'affiliate' : 'employee'); setSelectedMember(member.id); }}>{member.name}</button></TableCell>
           <TableCell data-label="Role">{member.role}</TableCell><TableCell data-label="Email">{member.email}</TableCell><TableCell data-label="Status">{member.status}</TableCell><TableCell data-label="Referred sales">{money(member.salesCents)}</TableCell><TableCell data-label="Orders">{member.orders}</TableCell><TableCell data-label="Customers">{member.customers}</TableCell>
-        </TableRow>)}</TableBody></Table></div>{!members.length ? <p>No team members yet.</p> : !visibleMembers.length && <p role="status">No team members match those filters.</p>}<TablePagination pager={pager}/></section>
+        </TableRow>)}</TableBody></Table></div>{!members.length ? <p>No team members yet.</p> : !visibleMembers.length && <p role="status">No team members match those filters.</p>}<TablePagination pager={pager} onPageChange={scrollToRoster}/></section>
       {selected && <DialogContent className="team-member-dialog sm:max-w-xl max-h-[90vh] overflow-y-auto" onCloseAutoFocus={(event) => { event.preventDefault(); (memberTriggerRef.current?.isConnected ? memberTriggerRef.current : inviteTriggerRef.current)?.focus(); }}>
         <DialogHeader>
           <span className="eyebrow">TEAM MEMBER</span>

@@ -13,7 +13,7 @@ import { LoadingIndicator } from './loading-indicator';
 import { eventVenueName } from '../lib/event-venue';
 
 export function initials(name = '') { return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase(); }
-const statusLabel = { pending: 'Awaiting approval', confirmed: 'Approved', rejected: 'Declined', checked_in: 'Checked in', cancelled: 'Cancelled', no_show: 'Not attended' };
+const statusLabel = { pending: 'Awaiting approval', confirmed: 'Approved', rejected: 'Declined', checked_in: 'Checked in', no_show: 'Not attended' };
 
 function InlineAccount({ children }) { return children; }
 

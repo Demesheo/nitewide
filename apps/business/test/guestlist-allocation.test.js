@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { allocationInputIsReadOnly, closeOtherAllocationEditors, focusAllocationInput, normalizeAllocationInput } from '../src/lib/guestlist-allocation.js';
 
 const guestlistsSource = readFileSync(new URL('../src/components/Guestlists.jsx', import.meta.url), 'utf8');
+const shareCardSource = readFileSync(new URL('../src/components/ShareEventCard.jsx', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 
 test('the active capacity pool unlocks its existing input without creating a duplicate field', () => {
@@ -15,7 +16,7 @@ test('the active capacity pool unlocks its existing input without creating a dup
   const directCard = guestlistsSource.slice(guestlistsSource.indexOf('<form onSubmit={(e) => saveLimit(e)}'), guestlistsSource.indexOf('{settings.promoters.map'));
   const promoterCard = guestlistsSource.slice(guestlistsSource.indexOf('{settings.promoters.map'), guestlistsSource.indexOf('</div>\n        </section>', guestlistsSource.indexOf('{settings.promoters.map')));
   for (const card of [directCard, promoterCard]) {
-    assert.match(card, /<Field[\s\S]*?readOnly=\{allocationInputIsReadOnly/);
+    assert.match(card, /<Field[\s\S]*?readOnly=\{!canEditAllocations \|\| allocationInputIsReadOnly/);
     assert.match(card, /className=\{allocationInputIsReadOnly[\s\S]*?allocation-input-active/);
     assert.match(card, /<details className="allocation-editor"/);
     assert.doesNotMatch(card, /<details[\s\S]*?<Field/);
@@ -68,15 +69,21 @@ test('opening one allocation editor cancels and resets any other active editor',
 });
 
 test('request status filter belongs to the Guest Experience controls, not the event toolbar', () => {
-  const toolbar = guestlistsSource.slice(guestlistsSource.indexOf('<div className="toolbar">'), guestlistsSource.indexOf('{referralUrl &&'));
   const guestExperience = guestlistsSource.slice(guestlistsSource.indexOf('<section className="panel guest-experience-panel">'), guestlistsSource.indexOf('{loading ? ('));
-  assert.doesNotMatch(toolbar, /MultiSelect label="Request status"/);
+  assert.doesNotMatch(guestlistsSource, /<div className="toolbar">/);
   assert.match(guestExperience, /guest-experience-filters[\s\S]*MultiSelect label="Request status"/);
 });
 
-test('guest invitation action is right aligned in the event toolbar', () => {
-  assert.match(guestlistsSource, /selected\?\.status === 'published' && invitePools\?\.open && \(invitePools\.direct \|\| invitePools\.own\.length > 0\) && <Button className="guestlist-invite-button" type="button"/);
-  assert.match(styles, /\.guestlist-invite-button \{ margin-left: auto; \}/);
-  assert.match(guestlistsSource, /className="guestlist-invitation-actions"><Button[^>]*type="submit">\{busy \? 'Checking…' : 'Create invitation'\}/);
+test('guest invitation stays in event details Share this event card without showing the URL', () => {
+  const eventDetailSource = readFileSync(new URL('../src/components/EventDetail.jsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(guestlistsSource, /<ShareEventCard|<GuestlistInviteDialog/);
+  assert.match(eventDetailSource, /const canInviteGuest = event.status === 'published' && invitePools\?\.open && \(invitePools.direct \|\| invitePools.own.length > 0\)/);
+  assert.match(eventDetailSource, /<ShareEventCard referralUrl=\{url\?\.toString\(\) \|\| ''\} canInviteGuest=\{Boolean\(canInviteGuest\)\}/);
+  assert.ok(shareCardSource.indexOf('Copy link') < shareCardSource.indexOf('guestlist-share-invite'));
+  assert.match(shareCardSource, /guestlist-share-invite">\s*<p>[^<]+<\/p>\s*<Button className="guestlist-invite-button"/);
+  assert.doesNotMatch(shareCardSource, /aria-label="Your event referral link"|value=\{referralUrl\}/);
+  assert.match(styles, /\.guestlist-share-invite \{ display: grid; justify-items: start;/);
+  const inviteDialogSource = readFileSync(new URL('../src/components/GuestlistInviteDialog.jsx', import.meta.url), 'utf8');
+  assert.match(inviteDialogSource, /className="guestlist-invitation-actions"><Button[^>]*type="submit">\{busy \? 'Checking…' : 'Create invitation'\}/);
   assert.match(styles, /\.guestlist-invitation-actions \{ display: flex; justify-content: flex-end; \}/);
 });

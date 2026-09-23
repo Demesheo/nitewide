@@ -16,7 +16,7 @@ export function Notifications({ session, onNavigate }) {
     return () => { active = false; clearInterval(timer); };
   }, [session]);
   async function read(item) {
-    try { if (!item.readAt) { await api(`/notifications/${item.id}/read`, session, { method: 'POST' }); setItems((rows) => rows.map((row) => row.id === item.id ? { ...row, readAt: new Date().toISOString() } : row)); setUnread((count) => Math.max(0, count - 1)); } if (item.eventId) { setOpen(false); onNavigate(item.kind === 'guestlist_request' ? 'guestlists' : 'events', item.eventId, item.metadata?.entryId); } }
+    try { if (!item.readAt) { await api(`/notifications/${item.id}/read`, session, { method: 'POST' }); setItems((rows) => rows.map((row) => row.id === item.id ? { ...row, readAt: new Date().toISOString() } : row)); setUnread((count) => Math.max(0, count - 1)); } if (item.eventId) { setOpen(false); onNavigate('events', item.eventId, item.metadata?.entryId, item.kind === 'guestlist_request' ? 'guestlist' : null); } }
     catch (err) { setError(err.message); }
   }
   return <><Button type="button" variant="ghost" size="icon" aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`} onClick={() => setOpen(true)} className="relative"><Bell size={18}/>{unread > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-primary px-1 text-[10px] text-primary-foreground">{unread > 9 ? '9+' : unread}</span>}</Button>

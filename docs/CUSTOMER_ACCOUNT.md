@@ -16,7 +16,7 @@ The wallet signs a versioned credential using the server authentication secret a
 
 The existing `/api/check-ins` endpoint accepts both original QR tokens and wallet tokens, retains transaction locking and single-use state, and checks ticket payment and the event admission window. Refunded, void, checked-in, cancelled-event, wrong-event, forged, early, and ended-event ticket admission is rejected. Demo checkout remains local only; demo tickets are labeled and cannot be checked in in production. Camera scanner UI and live payment integration remain separate work.
 
-Approved guest list entries open through customer-scoped `/api/customer/guestlists/:id/pass`. One QR admits the entire approved party, preserving existing capacity and single-use check-in rules. A separate HMAC namespace binds the entry, event, customer, party size and original credential; cancellation invalidates the pass. Pending, declined, cancelled and no-show requests display their status without an admission code. Scanned guest passes receive the same individual checked-in highlight as purchase admissions.
+Approved guest list entries open through customer-scoped `/api/customer/guestlists/:id/pass`. One QR admits the entire approved party, preserving existing capacity and single-use check-in rules. A separate HMAC namespace binds the entry, event, customer, party size and original credential; revoking approval invalidates the pass and returns the request to declined. Pending, declined and no-show requests display their status without an admission code. A declined request may be approved later if its direct or referrer pool has space, issuing a new credential. Scanned guest passes receive the same individual checked-in highlight as purchase admissions.
 
 ## Connections
 

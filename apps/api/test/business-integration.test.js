@@ -481,7 +481,7 @@ test(
         { decision: "cancel" },
       );
       assert.equal(cancelledDirect.status, 200, JSON.stringify(cancelledDirect.body));
-      assert.equal(cancelledDirect.body.data.entry.status, "cancelled");
+      assert.equal(cancelledDirect.body.data.entry.status, "rejected");
       assert.equal(cancelledDirect.body.data.entry.qrTokenHash, null);
       assert.equal((await req(`/business/events/${event.id}/guestlist-settings`, ids.manager)).body.data.direct.used, 0);
       const referredRequest = await req(`/events/${event.id}/guestlist`, ids.manager, "POST", { partySize: 2, affiliateCode: eventAffiliate.code });
@@ -498,6 +498,9 @@ test(
       assert.equal(deniedByReferrer.status, 200);
       assert.equal(deniedByReferrer.body.data.entry.status, 'rejected');
       assert.equal(deniedByReferrer.body.data.entry.reviewedByUserId, ids.promoter);
+      const laterApproval = await req(`/business/events/${event.id}/guestlist/${declinedReferral.body.data.entry.id}/decision`, ids.promoter, "POST", { decision: "approve" });
+      assert.equal(laterApproval.status, 200);
+      assert.equal(laterApproval.body.data.entry.status, 'confirmed');
       // Event detail uses full paid history, authorizes each role, and snapshots commissions.
       assert.equal((await req(`/business/events/${event.id}/detail`, ids.outsider)).status, 403);
       const detail = await req(`/business/events/${event.id}/detail`, ids.owner);

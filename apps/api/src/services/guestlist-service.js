@@ -42,16 +42,16 @@ function createGuestlistService({ sequelize, models, now = () => new Date() }) {
       const entry = await models.GuestlistEntry.findOne({ where: { id: input.entryId, eventId: event.id }, transaction, lock: transaction.LOCK.UPDATE });
       if (!entry) throw notFound('Guestlist request');
       if (input.decision === 'cancel') {
-        if (entry.status !== 'confirmed' || entry.checkedInAt) throw conflict('Only an approved, unused guestlist entry can be cancelled', 'GUESTLIST_NOT_CANCELLABLE');
-        await entry.update({ status: 'cancelled', qrTokenHash: null }, { transaction });
+        if (entry.status !== 'confirmed' || entry.checkedInAt) throw conflict('Only an approved, unused guestlist entry can have its approval revoked', 'GUESTLIST_NOT_CANCELLABLE');
+        await entry.update({ status: 'rejected', qrTokenHash: null, reviewedByUserId: input.reviewedByUserId, reviewedAt: now(), reviewNote: input.note || null }, { transaction });
         await models.AuditLog.create({ actorUserId: input.reviewedByUserId, organizationId: event.organizationId,
-          entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.cancelled',
+          entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.approval_revoked',
           before: { status: 'confirmed', partySize: entry.partySize, eventAffiliateId: entry.eventAffiliateId },
-          after: { status: 'cancelled', note: input.note || null } }, { transaction });
-        if (models.Notification) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_cancelled', title: 'Guestlist approval cancelled', message: `Your guestlist approval for ${event.title} was cancelled.`, metadata: { entryId: entry.id } }, transaction);
+          after: { status: 'rejected', note: input.note || null } }, { transaction });
+        if (models.Notification) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_declined', title: 'Guestlist approval revoked', message: `Your guestlist approval for ${event.title} was revoked.`, metadata: { entryId: entry.id } }, transaction);
         return { entry, qrToken: null };
       }
-      if (entry.status !== 'pending') throw conflict('Guestlist request has already been reviewed', 'GUESTLIST_ALREADY_REVIEWED');
+      if (input.decision === 'approve' ? !['pending', 'rejected'].includes(entry.status) : entry.status !== 'pending') throw conflict('Guestlist request cannot be reviewed in its current state', 'GUESTLIST_ALREADY_REVIEWED');
       const reviewedAt = now();
       if (input.decision === 'reject') {
         await entry.update({ status: 'rejected', reviewedByUserId: input.reviewedByUserId, reviewedAt, reviewNote: input.note || null }, { transaction });

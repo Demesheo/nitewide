@@ -1,14 +1,19 @@
 export const guestlistStatuses = [
-  { id: 'pending', label: 'Awaiting approval' },
+  { id: 'pending', label: 'Pending' },
   { id: 'confirmed', label: 'Approved' },
   { id: 'rejected', label: 'Declined' },
   { id: 'checked_in', label: 'Checked in' },
-  { id: 'cancelled', label: 'Cancelled' },
   { id: 'no_show', label: 'No-show' },
 ];
 
 export function guestlistEventName(title, maxLength = 36) {
   return title.length > maxLength ? `${title.slice(0, maxLength)}…` : title;
+}
+
+export function compactGuestlistSourceName(name) {
+  if (name === 'Direct' || name === 'Unknown referrer') return name;
+  const parts = name.trim().split(/\s+/);
+  return parts.length > 1 ? `${parts[0]} ${parts.at(-1)[0]}.` : parts[0];
 }
 
 export function guestlistStatusesForEvent(event, now = Date.now()) {

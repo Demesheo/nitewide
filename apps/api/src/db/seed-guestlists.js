@@ -13,7 +13,7 @@ const guestlistCustomerNames = [
   'Aaliyah Price', 'Caleb Moreno', 'Grace Ellis', 'Miles Foster',
   'Nora Blake', 'Julian Santos', 'Layla Chen', 'Evan Parker',
 ];
-const futureStatuses = ['pending', 'confirmed', 'rejected', 'cancelled'];
+const futureStatuses = ['pending', 'confirmed', 'rejected'];
 const pastStatuses = ['checked_in', 'no_show', 'no_show'];
 const staffReferralRoles = ['employee', 'employee', 'manager', 'employee', 'owner', 'employee'];
 
