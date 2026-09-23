@@ -239,7 +239,9 @@ Before launch, integrate a real authentication provider, payment processor and w
 
 The [local demo MVP checkpoint](docs/DEMO_MVP_CHECKPOINT.md) is tagged
 `local-dev-demo-mvp-2026-09-23`. See [hosted demo deployment](docs/HOSTED_DEMO.md)
-for the GitHub-built Docker image, password gate, isolated Render database and free-tier limits.
+for the GitHub-built Docker image, public demo access with normal account login,
+isolated Render database and free-tier limits. The hosted demo is available at
+[nitewide-demo.onrender.com](https://nitewide-demo.onrender.com/).
 
 ## Investor materials
 

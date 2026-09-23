@@ -3,6 +3,11 @@
 Baseline: [local demo MVP checkpoint](DEMO_MVP_CHECKPOINT.md). This deployment is
 isolated demo infrastructure, not a live payment launch.
 
+Hosted URL: https://nitewide-demo.onrender.com/ (free Render service in My Workspace).
+The free database created September 23 expires October 23, 2026. This demo shares
+sample accounts and records with every visitor; do not use real contact, payment,
+or confidential business data.
+
 ## Build and release
 
 GitHub Actions tests the workspace and builds a Linux/AMD64 multi-stage image.
@@ -51,7 +56,7 @@ is an external dependency. Free PostgreSQL expires after 30 days. Upgrade storag
 and database durability before relying on this demo long term. No paid resources
 are authorized by this configuration.
 
-After initial deployment, save the service's deploy-hook URL as GitHub environment
+The service's deploy-hook URL is configured as GitHub environment
 `demo` secret `RENDER_DEMO_DEPLOY_HOOK`. Subsequent successful main builds request
 deployment of the exact image digest. Never commit or print the hook. A successful
 hook request is not a healthy deployment: check Render's deploy status and `/health`.
