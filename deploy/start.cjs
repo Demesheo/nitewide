@@ -1,5 +1,6 @@
 const { spawn } = require('node:child_process');
 const path = require('node:path');
+const fs = require('node:fs/promises');
 const { Client } = require('pg');
 const { getConfig } = require('../apps/api/src/config');
 
@@ -12,7 +13,7 @@ function run(command, args, cwd) {
 }
 async function initialize() {
   const config = getConfig();
-  if (!config.hostedDemo || new URL(config.DATABASE_URL).pathname !== '/nitewide_demo') throw new Error('Demo image requires a protected, isolated nitewide_demo database');
+  if (!config.hostedDemo || new URL(config.DATABASE_URL).pathname !== '/nitewide_demo') throw new Error('Demo image requires an isolated nitewide_demo database and explicit hosted-demo mode');
   const client = new Client({ connectionString: config.DATABASE_URL, ssl: config.databaseSsl ? { rejectUnauthorized: true } : false });
   await client.connect();
   try {
@@ -38,7 +39,14 @@ async function initialize() {
     ].map(event => event.imageUrl));
     for (const url of urls) {
       const asset = await client.query('SELECT id FROM media_assets WHERE id=$1', [stableId(`image:${url}`)]);
-      if (asset.rows.length) await prepareImage(url, config.MEDIA_UPLOAD_DIR || '/app/media');
+      if (asset.rows.length) {
+        const dir = config.MEDIA_UPLOAD_DIR || '/app/media';
+        try { await fs.access(path.join(dir, `${asset.rows[0].id}.webp`)); }
+        catch (error) {
+          if (error.code !== 'ENOENT') throw error;
+          await prepareImage(url, dir);
+        }
+      }
     }
   } finally { await client.end(); }
 }

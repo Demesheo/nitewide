@@ -14,10 +14,11 @@ to public to allow anonymous Render pulls.
 
 Create a Blueprint from `render.yaml` in Render **My Workspace**. The Blueprint
 creates one free web service and an isolated PostgreSQL 16/PostGIS database. It
-generates a private shared access password and a separate token signing secret.
-Retrieve `DEMO_ACCESS_PASSWORD` from Render's Environment panel and share it only
-with invited testers. The `/health` endpoint exposes status only without a password;
-all app pages, assets and API requests require the demo access cookie.
+generates a private token signing secret. Per the founder's September 23 decision,
+there is no shared demo password: anyone with the URL can browse the demo and use
+the documented sample accounts. Normal account login and role permissions still
+protect account, business and admin operations. Pages are marked noindex; this is
+not an access control. The `/health` endpoint exposes status only.
 
 Routes on the single HTTPS origin:
 
@@ -29,7 +30,7 @@ Routes on the single HTTPS origin:
 | `/admin` | Admin app (still requires an internal-admin account) |
 | `/api/*` | Shared, permission-scoped API |
 
-Demo access is separate from normal account sign-in. Existing seed accounts use
+Existing seed accounts use
 `NitewideDemo!2026` (see README identities). Visitors share sample records; do not
 enter real personal information. Hosted mode uses production authentication and
 does not accept `x-user-id`. Checkout accepts mock payments only. No Stripe,
@@ -60,7 +61,7 @@ image from GHCR while it may still be needed.
 
 ## Required smoke checks
 
-- Password gate rejects unauthenticated pages and API calls; shared password unlocks.
+- Public pages open without a shared password; protected API calls still require account authentication.
 - Customer and business sign-in work independently on one origin; no localhost links.
 - Jordan can see seeded future purchases/QR credentials and complete mock checkout.
 - Sam can view the matching sale/referral/commission and review guestlist requests.

@@ -4,11 +4,10 @@ const express = require('express');
 const { mkdtemp, mkdir, writeFile, rm } = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { createDemoGate, safeNext } = require('../src/http/demo-gate');
+const { createApp } = require('../src/app');
 const { installDemoStatic } = require('../src/http/demo-static');
 const { getConfig } = require('../src/config');
 const { createRequireUser } = require('../src/http/middleware');
-const password = 'test-shared-password-123';
 const secret = 'test-signing-secret-only-not-for-deployment';
 async function serve(t, app) {
   const server = app.listen(0, '127.0.0.1');
@@ -19,35 +18,29 @@ async function serve(t, app) {
 }
 test('hosted config fails closed without production mode and dedicated secrets', () => {
   assert.throws(() => getConfig({ HOSTED_DEMO: 'true' }));
-  assert.throws(() => getConfig({ NODE_ENV: 'production', HOSTED_DEMO: 'true', DEMO_ACCESS_PASSWORD: password }));
-  assert.equal(getConfig({ NODE_ENV: 'production', HOSTED_DEMO: 'true', DEMO_ACCESS_PASSWORD: password, AUTH_TOKEN_SECRET: secret }).hostedDemo, true);
+  assert.throws(() => getConfig({ NODE_ENV: 'production', HOSTED_DEMO: 'true' }));
+  assert.equal(getConfig({ NODE_ENV: 'production', HOSTED_DEMO: 'true', AUTH_TOKEN_SECRET: secret }).hostedDemo, true);
   assert.equal(getConfig({}).hostedDemo, false);
 });
-test('gate protects APIs, sets secure session cookie, rejects forgery and expiry', async t => {
-  let time = Date.now();
-  const app = express();
-  app.use(createDemoGate({ password, secret, now: () => time }));
-  app.get('/api/protected', (_req, res) => res.json({ ok: true }));
+test('hosted demo public pages need no shared password while account endpoints remain protected', async t => {
+  const config = getConfig({ NODE_ENV: 'production', HOSTED_DEMO: 'true', AUTH_TOKEN_SECRET: secret });
+  const staticRoot = await mkdtemp(path.join(os.tmpdir(), 'nitewide-public-demo-test-'));
+  t.after(() => rm(staticRoot, { recursive: true, force: true }));
+  for (const name of ['customer', 'business', 'admin']) {
+    const dist = path.join(staticRoot, 'apps', name, 'dist');
+    await mkdir(dist, { recursive: true });
+    await writeFile(path.join(dist, 'index.html'), `<html><body>${name}</body></html>`);
+  }
+  const app = createApp({ sequelize: {}, models: {}, config, staticRoot, healthCheck: async () => {} });
   const request = await serve(t, app);
-  assert.equal((await request('/api/protected')).status, 401);
-  assert.equal((await request('/')).headers.get('location'), '/demo-access');
-  const login = await request('/demo-access', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ password }) });
-  assert.equal(login.status, 303);
-  const setCookie = login.headers.get('set-cookie');
-  assert.match(setCookie, /HttpOnly/); assert.match(setCookie, /Secure/); assert.match(setCookie, /SameSite=Lax/);
-  const cookie = setCookie.split(';')[0];
-  assert.equal((await request('/api/protected', { headers: { cookie } })).status, 200);
-  assert.equal((await request('/api/protected', { headers: { cookie: cookie + 'tampered' } })).status, 401);
-  time += 13 * 60 * 60 * 1000;
-  assert.equal((await request('/api/protected', { headers: { cookie } })).status, 401);
-});
-test('gate rate limits failed passwords and prevents cross-origin login', async t => {
-  const app = express(); app.use(createDemoGate({ password, secret }));
-  const request = await serve(t, app);
-  assert.equal((await request('/demo-access', { method: 'POST', headers: { origin: 'https://other.example' } })).status, 403);
-  for (let i=0; i<10; i++) await request('/demo-access', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'password=incorrect' });
-  assert.equal((await request('/demo-access', { method: 'POST' })).status, 429);
-  for (const target of ['//evil.example', '/\\evil.example', 'https://evil.example']) assert.equal(safeNext(target), '/');
+  assert.equal((await request('/demo-access')).headers.get('location'), '/');
+  const home = await request('/');
+  assert.equal(home.status, 200);
+  assert.match(await home.text(), /Public demo/);
+  assert.equal(home.headers.get('set-cookie'), null);
+  assert.match(home.headers.get('x-robots-tag'), /noindex/);
+  assert.equal((await request('/api/auth/me')).status, 401);
+  assert.equal((await request('/api/auth/me', { headers: { 'x-user-id': 'admin' } })).status, 401);
 });
 test('production authentication cannot be bypassed using the development user header', async t => {
   const app = express();

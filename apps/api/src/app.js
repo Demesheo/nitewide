@@ -13,12 +13,14 @@ const { createNotificationService } = require('./services/notification-service')
 const { createRouter } = require('./routes'); const { createRequireUser, errorHandler } = require('./http/middleware');
 const { createMediaRouter } = require('./routes/media');
 
-function createApp({ sequelize, models, config, healthCheck = () => sequelize.authenticate(), services = {} }) {
+function createApp({ sequelize, models, config, healthCheck = () => sequelize.authenticate(), services = {}, staticRoot }) {
   const app = express(); app.disable('x-powered-by'); app.use(helmet());
   app.get('/health', async (_req, res) => { try { await healthCheck(); res.json({ status: 'ok', service: 'nitewide-api' }); } catch (_error) { res.status(503).json({ status: 'degraded', service: 'nitewide-api' }); } });
   if (config.hostedDemo) {
     app.set('trust proxy', 1);
-    app.use(require('./http/demo-gate').createDemoGate({ password: config.DEMO_ACCESS_PASSWORD, secret: config.AUTH_TOKEN_SECRET }));
+    app.use((_req, res, next) => { res.set('X-Robots-Tag', 'noindex, nofollow, noarchive'); res.set('Cache-Control', 'no-store'); next(); });
+    // The shared demo is public; normal account authentication and role checks remain.
+    app.get('/demo-access', (_req, res) => res.redirect(302, '/'));
   }
   app.use(cors({ origin: (origin, callback) => callback(null, !origin || config.corsOrigins.includes(origin)) }));
   app.use(express.json({ limit: '1mb' }));
@@ -37,7 +39,7 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
     checkIn: services.checkIn || createCheckInService({ sequelize, models, tokenSecret: config.AUTH_TOKEN_SECRET, environment: config.NODE_ENV, hostedDemo: config.hostedDemo }),
   };
   app.use('/api', createRouter({ publicController: createPublicController(dependencies), managementController: createManagementController(dependencies), commerceController: createCommerceController(dependencies), authController: createAuthController(dependencies), requireUser, models, permissions, invitations, notifications, tokenSecret: config.AUTH_TOKEN_SECRET }));
-  if (config.hostedDemo) require('./http/demo-static').installDemoStatic(app);
+  if (config.hostedDemo) require('./http/demo-static').installDemoStatic(app, staticRoot);
   app.use((_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } })); app.use(errorHandler); return app;
 }
 module.exports = { createApp };

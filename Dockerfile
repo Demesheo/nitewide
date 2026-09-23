@@ -10,7 +10,7 @@ COPY apps/pricing/package.json apps/pricing/package.json
 RUN npm ci
 COPY apps ./apps
 # One origin: consumer /, business /business + /app, admin /admin.
-RUN npm run build --workspace @nitewide/customer && \
+RUN VITE_BUSINESS_URL=/business npm run build --workspace @nitewide/customer && \
     VITE_BUSINESS_HOME=/business VITE_CUSTOMER_URL=/ npm run build --workspace @nitewide/business -- --base=/business/ && \
     npm run build --workspace @nitewide/admin -- --base=/admin/
 

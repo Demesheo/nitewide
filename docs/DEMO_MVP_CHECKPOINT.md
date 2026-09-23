@@ -16,7 +16,7 @@ This is a **local demo MVP**, not a production launch. Payments and settlement,
 email/SMS, infrastructure hardening and operational integrations remain gated.
 No real funds, real admissions, or actual traction are implied by sample sales.
 
-Next milestone: a password-protected, isolated hosted demo, built as a Docker image
+Next milestone: a public, isolated hosted demo with normal account authentication, built as a Docker image
 in GitHub Actions, deployed to Render, with a dedicated seeded PostgreSQL database.
 Keep local development unchanged. Never use a production/customer database for seed
 operations, and never bake secrets, local database dumps or investor files into images.
