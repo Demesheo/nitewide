@@ -11,6 +11,7 @@
     "dev:business": "npm run dev --workspace @nitewide/business",
     "dev:admin": "npm run dev --workspace @nitewide/admin",
     "build": "npm run build --workspaces --if-present",
+    "deploy:demo": "node deploy/trigger-demo.cjs",
     "test": "npm test --workspaces --if-present",
     "model:florida": "node scripts/florida-valuation-model.js",
     "db:migrate": "npm run db:migrate --workspace @nitewide/api",

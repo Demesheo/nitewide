@@ -243,6 +243,29 @@ for the GitHub-built Docker image, public demo access with normal account login,
 isolated Render database and free-tier limits. The hosted demo is available at
 [nitewide-demo.onrender.com](https://nitewide-demo.onrender.com/).
 
+## Deploy the demo to Render
+
+Pushing to `main` automatically runs tests, builds the Docker image on GitHub,
+publishes it to GHCR, and asks Render to deploy that exact image digest.
+To rebuild and deploy the **already-pushed remote main** manually:
+
+```bash
+# One-time CLI authentication (repository Actions write access required)
+gh auth login
+npm run deploy:demo -- --dry-run
+npm run deploy:demo
+```
+
+The script also accepts a securely supplied `GH_TOKEN` or `GITHUB_TOKEN` instead
+of GitHub CLI. It does not commit or push local changes and does not wait for the
+deployment to finish. You can also open GitHub **Actions → Demo image → Run
+workflow → main**. Confirm the workflow succeeds, Render reports **Live**, and
+[/health](https://nitewide-demo.onrender.com/health) returns `status: ok`.
+
+See [manual deployment, container command, secrets, verification and rollback](docs/HOSTED_DEMO.md#manual-build-and-deploy)
+for complete instructions. Do not put deployment tokens in the app's Render
+environment or Docker image. No additional hosting or paid resources are needed.
+
 ## Investor materials
 
 - [Investor pitch deck](docs/investors/Nitewide_PreSeed_Investor_Deck.pptx) — latest approved 10-slide deck, updated September 23, 2026.
