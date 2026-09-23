@@ -36,7 +36,7 @@ test('hosted demo public pages need no shared password while account endpoints r
   assert.equal((await request('/demo-access')).headers.get('location'), '/');
   const home = await request('/');
   assert.equal(home.status, 200);
-  assert.match(await home.text(), /Public demo/);
+  assert.equal(await home.text(), '<html><body>customer</body></html>');
   assert.equal(home.headers.get('set-cookie'), null);
   assert.match(home.headers.get('x-robots-tag'), /noindex/);
   assert.equal((await request('/api/auth/me')).status, 401);
@@ -64,7 +64,14 @@ test('single-origin demo maps each app and assets without swallowing unknown API
   const request = await serve(t, app);
   for (const [url, name] of [['/', 'customer'], ['/business', 'business'], ['/app', 'business'], ['/sign-in', 'business'], ['/admin', 'admin']]) {
     const response = await request(url); const html = await response.text();
-    assert.equal(response.status, 200); assert.match(html, new RegExp(`<main>${name}</main>`)); assert.match(html, /No real charges/);
+    assert.equal(response.status, 200); assert.match(html, new RegExp(`<main>${name}</main>`));
+    assert.doesNotMatch(html, /Public demo|Shared sample data|No real charges|role="status"/);
+    if (name === 'admin') {
+      assert.match(html, /<meta name="viewport"/);
+      assert.match(html, /<title>Nitewide Admin<\/title>/);
+    } else {
+      assert.equal(html, `<html><body><main>${name}</main></body></html>`);
+    }
   }
   assert.match(await (await request('/business/assets/app.js')).text(), /business/);
   assert.match(await (await request('/admin/assets/app.js')).text(), /admin/);
