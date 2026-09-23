@@ -237,6 +237,10 @@ The raw QR token is returned only at credential issuance. The database retains o
 
 Before launch, integrate a real authentication provider, payment processor and webhook reconciliation, refunds/chargebacks, promoter payouts, subscription billing, email/SMS delivery, observability, rate limiting, secrets management, background jobs, and a durable QR-delivery channel. Those responsibilities are kept explicit rather than represented by unsafe production stubs.
 
+The [local demo MVP checkpoint](docs/DEMO_MVP_CHECKPOINT.md) is tagged
+`local-dev-demo-mvp-2026-09-23`. See [hosted demo deployment](docs/HOSTED_DEMO.md)
+for the GitHub-built Docker image, password gate, isolated Render database and free-tier limits.
+
 ## Investor materials
 
 - [Investor pitch deck](docs/investors/Nitewide_PreSeed_Investor_Deck.pptx) — latest approved 10-slide deck, updated September 23, 2026.

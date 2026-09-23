@@ -138,7 +138,7 @@ function SignIn({ onSession, notice }) {
       </section>
       <section className="signin-form">
         <div className="signin-box">
-          <a className="signin-back" href="/">← About Nitewide Business</a>
+          <a className="signin-back" href={import.meta.env.VITE_BUSINESS_HOME || '/'}>← About Nitewide Business</a>
           <span className="login-mark">
             <ShieldCheck />
           </span>

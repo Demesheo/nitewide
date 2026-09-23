@@ -13,6 +13,8 @@ function stableId(value) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 function assertLocalDemoDatabase(config) {
+  // Only the one-time, empty-database bootstrap may import into the hosted demo.
+  if (config.hostedDemo && config.demoBootstrapAuthorized === true && new URL(config.DATABASE_URL).pathname === '/nitewide_demo') return;
   if (config.NODE_ENV === 'production' || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(config.DATABASE_URL).hostname)) {
     throw new Error('Posh demo imports are restricted to a non-production, local database.');
   }

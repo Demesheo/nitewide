@@ -2,7 +2,7 @@ const { Transaction } = require('sequelize');
 const { hashQrToken } = require('../domain/qr');
 const { verifyWalletToken, verifyGuestlistWalletToken } = require('../domain/wallet-qr');
 const { notFound, conflict } = require('../domain/errors');
-function createCheckInService({ sequelize, models, tokenSecret, environment = process.env.NODE_ENV || 'development', now = () => new Date() }) {
+function createCheckInService({ sequelize, models, tokenSecret, environment = process.env.NODE_ENV || 'development', hostedDemo = false, now = () => new Date() }) {
   return async function checkIn({ eventId, qrToken, checkedInByUserId }) {
     return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
       const hash = hashQrToken(qrToken); const lock = transaction.LOCK.UPDATE; const time = now();
@@ -15,7 +15,7 @@ function createCheckInService({ sequelize, models, tokenSecret, environment = pr
         if (!event || event.status !== 'published' || new Date(event.startsAt) > time || new Date(event.endsAt) <= time) throw conflict('Admission is not open for this event', 'EVENT_NOT_OPEN');
         const item = await models.OrderItem.findByPk(ticket.orderItemId, { transaction });
         const order = item && await models.Order.findByPk(item.orderId, { transaction });
-        if (!order || order.status !== 'paid' || (environment === 'production' && order.pricingPlanSnapshot?.demo)) throw conflict('This order is not valid for admission', 'ORDER_NOT_VALID');
+        if (!order || order.status !== 'paid' || (environment === 'production' && !hostedDemo && order.pricingPlanSnapshot?.demo)) throw conflict('This order is not valid for admission', 'ORDER_NOT_VALID');
         await ticket.update({ status: 'checked_in', checkedInAt: time }, { transaction });
         const checkIn = await models.CheckIn.create({ eventId, ticketId: ticket.id, checkedInByUserId, method: 'qr', checkedInAt: time }, { transaction });
         return { kind: 'ticket', credential: ticket, checkIn };

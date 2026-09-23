@@ -1,0 +1,41 @@
+# GitHub Actions publishes this image. Bootstrap from demo, deploy later builds by digest.
+services:
+  - type: web
+    name: nitewide-demo
+    runtime: image
+    plan: free
+    region: virginia
+    image:
+      url: ghcr.io/demesheo/nitewide-demo:demo
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOSTED_DEMO
+        value: "true"
+      - key: PORT
+        value: "10000"
+      - key: TZ
+        value: America/New_York
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nitewide-demo-db
+          property: connectionString
+      - key: DATABASE_SSL
+        value: "false"
+      - key: AUTH_TOKEN_SECRET
+        generateValue: true
+      - key: DEMO_ACCESS_PASSWORD
+        generateValue: true
+      - key: MEDIA_UPLOAD_DIR
+        value: /app/media
+      - key: CORS_ORIGINS
+        value: ""
+databases:
+  - name: nitewide-demo-db
+    databaseName: nitewide_demo
+    user: nitewide_demo
+    region: virginia
+    plan: free
+    postgresMajorVersion: "16"
+    ipAllowList: []

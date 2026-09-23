@@ -25,10 +25,8 @@
     "pg-hstore": "^2.3.4",
     "qrcode": "^1.5.4",
     "sequelize": "^6.37.7",
+    "sequelize-cli": "^6.6.2",
     "sharp": "^0.35.4",
     "zod": "^3.24.2"
-  },
-  "devDependencies": {
-    "sequelize-cli": "^6.6.2"
   }
 }

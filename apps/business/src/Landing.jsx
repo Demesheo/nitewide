@@ -33,7 +33,7 @@ const customerUrl = customerLink(
 
 function Brand() {
   return (
-    <a className="lp-brand" href="/" aria-label="Nitewide Business home">
+    <a className="lp-brand" href={import.meta.env.VITE_BUSINESS_HOME || '/'} aria-label="Nitewide Business home">
       <span className="lp-brand-icon">
         <Command size={21} />
       </span>

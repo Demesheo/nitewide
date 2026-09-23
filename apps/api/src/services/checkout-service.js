@@ -6,9 +6,10 @@ const { resolveAffiliate } = require('./affiliate-service');
 const { eventFinished, offeringSaleState } = require('../domain/event-policy');
 const { createNotificationService } = require('./notification-service');
 
-function createCheckoutService({ sequelize, models, now = () => new Date(), environment = process.env.NODE_ENV || 'development' }) {
+function createCheckoutService({ sequelize, models, now = () => new Date(), environment = process.env.NODE_ENV || 'development', hostedDemo = false }) {
   const notifications = createNotificationService(models);
   return async function checkout(input) {
+    if (hostedDemo && input.payment && input.payment.provider !== 'demo') throw new DomainError('Only mock payments are available in the hosted demo', { code: 'DEMO_ONLY' });
     return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
       const existing = await models.Order.findOne({ where: { buyerUserId: input.buyerUserId, idempotencyKey: input.idempotencyKey }, include: [{ model: models.OrderItem, as: 'items' }], transaction });
       if (existing) return { order: existing, credentials: [], replayed: true };
@@ -43,8 +44,8 @@ function createCheckoutService({ sequelize, models, now = () => new Date(), envi
       const pricing = calculatePricing({ subtotalCents, items: lines.map(({ offering, quantity }) => ({ unitPriceCents: offering.priceCents, quantity })), currency: offerings[0].currency, now: current, planTier: organization?.planTier || 'free', commissionBps: affiliate.commissionBps });
       if (input.expectedTotalCents !== undefined && input.expectedTotalCents !== pricing.totalCents)
         throw conflict('Pricing changed. Review the updated total before confirming.', 'PRICE_CHANGED');
-      const demo = input.payment?.provider === 'demo';
-      if (demo && environment === 'production') throw new DomainError('Demo checkout is disabled in production', { code: 'DEMO_DISABLED' });
+      const demo = hostedDemo || input.payment?.provider === 'demo';
+      if (demo && environment === 'production' && !hostedDemo) throw new DomainError('Demo checkout is disabled in production', { code: 'DEMO_DISABLED' });
       const isPaid = pricing.totalCents > 0 && input.payment?.status === 'succeeded';
       if (pricing.totalCents > 0 && !isPaid) throw new DomainError('Successful payment confirmation is required', { code: 'PAYMENT_REQUIRED', status: 402 });
       const order = await models.Order.create({

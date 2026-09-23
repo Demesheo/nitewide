@@ -40,6 +40,12 @@ test('demo import rejects production and remote databases', () => {
   assert.throws(() => assertLocalDemoDatabase({ NODE_ENV: 'production', DATABASE_URL: 'postgres://localhost/nitewide' }));
   assert.throws(() => assertLocalDemoDatabase({ NODE_ENV: 'development', DATABASE_URL: 'postgres://db.example.com/nitewide' }));
 });
+test('remote demo import requires explicit isolated bootstrap authorization', () => {
+  const config = { NODE_ENV: 'production', hostedDemo: true, DATABASE_URL: 'postgres://demo.example/nitewide_demo' };
+  assert.throws(() => assertLocalDemoDatabase(config));
+  assert.doesNotThrow(() => assertLocalDemoDatabase({ ...config, demoBootstrapAuthorized: true }));
+  assert.throws(() => assertLocalDemoDatabase({ ...config, demoBootstrapAuthorized: true, DATABASE_URL: 'postgres://demo.example/production' }));
+});
 test('stable IDs and demo commerce stay separate from source pricing', () => {
   const id = stableId(snapshot.events[0].sourceUrl);
   assert.equal(stableId(snapshot.events[0].sourceUrl), id);

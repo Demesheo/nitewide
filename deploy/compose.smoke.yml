@@ -1,0 +1,30 @@
+# Disposable, isolated local test stack. These are test-only credentials.
+name: nitewide-hosted-smoke
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: nitewide_demo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: isolated-smoke-password
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d nitewide_demo"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  app:
+    image: nitewide-demo:checkpoint
+    platform: linux/amd64
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:5180:10000"
+    environment:
+      NODE_ENV: production
+      HOSTED_DEMO: "true"
+      DATABASE_URL: postgres://postgres:isolated-smoke-password@db:5432/nitewide_demo
+      AUTH_TOKEN_SECRET: isolated-local-smoke-signing-secret-not-for-hosting
+      DEMO_ACCESS_PASSWORD: isolated-local-demo-password
+      MEDIA_UPLOAD_DIR: /app/media
+      TZ: America/New_York

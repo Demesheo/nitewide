@@ -122,7 +122,7 @@ export const questions = [
 
 export function businessPage(pathname) {
   const path = pathname.replace(/\/+$/, "") || "/";
-  if (path === "/") return "landing";
+  if (path === "/" || path === "/business") return "landing";
   if (path === "/sign-in" || path === "/app") return "workspace";
   return "not-found";
 }
