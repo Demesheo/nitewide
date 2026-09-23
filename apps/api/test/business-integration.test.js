@@ -492,7 +492,10 @@ test(
       assert.equal(detail.status, 200, JSON.stringify(detail.body));
       assert.equal(detail.body.data.summary.salesCents, 2000);
       assert.equal(detail.body.data.summary.admissions, 2);
-      assert.equal(detail.body.data.customers.find((c) => c.id === ids.outsider).paidCents, 2229);
+      assert.equal(detail.body.data.customers.find((c) => c.id === ids.outsider).salesCents, 2000);
+      assert.equal('paidCents' in detail.body.data.customers.find((c) => c.id === ids.outsider), false);
+      assert.equal('customerPaidCents' in detail.body.data.summary, false);
+      assert.equal('platformFeeCents' in detail.body.data.summary, false);
       assert.equal(detail.body.data.candidates.find((p) => p.userId === ids.employee).role, 'Employee');
       assert.equal((await req(`/business/events/${event.id}/detail`, ids.employee)).body.data.summary.salesCents, 0);
       for (const actor of [ids.employee, ids.promoter, ids.outsider]) {

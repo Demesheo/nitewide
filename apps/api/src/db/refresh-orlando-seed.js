@@ -7,13 +7,14 @@ const { mergeRoom22, provisionDemoVenues } = require('./seed-venue-expansion');
 const { importPoshSnapshot } = require('./posh-importer');
 const snapshot = require('./fixtures/posh-orlando-2026-09-22');
 async function refreshOrlandoSeed(args) {
+  const euphoria = await require('./reconcile-euphoria').reconcileEuphoria(args);
   const cleanup = await cleanSeedPurchases(args);
   const { removedOrderIds, ...summary } = cleanup;
   const grouping = await mergeRoom22(args);
   const replacement = await require('./replace-room22-friday').replaceRoom22Friday(args);
   const venues = await provisionDemoVenues({ ...args, snapshot });
   const events = await importPoshSnapshot({ ...args, snapshot });
-  return { cleanup: summary, grouping, replacement, venues, events };
+  return { euphoria, cleanup: summary, grouping, replacement, venues, events };
 }
 async function main() {
   const flags = process.argv.slice(2);

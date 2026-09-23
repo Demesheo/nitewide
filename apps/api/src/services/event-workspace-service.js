@@ -10,10 +10,10 @@ function summarizeEvent({ orders, offerings, people, guests }) {
   const customers = new Map();
   const channels = new Map();
   const customer = (id, user) => {
-    if (!customers.has(id)) customers.set(id, { id, name: user?.displayName || 'Customer', email: user?.email || '', salesCents: 0, paidCents: 0, orders: 0, admissions: 0, checkedIn: 0, guestlistPlaces: 0, guestlistStatuses: [], purchases: [] });
+    if (!customers.has(id)) customers.set(id, { id, name: user?.displayName || 'Customer', email: user?.email || '', salesCents: 0, orders: 0, admissions: 0, checkedIn: 0, guestlistPlaces: 0, guestlistStatuses: [], purchases: [] });
     return customers.get(id);
   };
-  const summary = { salesCents: 0, customerPaidCents: 0, platformFeeCents: 0, commissionCents: 0, orders: orders.length, admissions: 0, checkedIn: 0, guestlistPlaces: 0, customers: 0 };
+  const summary = { salesCents: 0, commissionCents: 0, orders: orders.length, admissions: 0, checkedIn: 0, guestlistPlaces: 0, customers: 0 };
   for (const order of orders) {
     const person = people.find((p) => order.eventAffiliateId ? p.id === order.eventAffiliateId : p.orgAffiliateId === order.orgAffiliateId && order.orgAffiliateId);
     const channelName = person?.role || (order.eventAffiliateId || order.orgAffiliateId ? 'Other referral' : 'Direct');
@@ -21,12 +21,9 @@ function summarizeEvent({ orders, offerings, people, guests }) {
     channels.get(channelName).salesCents += order.subtotalCents;
     channels.get(channelName).orders += 1;
     summary.salesCents += order.subtotalCents;
-    summary.customerPaidCents += order.totalCents;
-    summary.platformFeeCents += order.platformFeeCents;
     summary.commissionCents += order.affiliateCommissionCents;
     const buyer = customer(order.buyerUserId, order.buyer);
     buyer.salesCents += order.subtotalCents;
-    buyer.paidCents += order.totalCents;
     buyer.orders += 1;
     if (person) {
       const row = referrals.get(person.userId);
@@ -113,7 +110,7 @@ function createEventWorkspaceService({ models: m, permissions, now = () => new D
     const guestWhere = { eventId };
     if (!canManage) guestWhere.eventAffiliateId = ownAssignments;
     const [orders, guests] = await Promise.all([
-      m.Order.findAll({ where: orderWhere, include: [{ model: m.User, as: 'buyer', attributes: ['id', 'displayName', 'email'] }, { model: m.OrderItem, as: 'items', include: [{ model: m.Ticket, as: 'tickets', attributes: ['holderUserId', 'status'], include: [{ model: m.User, as: 'holder', attributes: ['displayName', 'email'] }] }] }], order: [['paidAt', 'DESC']] }),
+      m.Order.findAll({ where: orderWhere, attributes: ['id', 'eventId', 'buyerUserId', 'eventAffiliateId', 'orgAffiliateId', 'subtotalCents', 'affiliateCommissionCents', 'paidAt', 'pricingPlanSnapshot'], include: [{ model: m.User, as: 'buyer', attributes: ['id', 'displayName', 'email'] }, { model: m.OrderItem, as: 'items', attributes: ['offeringId', 'nameSnapshot', 'kindSnapshot', 'quantity', 'lineTotalCents'], include: [{ model: m.Ticket, as: 'tickets', attributes: ['holderUserId', 'status'], include: [{ model: m.User, as: 'holder', attributes: ['displayName', 'email'] }] }] }], order: [['paidAt', 'DESC']] }),
       m.GuestlistEntry.findAll({ where: guestWhere, attributes: ['userId', 'eventAffiliateId', 'status', 'partySize'], include: [{ model: m.User, as: 'user', attributes: ['id', 'displayName', 'email'] }] }),
     ]);
     const people = canManage ? allPeople : allPeople.filter((p) => p.userId === userId);

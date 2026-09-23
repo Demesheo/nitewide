@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { eventPhase, selectEvents, eventTeamRoles, filterEventTeam } from '../src/lib/events.js';
 import { editorDraft, eventPayload, releaseOptions } from '../src/lib/business.js';
+
+test('event collection defaults to the earliest event date and time first', () => {
+  const component = readFileSync(new URL('../src/components/Events.jsx', import.meta.url), 'utf8');
+  assert.match(component, /<EventTable searchable=\{false\} rows=\{rows\} onSelect=\{\(e\) => setSelectedId\(e\.id\)\} defaultSort="date" defaultDescending=\{false\}/);
+});
 
 test('event team multiselect offers only present roles and combines selected roles', () => {
   const people = [{role:'Owner'},{role:'Employee'},{role:'Employee'},{role:'Manager'}];

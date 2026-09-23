@@ -7,6 +7,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { TablePagination, useTablePagination } from '@/components/TablePagination';
 import { sortTableRows } from '@/lib/table-sort';
 import { money } from '@/lib/business';
+import { MobileTableSort } from './MobileTableSort';
+import { Choice } from './controls';
+
+const teamColumns = [['name', 'Name'], ['role', 'Role'], ['email', 'Email'], ['status', 'Status'], ['salesCents', 'Referred sales'], ['orders', 'Orders'], ['customers', 'Customers']].map(([key, label]) => ({ key, label }));
 
 const roleLabel = (role) => role === 'affiliate' ? 'promoter' : role;
 
@@ -15,6 +19,14 @@ export function Team({ session, organizations, onUnauthorized }) {
   const [roster, setRoster] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [selectedMember, setSelectedMember] = useState(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const inviteTriggerRef = useRef(null);
+  const [editRole, setEditRole] = useState('employee');
+  const [editingMember, setEditingMember] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [memberRemoving, setMemberRemoving] = useState(false);
+  const [roleSaving, setRoleSaving] = useState(false);
+  const [roleError, setRoleError] = useState('');
   const memberTriggerRef = useRef(null);
   const [sortKey, setSortKey] = useState('name');
   const [descending, setDescending] = useState(false);
@@ -24,7 +36,9 @@ export function Team({ session, organizations, onUnauthorized }) {
   const [link, setLink] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const canInviteManager = organizations.find((org) => org.id === organizationId)?.canInviteManager;
+  const currentOrganization = organizations.find((org) => org.id === organizationId);
+  const canInviteManager = Boolean(session.user.isInternalAdmin || currentOrganization?.canInviteManager || currentOrganization?.canManage);
+  const canManageTeam = Boolean(session.user.isInternalAdmin || currentOrganization?.canManage);
   useEffect(() => {
     if (!organizations.some((org) => org.id === organizationId)) setOrganizationId(organizations[0]?.id || '');
   }, [organizations, organizationId]);
@@ -63,9 +77,36 @@ export function Team({ session, organizations, onUnauthorized }) {
       const renewed = await api(`/business/organizations/${organizationId}/invitations/${invitation.id}/resend`, session, { method: 'POST' });
       const url = `${window.location.origin}/?invite=${encodeURIComponent(renewed.token)}`;
       setLink(url);
+      setInviteOpen(true);
       setRoster(await api(`/business/organizations/${organizationId}/team`, session));
       window.location.href = `mailto:${encodeURIComponent(renewed.email)}?subject=${encodeURIComponent(`Invitation to ${renewed.organizationName} on Nitewide`)}&body=${encodeURIComponent(`Join ${renewed.organizationName} as ${roleLabel(renewed.role)} using this private link:\n\n${url}\n\nThis link expires in seven days.`)}`;
     } catch (err) { setError(err.message); }
+  }
+  async function saveRole() {
+    if (!selected || !canManageTeam || selected.role === 'Owner') return;
+    setRoleSaving(true); setRoleError('');
+    try {
+      await api(`/business/organizations/${organizationId}/team/${selected.id}`, session, { method: 'PATCH', body: JSON.stringify({ role: editRole }) });
+      setRoster(await api(`/business/organizations/${organizationId}/team`, session));
+      setEditingMember(false);
+    } catch (err) {
+      if (err.status === 401) onUnauthorized();
+      else setRoleError(err.message);
+    } finally { setRoleSaving(false); }
+  }
+  async function removeMember() {
+    if (!selected || !canManageTeam || selected.role === 'Owner' || selected.id === session.user.id) return;
+    setMemberRemoving(true); setRoleError('');
+    try {
+      await api(`/business/organizations/${organizationId}/team/${selected.id}`, session, { method: 'DELETE' });
+      setRoster(await api(`/business/organizations/${organizationId}/team`, session));
+      setSelectedMember(null);
+      setConfirmRemove(false);
+      setEditingMember(false);
+    } catch (err) {
+      if (err.status === 401) onUnauthorized();
+      else setRoleError(err.message);
+    } finally { setMemberRemoving(false); }
   }
   const figures = new Map((analytics?.referrals?.people || []).map((person) => [person.id, person]));
   const members = (roster?.people || []).map((member) => ({ ...member, salesCents: figures.get(member.id)?.salesCents || 0, orders: figures.get(member.id)?.orders || 0, customers: figures.get(member.id)?.customers || 0, commissionCents: figures.get(member.id)?.commissionCents || 0 }));
@@ -76,22 +117,54 @@ export function Team({ session, organizations, onUnauthorized }) {
   if (!organizations.length) return <div className="surface-card p-6">Team invitations are available to organization owners and managers.</div>;
   return <div className="team-page">
     {organizations.length > 1 && <label>Organization<select value={organizationId} onChange={(event) => { setOrganizationId(event.target.value); setLink(''); }}>{organizations.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}</select></label>}
-    <div className="surface-card team-invite"><div><span className="eyebrow">TEAM ACCESS</span><h2>Invite {canInviteManager ? 'a manager, employee, or promoter' : 'an employee or promoter'}</h2><p>Send a seven-day invitation link. New people create a customer account first; existing Nitewide users sign in. Their new role is added to the same account after they accept.</p></div>
-      <form onSubmit={submit}><label>Email address<Input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" /></label><label>Phone (optional)<Input type="tel" inputMode="tel" autoComplete="off" maxLength={32} value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+1 407 555 0123" /></label><label>Role<select value={role} onChange={(event) => setRole(event.target.value)}>{canInviteManager && <option value="manager">Manager</option>}<option value="employee">Employee</option><option value="affiliate">Promoter</option></select></label><Button disabled={busy || !organizationId}>{busy ? 'Creating…' : 'Create invitation'}</Button></form>
-      <small>Phone is saved with the invitation for a future optional text invite. Share the link manually for now.</small>
-      {error && <p role="alert" className="error">{error}</p>}
-      {link && <div className="team-link"><p>Share this private link with the {roleLabel(role)}:</p><Input readOnly value={link} aria-label="Invitation link" onFocus={(event) => event.target.select()} /><Button variant="outline" onClick={() => navigator.clipboard.writeText(link)}>Copy link</Button><small>Only the invited email address can accept it. No email is sent automatically yet.</small></div>}
+    <div className="surface-card team-invite-summary"><div><span className="eyebrow">TEAM ACCESS</span><h2>Build your team</h2><p>Invite managers, employees, or promoters and manage their access in one place.</p></div>
+      <Button ref={inviteTriggerRef} onClick={() => { setError(''); setInviteOpen(true); }}>Invite team member</Button>
     </div>
+    <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+      <DialogContent className="team-invite-dialog" onCloseAutoFocus={(event) => { event.preventDefault(); inviteTriggerRef.current?.focus(); }}>
+        <DialogHeader>
+          <span className="eyebrow">TEAM ACCESS</span>
+          <DialogTitle>Invite {canInviteManager ? 'a manager, employee, or promoter' : 'an employee or promoter'}</DialogTitle>
+          <DialogDescription>Send a seven-day invitation link. New people create a customer account first; existing Nitewide users sign in. Their new role is added to the same account after they accept.</DialogDescription>
+        </DialogHeader>
+        <form className="team-invite-form" onSubmit={submit}>
+          <label>Email address<Input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" /></label>
+          <label>Phone (optional)<Input type="tel" inputMode="tel" autoComplete="off" maxLength={32} value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+1 407 555 0123" /></label>
+          <div className="team-role-field"><span>Role</span><Choice label="Role" value={role} onChange={setRole} options={[...(canInviteManager ? [['manager', 'Manager']] : []), ['employee', 'Employee'], ['affiliate', 'Promoter']]} /></div>
+          <Button disabled={busy || !organizationId}>{busy ? 'Creating…' : 'Create invitation'}</Button>
+        </form>
+        <small>Phone is saved with the invitation for a future optional text invite. Share the link manually for now.</small>
+        {error && <p role="alert" className="error">{error}</p>}
+        {link && <div className="team-link"><p>Share this private link with the {roleLabel(role)}:</p><Input readOnly value={link} aria-label="Invitation link" onFocus={(event) => event.target.select()} /><Button variant="outline" onClick={() => navigator.clipboard.writeText(link)}>Copy link</Button><small>Only the invited email address can accept it. No email is sent automatically yet.</small></div>}
+        <DialogFooter><DialogClose asChild><Button variant="outline">Close</Button></DialogClose></DialogFooter>
+      </DialogContent>
+    </Dialog>
     <Dialog open={Boolean(selected)} onOpenChange={(open) => { if (!open) setSelectedMember(null); }}>
-      <div className="surface-card team-roster"><h2>Current team</h2><p className="team-caption">Showing referred paid sales from the last 30 days. Click a member for details.</p><div className="table-wrap"><Table><TableHeader><TableRow>{[['name', 'Name'], ['role', 'Role'], ['email', 'Email'], ['status', 'Status'], ['salesCents', 'Referred sales'], ['orders', 'Orders'], ['customers', 'Customers']].map(([key, label]) => <TableHead key={key}><button className="table-sort" onClick={() => sort(key)}>{label} {sortKey === key ? (descending ? '↓' : '↑') : '↕'}</button></TableHead>)}</TableRow></TableHeader><TableBody>{pager.rows.map((member) => <TableRow key={member.id}><TableCell><button className="team-member-link" onClick={(event) => { memberTriggerRef.current = event.currentTarget; setSelectedMember(member.id); }}>{member.name}</button></TableCell><TableCell>{member.role}</TableCell><TableCell>{member.email}</TableCell><TableCell>{member.status}</TableCell><TableCell>{money(member.salesCents)}</TableCell><TableCell>{member.orders}</TableCell><TableCell>{member.customers}</TableCell></TableRow>)}</TableBody></Table></div>{!members.length && <p>No team members yet.</p>}<TablePagination pager={pager}/></div>
-      {selected && <DialogContent className="team-member-dialog sm:max-w-xl max-h-[90vh] overflow-y-auto" onCloseAutoFocus={(event) => { event.preventDefault(); memberTriggerRef.current?.focus(); }}>
+      <div className="surface-card team-roster"><h2>Current team</h2><p className="team-caption">Showing referred paid sales from the last 30 days. Click a member for details.</p>
+        <MobileTableSort columns={teamColumns} value={sortKey} descending={descending} onChange={sort} onToggle={() => setDescending(!descending)}/>
+        <div className="table-wrap responsive-event-table"><Table><TableHeader><TableRow>{teamColumns.map(({ key, label }) => <TableHead key={key} scope="col" aria-sort={sortKey === key ? descending ? 'descending' : 'ascending' : 'none'}><button className="table-sort" onClick={() => sort(key)}>{label} {sortKey === key ? (descending ? '↓' : '↑') : '↕'}</button></TableHead>)}</TableRow></TableHeader><TableBody>{pager.rows.map((member) => <TableRow key={member.id}>
+          <TableCell data-label="Name"><button className="team-member-link" onClick={(event) => { memberTriggerRef.current = event.currentTarget; setRoleError(''); setEditingMember(false); setConfirmRemove(false); setEditRole(member.role === 'Manager' ? 'manager' : member.role === 'Promoter' ? 'affiliate' : 'employee'); setSelectedMember(member.id); }}>{member.name}</button></TableCell>
+          <TableCell data-label="Role">{member.role}</TableCell><TableCell data-label="Email">{member.email}</TableCell><TableCell data-label="Status">{member.status}</TableCell><TableCell data-label="Referred sales">{money(member.salesCents)}</TableCell><TableCell data-label="Orders">{member.orders}</TableCell><TableCell data-label="Customers">{member.customers}</TableCell>
+        </TableRow>)}</TableBody></Table></div>{!members.length && <p>No team members yet.</p>}<TablePagination pager={pager}/></div>
+      {selected && <DialogContent className="team-member-dialog sm:max-w-xl max-h-[90vh] overflow-y-auto" onCloseAutoFocus={(event) => { event.preventDefault(); (memberTriggerRef.current?.isConnected ? memberTriggerRef.current : inviteTriggerRef.current)?.focus(); }}>
         <DialogHeader>
           <span className="eyebrow">TEAM MEMBER</span>
           <DialogTitle>{selected.name}</DialogTitle>
           <DialogDescription>{selected.email} · {selected.role}</DialogDescription>
         </DialogHeader>
         <div className="team-detail-metrics"><span><small>Status</small><strong>{selected.status}</strong></span><span><small>Joined</small><strong>{selected.joined ? new Date(selected.joined).toLocaleDateString() : '—'}</strong></span><span><small>Referred sales</small><strong>{money(selected.salesCents)}</strong></span><span><small>Paid orders</small><strong>{selected.orders}</strong></span><span><small>Customers</small><strong>{selected.customers}</strong></span><span><small>Commission</small><strong>{money(selected.commissionCents)}</strong></span></div>
+        {canManageTeam && selected.role !== 'Owner' && selected.id !== session.user.id && !editingMember && <div className="team-role-editor"><Button variant="outline" onClick={() => { setEditingMember(true); setRoleError(''); }}>Edit member</Button></div>}
+        {canManageTeam && selected.role !== 'Owner' && selected.id !== session.user.id && editingMember && <div className="team-role-editor team-role-editor-open"><div className="team-role-field"><span>Role</span><Choice label="Team member role" value={editRole} onChange={setEditRole} options={[["manager", "Manager"], ["employee", "Employee"], ["affiliate", "Promoter"]]} /></div><div className="team-role-edit-actions"><div className="team-role-edit-primary"><Button disabled={roleSaving || (selected.role === 'Manager' ? editRole === 'manager' : selected.role === 'Employee' ? editRole === 'employee' : editRole === 'affiliate')} onClick={saveRole}>{roleSaving ? 'Saving…' : 'Save role'}</Button><Button variant="outline" disabled={roleSaving || memberRemoving} onClick={() => { setEditingMember(false); setConfirmRemove(false); setRoleError(''); }}>Cancel</Button></div><div className="team-role-edit-danger"><Button variant="destructive" disabled={memberRemoving} onClick={() => { setRoleError(''); setConfirmRemove(true); }}>Remove member</Button></div></div></div>}
+        {selected.role === 'Owner' && <p className="team-role-note">Ownership is managed separately and can’t be changed here.</p>}
+        {roleError && <p role="alert" className="error">{roleError}</p>}
         <DialogFooter><DialogClose asChild><Button variant="outline">Close</Button></DialogClose></DialogFooter>
+      </DialogContent>}
+    </Dialog>
+    <Dialog open={Boolean(confirmRemove && selected)} onOpenChange={(open) => { if (!open && !memberRemoving) setConfirmRemove(false); }}>
+      {confirmRemove && selected && <DialogContent className="team-remove-dialog" onCloseAutoFocus={(event) => event.preventDefault()}>
+        <DialogHeader><DialogTitle>Remove this member?</DialogTitle><DialogDescription>{selected.name} will lose access to this organization. Event-only promoter assignments remain separate.</DialogDescription></DialogHeader>
+        {roleError && <p role="alert" className="error">{roleError}</p>}
+        <DialogFooter className="team-remove-dialog-actions"><Button variant="destructive" disabled={memberRemoving} onClick={removeMember}>{memberRemoving ? 'Removing…' : 'Confirm removal'}</Button><Button variant="outline" disabled={memberRemoving} onClick={() => setConfirmRemove(false)}>Keep member</Button></DialogFooter>
       </DialogContent>}
     </Dialog>
     <div className="surface-card team-pending"><h2>Pending invitations</h2>{roster?.invitations.length ? <ul>{roster.invitations.map((invitation) => <li key={invitation.id}><span><strong>{invitation.email}</strong><small>{roleLabel(invitation.role)}{invitation.phone ? ` · ${invitation.phone}` : ''} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</small></span><div><Button variant="outline" size="sm" onClick={() => resend(invitation)}>Resend</Button><Button variant="ghost" size="sm" onClick={() => revoke(invitation)}>Delete</Button></div></li>)}</ul> : <p>No pending invitations.</p>}<small>Resend creates a new private link and opens your email app. Nitewide does not send email automatically yet.</small></div>

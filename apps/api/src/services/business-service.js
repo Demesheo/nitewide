@@ -341,7 +341,7 @@ function createBusinessService({
         canManage: Boolean(
           ctx.user.isInternalAdmin || ctx.managedOrgIds.includes(o.id),
         ),
-        canInviteManager: Boolean(ctx.user.isInternalAdmin || ctx.ownedOrgIds.includes(o.id)),
+        canInviteManager: Boolean(ctx.user.isInternalAdmin || ctx.managedOrgIds.includes(o.id)),
       })),
       events: events.map((e) => ({
         ...e.toJSON(),

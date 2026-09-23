@@ -38,6 +38,8 @@ test('hierarchy rolls orders, revenue, customers, units and admissions up once',
   assert.equal(report.summary.events, 2);
   assert.equal(report.summary.orders, 3);
   assert.equal(report.summary.salesCents, 6000);
+  assert.equal(report.summary.checkoutCents, 6537);
+  assert.equal(report.summary.platformFeesCents, 537);
   assert.equal(report.summary.customers, 2);
   assert.equal(report.summary.units, 6);
   assert.equal(report.summary.admissions, 6);
@@ -46,6 +48,10 @@ test('hierarchy rolls orders, revenue, customers, units and admissions up once',
   assert.equal(report.hierarchy.find((row) => row.id === 'customer:e1:buyer1').orders, 2);
   assert.equal(aggregateHierarchy(events, orders).hierarchy.some((row) => row.level === 'customer'), false);
   const business = aggregateHierarchy(events, orders, { includeCustomers: true });
+  assert.equal(business.summary.salesCents, 6000);
+  assert.equal('checkoutCents' in business.summary, false);
+  assert.equal('platformFeesCents' in business.summary, false);
+  assert.equal(business.hierarchy.some((row) => 'checkoutCents' in row || 'platformFeesCents' in row), false);
   assert.equal(business.children['event:e1'].length, 1);
   assert.equal(business.hierarchy.find((row) => row.id === 'customer:e1:buyer1').admissions, 4);
 });

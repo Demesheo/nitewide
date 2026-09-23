@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -31,6 +31,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -417,12 +418,24 @@ export default function App() {
   const [eventToOpen, setEventToOpen] = useState(null);
   const [guestlistEntryToOpen, setGuestlistEntryToOpen] = useState(null);
   const [mobileNav, setMobileNav] = useState(false);
+  const menuTrigger = useRef(null);
+  useEffect(() => {
+    // Each phone destination starts at its heading, not the previous page's scroll offset.
+    if (window.matchMedia("(max-width: 850px)").matches) window.scrollTo({ top: 0, behavior: "instant" });
+  }, [page]);
+  useEffect(() => {
+    const screen = window.matchMedia("(min-width: 851px)");
+    const closeOnDesktop = () => { if (screen.matches) setMobileNav(false); };
+    screen.addEventListener("change", closeOnDesktop);
+    return () => screen.removeEventListener("change", closeOnDesktop);
+  }, []);
   const signOut = useCallback((expired = false) => {
     window.history.replaceState(null, '', '/sign-in');
     sessionStorage.removeItem(SESSION_KEY);
     setSession(null);
     setData(null);
     setEditor(null);
+    setMobileNav(false);
     setSelectedOrganizations([]);
     setSelectedVenues([]);
     setHasIndependentWorkspace(false);
@@ -540,16 +553,7 @@ export default function App() {
   const canManageTeam = Boolean(session.user.isInternalAdmin || data?.organizations?.some((org) => org.canManage));
   const visibleNavigation = navigation.filter(([id]) => id !== 'team' || canManageTeam);
   const visiblePage = page === 'team' && !canManageTeam ? 'overview' : page;
-  return (
-    <div className="app-shell">
-      {mobileNav && (
-        <button
-          aria-label="Close navigation"
-          className="nav-scrim"
-          onClick={() => setMobileNav(false)}
-        />
-      )}
-      <aside className={`sidebar ${mobileNav ? "is-open" : ""}`}>
+  const sidebarContent = <>
         <Brand />
         <div className="workspace-label">WORKSPACE</div>
         <div className="workspace-card">
@@ -606,12 +610,28 @@ export default function App() {
             <LogOut size={17} />
           </Button>
         </div>
-      </aside>
+  </>;
+  return (
+    <div className="app-shell">
+      <aside className="sidebar desktop-sidebar">{sidebarContent}</aside>
+      <Dialog open={mobileNav} onOpenChange={setMobileNav}>
+        <DialogContent className="business-nav-drawer" onCloseAutoFocus={(event) => { event.preventDefault(); menuTrigger.current?.focus(); }}>
+          <DialogTitle className="sr-only">Workspace navigation</DialogTitle>
+          <DialogDescription className="sr-only">Your authorized workspace, pages, and account.</DialogDescription>
+          <div className="sidebar mobile-nav-content">{sidebarContent}</div>
+        </DialogContent>
+      </Dialog>
+      <nav className="mobile-bottom-nav" aria-label="Business navigation">
+        {visibleNavigation.map(([id, Icon, label]) => <button type="button" key={id} aria-current={visiblePage === id ? 'page' : undefined} onClick={() => navigate(id)}><Icon size={20} aria-hidden="true"/><span>{label}</span></button>)}
+      </nav>
       <div className="main-shell">
         <header className="topbar">
           <div className="breadcrumb">
             <Button
               className="mobile-menu"
+              ref={menuTrigger}
+              aria-haspopup="dialog"
+              aria-expanded={mobileNav}
               variant="ghost"
               size="icon"
               aria-label="Open navigation"

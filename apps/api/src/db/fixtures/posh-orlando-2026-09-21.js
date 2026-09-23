@@ -70,6 +70,7 @@ for (const [venueSlug, title, date, endDate, slug, imageId] of [
   });
 }
 module.exports = {
+  skipVenueOverlaps: true,
   snapshotId: 'posh-orlando-2026-09-21', verifiedOn: '2026-09-21', timezone: 'America/New_York',
   windowStart: '2026-09-21T00:00:00-04:00', windowEndExclusive: '2026-10-21T00:00:00-04:00',
   discoveryUrl: 'https://posh.vip/explore-v2?location=custom&place=Orlando,+FL&lat=28.5383832&lng=-81.3789269',

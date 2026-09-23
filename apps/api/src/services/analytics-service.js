@@ -28,7 +28,7 @@ function aggregateHierarchy(eventsInput, ordersInput, { admin = false, includeCu
   const eventIds = new Set(eligible.map((event) => event.id));
   const byEvent = new Map(eligible.map((event) => [event.id, event]));
   const rows = new Map();
-  const empty = (id, label, extra = {}) => ({ id, label, ...extra, events: 0, orders: 0, salesCents: 0, checkoutCents: 0, platformFeesCents: 0, commissionCents: 0, units: 0, admissions: 0, customers: 0, averageOrderCents: 0, _buyers: new Set(), _events: new Set() });
+  const empty = (id, label, extra = {}) => ({ id, label, ...extra, events: 0, orders: 0, salesCents: 0, ...(admin ? { checkoutCents: 0, platformFeesCents: 0 } : {}), commissionCents: 0, units: 0, admissions: 0, customers: 0, averageOrderCents: 0, _buyers: new Set(), _events: new Set() });
   const get = (id, label, extra) => { if (!rows.has(id)) rows.set(id, empty(id, label, extra)); return rows.get(id); };
   const root = get('all', 'All selected');
   const children = new Map();
@@ -50,7 +50,7 @@ function aggregateHierarchy(eventsInput, ordersInput, { admin = false, includeCu
     const units = (order.items || []).reduce((sum, item) => sum + amount(item.quantity), 0);
     const admissions = (order.items || []).reduce((sum, item) => sum + amount(item.quantity) * amount(item.entriesPerUnitSnapshot), 0);
     for (const id of path) {
-      const row = rows.get(id); row.orders += 1; row.salesCents += amount(order.subtotalCents); row.checkoutCents += amount(order.totalCents); row.platformFeesCents += amount(order.platformFeeCents); row.commissionCents += amount(order.affiliateCommissionCents); row.units += units; row.admissions += admissions; row._buyers.add(order.buyerUserId);
+      const row = rows.get(id); row.orders += 1; row.salesCents += amount(order.subtotalCents); if (admin) { row.checkoutCents += amount(order.totalCents); row.platformFeesCents += amount(order.platformFeeCents); } row.commissionCents += amount(order.affiliateCommissionCents); row.units += units; row.admissions += admissions; row._buyers.add(order.buyerUserId);
     }
     const date = new Date(order.paidAt).toISOString().slice(0, 10);
     const day = daily.get(date) || { date, salesCents: 0, orders: 0 }; day.salesCents += amount(order.subtotalCents); day.orders += 1; daily.set(date, day);
@@ -175,7 +175,7 @@ function createAnalyticsService({ models, permissions, now = () => new Date() })
       const historical = await models.EventAffiliate.findAll({ where: { userId, eventId: { [Op.in]: eventIds } }, attributes: ['id'] });
       historical.forEach((row) => ownEventAffiliateIds.add(row.id));
     }
-    const rawOrders = await models.Order.findAll({ where: { eventId: { [Op.in]: eventIds }, status: 'paid', currency: 'USD', paidAt: { [Op.gte]: range.since, [Op.lt]: range.until } }, attributes: ['id', 'eventId', 'buyerUserId', 'subtotalCents', 'totalCents', 'platformFeeCents', 'affiliateCommissionCents', 'orgAffiliateId', 'eventAffiliateId', 'paidAt'], include: [
+    const rawOrders = await models.Order.findAll({ where: { eventId: { [Op.in]: eventIds }, status: 'paid', currency: 'USD', paidAt: { [Op.gte]: range.since, [Op.lt]: range.until } }, attributes: ['id', 'eventId', 'buyerUserId', 'subtotalCents', ...(admin ? ['totalCents', 'platformFeeCents'] : []), 'affiliateCommissionCents', 'orgAffiliateId', 'eventAffiliateId', 'paidAt'], include: [
       { model: models.OrderItem, as: 'items', attributes: ['nameSnapshot', 'kindSnapshot', 'quantity', 'entriesPerUnitSnapshot', 'lineTotalCents'] },
       { model: models.User, as: 'buyer', attributes: ['id', 'displayName', 'email'] },
     ], limit: 20001 });

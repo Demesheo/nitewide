@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 
 export function MultiSelect({ label, options, selected, onChange }) {
   return <PopoverPrimitive.Root>
-    <span className="inline-flex">
+    <span className="multi-select-control inline-flex">
       <PopoverPrimitive.Trigger asChild>
         <Button type="button" variant="secondary" size="sm" aria-label={label} className="h-9 min-w-44 justify-between border border-border px-3">
           <span>{label}{selected.length ? ` · ${selected.length} selected` : ' · All'}</span>

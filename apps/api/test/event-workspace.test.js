@@ -38,7 +38,9 @@ test('event report reconciles historical amounts, direct sales, referrer earning
     guests:[{userId:'guest',user:{displayName:'Guest only'},status:'no_show',partySize:2}],
   });
   assert.equal(report.summary.salesCents,31000);
-  assert.equal(report.summary.customerPaidCents,33483);
+  assert.equal('customerPaidCents' in report.summary, false);
+  assert.equal('platformFeeCents' in report.summary, false);
+  assert.equal(report.customers.some((customer) => 'paidCents' in customer), false);
   assert.equal(report.summary.commissionCents,3000);
   assert.equal(report.summary.customers,1);
   assert.equal(report.summary.admissions,2);

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createTeamService } = require('../src/services/team-service');
 const { forbidden } = require('../src/domain/errors');
 
-test('only owners can invite a manager; managers can invite employees and promoters', async () => {
+test('managers can invite managers, employees, and promoters within their organizations', async () => {
   const writes = [];
   const models = {
     Organization: { findByPk: async () => ({ name: 'Venue' }) },
@@ -12,15 +12,16 @@ test('only owners can invite a manager; managers can invite employees and promot
   };
   const permissions = { assertManageOrganization: async () => {}, assertOwnOrganization: async () => { throw forbidden('Owner only'); } };
   const service = createTeamService({ models, permissions });
-  await assert.rejects(() => service.invite('manager', 'org', { email: 'A@Example.com', role: 'manager' }), { code: 'FORBIDDEN' });
-  assert.equal(writes.length, 0);
-  const employee = await service.invite('manager', 'org', { email: 'A@Example.com', phone: '+14075550123', role: 'employee' });
-  assert.equal(employee.email, 'a@example.com');
-  assert.equal(employee.phone, '+14075550123');
-  assert.equal(writes[0].phone, '+14075550123');
+  const invitedManager = await service.invite('manager', 'org', { email: 'A@Example.com', role: 'manager' });
+  assert.equal(invitedManager.role, 'manager');
   assert.equal(writes.length, 1);
-  await service.invite('manager', 'org', { email: 'B@Example.com', role: 'affiliate' });
+  const employee = await service.invite('manager', 'org', { email: 'B@Example.com', phone: '+14075550123', role: 'employee' });
+  assert.equal(employee.email, 'b@example.com');
+  assert.equal(employee.phone, '+14075550123');
+  assert.equal(writes[1].phone, '+14075550123');
   assert.equal(writes.length, 2);
+  await service.invite('manager', 'org', { email: 'C@Example.com', role: 'affiliate' });
+  assert.equal(writes.length, 3);
 });
 
 test('accepting an employee invitation adds staff access, not manager access, to an existing customer', async () => {

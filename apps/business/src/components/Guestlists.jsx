@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, X, Users, Save, UserPlus } from "lucide-react";
+import { Check, X, Save, UserPlus, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -11,6 +11,10 @@ import { eventDateLabel } from '@/lib/business';
 import { MultiSelect } from './MultiSelect';
 import { guestlistEventName, guestlistStatuses, guestlistStatusesForEvent, guestlistStatusQuery, reviewableGuestlistEvents } from '@/lib/guestlists';
 import { customerLink } from '@/lib/customer-link';
+import { MobileTableSort } from './MobileTableSort';
+import { allocationInputIsReadOnly, closeOtherAllocationEditors, focusAllocationInput, normalizeAllocationInput } from '@/lib/guestlist-allocation';
+
+const guestColumns = [['guestName', 'Guest'], ['partyValue', 'Party'], ['sourceValue', 'Source'], ['requestedValue', 'Requested'], ['status', 'Status']].map(([key, label]) => ({ key, label }));
 
 export function Guestlists({ events, session, expire, initialEventId = null, initialEntryId = null }) {
   const [currentTime, setCurrentTime] = useState(() => Date.now());
@@ -20,9 +24,12 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
   const [statuses, setStatuses] = useState(initialEntryId ? [] : ['pending']);
   const [entries, setEntries] = useState([]);
   const [settings, setSettings] = useState(null);
+  const [editingAllocationKey, setEditingAllocationKey] = useState(null);
   const [invitePools, setInvitePools] = useState(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteResult, setInviteResult] = useState(null);
+  const [referralUrl, setReferralUrl] = useState('');
+  const [referralCopyMessage, setReferralCopyMessage] = useState('');
   const [inviteContact, setInviteContact] = useState('email');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -38,6 +45,22 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
   const availableStatuses = guestlistStatusesForEvent(selected, currentTime);
   const pendingOnly = statuses.length === 1 && statuses[0] === 'pending';
   const activeEntry = entries.find((entry) => entry.id === activeEntryId);
+  useEffect(() => {
+    let active = true;
+    setReferralUrl('');
+    setReferralCopyMessage('');
+    if (!eventId || !selected) return () => { active = false; };
+    api(`/business/events/${eventId}/referral-link`, session)
+      .then((link) => {
+        if (!active) return;
+        const url = new URL(customerLink(import.meta.env.VITE_CUSTOMER_URL, window.location), window.location.href);
+        url.searchParams.set('event', eventId);
+        url.searchParams.set('ref', link.code);
+        setReferralUrl(url.toString());
+      })
+      .catch(() => { if (active) setReferralUrl(''); });
+    return () => { active = false; };
+  }, [eventId, selected, session]);
   useEffect(() => { if (initialEntryId && entries.some((entry) => entry.id === initialEntryId)) setActiveEntryId(initialEntryId); }, [initialEntryId, entries]);
   const sortedEntries = sortTableRows(entries.map((entry) => ({ ...entry, guestName: entry.user?.displayName || 'Guest', partyValue: entry.partySize, sourceValue: entry.source === 'affiliate' ? entry.eventAffiliate?.user?.displayName || 'Unknown referrer' : 'Direct', requestedValue: Date.parse(entry.createdAt) })), sortKey, descending);
   const pager = useTablePagination(sortedEntries, entries, `${eventId}:${statuses.join(',')}:${sortKey}:${descending}`);
@@ -115,7 +138,8 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
   }
   async function saveLimit(e, promoter) {
     e.preventDefault();
-    const value = new FormData(e.currentTarget).get("limit");
+    const form = e.currentTarget;
+    const value = new FormData(form).get("limit");
     setBusy(true);
     setError("");
     try {
@@ -126,12 +150,14 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
           method: "PATCH",
           body: JSON.stringify(
             promoter
-              ? { guestlistAllocation: value === "" ? null : Number(value) }
+              ? { guestlistAllocation: normalizeAllocationInput(value) }
               : { guestlistCapacity: Number(value) },
           ),
         },
       );
       setNotice("Guestlist allocation updated.");
+      form.querySelector('.allocation-editor')?.removeAttribute('open');
+      setEditingAllocationKey(null);
       setRevision((v) => v + 1);
     } catch (err) {
       if (err.status === 401) expire();
@@ -164,6 +190,30 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
     } catch (err) { if (err.status === 401) expire(); else setError(err.message); }
     finally { setBusy(false); }
   }
+  async function copyReferralUrl() {
+    try {
+      await navigator.clipboard.writeText(referralUrl);
+      setReferralCopyMessage('Referral link copied.');
+    } catch {
+      setReferralCopyMessage('Could not copy automatically. Select and copy the link above.');
+    }
+  }
+  function cancelAllocationEdit(event) {
+    event.currentTarget.form?.reset();
+    const editor = event.currentTarget.closest('details');
+    if (editor) editor.open = false;
+    setEditingAllocationKey(null);
+  }
+  function toggleAllocationEditor(event, key) {
+    const editor = event.currentTarget;
+    if (!editor.open) {
+      setEditingAllocationKey((current) => String(current ?? '') === String(key) ? null : current);
+      return;
+    }
+    closeOtherAllocationEditors(editor.closest('.allocation-grid'), editor);
+    setEditingAllocationKey(String(key));
+    focusAllocationInput(editor.closest('form')?.querySelector('input[name="limit"]'));
+  }
   if (!availableEvents.length)
     return (
       <Empty title={hasReviewableEvent ? 'No recent or upcoming guestlists' : 'No guestlists assigned'}>
@@ -180,7 +230,7 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
             {inviteContact === 'email' ? <Field id="invite-email" name="email" label="Email address" type="email" required/> : <Field id="invite-phone" name="phone" label="Phone number" type="tel" placeholder="+14075551212" required/>}
             <Field id="invite-party" name="partySize" label="People" type="number" min="1" max="20" defaultValue="1" required/>
             {error && <p role="alert" className="error">{error}</p>}
-            <Button disabled={busy || !invitePools?.direct && !invitePools?.own.length} type="submit">{busy ? 'Checking…' : 'Create invitation'}</Button>
+            <div className="guestlist-invitation-actions"><Button disabled={busy || !invitePools?.direct && !invitePools?.own.length} type="submit">{busy ? 'Checking…' : 'Create invitation'}</Button></div>
           </form>}
         </DialogContent>
       </Dialog>
@@ -207,8 +257,8 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
           </dl>
           {error && <p className="error" role="alert">{error}</p>}
           {confirmCancel && <p className="guestlist-cancel-warning">Cancelling invalidates this guest’s entry credential and releases {activeEntry.partySize} {activeEntry.partySize === 1 ? 'place' : 'places'} from the {activeEntry.source === 'affiliate' ? 'referrer' : 'venue'} guestlist.</p>}
-          <DialogFooter>
-            <DialogClose asChild><Button variant="outline" disabled={busy}>Close</Button></DialogClose>
+          <DialogFooter className="guestlist-detail-actions">
+            <DialogClose asChild><Button className="guestlist-dialog-close" variant="outline" disabled={busy}>Close</Button></DialogClose>
             {activeEntry.status === 'pending' && <>
               <Button variant="outline" disabled={busy} onClick={() => decide(activeEntry.id, 'reject')}><X /> Decline</Button>
               <Button disabled={busy} onClick={() => decide(activeEntry.id, 'approve')}><Check /> Approve</Button>
@@ -230,9 +280,9 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
           }}
           options={availableEvents.map((e) => [e.id, `${guestlistEventName(e.title)} · ${eventDateLabel(e)}`, e.title])}
         />
-        <MultiSelect label="Request status" options={availableStatuses} selected={statuses.filter((status) => availableStatuses.some((item) => item.id === status))} onChange={setStatuses} />
-        {invitePools && (invitePools.direct || invitePools.own.length > 0) && <Button type="button" onClick={() => { setInviteResult(null); setInviteOpen(true); }}><UserPlus size={16}/> Invite guest</Button>}
+        {invitePools && (invitePools.direct || invitePools.own.length > 0) && <Button className="guestlist-invite-button" type="button" onClick={() => { setInviteResult(null); setInviteOpen(true); }}><UserPlus size={16}/> Invite guest</Button>}
       </div>
+      {referralUrl && <section className="panel guestlist-referral-card"><div className="guestlist-referral-copy"><div><span className="eyebrow">SHARE THIS EVENT</span><h3>Your referral link</h3><p>Purchases and guestlist requests made through this link are attributed to you for this event.</p></div><Input readOnly aria-label="Your event referral link" value={referralUrl} onFocus={(event) => event.target.select()} /></div><Button type="button" variant="outline" onClick={copyReferralUrl}>{referralCopyMessage === 'Referral link copied.' ? 'Copied' : 'Copy link'}</Button>{referralCopyMessage && <p className="guestlist-referral-status" role="status">{referralCopyMessage}</p>}</section>}
       {error && (
         <p className="error" role="alert">
           {error}
@@ -243,7 +293,7 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
           {notice}
         </p>
       )}
-      <section className="panel">
+      <section className="panel guest-experience-panel">
         <div className="section-heading">
           <div>
             <span className="eyebrow">GUEST EXPERIENCE</span>
@@ -256,26 +306,29 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
               Approvals respect the independent venue and referrer allocations.
             </p>
           </div>
-          <Users size={22} />
+          <div className="guest-experience-filters">
+            <MultiSelect label="Request status" options={availableStatuses} selected={statuses.filter((status) => availableStatuses.some((item) => item.id === status))} onChange={setStatuses} />
+          </div>
         </div>
-        {loading ? (
-          <p className="loading" role="status">
-            Loading requests…
-          </p>
-        ) : !entries.length ? (
-          <Empty
-            title={
-              pendingOnly
-                ? "You’re all caught up"
-                : "No guests in this view"
-            }
-          >
-            {pendingOnly
-              ? "New requests will appear here, ready for your review."
-              : "Choose another event or status."}
-          </Empty>
-        ) : (
-          <><div className="table-wrap">
+        <div className="guest-experience-content">
+          {loading ? (
+            <p className="loading guest-experience-state" role="status">
+              Loading requests…
+            </p>
+          ) : !entries.length ? (
+            <div className="guest-experience-state"><Empty
+              title={
+                pendingOnly
+                  ? "You’re all caught up"
+                  : "No guests in this view"
+              }
+            >
+              {pendingOnly
+                ? "New requests will appear here, ready for your review."
+                : "Choose another event or status."}
+            </Empty></div>
+          ) : (
+          <><MobileTableSort columns={guestColumns} value={sortKey} descending={descending} onChange={(key) => { setSortKey(key); setDescending(['partyValue', 'requestedValue'].includes(key)); }} onToggle={() => setDescending(!descending)}/><div className="guestlist-table-surface"><div className="table-wrap responsive-event-table">
             <table>
               <thead>
                 <tr>
@@ -289,19 +342,20 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
               <tbody>
                 {pager.rows.map((entry) => (
                   <tr key={entry.id}>
-                    <td>
+                    <td data-label="Guest">
                       <button type="button" className="guestlist-guest-link" onClick={(event) => { entryTriggerRef.current = event.currentTarget; setError(''); setConfirmCancel(false); setActiveEntryId(entry.id); }}>{entry.user?.displayName || 'Guest'}</button>
                     </td>
-                    <td>{entry.partySize} people</td>
-                    <td>{entry.sourceValue}</td>
-                    <td>{new Date(entry.createdAt).toLocaleDateString()}</td>
-                    <td><span className="status-pill">{guestlistStatuses.find((item) => item.id === entry.status)?.label || entry.status.replaceAll('_', ' ')}</span></td>
+                    <td data-label="Party">{entry.partySize} people</td>
+                    <td data-label="Source">{entry.sourceValue}</td>
+                    <td data-label="Requested">{new Date(entry.createdAt).toLocaleDateString()}</td>
+                    <td data-label="Status"><span className="status-pill">{guestlistStatuses.find((item) => item.id === entry.status)?.label || entry.status.replaceAll('_', ' ')}</span></td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div><TablePagination pager={pager}/></>
-        )}
+          </div></div><TablePagination pager={pager}/></>
+          )}
+        </div>
       </section>
       {settings && !loading && (
         <section className="panel">
@@ -330,21 +384,21 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
                 label="Direct limit"
                 min={settings.direct.used}
                 required
+                readOnly={allocationInputIsReadOnly(editingAllocationKey, 'direct')}
+                className={allocationInputIsReadOnly(editingAllocationKey, 'direct') ? '' : 'allocation-input-active'}
                 defaultValue={settings.direct.capacity}
                 key={settings.direct.capacity}
               />
-              <Button variant="outline" disabled={busy} type="submit">
-                <Save />
-                Save limit
-              </Button>
-              <small className="allocation-note-placeholder">
-                Direct requests use this venue guestlist pool.
-              </small>
+              <details className="allocation-editor" onToggle={(event) => toggleAllocationEditor(event, 'direct')}>
+                <summary className="allocation-edit-button"><Pencil />Edit limit</summary>
+                <div className="allocation-actions"><Button variant="outline" disabled={busy} type="button" onClick={cancelAllocationEdit}>Cancel</Button><Button disabled={busy} type="submit"><Save />Save</Button></div>
+              </details>
+              <small>Direct requests use this venue guestlist pool.</small>
             </form>
             {settings.promoters.map((p) => (
               <form
                 className="allocation"
-                key={`${p.id}-${p.guestlistAllocation}`}
+                key={p.id}
                 onSubmit={(e) => saveLimit(e, p)}
               >
                 <h3>{p.user?.displayName || p.code}</h3>
@@ -358,13 +412,16 @@ export function Guestlists({ events, session, expire, initialEventId = null, ini
                   type="number"
                   label="Event allocation"
                   min={p.used}
+                  readOnly={allocationInputIsReadOnly(editingAllocationKey, p.id)}
+                  className={allocationInputIsReadOnly(editingAllocationKey, p.id) ? '' : 'allocation-input-active'}
                   defaultValue={p.guestlistAllocation ?? ""}
                   placeholder={`Inherit default (${p.effectiveGuestlistAllocation})`}
+                  key={`${p.guestlistAllocation ?? 'inherit'}-${p.effectiveGuestlistAllocation}`}
                 />
-                <Button variant="outline" disabled={busy} type="submit">
-                  <Save />
-                  Save allocation
-                </Button>
+                <details className="allocation-editor" onToggle={(event) => toggleAllocationEditor(event, p.id)}>
+                  <summary className="allocation-edit-button"><Pencil />Edit allocation</summary>
+                  <div className="allocation-actions"><Button variant="outline" disabled={busy} type="button" onClick={cancelAllocationEdit}>Cancel</Button><Button disabled={busy} type="submit"><Save />Save</Button></div>
+                </details>
                 <small>Leave blank to inherit the organization default.</small>
               </form>
             ))}
