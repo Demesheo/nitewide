@@ -235,6 +235,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, [role="tab"]:focus-v
 .event-card.premium-host-card, .purchase-card.premium-host-card {
   border-color: var(--noir-gold-border); box-shadow: var(--noir-gold-glow);
 }
+.event-modal.premium-host-card[data-slot="dialog-content"] {
+  border-color: var(--noir-gold-border); box-shadow: var(--noir-gold-glow);
+}
 .event-card.premium-host-card:hover, .purchase-card.premium-host-card:hover {
   border-color: #e6c38570; box-shadow: var(--noir-gold-glow-hover);
 }

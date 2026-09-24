@@ -45,6 +45,7 @@ import { api } from "./lib/api";
 import { businessLink } from './lib/business-link';
 import { referralCodeForEvent, referralFromSearch } from './lib/referral';
 import { eventIdFromSearch, eventShareUrl } from './lib/event-share';
+import { isPremiumHost } from './lib/premium-host';
 import {
   availableQuantity,
   offeringAvailabilityLabel,
@@ -789,7 +790,7 @@ export default function App() {
         }}
       >
         <DialogContent
-          className="event-modal"
+          className={`event-modal${isPremiumHost(selected) ? ' premium-host-card' : ''}`}
           ref={eventDialogRef}
           tabIndex={-1}
           onOpenAutoFocus={(event) => openEventDialogAtTop(event, eventDialogRef.current)}

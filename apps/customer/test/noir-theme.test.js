@@ -24,6 +24,12 @@ test('Premium treatment requires an explicit server entitlement', () => {
     assert.equal(isPremiumHost(event), false);
   }
 });
+test('opened Premium event uses the same gold glow as its listing card', async () => {
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../src/noir-theme.css', import.meta.url), 'utf8');
+  assert.match(app, /className=\{`event-modal\$\{isPremiumHost\(selected\) \? ' premium-host-card' : ''\}`\}/);
+  assert.match(css, /\.event-modal\.premium-host-card\[data-slot="dialog-content"\]\s*\{[^}]*box-shadow: var\(--noir-gold-glow\)/);
+});
 test('Noir theme loads after responsive layout and preserves QR readability and touch targets', async () => {
   const main = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8');
   assert.ok(main.indexOf('./noir-theme.css') > main.indexOf('./mobile.css'));
