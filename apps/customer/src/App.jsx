@@ -13,7 +13,6 @@ import {
   LoaderCircle,
   Compass,
   X,
-  LocateFixed,
   Share,
   Heart,
   LogIn,
@@ -459,7 +458,7 @@ export default function App() {
                 className="signin-button"
                 onClick={() => setAuthOpen(true)}
               >
-                Sign in <LogIn size={16} aria-hidden="true" />
+                Log in <LogIn size={16} aria-hidden="true" />
               </Button>
             )}
           </div>
@@ -468,19 +467,16 @@ export default function App() {
       {view === 'connections' && hasConnections && <ConnectionsPage key={session.user.id} session={session} history={connectionsHistory} saved={saved} onSave={save} onReferral={openConnection} onRefresh={refreshConnections} />}
       {view === 'booked' && <main className="booked-page wrap" id="booked">
         <div className="booked-page-heading"><p className="eyebrow">YOUR NEXT NIGHT STARTS HERE</p><h1>Booked.</h1><p>Your tickets and guest list entries, all in one place.</p></div>
-        {session ? <AccountDialog embedded open session={session} notificationBooking={notificationBooking} onNotificationOpened={() => setNotificationBooking(null)} onOpenChange={() => setView('discover')} /> : <div className="account-empty"><Ticket /><h2>Your nights are waiting.</h2><p>Sign in to see your upcoming bookings and guest list entries.</p><Button onClick={() => setAuthOpen(true)}>Sign in</Button></div>}
+        {session ? <AccountDialog embedded open session={session} notificationBooking={notificationBooking} onNotificationOpened={() => setNotificationBooking(null)} onOpenChange={() => setView('discover')} /> : <div className="account-empty"><Ticket /><h2>Your nights are waiting.</h2><p>Sign in to see your upcoming bookings and guest list entries.</p><Button className="dark-glass-action" onClick={() => setAuthOpen(true)}>Sign in</Button></div>}
       </main>}
       {view === 'saved' && <main className="booked-page wrap" id="saved">
         <div className="booked-page-heading"><p className="eyebrow">KEEP THE GOOD NIGHTS CLOSE</p><h1>Saved.</h1><p>Your shortlist of upcoming events.</p></div>
-        {loadState === 'loading' ? <LoadingIndicator>Finding your saved nights…</LoadingIndicator> : loadState === 'error' ? <div className="account-empty"><p>We couldn’t load your saved events.</p><Button onClick={loadEvents}>Try again</Button></div> : savedUpcoming.length ? <div className="event-grid">{savedUpcoming.map((event) => <EventCard key={event.id} event={event} saved onSave={() => save(event)} onOpen={() => openEvent(event)} />)}</div> : <div className="account-empty"><h2>No upcoming saved events yet.</h2><p>Tap the heart on an event to keep it here. Past events stay out of your shortlist.</p><Button onClick={() => setView('discover')}>Discover events</Button></div>}
+        {loadState === 'loading' ? <LoadingIndicator>Finding your saved nights…</LoadingIndicator> : loadState === 'error' ? <div className="account-empty"><p>We couldn’t load your saved events.</p><Button onClick={loadEvents}>Try again</Button></div> : savedUpcoming.length ? <div className="event-grid">{savedUpcoming.map((event) => <EventCard key={event.id} event={event} saved onSave={() => save(event)} onOpen={() => openEvent(event)} />)}</div> : <div className="account-empty"><h2>No upcoming saved events yet.</h2><p>Tap the heart on an event to keep it here. Past events stay out of your shortlist.</p><Button className="dark-glass-action" onClick={() => setView('discover')}>Discover events</Button></div>}
       </main>}
       <main hidden={view !== 'discover'}>
         <section className="hero wrap">
           <div className="hero-copy">
-            <h1>
-              The night{' '}
-              <span className="hero-accent">is yours.</span>
-            </h1>
+            <h1>Find your kind of night.</h1>
             <a className="text-link" href="#discover">
               Find your next night <ArrowDown />
             </a>
@@ -578,12 +574,6 @@ export default function App() {
             </Button>
           </form>
           <div className="search-caption">
-            <span>
-              <LocateFixed size={12} />
-              {locationState === "fallback"
-                ? "Showing Orlando. Choose any city to explore."
-                : "Your plans start here."}
-            </span>
             <span>Book on the web. Be there in real life.</span>
           </div>
         </div>
@@ -594,7 +584,7 @@ export default function App() {
               <h2>
                 {view === "saved"
                   ? "Your shortlist."
-                  : "Find your kind of night."}
+                  : <>The night is <span className="heading-accent">yours.</span></>}
               </h2>
             </div>
           </div>
@@ -890,7 +880,7 @@ export default function App() {
                       </div>
                       {referralCodeForEvent(referral, selected.id) && <p className="connection-context">Booking with <strong>{referral.referrerName}</strong></p>}
                       <Button
-                        className="primary-action"
+                        className="primary-action dark-glass-action"
                         onClick={checkout}
                         disabled={referralBusy || !availableQuantity(offering) || !totals.eligible}
                       >
@@ -983,7 +973,7 @@ export default function App() {
               {totals.floorAdjusted && <p className="fine-print">A minimum-cost adjustment is included in the service fee to cover this order. Processing is included; no additional processing charge applies.</p>}
               {demoError && <p role="alert">{demoError}</p>}
               {referralCodeForEvent(referral, selected.id) && <p className="connection-context">Booking with <strong>{referral.referrerName}</strong></p>}
-              <Button className="primary-action" onClick={completeDemo} disabled={demoBusy || !totals.eligible}>
+              <Button className="primary-action dark-glass-action" onClick={completeDemo} disabled={demoBusy || !totals.eligible}>
                 {demoBusy ? <LoadingIndicator>Recording demo order…</LoadingIndicator> : <>Confirm demo booking <ArrowRight /></>}
               </Button>
               <Button variant="ghost" onClick={() => setStage("details")}>

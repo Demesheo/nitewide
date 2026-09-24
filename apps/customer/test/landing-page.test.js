@@ -18,15 +18,21 @@ test('Discover stays focused on location, date and search without radar or extra
   assert.match(css, /\.hero \{ grid-template-columns: minmax\(0, 1fr\)/);
 });
 
-test('customer landing keeps the hero on one line with a darker page and compact login control', async () => {
+test('customer landing swaps the hero and event heading while keeping a compact mobile layout', async () => {
   const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   const css = await readFile(new URL('../src/noir-theme.css', import.meta.url), 'utf8');
   const controls = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
-  assert.match(app, /The night\{' '\}\s*<span className="hero-accent">is yours\.<\/span>/);
-  assert.match(app, /Sign in <LogIn size=\{16\}/);
+  assert.match(app, /<h1>Find your kind of night\.<\/h1>/);
+  assert.match(app, /The night is <span className="heading-accent">yours\.<\/span>/);
+  assert.doesNotMatch(app, /LocateFixed|Your plans start here\./);
+  assert.match(app, /Log in <LogIn size=\{16\}/);
   assert.match(css, /--surface-page: #08080b/);
   assert.match(css, /\.hero h1 \{[^}]*white-space: nowrap;/);
+  assert.match(css, /\.section-heading h2 \.heading-accent \{[^}]*linear-gradient\(110deg, #d398a7, #c59bd0 60%, #ab9cd7\)/);
+  assert.match(css, /@media \(max-width: 760px\) \{[\s\S]*?\.hero \{ padding-top: 18px; padding-bottom: 14px;/);
+  assert.match(css, /\.hero-copy \{ padding-top: 0; \}/);
   assert.match(controls, /\.signin-button \{[^}]*height: 40px;[^}]*padding: 0 12px;[^}]*font-size: 12px;[^}]*gap: 7px;/);
+  assert.match(css, /\.site-header \.header-actions > \.signin-button \{ height: 32px; min-height: 32px; \}/);
 });
 
 test('event details and discovery cards omit redundant nightlife labels', async () => {

@@ -43,9 +43,10 @@ test('Noir theme loads after responsive layout and preserves QR readability and 
 test('soft nightlife accents, reflective panels and dialog glass retain accessible fallbacks', async () => {
   const css = await readFile(new URL('../src/noir-theme.css', import.meta.url), 'utf8');
   assert.match(css, /--noir-action:\s*linear-gradient\(180deg, #594763, #493751\)/);
-  assert.match(css, /--noir-dialog:\s*radial-gradient/);
-  assert.match(css, /--noir-dialog:.*#0d0b13b8/);
-  assert.match(css, /backdrop-filter: blur\(24px\) saturate\(115%\); -webkit-backdrop-filter: blur\(24px\) saturate\(115%\)/);
+  assert.match(css, /--noir-dialog:\s*#08070dc4/);
+  assert.doesNotMatch(css, /--noir-dialog:[^;]*#ffffff/);
+  assert.match(css, /\[data-slot="dialog-overlay"\] \{[^}]*backdrop-filter: blur\(2px\)/);
+  assert.match(css, /backdrop-filter: blur\(14px\) saturate\(108%\); -webkit-backdrop-filter: blur\(14px\) saturate\(108%\)/);
   assert.match(css, /\.detail-art img\.uploaded-artwork \{ background: transparent/);
   assert.match(css, /\[data-slot="dialog-content"\], \.account-modal\[data-slot="dialog-content"\]\s*\{\s*background: var\(--noir-dialog\)/);
   assert.match(css, /\.event-card, \.purchase-card, \.circle-grid article, \.search-bar, \.vip-copy, \.expanded-filters\s*\{[^}]*backdrop-filter: blur\(8px\)/);
@@ -71,6 +72,36 @@ test('quiet primary controls keep readable labels and clear focus/selection stat
   }
   assert.match(css, /--noir-control-shadow:.*inset.*0 0 10px/);
   assert.match(css, /--noir-dialog-shadow:.*inset.*0 0 28px/);
+  assert.doesNotMatch(css, /--noir-dialog-shadow:[^;]*#e7d5f5/);
   assert.match(css, /button:focus-visible[\s\S]*outline: 2px solid var\(--highlight\)/);
   assert.match(css, /\.offering\[aria-pressed="true"\]/);
+});
+
+test('login, discovery search and checkout actions share dark glass without size overrides', async () => {
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const auth = await readFile(new URL('../src/components/auth-dialog.jsx', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../src/noir-theme.css', import.meta.url), 'utf8');
+  assert.match(app, /className="signin-button"/);
+  assert.match(app, /className="search-submit"/);
+  assert.match(app, /className="primary-action dark-glass-action"[\s\S]*?onClick=\{checkout\}/);
+  assert.match(app, /className="primary-action dark-glass-action" onClick=\{completeDemo\}/);
+  assert.match(app, /className="dark-glass-action" onClick=\{\(\) => setAuthOpen\(true\)\}>Sign in<\/Button>/);
+  assert.match(app, /className="dark-glass-action" onClick=\{\(\) => setView\('discover'\)\}>Discover events<\/Button>/);
+  assert.match(auth, /className=\{register \? "primary-action" : "primary-action dark-glass-action"\}/);
+  const glass = css.match(/\.signin-button\[data-slot="button"\], \.search-submit\[data-slot="button"\], \.dark-glass-action\[data-slot="button"\] \{([^}]+)\}/)?.[1];
+  assert.ok(glass);
+  assert.match(glass, /background: linear-gradient\(165deg, #29212eae/);
+  assert.doesNotMatch(glass, /\b(?:width|height|padding|border-radius):/);
+});
+
+test('landing-page step icons use the same dark glass without changing their dimensions', async () => {
+  const css = await readFile(new URL('../src/noir-theme.css', import.meta.url), 'utf8');
+  const icon = css.match(/\.step-icon \{([^}]+)\}/)?.[1];
+  assert.ok(icon);
+  assert.match(css, /--customer-icon: #d9bded/);
+  assert.match(css, /svg\.lucide \{ color: var\(--customer-icon\); \}/);
+  assert.match(icon, /color: var\(--customer-icon\)/);
+  assert.match(icon, /background: linear-gradient\(165deg, #29212eae/);
+  assert.match(icon, /box-shadow: inset 0 1px 0 #c8a9d323/);
+  assert.doesNotMatch(icon, /\b(?:width|height|padding|border-radius):/);
 });

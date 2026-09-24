@@ -146,7 +146,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
               {error}
             </p>
           )}
-          <Button disabled={busy} className="primary-action">
+          <Button disabled={busy} className={register ? "primary-action" : "primary-action dark-glass-action"}>
             {busy ? (
               <LoadingIndicator>{register ? 'Creating account…' : 'Signing in…'}</LoadingIndicator>
             ) : (
