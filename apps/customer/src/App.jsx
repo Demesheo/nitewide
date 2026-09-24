@@ -138,9 +138,8 @@ export default function App() {
   const locationEdited = useRef(false),
     pendingAuth = useRef(null);
   const eventDialogRef = useRef(null);
-  const eventTitleRef = useRef(null);
   useLayoutEffect(() => {
-    if (selected) focusEventDialogStart(eventDialogRef.current, eventTitleRef.current);
+    if (selected) focusEventDialogStart(eventDialogRef.current);
   }, [selected?.id]);
   const [locationState, setLocationState] = useState("finding");
   async function loadEvents() {
@@ -792,7 +791,8 @@ export default function App() {
         <DialogContent
           className="event-modal"
           ref={eventDialogRef}
-          onOpenAutoFocus={(event) => openEventDialogAtTop(event, eventDialogRef.current, eventTitleRef.current)}
+          tabIndex={-1}
+          onOpenAutoFocus={(event) => openEventDialogAtTop(event, eventDialogRef.current)}
         >
           <DialogHeader>
             <p className="eyebrow">
@@ -802,7 +802,7 @@ export default function App() {
                   ? "REVIEW YOUR NIGHT"
                   : "YOUR NIGHT STARTS HERE"}
             </p>
-            <DialogTitle ref={eventTitleRef} tabIndex={-1}>
+            <DialogTitle>
               {stage === "complete"
                 ? "Consider the plan made."
                 : selected?.title}

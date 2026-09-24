@@ -1,11 +1,12 @@
-// Start long event dialogs at their heading rather than the first booking control.
-export function focusEventDialogStart(content, heading) {
+// Focus the dialog itself so its title is announced without outlining the title
+// or jumping to the first booking control.
+export function focusEventDialogStart(content) {
   if (!content) return;
-  (heading || content).focus({ preventScroll: true });
+  content.focus({ preventScroll: true });
   content.scrollTop = 0;
 }
 
-export function openEventDialogAtTop(event, content, heading) {
+export function openEventDialogAtTop(event, content) {
   event.preventDefault();
-  focusEventDialogStart(content, heading);
+  focusEventDialogStart(content);
 }
