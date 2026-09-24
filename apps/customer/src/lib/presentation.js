@@ -58,3 +58,15 @@ export function eventAddress(location) {
   return [location.addressLine1, location.addressLine2, locality, location.countryCode]
     .filter(Boolean).join(', ') || 'Address not available yet';
 }
+
+export function eventAddressLines(location) {
+  if (!location || (location.privacy && location.privacy !== 'public')) {
+    return [eventAddress(location)];
+  }
+  const street = [location.addressLine1, location.addressLine2].filter(Boolean).join(', ');
+  const region = [location.city, location.region].filter(Boolean).join(', ');
+  const cityLine = [[region, location.postalCode].filter(Boolean).join(' '), location.countryCode]
+    .filter(Boolean).join(', ');
+  const lines = [street, cityLine].filter(Boolean);
+  return lines.length ? lines : ['Address not available yet'];
+}

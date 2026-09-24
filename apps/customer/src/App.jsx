@@ -6,7 +6,6 @@ import {
   CalendarDays,
   Search,
   Ticket,
-  Wine,
   Users,
   Minus,
   Plus,
@@ -15,7 +14,9 @@ import {
   Compass,
   X,
   LocateFixed,
-  Share2,
+  Share,
+  Heart,
+  LogIn,
 } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Badge } from "./components/ui/badge";
@@ -29,7 +30,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
 import { EventCard } from "./components/event-card";
 import { EventArtwork } from './components/event-artwork';
-import { eventAddress, eventDate, eventTime } from "./lib/presentation";
+import { eventAddressLines, eventDate, eventTime } from "./lib/presentation";
 import { LoadingIndicator } from './components/loading-indicator';
 import { upcomingSavedEvents } from './lib/saved-events';
 import { AuthDialog } from "./components/auth-dialog";
@@ -458,7 +459,7 @@ export default function App() {
                 className="signin-button"
                 onClick={() => setAuthOpen(true)}
               >
-                Sign in <ArrowUpRight size={16} />
+                Sign in <LogIn size={16} aria-hidden="true" />
               </Button>
             )}
           </div>
@@ -476,34 +477,10 @@ export default function App() {
       <main hidden={view !== 'discover'}>
         <section className="hero wrap">
           <div className="hero-copy">
-            <p className="eyebrow">
-              <span className="live-dot" />
-              GOOD COMPANY. GREAT NIGHTS.
-            </p>
             <h1>
-              The night
-              <br />
+              The night{' '}
               <span className="hero-accent">is yours.</span>
             </h1>
-            <p className="hero-description">
-              Tickets, tables, guestlists. Your night starts here.
-            </p>
-            <div className="hero-tags">
-              <span>
-                <Ticket size={15} />
-                Tickets
-              </span>
-              <i />
-              <span>
-                <Wine size={15} />
-                VIP tables
-              </span>
-              <i />
-              <span>
-                <Users size={15} />
-                Guestlists
-              </span>
-            </div>
             <a className="text-link" href="#discover">
               Find your next night <ArrowDown />
             </a>
@@ -791,18 +768,17 @@ export default function App() {
       >
         <DialogContent
           className={`event-modal${isPremiumHost(selected) ? ' premium-host-card' : ''}`}
+          data-event-stage={stage}
           ref={eventDialogRef}
           tabIndex={-1}
           onOpenAutoFocus={(event) => openEventDialogAtTop(event, eventDialogRef.current)}
         >
           <DialogHeader>
-            <p className="eyebrow">
-              {stage === "complete"
-                ? "DEMO BOOKING"
-                : stage === "checkout"
-                  ? "REVIEW YOUR NIGHT"
-                  : "YOUR NIGHT STARTS HERE"}
-            </p>
+            {stage !== "details" && (
+              <p className="eyebrow">
+                {stage === "complete" ? "DEMO BOOKING" : "REVIEW YOUR NIGHT"}
+              </p>
+            )}
             <DialogTitle>
               {stage === "complete"
                 ? "Consider the plan made."
@@ -825,15 +801,29 @@ export default function App() {
               </p>
               <div className="detail-location">
                 <MapPin size={17} />
-                <span className="detail-location-copy">
-                  {selected.location?.name || "Location shared with attendees"}
+                <div className="detail-location-copy">
+                  <span>{selected.location?.name || "Location shared with attendees"}</span>
                   <small>
-                    {eventAddress(selected.location)}
+                    {eventAddressLines(selected.location).map((line, index) => (
+                      <span key={index}>{line}</span>
+                    ))}
                   </small>
-                </span>
-                <button type="button" className="event-share-button" onClick={shareSelectedEvent} aria-label={`Share ${selected.title}`} title="Share event">
-                  <Share2 size={18} aria-hidden="true" />
-                </button>
+                </div>
+                <div className="detail-location-actions">
+                  <button
+                    type="button"
+                    className={`save-button ${saved.includes(selected.id) ? "saved" : ""}`}
+                    onClick={() => save(selected)}
+                    aria-label={`${saved.includes(selected.id) ? "Unsave" : "Save"} ${selected.title}`}
+                    aria-pressed={saved.includes(selected.id)}
+                    title={saved.includes(selected.id) ? "Remove from saved" : "Save event"}
+                  >
+                    <Heart size={18} fill={saved.includes(selected.id) ? "currentColor" : "none"} aria-hidden="true" />
+                  </button>
+                  <button type="button" className="save-button event-share-button" onClick={shareSelectedEvent} aria-label={`Share ${selected.title}`} title="Share event">
+                    <Share size={18} aria-hidden="true" />
+                  </button>
+                </div>
               </div>
               {shareFeedback && <p className="event-share-feedback" role="status">{shareFeedback}</p>}
               {session && <EventConnectionPicker key={`${session.user.id}:${selected.id}`} session={session} eventId={selected.id} referral={referral} busy={referralBusy} onSelect={chooseEventConnection} />}

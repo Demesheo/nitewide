@@ -91,12 +91,18 @@ test('card flyers stretch edge-to-edge while original proportions remain availab
   assert.match(css, /\.card-image img\.uploaded-artwork\s*\{[^}]*object-fit:\s*fill/);
   assert.match(css, /\.detail-art img\.uploaded-artwork\s*\{[^}]*object-fit:\s*contain/);
 });
-test('event detail artwork keeps one portrait frame for flyers, venue photos and generated fallbacks', async () => {
+test('event detail artwork retains a portrait frame for venue photos and generated fallbacks', async () => {
   const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
   assert.match(css, /\.detail-art\s*\{[^}]*aspect-ratio:\s*4\s*\/\s*5/);
-  assert.doesNotMatch(css, /\.detail-art\.has-flyer/);
   assert.match(css, /\.event-modal\s*\{[^}]*overflow-anchor:\s*none/);
   assert.match(css, /\.event-modal\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0/);
+});
+test('opened flyers use intrinsic proportions with an iPhone-height cap instead of letterboxing', async () => {
+  const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.detail-art:has\(> \.artwork-flyer\)\s*\{[^}]*aspect-ratio:\s*auto/);
+  assert.match(css, /\.detail-art:has\(> \.artwork-flyer\) > \.event-artwork\s*\{[^}]*position:\s*static/);
+  assert.match(css, /\.detail-art:has\(> \.artwork-flyer\) img\.uploaded-artwork\s*\{[^}]*max-height:\s*min\(48svh, 420px\)/);
+  assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.detail-art:has\(> \.artwork-flyer\) img\.uploaded-artwork \{ max-height: 38svh; \}/);
 });
 test('opened event flyer is compact and centered on short mobile viewports', async () => {
   const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');

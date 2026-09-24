@@ -1,7 +1,7 @@
 /* Nitewide / Noir — customer-only visual system, layered over shared workflows.
    Static glows, bounded blur, no full-page filters or continuously moving gradients. */
 :root {
-  --surface-page: #0b0b0e;
+  --surface-page: #08080b;
   --surface-card: #111015;
   --surface-raised: #18151e;
   --surface-deep: #07070a;
@@ -35,7 +35,7 @@
   --noir-gold-glow: inset 0 1px 0 #fff0c778, inset 0 0 18px #d4ab4918, 0 0 10px #ffd47b70, 0 0 34px #e5b64f52, 0 12px 44px #c38d2b42;
   --noir-gold-glow-hover: inset 0 1px 0 #fff0c795, inset 0 0 20px #d4ab4922, 0 0 14px #ffd47b88, 0 0 44px #e5b64f68, 0 14px 52px #c38d2b52;
 }
-body { background: radial-gradient(ellipse 75% 700px at 0 0, #653b551b, transparent 80%), radial-gradient(ellipse 65% 900px at 100% 450px, #4e3a6b1a, transparent 80%), #0b0b0e; }
+body { background: radial-gradient(ellipse 75% 700px at 0 0, #653b551b, transparent 80%), radial-gradient(ellipse 65% 900px at 100% 450px, #4e3a6b1a, transparent 80%), #08080b; }
 ::selection { background: #a477d85c; color: #fff; }
 .site-header { background: #101014e8; border-bottom: 1px solid #ffffff0b; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
 .brand { letter-spacing: -1.5px; }
@@ -50,7 +50,7 @@ body { background: radial-gradient(ellipse 75% 700px at 0 0, #653b551b, transpar
 .eyebrow { color: var(--noir-gold); font-size: 10px; letter-spacing: 2.1px; }
 .hero { grid-template-columns: minmax(0, 1fr); gap: 0; padding-top: 32px; padding-bottom: 24px; align-items: center; }
 .hero-copy { position: relative; }
-.hero h1 { font-size: clamp(54px, 6.1vw, 84px); font-weight: 750; line-height: 1.03; letter-spacing: -4px; max-width: 660px; }
+.hero h1 { font-size: clamp(30px, 5vw, 64px); font-weight: 750; line-height: 1.03; letter-spacing: -2.8px; white-space: nowrap; }
 .hero h1 .hero-accent { color: #d29bbc; background: linear-gradient(110deg, #d398a7, #c59bd0 60%, #ab9cd7); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .hero-description { max-width: 370px; color: var(--text-secondary); font-size: 15px; line-height: 1.8; }
 .hero-tags { color: #c4bdcc; gap: 14px; }
@@ -275,13 +275,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, [role="tab"]:focus-v
 .event-connection-picker [data-slot="select-trigger"] { width: 100%; min-height: 44px; }
 .event-connection-picker > p { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 @media (max-width: 760px) {
+  .site-header .header-actions > .signin-button { height: 40px; min-height: 40px; }
   .site-header .header-inner { padding: max(8px, env(safe-area-inset-top)) 16px 8px; }
   .site-header .header-inner nav, .site-header .header-inner nav[data-connections="true"] { width: 100%; padding: 4px; }
   .site-header .header-inner nav[data-connections="true"] button { padding-inline: 3px; font-size: 11px; }
   .connections-heading > span { font-size: 12px; }
   .site-header .header-inner nav button { border-radius: 12px; }
   .hero { padding-top: 24px; padding-bottom: 20px; gap: 20px; }
-  .hero h1 { font-size: clamp(44px, 11.8vw, 66px); line-height: 1.06; letter-spacing: -2.2px; margin-top: 14px; }
+  .hero h1 { font-size: clamp(25px, 7.6vw, 40px); line-height: 1.06; letter-spacing: -1.8px; margin-top: 14px; }
   .hero-description { font-size: 14px; line-height: 1.65; margin-top: 14px; }
   .hero-art { height: 170px; border-radius: 18px; }
   .hero-feature { left: 20px; right: 20px; bottom: 18px; }

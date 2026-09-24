@@ -15,7 +15,7 @@
   .site-header .header-inner nav button { min-height: 44px; font-size: 13px; }
   .wrap { padding-inline: max(16px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right)); }
   .hero { padding-top: 16px; gap: 16px; }
-  .hero h1 { font-size: clamp(42px, 11vw, 58px); letter-spacing: -2px; margin-top: 12px; }
+  .hero h1 { font-size: clamp(42px, 11vw, 58px); letter-spacing: -2px; margin-top: 0; }
   .hero-description { font-size: 14px; margin-top: 12px; }
   .hero-tags { margin-top: 12px; }
   .hero-art { height: 160px; margin-top: 0; border-top-left-radius: 40px; }
@@ -60,6 +60,10 @@
     position: sticky; order: -1; align-self: flex-end; justify-self: end;
     margin-bottom: -44px; z-index: 5; border-radius: 50%; background: #100e20;
     display: grid; place-items: center;
+  }
+  .event-modal[data-event-stage="details"] [data-slot="dialog-header"] { padding-right: 52px; }
+  .event-modal[data-event-stage="details"] > [data-slot="dialog-close"] {
+    position: absolute; top: 16px; right: 16px; order: initial; margin-bottom: 0;
   }
   [data-slot="dialog-title"] { font-size: 24px; line-height: 1.2; overflow-wrap: anywhere; }
   .detail-description { font-size: 14px; line-height: 1.65; }

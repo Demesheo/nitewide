@@ -21,11 +21,11 @@ export function EventCard({ event, saved, onSave, onOpen, children, actionLabel 
       </div>
       <div className="card-copy">
         <div className="card-meta">
-          <Badge className="card-category">
-            {event.category === "nightlife"
-              ? "AFTER DARK"
-              : (event.category || 'experience').replaceAll("_", " ").toUpperCase()}
-          </Badge>
+          {event.category !== "nightlife" && (
+            <Badge className="card-category">
+              {(event.category || 'experience').replaceAll("_", " ").toUpperCase()}
+            </Badge>
+          )}
           <button
             className={`save-button ${saved ? "saved" : ""}`}
             aria-label={`${saved ? "Unsave" : "Save"} ${event.title}`}
