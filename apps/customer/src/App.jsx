@@ -15,6 +15,7 @@ import {
   Compass,
   X,
   LocateFixed,
+  Share2,
 } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Badge } from "./components/ui/badge";
@@ -43,6 +44,7 @@ import { detectCurrentCity } from "./discovery-defaults";
 import { api } from "./lib/api";
 import { businessLink } from './lib/business-link';
 import { referralCodeForEvent, referralFromSearch } from './lib/referral';
+import { eventIdFromSearch, eventShareUrl } from './lib/event-share';
 import {
   availableQuantity,
   offeringAvailabilityLabel,
@@ -119,6 +121,7 @@ export default function App() {
     [offeringId, setOfferingId] = useState(""),
     [quantity, setQuantity] = useState(1),
     [stage, setStage] = useState("details");
+  const [shareFeedback, setShareFeedback] = useState('');
   const [booking, setBooking] = useState(null);
   const [referralPending, setReferralPending] = useState(null), [referralError, setReferralError] = useState('');
   const referralRequest = useRef(null);
@@ -162,18 +165,25 @@ export default function App() {
   }, []);
   useEffect(() => {
     const incoming = referralFromSearch(window.location.search);
-    if (!incoming) return;
+    const eventId = eventIdFromSearch(window.location.search);
+    if (!eventId) return;
     let active = true;
-    const sessionKey = sessionStorage.getItem('nitewide.referral-session') || crypto.randomUUID();
-    sessionStorage.setItem('nitewide.referral-session', sessionKey);
-    Promise.all([
-      api(`/events/${encodeURIComponent(incoming.eventId)}`),
-      api(`/events/${encodeURIComponent(incoming.eventId)}/referral-visits`, { body: { code: incoming.code, sessionKey } }),
-    ]).then(([event, visit]) => {
-      if (!active) return;
-      setReferral({ ...incoming, referrerName: visit.referrerName });
-      openEvent(event);
-    }).catch(() => { if (active) setNotice('This referral link is no longer active. You can still browse events.'); });
+    if (incoming) {
+      const sessionKey = sessionStorage.getItem('nitewide.referral-session') || crypto.randomUUID();
+      sessionStorage.setItem('nitewide.referral-session', sessionKey);
+      Promise.all([
+        api(`/events/${encodeURIComponent(incoming.eventId)}`),
+        api(`/events/${encodeURIComponent(incoming.eventId)}/referral-visits`, { body: { code: incoming.code, sessionKey } }),
+      ]).then(([event, visit]) => {
+        if (!active) return;
+        setReferral({ ...incoming, referrerName: visit.referrerName });
+        openEvent(event);
+      }).catch(() => { if (active) setNotice('This referral link is no longer active. You can still browse events.'); });
+    } else {
+      api(`/events/${encodeURIComponent(eventId)}`)
+        .then((event) => { if (active) openEvent(event); })
+        .catch(() => { if (active) setNotice('This event is no longer available. You can still browse events.'); });
+    }
     return () => { active = false; };
   }, []);
   useEffect(() => {
@@ -239,12 +249,31 @@ export default function App() {
   const totals = checkoutTotal(offering?.priceCents || 0, quantity, offering?.currency || 'USD');
   function openEvent(event) {
     setSelected(event);
+    setShareFeedback('');
     const first = event.offerings?.find((o) => availableQuantity(o));
     setOfferingId(first?.id || "");
     setQuantity(first?.minPerOrder || 1);
     setStage("details");
     setGuestState("");
     setGuestError("");
+  }
+  async function shareSelectedEvent() {
+    if (!selected) return;
+    const url = eventShareUrl(selected.id, window.location.origin, referralCodeForEvent(referral, selected.id));
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: selected.title, url });
+        return;
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareFeedback('Link copied');
+    } catch {
+      setShareFeedback('Could not copy link');
+    }
   }
   async function openConnection(entry) {
     const sessionKey = sessionStorage.getItem('nitewide.referral-session') || crypto.randomUUID();
@@ -773,11 +802,19 @@ export default function App() {
                   ? "REVIEW YOUR NIGHT"
                   : "YOUR NIGHT STARTS HERE"}
             </p>
-            <DialogTitle ref={eventTitleRef} tabIndex={-1}>
-              {stage === "complete"
-                ? "Consider the plan made."
-                : selected?.title}
-            </DialogTitle>
+            <div className="event-title-row">
+              <DialogTitle ref={eventTitleRef} tabIndex={-1}>
+                {stage === "complete"
+                  ? "Consider the plan made."
+                  : selected?.title}
+              </DialogTitle>
+              {selected && stage === 'details' && (
+                <button type="button" className="event-share-button" onClick={shareSelectedEvent} aria-label={`Share ${selected.title}`} title="Share event">
+                  <Share2 size={18} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+            {shareFeedback && <p className="event-share-feedback" role="status">{shareFeedback}</p>}
             <DialogDescription>
               {selected &&
                 `${eventDate(selected)} · ${eventTime(selected)} · ${cityName(selected)}`}
