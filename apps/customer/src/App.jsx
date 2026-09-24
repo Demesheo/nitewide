@@ -907,7 +907,6 @@ export default function App() {
                         <ArrowRight />
                       </Button>
                       {!totals.eligible && <p role="alert" className="fine-print">This combination is not available at our current pricing. Try another offering or quantity.</p>}
-                      {totals.discount > 0 && <p className="fine-print">A {money(totals.discount, offering.currency)} competitive fee discount is included.</p>}
                     </>
                   )}
                   <p className="demo-note">
@@ -991,7 +990,6 @@ export default function App() {
                 charges must be finalized before live payments launch.
               </p>
               {totals.floorAdjusted && <p className="fine-print">A minimum-cost adjustment is included in the service fee to cover this order. Processing is included; no additional processing charge applies.</p>}
-              {totals.discount > 0 && <p className="fine-print">Includes a {money(totals.discount, offering.currency)} competitive fee discount.</p>}
               {demoError && <p role="alert">{demoError}</p>}
               {referralCodeForEvent(referral, selected.id) && <p className="connection-context">Booking with <strong>{referral.referrerName}</strong></p>}
               <Button className="primary-action" onClick={completeDemo} disabled={demoBusy || !totals.eligible}>
