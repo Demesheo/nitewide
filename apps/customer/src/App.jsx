@@ -802,19 +802,11 @@ export default function App() {
                   ? "REVIEW YOUR NIGHT"
                   : "YOUR NIGHT STARTS HERE"}
             </p>
-            <div className="event-title-row">
-              <DialogTitle ref={eventTitleRef} tabIndex={-1}>
-                {stage === "complete"
-                  ? "Consider the plan made."
-                  : selected?.title}
-              </DialogTitle>
-              {selected && stage === 'details' && (
-                <button type="button" className="event-share-button" onClick={shareSelectedEvent} aria-label={`Share ${selected.title}`} title="Share event">
-                  <Share2 size={18} aria-hidden="true" />
-                </button>
-              )}
-            </div>
-            {shareFeedback && <p className="event-share-feedback" role="status">{shareFeedback}</p>}
+            <DialogTitle ref={eventTitleRef} tabIndex={-1}>
+              {stage === "complete"
+                ? "Consider the plan made."
+                : selected?.title}
+            </DialogTitle>
             <DialogDescription>
               {selected &&
                 `${eventDate(selected)} · ${eventTime(selected)} · ${cityName(selected)}`}
@@ -832,13 +824,17 @@ export default function App() {
               </p>
               <div className="detail-location">
                 <MapPin size={17} />
-                <span>
+                <span className="detail-location-copy">
                   {selected.location?.name || "Location shared with attendees"}
                   <small>
                     {eventAddress(selected.location)}
                   </small>
                 </span>
+                <button type="button" className="event-share-button" onClick={shareSelectedEvent} aria-label={`Share ${selected.title}`} title="Share event">
+                  <Share2 size={18} aria-hidden="true" />
+                </button>
               </div>
+              {shareFeedback && <p className="event-share-feedback" role="status">{shareFeedback}</p>}
               {session && <EventConnectionPicker key={`${session.user.id}:${selected.id}`} session={session} eventId={selected.id} referral={referral} busy={referralBusy} onSelect={chooseEventConnection} />}
               {referralError && <p className="error-message" role="alert">{referralError}</p>}
               <Tabs defaultValue="tickets">
