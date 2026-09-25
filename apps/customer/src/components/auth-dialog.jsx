@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { LoadingIndicator } from './loading-indicator';
 import { ArrowRight, LoaderCircle } from "lucide-react";
 import { Button } from "./ui/button";
@@ -11,25 +11,41 @@ import {
   DialogDescription,
 } from "./ui/dialog";
 import { api } from "../lib/api";
+import { passwordConfirmationError } from "../lib/password-confirmation";
 
 export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken }) {
   const [register, setRegister] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const confirmationErrorId = useId();
+  const confirmationError = register ? passwordConfirmationError(password, confirmPassword) : "";
+  const showMismatch = register && Boolean(confirmPassword) && Boolean(confirmationError);
   useEffect(() => {
     if (open) {
       setRegister(Boolean(guestlistInviteToken));
       setError("");
       setPhone("");
+      setPassword("");
+      setConfirmPassword("");
     }
   }, [open]);
   async function submit(event) {
     event.preventDefault();
-    setBusy(true);
     setError("");
     const form = new FormData(event.currentTarget);
     const body = { email: form.get("email"), password: form.get("password") };
+    if (register) {
+      const message = passwordConfirmationError(body.password, form.get("confirmPassword"));
+      if (message) {
+        setError(message);
+        event.currentTarget.elements.namedItem("confirmPassword")?.focus();
+        return;
+      }
+    }
+    setBusy(true);
     if (register)
       Object.assign(body, {
         displayName: form.get("name"),
@@ -115,10 +131,28 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
               }
               title="At least 8 characters with an uppercase letter, a lowercase letter and a number"
               placeholder="Your password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
             />
           </label>
           {register && (
             <>
+              <label>
+                Confirm password
+                <Input
+                  name="confirmPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  maxLength={128}
+                  required
+                  placeholder="Re-enter your password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  aria-invalid={showMismatch || undefined}
+                  aria-describedby={showMismatch ? confirmationErrorId : undefined}
+                />
+              </label>
+              {showMismatch && <p id={confirmationErrorId} role="status" className="error-message">{confirmationError}</p>}
               <label>
                 Phone number <span className="optional-label">Optional</span>
                 <Input name="phone" type="tel" inputMode="tel" autoComplete="tel" maxLength={32} value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+1 407 555 0123" />
@@ -146,7 +180,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
               {error}
             </p>
           )}
-          <Button disabled={busy} className={register ? "primary-action" : "primary-action dark-glass-action"}>
+          <Button disabled={busy || (register && Boolean(confirmationError))} className={register ? "primary-action" : "primary-action dark-glass-action"}>
             {busy ? (
               <LoadingIndicator>{register ? 'Creating account…' : 'Signing in…'}</LoadingIndicator>
             ) : (
@@ -164,6 +198,8 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
             onClick={() => {
               setRegister(!register);
               setError("");
+              setPassword("");
+              setConfirmPassword("");
             }}
           >
             {register ? "Sign in" : "Create an account"}
