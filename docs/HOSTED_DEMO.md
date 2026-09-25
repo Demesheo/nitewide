@@ -43,11 +43,32 @@ Resend, Plivo or other paid delivery credentials should be set on this service.
 
 ## Data lifecycle
 
-Startup takes a database advisory lock, runs versioned migrations, and seeds only
-an empty database named exactly `nitewide_demo`. A durable bootstrap marker stops
-destructive automatic retries after incomplete seeding. Restarts preserve records
-and do not reseed. No local DB snapshot is uploaded. Initialization can take several
-minutes while sample customers/sales are created and reviewed flyer assets download.
+Startup takes a database advisory lock, runs versioned migrations, and normally
+seeds only an empty database named exactly `nitewide_demo`. A durable bootstrap
+marker stops destructive automatic retries after incomplete initial seeding.
+Ordinary restarts preserve records and do not reseed. No local DB snapshot is
+uploaded. Initialization can take several minutes while sample customers/sales
+are created and reviewed flyer assets download.
+
+### Deliberate demo-data reseed
+
+Only when all hosted records are disposable and a reseed is explicitly approved,
+set the Render web service environment variable `DEMO_RESEED_GENERATION` to a new
+lowercase, hyphenated identifier (for example `2026-09-24-verified-orlando-v2`)
+and deploy the latest image. Startup verifies hosted-demo mode and the exact
+`nitewide_demo` database name, applies pending migrations, then replaces the
+demo records. A durable generation marker prevents later restarts from reseeding
+again. Changing the value to another new identifier authorizes another full
+replacement. The free database has no backups; this removes visitor-created
+accounts, orders, guestlists, and edits. During the several-minute seed, the
+public demo may temporarily show incomplete data. Wait for the Render deployment
+to become Live, then check `/health`, the public event API, and both app UIs.
+
+The September 24 seed update adopts the reviewed Rew1nd Saturdays and OHM Friday/
+Sunday listings into their booked generic demo events while preserving orders,
+tickets, referrals, guestlists, and event identities. Import overlap checks are
+scoped to the same organization and physical venue so an unrelated venue sharing
+an address cannot suppress a reviewed listing.
 
 Free Render web instances sleep when idle and have ephemeral filesystems. Known
 seed flyers are restored from reviewed source URLs after restart; visitor-uploaded

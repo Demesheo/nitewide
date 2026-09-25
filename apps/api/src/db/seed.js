@@ -97,7 +97,7 @@ function recentWeekendDates() {
   return dates.sort((a, b) => a - b);
 }
 
-async function seed({ hostedBootstrap = false } = {}) {
+async function seed({ hostedBootstrap = false, allowHostedReseed = false } = {}) {
   const config = getConfig();
   if (hostedBootstrap && (!config.hostedDemo || new URL(config.DATABASE_URL).pathname !== '/nitewide_demo')) throw new Error('Hosted bootstrap requires the isolated nitewide_demo database and protected hosted-demo configuration');
   config.demoBootstrapAuthorized = hostedBootstrap;
@@ -106,7 +106,7 @@ async function seed({ hostedBootstrap = false } = {}) {
   const models = initModels(sequelize);
   try {
     await sequelize.authenticate();
-    if (hostedBootstrap && await models.User.count()) throw new Error('Refusing to reseed an existing hosted demo');
+    if (hostedBootstrap && !allowHostedReseed && await models.User.count()) throw new Error('Refusing to reseed an existing hosted demo');
     await sequelize.truncate({ cascade: true });
     const managerUsersByVenue = venues.map((_, venueIndex) => Array.from({ length: teamCountsForVenue(venueIndex).managers }, (_, managerIndex) => ({ id: venueIndex === 0 && managerIndex === 0 ? ids.employee : randomUUID(), ...managerFixture(venueIndex, managerIndex) })));
     const managerUsers = managerUsersByVenue.flat();
@@ -232,6 +232,7 @@ async function seed({ hostedBootstrap = false } = {}) {
       await require('./seed-venue-expansion').mergeRoom22({ sequelize, models, config, apply: true });
     }
     if ((config.NODE_ENV !== 'production' || hostedBootstrap) && !process.argv.includes('--skip-posh')) {
+      console.log('Verified source replacements:', await require('./replace-verified-seed-events').replaceVerifiedSeedEvents({ sequelize, models, config }));
       console.log('Verified Orlando demo events:', await importPoshSnapshot({ sequelize, models, config, snapshot: poshSnapshot, apply: true }));
       const expansion = require('./fixtures/posh-orlando-2026-09-22');
       await require('./seed-venue-expansion').provisionDemoVenues({ sequelize, models, config, snapshot: expansion, apply: true });

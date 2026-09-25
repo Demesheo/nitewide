@@ -105,10 +105,13 @@ async function importPoshSnapshot({ sequelize, models: m, config, snapshot, appl
   }
   if (snapshot.skipVenueOverlaps) {
     const existing = [];
-    for (const [slug, { expected }] of contexts) {
-      // Physical location, not organization: Proper and Room 22 can run simultaneously.
+    for (const [slug, { expected, organization }] of contexts) {
+      // Match the physical venue within its organization: Proper and Room 22
+      // can run simultaneously despite sharing an organization.
       const locations = await m.Location.findAll({ where: { city: 'Orlando', addressLine1: expected.addressLine1 } });
-      const rows = await m.Event.findAll({ where: { locationId: locations.map(l => l.id), status: { [Op.ne]: 'cancelled' } } });
+      // A legacy placeholder for another organization can share an address
+      // (the demo Aura and La Rosa fixtures do). It is not this venue's event.
+      const rows = await m.Event.findAll({ where: { organizationId: organization.id, locationId: locations.map(l => l.id), status: { [Op.ne]: 'cancelled' } } });
       existing.push(...rows.map(e => ({ ...e.toJSON(), venueSlug: slug })));
     }
     // Existing source IDs are handled as reruns below, not reported as overlaps.
@@ -148,7 +151,7 @@ async function importPoshSnapshot({ sequelize, models: m, config, snapshot, appl
       const locationId = stableId(`location:${event.venueSlug}:${expected.addressLine1}`);
       if (snapshot.skipVenueOverlaps) {
         const locations = await m.Location.findAll({ where: { city: 'Orlando', addressLine1: expected.addressLine1 }, transaction });
-        const conflicts = await m.Event.count({ where: { locationId: locations.map(l => l.id), status: { [Op.ne]: 'cancelled' }, startsAt: { [Op.lt]: event.endsAt }, endsAt: { [Op.gt]: event.startsAt } }, transaction });
+        const conflicts = await m.Event.count({ where: { organizationId: organization.id, locationId: locations.map(l => l.id), status: { [Op.ne]: 'cancelled' }, startsAt: { [Op.lt]: event.endsAt }, endsAt: { [Op.gt]: event.startsAt } }, transaction });
         if (conflicts) { report.skipped++; continue; }
       }
       const [location] = await m.Location.findOrCreate({ where: { id: locationId }, defaults: { name: expected.name, addressLine1: expected.addressLine1, city: snapshot.city, region: snapshot.region, postalCode: '32801', countryCode: 'US', timezone: snapshot.timezone, privacy: 'public' }, transaction });

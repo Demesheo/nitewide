@@ -14,19 +14,27 @@ function run(command, args, cwd) {
 async function initialize() {
   const config = getConfig();
   if (!config.hostedDemo || new URL(config.DATABASE_URL).pathname !== '/nitewide_demo') throw new Error('Demo image requires an isolated nitewide_demo database and explicit hosted-demo mode');
+  const requestedGeneration = process.env.DEMO_RESEED_GENERATION?.trim() || null;
+  if (requestedGeneration && !/^[a-z0-9][a-z0-9-]{0,79}$/.test(requestedGeneration)) throw new Error('Invalid demo reseed generation');
   const client = new Client({ connectionString: config.DATABASE_URL, ssl: config.databaseSsl ? { rejectUnauthorized: true } : false });
   await client.connect();
   try {
     await client.query('SELECT pg_advisory_lock(721092300)');
     await run('npm', ['run', 'db:migrate', '--workspace', '@nitewide/api'], path.resolve(__dirname, '..'));
     await client.query('CREATE TABLE IF NOT EXISTS demo_bootstrap (id integer PRIMARY KEY CHECK (id = 1), status text NOT NULL, created_at timestamptz NOT NULL DEFAULT now())');
-    const { rows } = await client.query('SELECT status FROM demo_bootstrap WHERE id=1');
+    await client.query('ALTER TABLE demo_bootstrap ADD COLUMN IF NOT EXISTS seed_generation text');
+    const { rows } = await client.query('SELECT status, seed_generation FROM demo_bootstrap WHERE id=1');
     if (!rows.length) {
       const existing = await client.query('SELECT COUNT(*)::integer AS count FROM users');
       if (existing.rows[0].count) throw new Error('Refusing to initialize a populated database');
       await client.query("INSERT INTO demo_bootstrap (id,status) VALUES (1,'started')");
       await require('../apps/api/src/db/seed').seed({ hostedBootstrap: true });
-      await client.query("UPDATE demo_bootstrap SET status='ready' WHERE id=1");
+      await client.query("UPDATE demo_bootstrap SET status='ready', seed_generation=$1 WHERE id=1", [requestedGeneration]);
+    } else if (requestedGeneration && rows[0].seed_generation !== requestedGeneration && ['ready', 'reseeding'].includes(rows[0].status)) {
+      console.log(`Reseeding isolated hosted demo generation ${requestedGeneration}`);
+      await client.query("UPDATE demo_bootstrap SET status='reseeding' WHERE id=1");
+      await require('../apps/api/src/db/seed').seed({ hostedBootstrap: true, allowHostedReseed: true });
+      await client.query("UPDATE demo_bootstrap SET status='ready', seed_generation=$1 WHERE id=1", [requestedGeneration]);
     } else if (rows[0].status !== 'ready') {
       throw new Error('Previous seed did not finish. Inspect the dedicated demo database; automatic destructive retries are disabled.');
     }
