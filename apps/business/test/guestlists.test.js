@@ -3,6 +3,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { compactGuestlistSourceName, guestlistEventName, guestlistStatuses, guestlistStatusesForEvent, guestlistStatusQuery, recentAndUpcomingGuestlistEvents, reviewableGuestlistEvents } from '../src/lib/guestlists.js';
 
+test('checked-in status is available during the early admission window', () => {
+  const statuses = guestlistStatusesForEvent({ startsAt: '2026-09-26T02:00:00Z' }, Date.parse('2026-09-25T02:00:00Z')).map((s) => s.id);
+  assert.ok(statuses.includes('checked_in'));
+  assert.ok(!statuses.includes('no_show'));
+});
+
 test('guestlist details use the compact member dialog and put event context beneath guest identity', () => {
   const view = readFileSync(new URL('../src/components/Guestlists.jsx', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');

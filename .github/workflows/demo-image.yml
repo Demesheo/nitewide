@@ -38,7 +38,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run db:migrate
-      - run: RUN_DB_TESTS=1 node --test apps/api/test/business-integration.test.js
+      - run: RUN_DB_TESTS=1 node --test apps/api/test/business-integration.test.js apps/api/test/admissions-integration.test.js
       - run: npm run build
       - run: docker build --platform linux/amd64 -t nitewide-demo:test .
 

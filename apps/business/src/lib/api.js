@@ -37,6 +37,8 @@ export async function api(path, session, options = {}) {
         "Unable to reach Nitewide. Please try again.",
     );
     error.status = response.status;
+    error.code = payload?.error?.code;
+    error.details = details;
     throw error;
   }
   return payload.data;

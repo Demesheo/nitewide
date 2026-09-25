@@ -13,7 +13,7 @@ function resolveRange(query, now = new Date()) {
   return { startDate, endDate, since: new Date(`${startDate}T00:00:00Z`), until: new Date(Date.parse(`${endDate}T00:00:00Z`) + 86400000), timezone: 'UTC' };
 }
 
-function aggregateHierarchy(eventsInput, ordersInput, { admin = false, includeCustomers = admin, search = '', venueEntities = false } = {}) {
+function aggregateHierarchy(eventsInput, ordersInput, { admin = false, includeCustomers = admin, search = '', venueEntities = false, guests = [] } = {}) {
   const groupEntity = event => venueEntities && event.organization && event.location?.name
     ? { id: venueKey(event), label: event.location.name, kind: 'venue' } : entityFor(event);
   const events = eventsInput.map(json);
@@ -28,7 +28,7 @@ function aggregateHierarchy(eventsInput, ordersInput, { admin = false, includeCu
   const eventIds = new Set(eligible.map((event) => event.id));
   const byEvent = new Map(eligible.map((event) => [event.id, event]));
   const rows = new Map();
-  const empty = (id, label, extra = {}) => ({ id, label, ...extra, events: 0, orders: 0, salesCents: 0, ...(admin ? { checkoutCents: 0, platformFeesCents: 0 } : {}), commissionCents: 0, units: 0, admissions: 0, customers: 0, averageOrderCents: 0, _buyers: new Set(), _events: new Set() });
+  const empty = (id, label, extra = {}) => ({ id, label, ...extra, events: 0, orders: 0, salesCents: 0, ...(admin ? { checkoutCents: 0, platformFeesCents: 0 } : {}), commissionCents: 0, units: 0, admissions: 0, checkedIn: 0, guestlistPlaces: 0, customers: 0, averageOrderCents: 0, _buyers: new Set(), _events: new Set() });
   const get = (id, label, extra) => { if (!rows.has(id)) rows.set(id, empty(id, label, extra)); return rows.get(id); };
   const root = get('all', 'All selected');
   const children = new Map();
@@ -48,9 +48,11 @@ function aggregateHierarchy(eventsInput, ordersInput, { admin = false, includeCu
     const event = byEvent.get(order.eventId); const region = regionKey(event.location); const entity = groupEntity(event);
     const path = ['all', `region:${region}`, `region:${region}:entity:${entity.id}`, `event:${event.id}`];
     const units = (order.items || []).reduce((sum, item) => sum + amount(item.quantity), 0);
-    const admissions = (order.items || []).reduce((sum, item) => sum + amount(item.quantity) * amount(item.entriesPerUnitSnapshot), 0);
+    const admissions = (order.items || []).reduce((sum, item) => sum + (item.tickets ? item.tickets.filter((t) => ['valid', 'checked_in'].includes(t.status)).length : amount(item.quantity) * amount(item.entriesPerUnitSnapshot)), 0);
+    const checkedIn = (order.items || []).reduce((sum, item) => sum + (item.tickets || []).filter((t) => t.status === 'checked_in').length, 0);
     for (const id of path) {
       const row = rows.get(id); row.orders += 1; row.salesCents += amount(order.subtotalCents); if (admin) { row.checkoutCents += amount(order.totalCents); row.platformFeesCents += amount(order.platformFeeCents); } row.commissionCents += amount(order.affiliateCommissionCents); row.units += units; row.admissions += admissions; row._buyers.add(order.buyerUserId);
+      row.checkedIn += checkedIn;
     }
     const date = new Date(order.paidAt).toISOString().slice(0, 10);
     const day = daily.get(date) || { date, salesCents: 0, orders: 0 }; day.salesCents += amount(order.subtotalCents); day.orders += 1; daily.set(date, day);
@@ -62,8 +64,26 @@ function aggregateHierarchy(eventsInput, ordersInput, { admin = false, includeCu
     }
     if (includeCustomers && order.buyerUserId) {
       const key = `${event.id}:${order.buyerUserId}`;
-      const person = customer.get(key) || { id: key, eventId: event.id, buyerUserId: order.buyerUserId, label: order.buyer?.displayName || order.buyer?.email || 'Customer', email: order.buyer?.email || null, orders: 0, salesCents: 0, units: 0, admissions: 0 };
+      const person = customer.get(key) || { id: key, eventId: event.id, buyerUserId: order.buyerUserId, label: order.buyer?.displayName || order.buyer?.email || 'Customer', email: order.buyer?.email || null, orders: 0, salesCents: 0, units: 0, admissions: 0, checkedIn: 0, guestlistPlaces: 0 };
       person.orders += 1; person.salesCents += amount(order.subtotalCents); person.units += units; person.admissions += admissions; customer.set(key, person);
+      person.checkedIn += checkedIn;
+      addChild(`event:${event.id}`, `customer:${key}`);
+    }
+  }
+  for (const guest of guests.map(json)) {
+    const event = byEvent.get(guest.eventId);
+    if (!event || !['confirmed', 'checked_in'].includes(guest.status)) continue;
+    const region = regionKey(event.location), entity = groupEntity(event);
+    for (const id of ['all', `region:${region}`, `region:${region}:entity:${entity.id}`, `event:${event.id}`]) {
+      rows.get(id).guestlistPlaces += amount(guest.partySize);
+      if (guest.status === 'checked_in') rows.get(id).checkedIn += amount(guest.partySize);
+    }
+    if (includeCustomers && guest.userId) {
+      const key = `${event.id}:${guest.userId}`;
+      const person = customer.get(key) || { id: key, eventId: event.id, buyerUserId: guest.userId, label: guest.user?.displayName || 'Guest', email: guest.user?.email || null, orders: 0, salesCents: 0, units: 0, admissions: 0, checkedIn: 0, guestlistPlaces: 0 };
+      person.guestlistPlaces += amount(guest.partySize);
+      if (guest.status === 'checked_in') person.checkedIn += amount(guest.partySize);
+      customer.set(key, person);
       addChild(`event:${event.id}`, `customer:${key}`);
     }
   }
@@ -176,7 +196,7 @@ function createAnalyticsService({ models, permissions, now = () => new Date() })
       historical.forEach((row) => ownEventAffiliateIds.add(row.id));
     }
     const rawOrders = await models.Order.findAll({ where: { eventId: { [Op.in]: eventIds }, status: 'paid', currency: 'USD', paidAt: { [Op.gte]: range.since, [Op.lt]: range.until } }, attributes: ['id', 'eventId', 'buyerUserId', 'subtotalCents', ...(admin ? ['totalCents', 'platformFeeCents'] : []), 'affiliateCommissionCents', 'orgAffiliateId', 'eventAffiliateId', 'paidAt'], include: [
-      { model: models.OrderItem, as: 'items', attributes: ['nameSnapshot', 'kindSnapshot', 'quantity', 'entriesPerUnitSnapshot', 'lineTotalCents'] },
+      { model: models.OrderItem, as: 'items', attributes: ['nameSnapshot', 'kindSnapshot', 'quantity', 'entriesPerUnitSnapshot', 'lineTotalCents'], include: [{ model: models.Ticket, as: 'tickets', attributes: ['status'] }] },
       { model: models.User, as: 'buyer', attributes: ['id', 'displayName', 'email'] },
     ], limit: 20001 });
     if (rawOrders.length > 20000) throw new DomainError('Narrow the date, region, or organization filters: report exceeds 20,000 orders', { status: 422 });
@@ -224,7 +244,7 @@ function createAnalyticsService({ models, permissions, now = () => new Date() })
       const inSelection = ref.eventId ? matchedEventIds.has(ref.eventId) : matchedOrganizationIds.has(ref.organizationId);
       return inSelection && (user.isInternalAdmin || ref.userId === userId || managedOrgIds.has(ref.organizationId || event?.organizationId) || (!event?.organizationId && event?.creatorUserId === userId));
     }).map((raw) => { const ref = json(raw); const event = eventById.get(ref.eventId); return { ...ref, role: event && !event.organizationId && event.creatorUserId === ref.userId ? 'Creator' : undefined }; });
-    return { range: { startDate: range.startDate, endDate: range.endDate, timezone: 'UTC', currency: 'USD' }, options, ...aggregateHierarchy(matchedEvents, visibleOrders, { admin, includeCustomers: true, venueEntities: !admin }), ...(admin ? {} : { referrals: aggregateReferrals(visibleOrders, scopedRefs, scopedMemberships.filter((row) => matchedOrganizationIds.has(row.organizationId)), scopedEmployees.filter((row) => matchedOrganizationIds.has(row.organizationId)), visibleGuests) }), scope: admin ? 'platform' : managedOrgIds.size || user.isInternalAdmin || allEvents.some((event) => !event.organizationId && event.creatorUserId === userId) ? 'managed_or_mixed' : 'own' };
+    return { range: { startDate: range.startDate, endDate: range.endDate, timezone: 'UTC', currency: 'USD' }, options, ...aggregateHierarchy(matchedEvents, visibleOrders, { admin, includeCustomers: true, venueEntities: !admin, guests: visibleGuests }), ...(admin ? {} : { referrals: aggregateReferrals(visibleOrders, scopedRefs, scopedMemberships.filter((row) => matchedOrganizationIds.has(row.organizationId)), scopedEmployees.filter((row) => matchedOrganizationIds.has(row.organizationId)), visibleGuests) }), scope: admin ? 'platform' : managedOrgIds.size || user.isInternalAdmin || allEvents.some((event) => !event.organizationId && event.creatorUserId === userId) ? 'managed_or_mixed' : 'own' };
   }
   return { adminReport: (userId, query) => report(userId, query, true), businessReport: (userId, query) => report(userId, query, false) };
 }

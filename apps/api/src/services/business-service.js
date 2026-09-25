@@ -14,7 +14,7 @@ function aggregateSales(orders, events, affiliates, memberships, employees = [],
   const byEvent = new Map(
     events.map((e) => [
       e.id,
-      { id: e.id, name: e.title, salesCents: 0, orders: 0, units: 0 },
+      { id: e.id, name: e.title, salesCents: 0, orders: 0, units: 0, admissions: 0, checkedIn: 0, guestlistPlaces: 0 },
     ]),
   );
   const packages = new Map();
@@ -56,6 +56,8 @@ function aggregateSales(orders, events, affiliates, memberships, employees = [],
     orders: 0,
     units: 0,
     admissions: 0,
+    checkedIn: 0,
+    guestlistPlaces: 0,
     commissionCents: 0,
     directSalesCents: 0,
   };
@@ -93,12 +95,24 @@ function aggregateSales(orders, events, affiliates, memberships, employees = [],
       entry.units += item.quantity;
       packages.set(key, entry);
       summary.units += item.quantity;
-      summary.admissions += item.quantity * item.entriesPerUnitSnapshot;
+      const admissions = item.tickets ? item.tickets.filter((t) => ['valid', 'checked_in'].includes(t.status)).length : item.quantity * item.entriesPerUnitSnapshot;
+      summary.admissions += admissions;
+      if (e) e.admissions += admissions;
+      const checkedIn = (item.tickets || []).filter((t) => t.status === 'checked_in').length;
+      summary.checkedIn += checkedIn;
+      if (e) e.checkedIn += checkedIn;
       if (e) e.units += item.quantity;
     }
   }
   const affiliateById = new Map(affiliates.map((affiliate) => [affiliate.id, affiliate]));
   for (const guest of guests) {
+    if (['confirmed', 'checked_in'].includes(guest.status)) {
+      const spots = Number(guest.partySize || 0);
+      const event = byEvent.get(guest.eventId);
+      summary.guestlistPlaces += spots;
+      if (event) event.guestlistPlaces += spots;
+      if (guest.status === 'checked_in') { summary.checkedIn += spots; if (event) event.checkedIn += spots; }
+    }
     const affiliate = affiliateById.get(guest.eventAffiliateId);
     const person = affiliate && people.get(affiliate.userId);
     if (!person) continue;
@@ -285,7 +299,7 @@ function createBusinessService({
           { eventAffiliateId: ownEventIds },
         ],
       },
-      include: [{ model: models.OrderItem, as: "items" }],
+      include: [{ model: models.OrderItem, as: "items", include: [{ model: models.Ticket, as: 'tickets', attributes: ['status'] }] }],
       order: [["paidAt", "ASC"]],
       limit: 10001,
     });

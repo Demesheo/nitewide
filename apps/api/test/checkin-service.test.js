@@ -9,6 +9,7 @@ function fixture(eventStartsAt, now) {
     now: () => new Date(now),
     sequelize: { transaction: async (_options, callback) => callback({ LOCK: { UPDATE: 'UPDATE' } }) },
     models: {
+      User: { findByPk: async () => ({ displayName: 'Guest' }) },
       Ticket: { findOne: async () => null },
       GuestlistEntry: { findOne: async () => entry },
       Event: { findByPk: async () => ({ status: 'published', startsAt: new Date(eventStartsAt), endsAt: new Date(new Date(eventStartsAt).getTime() + 86400000) }) },
@@ -18,9 +19,9 @@ function fixture(eventStartsAt, now) {
   return { service, updates, entry };
 }
 
-test('a future guestlist cannot be checked in before the event starts', async () => {
-  const { service, updates } = fixture('2026-09-25T22:00:00Z', '2026-09-25T21:59:59Z');
-  await assert.rejects(service({ eventId: 'event-1', qrToken: 'demo-token', checkedInByUserId: 'staff-1' }), { code: 'EVENT_NOT_STARTED' });
+test('a future guestlist cannot be checked in more than 24 hours before the event starts', async () => {
+  const { service, updates } = fixture('2026-09-25T22:00:00Z', '2026-09-24T21:59:59Z');
+  await assert.rejects(service({ eventId: 'event-1', qrToken: 'demo-token', checkedInByUserId: 'staff-1' }), { code: 'EVENT_NOT_OPEN' });
   assert.equal(updates.length, 0);
 });
 

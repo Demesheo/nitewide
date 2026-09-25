@@ -24,6 +24,7 @@ import {
   LogOut,
   Menu,
   Plus,
+  QrCode,
   Search,
   ShieldCheck,
   Sparkles,
@@ -48,6 +49,7 @@ import { Notifications } from "@/components/Notifications";
 import { Team, TeamInviteLanding } from "@/components/Team";
 import { BusinessProfile } from "@/components/BusinessProfile";
 import { LoadingState } from "@/components/LoadingState";
+import { Admissions } from "@/components/Admissions";
 import { TablePagination, useTablePagination } from "@/components/TablePagination";
 import { api, readSession, SESSION_KEY } from "@/lib/api";
 import { csv, eventDateLabel, money } from "@/lib/business";
@@ -60,6 +62,7 @@ const navigation = [
   ["overview", LayoutDashboard, "Overview"],
   ["analytics", BarChart3, "Analytics"],
   ["events", CalendarDays, "Events"],
+  ["admissions", QrCode, "Admissions"],
   ["team", Users, "Organization"],
 ];
 function Brand() {
@@ -264,7 +267,7 @@ function Performance({ data, onEvents }) {
         <Metric
           label="Paid orders"
           value={s.orders.toLocaleString()}
-          detail={`${s.units.toLocaleString()} tickets & packages sold`}
+          detail={`${s.checkedIn.toLocaleString()} / ${(s.admissions + s.guestlistPlaces).toLocaleString()} admitted · selected period`}
           icon={Ticket}
         />
         <Metric
@@ -456,6 +459,12 @@ export default function App() {
     );
   }, []);
   const expire = useCallback(() => signOut(true), [signOut]);
+  const refreshAdmissions = useCallback(() => setRevision((value) => value + 1), []);
+  useEffect(() => {
+    if (!session) return;
+    window.addEventListener('focus', refreshAdmissions);
+    return () => window.removeEventListener('focus', refreshAdmissions);
+  }, [session, refreshAdmissions]);
   useEffect(() => {
     window.history.replaceState(null, '', session ? '/app' : '/sign-in');
   }, [session]);
@@ -495,6 +504,7 @@ export default function App() {
     setLoginNotice("");
   }
   function navigate(value, eventId = null, entryId = null, eventTab = null) {
+    setRevision((revision) => revision + 1);
     setPage(value);
     setEventToOpen(eventId);
     setGuestlistEntryToOpen(entryId);
@@ -516,6 +526,8 @@ export default function App() {
         "Sales USD",
         "Orders / units",
         "Commission USD",
+        "Checked in",
+        "Expected",
       ],
     ];
     for (const [name, entries] of [
@@ -533,6 +545,8 @@ export default function App() {
           entry.commissionCents == null
             ? ""
             : (entry.commissionCents / 100).toFixed(2),
+          name === 'Event' ? entry.checkedIn : '',
+          name === 'Event' ? entry.admissions + entry.guestlistPlaces : '',
         ]);
     for (const day of r.daily)
       rows.push(["Daily", day.date, "", (day.salesCents / 100).toFixed(2)]);
@@ -556,6 +570,8 @@ export default function App() {
         ? "Set the stage for something great."
       : page === "team"
         ? "Your organization, together."
+      : page === "admissions"
+        ? "A smooth start to their night."
         : "The right people. A great night.";
   const activeOrg = selectedOrganizations.length === 1 ? data?.organizations.find((o) => o.id === selectedOrganizations[0]) : data?.organizations.length === 1 && !hasIndependentWorkspace ? data.organizations[0] : null;
   const showVenueSelector = (data?.venues?.length || 0) > 1;
@@ -699,6 +715,8 @@ export default function App() {
                     ? ownOnly ? 'Your events and the people you brought in.' : "Create, refine, and bring your experiences to life."
                     : page === "team"
                       ? "Invite employees and promoters into your authorized organizations."
+                    : page === "admissions"
+                      ? "Scan passes or admit guests manually for your events."
                     : "Review requests and keep every guestlist in balance."}
               </p>
             </div>
@@ -709,7 +727,7 @@ export default function App() {
               </Button>
             )}
           </div>
-          {visiblePage !== "analytics" && visiblePage !== "team" && <div className="page-controls">
+          {visiblePage !== "analytics" && visiblePage !== "team" && visiblePage !== "admissions" && <div className="page-controls">
             {showOrganizationSelector && <MultiSelect
               label="Organizations"
               selected={selectedOrganizations}
@@ -773,7 +791,7 @@ export default function App() {
               className={loading ? "content-updating" : ""}
               aria-busy={loading}
             >
-              {data.scope === "mixed" && (
+              {data.scope === "mixed" && visiblePage !== 'admissions' && (
                 <p className="scope-note">
                   <ShieldCheck size={16} />
                   Sales include managed events and your own referrals only.
@@ -784,6 +802,7 @@ export default function App() {
                 ownOnly ? <PersonalOverview data={data} onEvents={(eventId) => navigate('events', eventId)} onAnalytics={() => navigate('analytics')} onGuestlists={() => { const event = reviewableGuestlistEvents(data.events)[0]; navigate('events', event?.id || null, null, event ? 'guestlist' : null); }}/> : <Performance data={data} onEvents={() => navigate("events")} />
               )}
               {visiblePage === "analytics" && <Analytics session={session} ownOnly={ownOnly} />}
+              {visiblePage === "admissions" && <Admissions session={session} onAdmitted={refreshAdmissions} onUnauthorized={expire} />}
               {visiblePage === "events" && (
                 <Events
                   key={eventNavigationRevision}

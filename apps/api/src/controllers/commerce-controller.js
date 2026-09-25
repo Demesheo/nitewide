@@ -37,7 +37,7 @@ function createCommerceController({ checkout, requestGuestlist, reviewGuestlist,
       const result = await reviewGuestlist({ ...req.body, eventId: req.params.eventId, entryId: req.params.entryId, reviewedByUserId: req.userId });
       res.json({ data: result });
     },
-    checkIn: async (req, res) => { await permissions.assertManageEvent(req.userId, req.body.eventId); const result = await checkIn({ ...req.body, checkedInByUserId: req.userId }); res.status(201).json({ data: result }); },
+    checkIn: async (req, res) => { await permissions.assertAdmitEvent(req.userId, req.body.eventId); const result = await checkIn({ ...req.body, checkedInByUserId: req.userId }); res.set('Cache-Control', 'no-store').status(201).json({ data: result }); },
   };
 }
 module.exports = { createCommerceController, customerOrder };

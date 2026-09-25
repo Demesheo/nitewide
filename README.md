@@ -2,6 +2,8 @@
 
 Nitewide is a web-first event discovery, commerce, guestlist, promoter, admission, and business-operations platform. The launch brand is nightlife-focused; the core model supports concerts, festivals, private events, conferences, hospitality, and other event verticals without special-case tables.
 
+Business **Admissions** now supports iPhone rear-camera QR scanning, photo scanning, and searchable manual check-in for owners, managers, employees, independent creators, and assigned promoters. Confirmed, Already admitted, and Invalid results share one atomic backend with customer pass updates and attendance reporting. See [Admissions and mobile check-in](docs/ADMISSIONS.md) for event windows, access, API, and testing.
+
 This repository contains:
 
 - `apps/api` — Express, Sequelize, PostgreSQL, and PostGIS REST API
@@ -229,7 +231,7 @@ The raw QR token is returned only at credential issuance. The database retains o
 - The event's `guestlistCapacity` applies only to direct venue guestlist entries. Each selected promoter has a separate `guestlistAllocation`, so promoter allocations are additional pools and neither consume nor conflict with the venue pool or another promoter's pool.
 - `Offering` describes repeatable inventory, `OrderItem` records the purchase snapshot, and `Ticket` represents each admission credential.
 - A package can generate several tickets through `entriesPerUnit`.
-- Checkout, allocation, and check-in run in serializable transactions with locked inventory/credential rows.
+- Checkout and allocation use serializable transactions with locked inventory rows. Check-in uses a row-locked transaction and unique credential constraints to prevent duplicate admission, including simultaneous scans.
 - Currency uses integer cents; commissions use basis points.
 - Buyers pay the same **standard 8% + $0.80 (automatic discounts and minimum-cost exceptions apply) service fee per paid ticket/package** for Free and Premium organizations. **Nitewide pays Stripe processing from its service-fee revenue**, not the organizer or an extra customer surcharge. Free orders have no service fee. Free core platform use has no organizer listing or platform transaction fee; optional Premium remains $249/month with planned advanced tools and no transaction-fee discount. Advanced offering configuration is available on both tiers. Order pricing snapshots record the policy version and processing payer; old orders are not repriced. Actual Stripe fees/settlement await the live Connect integration and must use provider records, not an estimated 2.9% + $0.30 deduction. See [fee policy and examples](docs/FEE_POLICY.md).
 

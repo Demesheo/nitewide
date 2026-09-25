@@ -23,17 +23,18 @@ test('guest list wallet QR checks in the approved party once and revocation inva
   const entry = { id: ticket.id, userId: 'customer-a', eventId: 'event-a', partySize: 3, status: 'confirmed', qrTokenHash: 'approved-hash', update: async (values) => Object.assign(entry, values) };
   const token = guestlistWalletToken(entry, secret);
   const service = createCheckInService({ tokenSecret: secret, now: () => new Date('2026-09-22T12:00:00Z'), sequelize: { transaction: async (_opts, callback) => callback({ LOCK: { UPDATE: 'UPDATE' } }) }, models: {
+    User: { findByPk: async () => ({ displayName: 'Guest' }) },
     Ticket: { findOne: async () => null }, GuestlistEntry: { findOne: async ({ where }) => where.eventId === entry.eventId ? entry : null },
     Event: { findByPk: async () => ({ status: 'published', startsAt: '2026-09-22T00:00:00Z', endsAt: '2026-09-23T00:00:00Z' }) }, CheckIn: { create: async (input) => input },
   } });
   const scan = (qrToken = token, eventId = entry.eventId) => service({ qrToken, eventId, checkedInByUserId: 'staff' });
-  await assert.rejects(scan(token, 'wrong-event'), { code: 'NOT_FOUND' });
-  await assert.rejects(scan(guestlistWalletToken(entry, 'forged-secret')), { code: 'NOT_FOUND' });
-  assert.equal((await scan()).credential.partySize, 3);
+  await assert.rejects(scan(token, 'wrong-event'), { code: 'INVALID_CREDENTIAL' });
+  await assert.rejects(scan(guestlistWalletToken(entry, 'forged-secret')), { code: 'INVALID_CREDENTIAL' });
+  assert.equal((await scan()).credential.spots, 3);
   assert.equal(entry.status, 'checked_in');
   await assert.rejects(scan(), { code: 'CREDENTIAL_ALREADY_USED' });
   entry.status = 'rejected'; entry.qrTokenHash = null;
-  await assert.rejects(scan(), { code: 'NOT_FOUND' });
+  await assert.rejects(scan(), { code: 'INVALID_CREDENTIAL' });
 });
 test('wallet QR supports seeded tickets and is bound to holder, event and original credential', () => {
   const token = walletToken(ticket, secret);
@@ -58,22 +59,22 @@ function scanner({ status = 'paid', demo = false, environment = 'development', s
   const row = { ...ticket, update: async (patch) => Object.assign(row, patch) };
   const service = createCheckInService({ tokenSecret: secret, environment, now: () => new Date('2026-09-22T12:00:00Z'),
     sequelize: { transaction: async (_opts, callback) => callback({ LOCK: { UPDATE: 'UPDATE' } }) },
-    models: { Ticket: { findOne: async ({ where }) => where.eventId === row.eventId ? row : null },
+    models: { User: { findByPk: async () => ({ displayName: 'Guest' }) }, Ticket: { findOne: async ({ where }) => where.eventId === row.eventId ? row : null },
       GuestlistEntry: { findOne: async () => null }, Event: { findByPk: async () => ({ status: 'published', startsAt, endsAt: '2026-09-23T00:00:00Z' }) },
       OrderItem: { findByPk: async () => ({ orderId: 'order' }) }, Order: { findByPk: async () => ({ status, pricingPlanSnapshot: { demo } }) }, CheckIn: { create: async (value) => value } } });
   return (token = walletToken(ticket, secret), eventId = ticket.eventId) => service({ qrToken: token, eventId, checkedInByUserId: 'staff' });
 }
 test('wallet QR uses the admission scanner and cannot be replayed or scanned for a different event', async () => {
   const scan = scanner();
-  await assert.rejects(scan(walletToken(ticket, secret), 'wrong-event'), { code: 'NOT_FOUND' });
-  await assert.rejects(scan(walletToken(ticket, 'forged-secret')), { code: 'NOT_FOUND' });
+  await assert.rejects(scan(walletToken(ticket, secret), 'wrong-event'), { code: 'INVALID_CREDENTIAL' });
+  await assert.rejects(scan(walletToken(ticket, 'forged-secret')), { code: 'INVALID_CREDENTIAL' });
   assert.equal((await scan()).credential.status, 'checked_in');
   await assert.rejects(scan(), { code: 'CREDENTIAL_ALREADY_USED' });
 });
 test('check-in blocks early admission, unpaid/refunded orders and production demo tickets', async () => {
-  await assert.rejects(scanner({ startsAt: '2026-09-23T00:00:00Z' })(), { code: 'EVENT_NOT_OPEN' });
-  await assert.rejects(scanner({ status: 'refunded' })(), { code: 'ORDER_NOT_VALID' });
-  await assert.rejects(scanner({ demo: true, environment: 'production' })(), { code: 'ORDER_NOT_VALID' });
+  await assert.rejects(scanner({ startsAt: '2026-09-24T00:00:00Z' })(), { code: 'EVENT_NOT_OPEN' });
+  await assert.rejects(scanner({ status: 'refunded' })(), { code: 'INVALID_CREDENTIAL' });
+  await assert.rejects(scanner({ demo: true, environment: 'production' })(), { code: 'INVALID_CREDENTIAL' });
 });
 test('purchase ticket list includes individual entry states and hides other holders and unusable QR codes', async () => {
   const credentials = ['valid', 'checked_in', 'void', 'transferred'].map((status, index) => ({ ...ticket, id: `${ticket.id}-${index}`, status, checkedInAt: status === 'checked_in' ? new Date() : null }));

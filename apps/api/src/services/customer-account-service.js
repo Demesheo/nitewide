@@ -4,6 +4,7 @@ const { notFound, conflict } = require('../domain/errors');
 const { walletToken, guestlistWalletToken } = require('../domain/wallet-qr');
 const { createReferralLinkService } = require('./referral-link-service');
 const { redactLocation } = require('../controllers/public-controller');
+const { ADMISSION_WINDOW_MS } = require('../domain/admission-policy');
 
 function profile(user) {
   return { id: user.id, displayName: user.displayName, email: user.email, phone: user.phone,
@@ -46,7 +47,7 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     const ticket = await models.Ticket.findOne({ where: { id: ticketId, holderUserId: userId }, include: [{ model: models.OrderItem, as: 'orderItem', include: [{ model: models.Order, as: 'order', include: [eventInclude] }] }] });
     if (!ticket) throw notFound('Ticket');
     const order = ticket.orderItem.order;
-    if (ticket.status !== 'valid' || order.status !== 'paid' || order.event.status !== 'published' || new Date(order.event.endsAt) <= now()) throw conflict('This ticket is not available for admission', 'TICKET_UNAVAILABLE');
+    if (ticket.status !== 'valid' || order.status !== 'paid' || order.event.status !== 'published' || +new Date(order.event.endsAt) + ADMISSION_WINDOW_MS < +now()) throw conflict('This ticket is not available for admission', 'TICKET_UNAVAILABLE');
     const qrToken = walletToken(ticket, tokenSecret);
     return { id: ticket.id, event: eventSummary(order.event), offering: ticket.orderItem.nameSnapshot,
       demo: Boolean(order.pricingPlanSnapshot?.demo), qrImage: await QRCode.toDataURL(qrToken, { width: 320, margin: 4, errorCorrectionLevel: 'M' }) };
@@ -54,7 +55,7 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
   async function guestlistPass(userId, entryId) {
     const entry = await models.GuestlistEntry.findOne({ where: { id: entryId, userId }, include: [eventInclude] });
     if (!entry) throw notFound('Guest list entry');
-    const showCode = ['confirmed', 'checked_in'].includes(entry.status) && entry.qrTokenHash && entry.event.status === 'published' && new Date(entry.event.endsAt) > now();
+    const showCode = ['confirmed', 'checked_in'].includes(entry.status) && entry.qrTokenHash && entry.event.status === 'published' && +new Date(entry.event.endsAt) + ADMISSION_WINDOW_MS >= +now();
     return { id: entry.id, kind: 'guestlist', event: eventSummary(entry.event), partySize: entry.partySize,
       tickets: [{ id: entry.id, offering: 'Guest list entry', status: entry.status, checkedInAt: entry.checkedInAt,
         qrImage: showCode ? await QRCode.toDataURL(guestlistWalletToken(entry, tokenSecret), { width: 320, margin: 4, errorCorrectionLevel: 'M' }) : null }] };
@@ -63,7 +64,7 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     const order = await models.Order.findOne({ where: { id: orderId, buyerUserId: userId }, include: [eventInclude,
       { model: models.OrderItem, as: 'items', include: [{ model: models.Ticket, as: 'tickets' }] }] });
     if (!order) throw notFound('Purchase');
-    const admissionAvailable = order.status === 'paid' && order.event.status === 'published' && new Date(order.event.endsAt) > now();
+    const admissionAvailable = order.status === 'paid' && order.event.status === 'published' && +new Date(order.event.endsAt) + ADMISSION_WINDOW_MS >= +now();
     const tickets = [];
     for (const item of order.items) for (const credential of [...item.tickets].sort((a, b) => a.id.localeCompare(b.id))) {
       if (credential.holderUserId !== userId) continue;

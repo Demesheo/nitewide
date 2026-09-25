@@ -13,6 +13,7 @@ const { createReferralLinkService } = require('../services/referral-link-service
 const { z } = require('zod');
 const { optionalPhone } = require('../domain/phone');
 const { createCustomerAccountService } = require('../services/customer-account-service');
+const { createAdmissionsService } = require('../services/admissions-service');
 
 function createRouter({ publicController, managementController, commerceController, authController, requireUser, models, permissions, invitations, notifications, tokenSecret }) {
   const router = express.Router();
@@ -23,6 +24,10 @@ function createRouter({ publicController, managementController, commerceControll
   const eventWorkspace = createEventWorkspaceService({ models, permissions });
   const referralLinks = createReferralLinkService({ models });
   const account = createCustomerAccountService({ models, tokenSecret });
+  const admissions = createAdmissionsService({ models, permissions });
+  router.use('/business/admissions', requireUser, (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+  router.get('/business/admissions/events', asyncHandler(async (req, res) => res.json({ data: await admissions.events(req.userId) })));
+  router.get('/business/admissions/events/:eventId', asyncHandler(async (req, res) => res.json({ data: await admissions.roster(req.userId, z.string().uuid().parse(req.params.eventId), z.object({ search: z.string().trim().max(120).default(''), page: z.coerce.number().int().min(1).max(10000).default(1), status: z.enum(['all', 'ready', 'admitted']).default('all') }).parse(req.query)) })));
   router.use('/customer', requireUser, (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   router.get('/customer/bookings', asyncHandler(async (req, res) => res.json({ data: await account.bookings(req.userId, z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), period: z.enum(['upcoming', 'past']).default('upcoming') }).parse(req.query)) })));
   router.get('/customer/tickets/:id', asyncHandler(async (req, res) => res.json({ data: await account.ticket(req.userId, z.string().uuid().parse(req.params.id)) })));

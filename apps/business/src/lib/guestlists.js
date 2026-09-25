@@ -17,9 +17,12 @@ export function compactGuestlistSourceName(name) {
 }
 
 export function guestlistStatusesForEvent(event, now = Date.now()) {
-  return event && Date.parse(event.startsAt) > now
-    ? guestlistStatuses.filter(({ id }) => id !== 'checked_in' && id !== 'no_show')
-    : guestlistStatuses;
+  return guestlistStatuses.filter(({ id }) => {
+    if (!event) return true;
+    if (id === 'checked_in') return Date.parse(event.startsAt) - 86400000 <= now;
+    if (id === 'no_show') return Date.parse(event.startsAt) <= now;
+    return true;
+  });
 }
 
 export function recentAndUpcomingGuestlistEvents(events, now = Date.now()) {
