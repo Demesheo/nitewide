@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { customerLink } from '@/lib/customer-link';
 
 export function GuestlistInviteDialog({ open, onOpenChange, eventId, invitePools, session, onUnauthorized, onSuccess }) {
-  const [contact, setContact] = useState('email');
+  const [contact, setContact] = useState('phone');
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -15,7 +15,7 @@ export function GuestlistInviteDialog({ open, onOpenChange, eventId, invitePools
   function changeOpen(next) {
     if (busy) return;
     onOpenChange(next);
-    if (!next) { setResult(null); setError(''); setContact('email'); }
+    if (!next) { setResult(null); setError(''); setContact('phone'); }
   }
 
   async function sendInvite(event) {

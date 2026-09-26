@@ -18,22 +18,26 @@ import { money, eventDateLabel } from '@/lib/business';
 import { eventPhase, saleLabels, eventTeamRoles, filterEventTeam, eventTeamSalesSlices } from '@/lib/events';
 import { customerLink } from '@/lib/customer-link';
 
-function ReferralLink({ event, session, onUnauthorized, onInvited }) {
+function ReferralLink({ event, session, revision, onUnauthorized, onInvited }) {
   const [link, setLink] = useState(null);
   const [invitePools, setInvitePools] = useState(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   useEffect(() => {
     let active = true;
     setLink(null);
-    setInvitePools(null);
     api(`/business/events/${event.id}/referral-link`, session)
       .then((value) => { if (active) setLink(value); })
       .catch(() => { if (active) setLink(null); });
+    return () => { active = false; };
+  }, [event.id, session]);
+  useEffect(() => {
+    let active = true;
+    setInvitePools(null);
     api(`/business/events/${event.id}/guestlist-invite-pools`, session)
       .then((value) => { if (active) setInvitePools(value); })
       .catch(() => { if (active) setInvitePools(null); });
     return () => { active = false; };
-  }, [event.id, session]);
+  }, [event.id, session, revision]);
   const url = link ? new URL(customerLink(import.meta.env.VITE_CUSTOMER_URL, window.location), window.location.href) : null;
   if (url) { url.searchParams.set('event', event.id); url.searchParams.set('ref', link.code); }
   const canInviteGuest = event.status === 'published' && invitePools?.open && (invitePools.direct || invitePools.own.length > 0);
@@ -128,7 +132,7 @@ export function EventDetail({ eventId, session, refreshToken, initialTab = null,
     <div className="event-detail-nav"><Button variant="ghost" onClick={onBack}><ArrowLeft/> {ownOnly ? 'My events' : 'All events'}</Button><span>{ownOnly ? 'Your referrals and customers only' : 'Full event history · All sales channels'}</span></div>
     <section className="event-detail-hero"><span className={`event-detail-status status-pill ${phase}`}>{phase === 'past' ? 'Past · read only' : phase}</span>{event.imageUrl ? <img className="event-detail-flyer" src={mediaSrc(event.imageUrl)} alt={`${event.title} flyer`}/> : <div className="event-detail-flyer event-art-placeholder"><CalendarDays size={35}/></div>}<div className="event-detail-heading"><h2>{event.title}</h2><p><CalendarDays size={16}/>{eventDateLabel(event)} · {new Date(event.startsAt).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:event.location?.timezone || 'UTC',timeZoneName:'short'})}</p>{event.location?.name && <p className="event-detail-venue"><MapPin size={16}/>{event.location.name}</p>}{(event.location?.addressLine1 || event.location?.city) && <p className="event-detail-address">{[event.location?.addressLine1, [event.location?.city, event.location?.region, event.location?.postalCode].filter(Boolean).join(', ')].filter(Boolean).join(', ')}</p>}</div>{event.canEdit ? <Button variant="outline" onClick={() => onEdit(event)}><Pencil/> Edit event</Button> : phase === 'past' && <span className="event-readonly"><LockKeyhole size={16}/> Event closed</span>}{event.summary && <p className="event-detail-summary">{event.summary}</p>}</section>
     {notice && <p className="notice" role="status">{notice}</p>}
-    {phase !== 'past' && <ReferralLink event={event} session={session} onUnauthorized={onUnauthorized} onInvited={() => saved('Guestlist invitation created.')}/>}
+    {phase !== 'past' && <ReferralLink event={event} session={session} revision={revision} onUnauthorized={onUnauthorized} onInvited={() => saved('Guestlist invitation created.')}/>}
     <div className="event-metrics">{ownOnly ? <><Metric icon={CircleDollarSign} label="Your referred sales" value={money(s.salesCents)} detail="Ticket and package value before fees"/><Metric icon={Ticket} label="Your paid orders" value={s.orders.toLocaleString()}/><Metric icon={Users} label="Your admissions" value={s.admissions.toLocaleString()} detail="From your credited purchases"/><Metric icon={CircleDollarSign} label="Your commission" value={money(s.commissionCents)} detail="Recorded earnings · not payout status"/></> : <><Metric icon={CircleDollarSign} label="Total sales" value={money(s.salesCents)}/><Metric icon={CircleDollarSign} label="Commissions" value={money(s.commissionCents)}/><Metric icon={Ticket} label="Paid orders" value={s.orders.toLocaleString()}/><Metric icon={Users} label="Check-ins / expected" value={`${s.checkedIn.toLocaleString()} / ${(s.admissions + s.guestlistPlaces).toLocaleString()}`}/></>}</div>
     <Tabs defaultValue={initialTab || 'sales'} className="event-detail-tabs"><TabsList aria-label="Event detail sections"><TabsTrigger value="sales">Sales</TabsTrigger><TabsTrigger value="tickets">Offerings</TabsTrigger><TabsTrigger value="people">Team</TabsTrigger><TabsTrigger value="guestlist">Guestlist</TabsTrigger></TabsList>
     <TabsContent value="sales"><div className="event-chart-grid"><section className="panel"><span className="eyebrow">WHAT SELLS</span><h3>{ownOnly ? 'Your sales by ticket & package' : 'Sales by ticket & package'}</h3>{s.salesCents ? <SalesMixPie slices={data.tiers.filter((t) => t.salesCents > 0)}/> : <Empty title="Sales start here">Your ticket and package mix will appear after the first purchase.</Empty>}</section>{!ownOnly && <section className="panel"><span className="eyebrow">WHO BRINGS THE CROWD</span><h3>Sales by referral channel</h3>{s.salesCents ? <SalesMixPie slices={data.channels.map((c) => ({...c,id:c.name}))}/> : <Empty title="No sales yet">Direct and referred purchases will appear here.</Empty>}</section>}</div><EventAttendees customers={data.customers} onSelect={setCustomer}/></TabsContent>

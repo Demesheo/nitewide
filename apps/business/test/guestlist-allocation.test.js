@@ -80,10 +80,28 @@ test('guest invitation stays in event details Share this event card without show
   assert.match(eventDetailSource, /const canInviteGuest = event.status === 'published' && invitePools\?\.open && \(invitePools.direct \|\| invitePools.own.length > 0\)/);
   assert.match(eventDetailSource, /<ShareEventCard referralUrl=\{url\?\.toString\(\) \|\| ''\} canInviteGuest=\{Boolean\(canInviteGuest\)\}/);
   assert.ok(shareCardSource.indexOf('Copy link') < shareCardSource.indexOf('guestlist-share-invite'));
-  assert.match(shareCardSource, /guestlist-share-invite">\s*<p>[^<]+<\/p>\s*<Button className="guestlist-invite-button"/);
+  assert.match(shareCardSource, /import \{ Share, UserPlus \} from 'lucide-react'/);
+  assert.match(shareCardSource, /onClick=\{copyLink\}><Share size=\{16\} aria-hidden="true"\/>/);
+  assert.match(shareCardSource, /guestlist-share-invite">\s*<h3>Invite to guestlist<\/h3>\s*<p>[^<]+<\/p>\s*<Button className="guestlist-invite-button"/);
+  assert.match(styles, /\.guestlist-referral-card h3 \{ margin: 4px 0; font-size: 16px; \}/);
   assert.doesNotMatch(shareCardSource, /aria-label="Your event referral link"|value=\{referralUrl\}/);
   assert.match(styles, /\.guestlist-share-invite \{ display: grid; justify-items: start;/);
   const inviteDialogSource = readFileSync(new URL('../src/components/GuestlistInviteDialog.jsx', import.meta.url), 'utf8');
   assert.match(inviteDialogSource, /className="guestlist-invitation-actions"><Button[^>]*type="submit">\{busy \? 'Checking…' : 'Create invitation'\}/);
   assert.match(styles, /\.guestlist-invitation-actions \{ display: flex; justify-content: flex-end; \}/);
+});
+
+test('saving an event allocation refreshes the invite pools without a page reload', () => {
+  const eventDetailSource = readFileSync(new URL('../src/components/EventDetail.jsx', import.meta.url), 'utf8');
+  assert.match(guestlistsSource, /setRevision\(\(v\) => v \+ 1\);\s*onChanged\?\.\(\);/);
+  assert.match(eventDetailSource, /onChanged=\{\(\) => setRevision\(\(value\) => value \+ 1\)\}/);
+  assert.match(eventDetailSource, /<ReferralLink event=\{event\} session=\{session\} revision=\{revision\}/);
+  assert.match(eventDetailSource, /guestlist-invite-pools[\s\S]*?\}, \[event\.id, session, revision\]\)/);
+});
+
+test('guestlist invitations default to phone and reset to phone when reopened', () => {
+  const inviteDialogSource = readFileSync(new URL('../src/components/GuestlistInviteDialog.jsx', import.meta.url), 'utf8');
+  assert.match(inviteDialogSource, /const \[contact, setContact\] = useState\('phone'\)/);
+  assert.match(inviteDialogSource, /if \(!next\) \{ setResult\(null\); setError\(''\); setContact\('phone'\); \}/);
+  assert.match(inviteDialogSource, /contact === 'email' \? <Field[^>]*name="email"[\s\S]*?: <Field[^>]*name="phone"/);
 });

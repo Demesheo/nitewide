@@ -1665,7 +1665,7 @@ textarea:focus-visible {
 .guestlist-table-surface .table-wrap { min-width: 0; }
 .guestlist-referral-card { display: grid; justify-items: start; gap: 12px; padding: 16px 20px; }
 .guestlist-referral-copy { min-width: 0; }
-.guestlist-referral-copy h3 { margin: 4px 0; font-size: 16px; }
+.guestlist-referral-card h3 { margin: 4px 0; font-size: 16px; }
 .guestlist-referral-copy p { margin: 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.5; }
 .guestlist-referral-status { margin: -6px 0 0; color: var(--muted-foreground); font-size: 12px; }
 .guestlist-share-invite { display: grid; justify-items: start; gap: 10px; width: 100%; padding-top: 12px; border-top: 1px solid var(--border); }
