@@ -65,7 +65,7 @@ const eventEditor = z
     status: z.enum(["draft", "published", "cancelled", "completed"]),
     isDiscoverable: z.boolean(),
     location: location.optional(),
-    offerings: z.array(tier).min(1).max(50),
+    offerings: z.array(tier).max(50),
   })
   .refine((e) => e.endsAt > e.startsAt, {
     path: ["endsAt"],

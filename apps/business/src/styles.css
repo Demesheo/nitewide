@@ -1179,7 +1179,53 @@ textarea:focus-visible {
 .editor-body .section-heading {
   padding: 0 0 17px;
 }
-.tier-add-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.add-offering-button { justify-self: start; }
+.event-editor .tier-ladder-heading { display: grid; gap: 14px; }
+.tier-editor-card { border: 1px solid #46324e; border-radius: var(--control-radius, 9px); margin-bottom: 12px; min-width: 0; }
+.tier-editor-card summary { list-style: none; cursor: pointer; }
+.tier-editor-card summary::-webkit-details-marker { display: none; }
+.tier-editor-card summary:focus-visible { outline: 2px solid #b9a9ff; outline-offset: 3px; border-radius: 8px; }
+.tier-editor-summary { display: flex; align-items: center; gap: 12px; padding: 16px; }
+.tier-editor-summary > svg { flex-shrink: 0; color: #b9a9cf; }
+.tier-editor-summary-copy { display: grid; gap: 5px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.tier-editor-summary-copy strong { font-size: 15px; line-height: 1.35; color: #efe8f7; }
+.tier-editor-summary-copy > span { font-size: 12px; line-height: 1.4; color: #b8abc7; }
+.tier-editor-summary-copy .tier-editor-kicker { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.tier-editor-summary-copy .tier-editor-release-summary { color: #d9bded; }
+.tier-editor-card[open] > .tier-editor-summary { border-bottom: 1px solid #392d43; }
+.tier-editor-card[open] > .tier-editor-summary > svg,
+.tier-editor-options[open] > summary > svg { transform: rotate(180deg); }
+.tier-editor-content { padding: 16px; display: grid; gap: 16px; }
+.event-editor .tier-editor-content .form-grid { gap: 12px; }
+.tier-editor-content .hint { margin: 0; line-height: 1.55; }
+.tier-editor-section { border-top: 1px solid #392d43; padding-top: 16px; display: grid; gap: 12px; min-width: 0; }
+.tier-editor-section h4 { margin: 0; font-size: 13px; font-weight: 600; }
+.tier-release-explanation { margin: 0; font-size: 12px; line-height: 1.6; color: #bcafca; border-left: 2px solid #a58bc5; padding-left: 12px; overflow-wrap: anywhere; }
+.tier-release-explanation strong { color: #e5d8ef; font-weight: 500; }
+.tier-editor-content .tier-release-help { color: #c1b0d1; }
+.tier-release-warning, .tier-editor-summary-copy .tier-release-warning { color: #f1bf72; font-size: 12px; line-height: 1.5; margin: 0; }
+.tier-editor-options { border-top: 1px solid #392d43; min-width: 0; }
+.tier-editor-options > summary { display: flex; gap: 8px; align-items: center; min-height: 44px; padding: 10px 0; color: #d9cce5; font-size: 12px; font-weight: 500; }
+.tier-editor-options > summary > span { color: #9d8eaa; font-size: 11px; font-weight: 400; }
+.tier-editor-options > summary > svg { margin-left: auto; flex-shrink: 0; }
+.tier-editor-options > .hint { margin-top: 10px; }
+.tier-editor-sales { display: grid; gap: 8px; border-top: 1px solid #392d43; padding-top: 12px; }
+.tier-editor-sales .check-field { min-height: 32px; }
+.tier-editor-content > button { justify-self: start; }
+.tier-remove-confirmation { border-top: 1px solid #49323e; padding-top: 14px; font-size: 12px; line-height: 1.55; }
+.tier-remove-confirmation p { margin: 0 0 12px; }
+.tier-remove-confirmation > div { display: flex; justify-content: flex-end; gap: 12px; }
+.tier-empty { padding: 16px 0; }
+.tier-editor-content [data-slot="select-trigger"] { width: 100%; min-width: 0; }
+.tier-editor-content [data-slot="select-value"] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 760px) {
+  .event-editor .tier-editor-content { padding: 14px 12px; gap: 14px; }
+  .event-editor .tier-editor-summary { padding: 14px 12px; }
+  .event-editor .tier-editor-content .tier-basics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .event-editor .tier-editor-content .tier-basics-grid .full { grid-column: 1 / -1; }
+  .event-editor .tier-editor-content .field { min-width: 0; }
+  .event-editor .tier-editor-content .field > span, .event-editor .tier-editor-content .field > label { font-size: 11px; }
+}
 .tier-card {
   border: 1px solid #46324e;
   padding: 18px;

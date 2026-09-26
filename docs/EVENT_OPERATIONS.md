@@ -36,6 +36,10 @@ Once `endsAt <= now`, or status is completed, business event configuration is re
 
 ## Admission release rules
 
+The offering editor starts with every tier collapsed. “Add offering” is a regular button that immediately creates an offering, expands its form and scrolls the editor to it. Use Type inside the form to choose Ticket or Package; existing reservation support remains available there too. Core price, quantity and admissions fields stay together; sales schedules and order limits/visibility use expandable sections. “Open after” lists eligible earlier tiers with prices and explains the selected rule. Invalid fields inside collapsed sections are revealed on Save.
+
+Unsold offerings may be removed, including the last offering for a guestlist-only event. Removal is staged until Save. The confirmation identifies dependent tiers whose opening rule will be cleared; these retain their own schedules. The API refuses removal when units have sold or any order history exists, even with a zero sold counter. Changes and deletions are atomic and audited; no migration is needed.
+
 Each ticket or package can have optional opening/closing timestamps. A higher-priced tier can reference an earlier limited tier of the same type with positive stock. Forward/self references, cycles, cross-type prerequisites, unlimited predecessors, and non-increasing price ladders are rejected. Reservations can have windows but cannot join a ladder.
 
 Example: create 50 GA tickets at $10, 50 at $20 linked to the first tier, then 100 at $40 linked to the second. A linked tier opens when its predecessor **sells out, reaches its sales stop time, or is closed manually** by unchecking Sales enabled and saving. Its own sales start time must also have arrived, and its own stop time must not have passed. A date-only tier has no predecessor requirement. Re-enabling a manually closed predecessor or increasing its inventory may put a successor back into the waiting state; review the ladder before saving. Closing a tier never alters completed purchases.

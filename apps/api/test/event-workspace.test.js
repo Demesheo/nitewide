@@ -105,6 +105,7 @@ test('editor rejects cyclic, cross-kind and cheaper successor tiers', () => {
   const tier = {name:'Early',kind:'ticket',priceCents:1000,inventoryMode:'finite',quantityTotal:10,entriesPerUnit:1,minPerOrder:1,maxPerOrder:5,isActive:true};
   const event = {organizationId:'30000000-0000-4000-8000-000000000001',title:'A show',summary:'',description:'',startsAt:'2030-10-01',endsAt:'2030-10-02',guestlistCapacity:0,capacity:null,status:'draft',isDiscoverable:true,offerings:[tier,{...tier,name:'Later',priceCents:2000,releaseAfterIndex:0}]};
   assert.equal(eventEditor.safeParse(event).success,true,'slug/category/location are not required for venue events');
+  assert.equal(eventEditor.safeParse({...event,offerings:[]}).success,true,'guestlist-only events can remove their final unsold offering');
   assert.equal(eventEditor.safeParse({...event,offerings:[tier,{...event.offerings[1],releaseAfterIndex:1}]}).success,false);
   assert.equal(eventEditor.safeParse({...event,offerings:[tier,{...event.offerings[1],priceCents:500}]}).success,false);
   assert.equal(eventEditor.safeParse({...event,offerings:[tier,{...event.offerings[1],kind:'package'}]}).success,false);

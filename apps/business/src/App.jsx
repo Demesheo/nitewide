@@ -813,7 +813,7 @@ export default function App() {
                   initialTab={eventTabToOpen}
                   initialGuestlistEntryId={guestlistEntryToOpen}
                   onUnauthorized={expire}
-                  onEdit={setEditor}
+                  onEdit={(event, initialStep = 0) => setEditor({ event, initialStep })}
                   onCreate={() => setEditor({})}
                 />
               )}
@@ -828,8 +828,9 @@ export default function App() {
       </div>
       {editor && data && (
         <EventEditor
-          key={editor.id || "new"}
-          event={editor.id ? editor : null}
+          key={editor.event?.id || "new"}
+          event={editor.event || null}
+          initialStep={editor.initialStep ?? 0}
           organizations={data.organizations}
           defaultOrganization={
             selectedOrganizations.length === 1 && selectedOrganizations[0] === "independent"

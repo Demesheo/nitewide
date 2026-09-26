@@ -67,6 +67,11 @@ export const defaultTiers = () =>
     visibility: "public",
     description: "",
   }));
+export function removeOffering(offerings, key) {
+  return offerings
+    .filter((tier) => (tier.clientKey || tier.id) !== key)
+    .map((tier) => tier.releaseAfterKey === key ? { ...tier, releaseAfterKey: "" } : tier);
+}
 export function releaseOptions(offerings, index) {
   const current = offerings[index];
   if (!current || !["ticket", "package"].includes(current.kind)) return [];

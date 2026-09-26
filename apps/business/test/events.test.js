@@ -2,7 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { eventPhase, selectEvents, eventTeamRoles, filterEventTeam, eventTeamSalesSlices } from '../src/lib/events.js';
-import { editorDraft, eventPayload, releaseOptions } from '../src/lib/business.js';
+import { editorDraft, eventPayload, releaseOptions, removeOffering } from '../src/lib/business.js';
+
+test('removing an offering unlinks only its dependents and preserves the original draft', () => {
+  const offerings = [{id:'a'}, {clientKey:'b',releaseAfterKey:'a'}, {clientKey:'c',releaseAfterKey:'b'}, {clientKey:'d',releaseAfterKey:'a'}];
+  const remaining = removeOffering(offerings,'b');
+  assert.deepEqual(remaining,[{id:'a'}, {clientKey:'c',releaseAfterKey:''}, {clientKey:'d',releaseAfterKey:'a'}]);
+  assert.equal(offerings[2].releaseAfterKey,'b');
+  assert.deepEqual(removeOffering([{id:'last'}],'last'),[]);
+});
 
 test('event collection defaults to the earliest event date and time first', () => {
   const component = readFileSync(new URL('../src/components/Events.jsx', import.meta.url), 'utf8');

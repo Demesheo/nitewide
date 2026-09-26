@@ -4,7 +4,6 @@ import {
   ArrowRight,
   Plus,
   Save,
-  Trash2,
   MapPin,
   Ticket,
   CalendarDays,
@@ -18,12 +17,14 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Field, SelectField } from "./controls";
-import { editorDraft, eventPayload, releaseOptions } from "@/lib/business";
+import { editorDraft, eventPayload, removeOffering } from "@/lib/business";
 import { api } from "@/lib/api";
 import { ImageUpload } from "./ImageUpload";
+import { TierEditor } from "./TierEditor";
 
 export function EventEditor({
   event,
+  initialStep = 0,
   organizations,
   defaultOrganization,
   session,
@@ -31,7 +32,8 @@ export function EventEditor({
   onSaved,
 }) {
   const [draft, setDraft] = useState(() => { const initial = editorDraft(event, defaultOrganization, organizations); initial.offerings = initial.offerings.map((t) => ({ ...t, clientKey: t.id || crypto.randomUUID() })); return initial; });
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(event ? initialStep : 0);
+  const [addedTierKey, setAddedTierKey] = useState(null);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
@@ -46,16 +48,20 @@ export function EventEditor({
         i === index ? { ...t, [key]: value } : t,
       ),
     }));
-  const addTier = (kind) => setDraft((d) => ({
-    ...d,
-    offerings: [...d.offerings, {
-      clientKey: crypto.randomUUID(), name: "", kind,
-      price: Math.max(0, ...d.offerings.filter((t) => t.kind === kind).map((t) => Number(t.price) || 0)) + 10,
-      quantityTotal: 50, inventoryMode: "finite", entriesPerUnit: kind === "package" ? 4 : 1,
-      minPerOrder: 1, maxPerOrder: 10, isActive: true, visibility: "public", description: "",
-      releaseAfterKey: "", salesStartAt: "", salesEndAt: "",
-    }],
-  }));
+  const addTier = (kind) => {
+    const clientKey = crypto.randomUUID();
+    setAddedTierKey(clientKey);
+    setDraft((d) => ({
+      ...d,
+      offerings: [...d.offerings, {
+        clientKey, name: "", kind,
+        price: Math.max(0, ...d.offerings.filter((t) => t.kind === kind).map((t) => Number(t.price) || 0)) + 10,
+        quantityTotal: 50, inventoryMode: "finite", entriesPerUnit: kind === "package" ? 4 : 1,
+        minPerOrder: 1, maxPerOrder: 10, isActive: true, visibility: "public", description: "",
+        releaseAfterKey: "", salesStartAt: "", salesEndAt: "",
+      }],
+    }));
+  };
   async function submit(e) {
     e.preventDefault();
     if (uploading) return;
@@ -309,180 +315,32 @@ export function EventEditor({
             )}
             {step === 2 && (
               <>
-                <div className="section-heading">
+                <div className="section-heading tier-ladder-heading">
                   <div>
                     <h3>Build your ticket ladder</h3>
-                    <p>Set a quantity and price for each tier. Later tiers can open after an earlier tier sells out, its sales window ends, or you close it manually.</p>
+                    <p>Set your prices and quantities. Sell tiers together, or link them to open one after another. Tap a tier to edit it.</p>
                   </div>
-                  <div className="tier-add-actions">
-                    <Button type="button" variant="outline" size="sm" disabled={draft.offerings.length >= 50} onClick={() => addTier("ticket")}><Plus /> Add ticket tier</Button>
-                    <Button type="button" variant="outline" size="sm" disabled={draft.offerings.length >= 50} onClick={() => addTier("package")}><Plus /> Add package tier</Button>
-                  </div>
+                  <Button className="add-offering-button" type="button" variant="outline" size="sm" disabled={draft.offerings.length >= 50} onClick={() => addTier("ticket")}><Plus />Add offering</Button>
                 </div>
                 {draft.offerings.map((t, i) => (
-                  <fieldset className="tier-card" key={t.clientKey}>
-                    <legend>
-                      Tier {i + 1}
-                      {t.quantitySold > 0 ? ` · ${t.quantitySold} sold` : ""}
-                    </legend>
-                    <div className="form-grid">
-                      <Field
-                        id={`tier-name-${i}`}
-                        label="Name"
-                        required
-                        maxLength={160}
-                        value={t.name}
-                        onChange={(e) => tier(i, "name", e.target.value)}
-                      />
-                      <SelectField
-                        id={`tier-kind-${i}`}
-                        label="Type"
-                        disabled={t.quantitySold > 0}
-                        value={t.kind}
-                        onChange={(v) => setDraft((d) => ({ ...d, offerings: d.offerings.map((item, index) => index === i ? { ...item, kind: v, releaseAfterKey: "" } : item) }))}
-                        options={[
-                          ["ticket", "Ticket"],
-                          ["package", "Package"],
-                          ["reservation", "Reservation"],
-                        ]}
-                      />
-                      <Field
-                        id={`tier-price-${i}`}
-                        label="Price ($)"
-                        type="number"
-                        min={0}
-                        max={1000000}
-                        step="0.01"
-                        required
-                        value={t.price}
-                        onChange={(e) => tier(i, "price", e.target.value)}
-                      />
-                      <Field
-                        id={`tier-admissions-${i}`}
-                        label="Admissions per unit"
-                        type="number"
-                        min={1}
-                        max={100}
-                        required
-                        disabled={t.quantitySold > 0}
-                        value={t.entriesPerUnit}
-                        onChange={(e) =>
-                          tier(i, "entriesPerUnit", e.target.value)
-                        }
-                      />
-                      <SelectField
-                        id={`tier-inventory-${i}`}
-                        label="Inventory"
-                        value={t.inventoryMode}
-                        onChange={(v) => tier(i, "inventoryMode", v)}
-                        options={[
-                          ["finite", "Limited inventory"],
-                          ["unlimited", "Unlimited"],
-                        ]}
-                      />
-                      {t.inventoryMode === "finite" && (
-                        <Field
-                          id={`tier-quantity-${i}`}
-                          label="Total inventory (including sold)"
-                          type="number"
-                          min={t.quantitySold || 0}
-                          max={1000000}
-                          required
-                          value={t.quantityTotal ?? ""}
-                          onChange={(e) =>
-                            tier(i, "quantityTotal", e.target.value)
-                          }
-                        />
-                      )}
-                      <Field
-                        id={`tier-min-${i}`}
-                        label="Minimum per order"
-                        type="number"
-                        min={1}
-                        max={100}
-                        required
-                        value={t.minPerOrder}
-                        onChange={(e) => tier(i, "minPerOrder", e.target.value)}
-                      />
-                      <Field
-                        id={`tier-max-${i}`}
-                        label="Maximum per order"
-                        type="number"
-                        min={t.minPerOrder}
-                        max={100}
-                        required
-                        value={t.maxPerOrder}
-                        onChange={(e) => tier(i, "maxPerOrder", e.target.value)}
-                      />
-                      {['ticket', 'package'].includes(t.kind) && <div className="full"><SelectField id={`tier-release-${i}`} label="Open after (optional)" value={t.releaseAfterKey || 'immediate'} onChange={(v) => tier(i, 'releaseAfterKey', v === 'immediate' ? '' : v)} options={[
-                        ['immediate', 'No earlier tier required'],
-                        ...releaseOptions(draft.offerings, i).map((p) => [p.key, p.name]),
-                      ]}/></div>}
-                      <Field
-                        id={`tier-sales-start-${i}`}
-                        label="Start selling (venue time, optional)"
-                        type="datetime-local"
-                        value={t.salesStartAt || ""}
-                        onChange={(e) =>
-                          tier(i, "salesStartAt", e.target.value)
-                        }
-                      />
-                      <Field
-                        id={`tier-sales-end-${i}`}
-                        label="Stop selling (venue time, optional)"
-                        type="datetime-local"
-                        value={t.salesEndAt || ""}
-                        onChange={(e) => tier(i, "salesEndAt", e.target.value)}
-                      />
-                      <SelectField
-                        id={`tier-visibility-${i}`}
-                        label="Visibility"
-                        value={t.visibility}
-                        onChange={(v) => tier(i, "visibility", v)}
-                        options={[
-                          ["public", "Public"],
-                          ["hidden", "Hidden"],
-                          ...(t.visibility === "password"
-                            ? [["password", "Password (existing)"]]
-                            : []),
-                        ]}
-                      />
-                      <label className="check-field">
-                        <input
-                          type="checkbox"
-                          checked={t.isActive}
-                          onChange={(e) =>
-                            tier(i, "isActive", e.target.checked)
-                          }
-                        />
-                        Sales enabled
-                      </label>
-                      {t.releaseAfterKey && <p className="hint full">This tier opens when the selected tier sells out, reaches its stop time, or is closed manually. Its own start time must also have arrived.</p>}
-                      {!t.isActive && <p className="hint full">Closed manually. A linked next tier may open now if its own start time has arrived. Re-enable sales to reopen this tier.</p>}
-                    </div>
-                    {!t.id && draft.offerings.length > 1 && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() =>
-                          set(
-                            "offerings",
-                            draft.offerings.filter((_, index) => i !== index).map((p) => p.releaseAfterKey === t.clientKey ? { ...p, releaseAfterKey: '' } : p),
-                          )
-                        }
-                      >
-                        <Trash2 />
-                        Remove tier
-                      </Button>
-                    )}
-                    {t.id && (
-                      <p className="hint">
-                        Uncheck Sales enabled to close this tier manually. A linked next tier opens automatically. Historical orders stay intact.
-                      </p>
-                    )}
-                  </fieldset>
+                  <TierEditor
+                    key={t.clientKey}
+                    tier={t}
+                    index={i}
+                    offerings={draft.offerings}
+                    newlyAdded={t.clientKey === addedTierKey}
+                    onChange={(key, value) => tier(i, key, value)}
+                    onKindChange={(kind) => setDraft((d) => ({
+                      ...d,
+                      offerings: d.offerings.map((item, index) => index === i ? { ...item, kind, releaseAfterKey: "" } : item),
+                    }))}
+                    onRemove={!(t.quantitySold > 0) ? () => set(
+                      "offerings",
+                      removeOffering(draft.offerings, t.clientKey),
+                    ) : undefined}
+                  />
                 ))}
+                {draft.offerings.length === 0 && <p className="hint tier-empty">No tickets or packages. Add a tier above when you’re ready to sell. Guestlist access is managed separately.</p>}
                 <div className="publish-box">
                   <SelectField
                     id="event-status"

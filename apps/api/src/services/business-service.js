@@ -443,10 +443,17 @@ function createBusinessService({
           if (tier.visibility === "password" && !old?.accessCodeHash)
             throw conflict("Password tiers require an existing access code");
         }
-        if (existing.some((o) => !input.offerings.some((t) => t.id === o.id)))
-          throw conflict(
-            "Keep existing tiers; deactivate them instead of deleting sales history",
+        const removedTiers = existing.filter((o) => !input.offerings.some((t) => t.id === o.id));
+        for (const removed of removedTiers) {
+          // Keep historical orders even if a refunded tier's counter reaches zero.
+          // The event + offering locks also serialize this check with checkout.
+          if (removed.quantitySold > 0 || await models.OrderItem.count({
+            where: { offeringId: removed.id }, transaction,
+          })) throw conflict(
+            `${removed.name}: tiers with sales or order history cannot be removed. Turn off sales instead.`,
+            "TIER_HAS_SALES",
           );
+        }
         if (event) {
           const used =
             Number(
@@ -519,6 +526,10 @@ function createBusinessService({
               { transaction },
             ));
         }
+        // Re-link retained tiers first, then delete only verified unsold tiers.
+        if (removedTiers.length) await models.Offering.destroy({
+          where: { id: removedTiers.map((tier) => tier.id), eventId: saved.id }, transaction,
+        });
         await models.AuditLog.create(
           {
             actorUserId: userId,

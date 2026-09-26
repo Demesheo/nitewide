@@ -599,6 +599,50 @@ test(
       assert.equal((await req(`/events/${event.id}`,null)).body.data.offerings.find((tier) => tier.id === updatedTiers[3].id).saleState,'on_sale','manual close releases the next tier');
       assert.equal((await buy(updatedTiers[1].id,'')).body.error.code,'OFFERING_NOT_ON_SALE','manually closed tiers reject checkout');
       assert.equal((await buy(updatedTiers[3].id,'')).status,201,'the released tier is purchasable');
+      // Unsold offerings can be removed on Save; sales and history remain protected.
+      const removalInput = async (offerings) => ({
+        ...tierEdit, version:(await m.Event.findByPk(event.id)).version, offerings,
+      });
+      const currentSettings = async () => {
+        const rows = await m.Offering.findAll({where:{eventId:event.id},order:[['sortOrder','ASC']]});
+        return rows.map((row) => ({...row.toJSON(), releaseAfterIndex:row.releaseAfterOfferingId ? rows.findIndex((prior)=>prior.id===row.releaseAfterOfferingId) : null}));
+      };
+      const retainedSettings = await currentSettings();
+      const extras = [
+        {...input.offerings[0],name:'Removable ticket'},
+        {...input.offerings[0],kind:'package',name:'Removable package'},
+        {...input.offerings[0],name:'Dependent ticket',priceCents:3000,releaseAfterIndex:retainedSettings.length},
+      ];
+      assert.equal((await req(`/business/events/${event.id}`,ids.manager,'PUT',await removalInput([...retainedSettings,...extras]))).status,200);
+      const withExtras = await currentSettings();
+      const ticketToRemove = withExtras.find((tier)=>tier.name==='Removable ticket');
+      const packageToRemove = withExtras.find((tier)=>tier.name==='Removable package');
+      const dependent = withExtras.find((tier)=>tier.name==='Dependent ticket');
+      const withoutUnsold = withExtras.filter((tier)=>![ticketToRemove.id,packageToRemove.id].includes(tier.id)).map((tier)=>tier.id===dependent.id ? {...tier,releaseAfterIndex:null} : tier);
+      assert.equal((await req(`/business/events/${event.id}`,ids.promoter,'PUT',await removalInput(withoutUnsold))).status,403);
+      assert.equal((await req(`/business/events/${event.id}`,ids.manager,'PUT',await removalInput(withoutUnsold))).status,200);
+      assert.equal(await m.Offering.findByPk(ticketToRemove.id),null);
+      assert.equal(await m.Offering.findByPk(packageToRemove.id),null);
+      assert.equal((await m.Offering.findByPk(dependent.id)).releaseAfterOfferingId,null);
+      const remainingSettings = await currentSettings();
+      const withoutSold = remainingSettings.filter((tier)=>tier.id!==tiers[0].id).map((tier)=>({...tier,releaseAfterIndex:null}));
+      const protectedSale = await req(`/business/events/${event.id}`,ids.owner,'PUT',await removalInput(withoutSold));
+      assert.equal(protectedSale.body.error.code,'TIER_HAS_SALES');
+      assert.ok(await m.Offering.findByPk(tiers[0].id));
+      // A zero counter must never allow deletion of existing order history.
+      const soldCount = (await m.Offering.findByPk(tiers[0].id)).quantitySold;
+      await m.Offering.update({quantitySold:0},{where:{id:tiers[0].id}});
+      assert.equal((await req(`/business/events/${event.id}`,ids.owner,'PUT',await removalInput(withoutSold))).body.error.code,'TIER_HAS_SALES');
+      await m.Offering.update({quantitySold:soldCount},{where:{id:tiers[0].id}});
+      assert.equal((await req(`/business/events/${event.id}`,ids.owner,'PUT',await removalInput(remainingSettings.filter((tier)=>tier.id!==dependent.id)))).status,200);
+      const lastOfferingEvent = await req('/business/events',ids.manager,'POST',{...input,title:'QA guestlist-only removal'});
+      assert.equal(lastOfferingEvent.status,201);
+      events.push(lastOfferingEvent.body.data.id);
+      locations.add(lastOfferingEvent.body.data.locationId);
+      assert.equal((await req(`/business/events/${lastOfferingEvent.body.data.id}`,ids.manager,'PUT',{
+        ...input,title:'QA guestlist-only removal',version:lastOfferingEvent.body.data.version,offerings:[],
+      })).status,200);
+      assert.equal(await m.Offering.count({where:{eventId:lastOfferingEvent.body.data.id}}),0);
       // The stored end time, not the client, decides whether an event can be changed.
       const fixtureEvent = await m.Event.findByPk(event.id);
       await fixtureEvent.update({startsAt:new Date(Date.now()-7200000),endsAt:new Date(Date.now()-3600000)});
