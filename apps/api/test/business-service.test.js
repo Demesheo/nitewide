@@ -164,7 +164,7 @@ test("empty report and unattributed sales are represented honestly", () => {
     1000,
   );
 });
-function harness({ denied = false, sold = 4 } = {}) {
+function harness({ denied = false, sold = 4, orderHistory = 0 } = {}) {
   const calls = [];
   const event = {
     id: "e",
@@ -181,6 +181,7 @@ function harness({ denied = false, sold = 4 } = {}) {
   };
   const offering = {
     id: tierId,
+    name: "General Admission",
     quantitySold: sold,
     kind: "ticket",
     entriesPerUnit: 1,
@@ -201,7 +202,21 @@ function harness({ denied = false, sold = 4 } = {}) {
       },
       findByPk: async () => event,
     },
-    Offering: { findAll: async () => [offering] },
+    Offering: {
+      findAll: async () => [offering],
+      destroy: async ({ where, transaction }) => {
+        assert.deepEqual(where, { id: [tierId], eventId: "e" });
+        assert.ok(transaction);
+        calls.push("delete-tier");
+      },
+    },
+    OrderItem: {
+      count: async ({ where, transaction }) => {
+        assert.deepEqual(where, { offeringId: tierId });
+        assert.ok(transaction);
+        return orderHistory;
+      },
+    },
     Location: {
       findByPk: async () => ({ id: 'venue-location', city: 'Orlando' }),
       create: async () => {
@@ -270,14 +285,28 @@ test("tiers belonging to another event are rejected", async () => {
     code: "FORBIDDEN",
   });
 });
-test("existing tiers cannot be silently deleted", async () => {
+test("sold tiers cannot be deleted or replaced by omitting their ID", async () => {
   const h = harness();
   const d = input();
   delete d.offerings[0].id;
   await assert.rejects(
     () => h.service.saveEvent("owner", "e", d),
-    /deactivate/,
+    { code: "TIER_HAS_SALES" },
   );
+  assert.deepEqual(h.calls, []);
+});
+test("unsold tiers without order history can be removed, including the final offering", async () => {
+  const h = harness({ sold: 0 });
+  await h.service.saveEvent("owner", "e", { ...input(), offerings: [] });
+  assert.deepEqual(h.calls, ["update", "delete-tier", "audit"]);
+});
+test("a zero sold counter does not allow deleting a tier with order history", async () => {
+  const h = harness({ sold: 0, orderHistory: 1 });
+  await assert.rejects(
+    () => h.service.saveEvent("owner", "e", { ...input(), offerings: [] }),
+    { code: "TIER_HAS_SALES" },
+  );
+  assert.deepEqual(h.calls, []);
 });
 test("direct guestlist cannot shrink below approved guests", async () => {
   const h = harness();
