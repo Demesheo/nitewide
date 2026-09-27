@@ -23,9 +23,11 @@ This repository contains:
 
 ## Requirements
 
-- Node.js 24 LTS
-- npm 10 or newer
+- Node.js 24.21.0 LTS and npm 12.1.0 (see `.nvmrc`)
 - Docker, or a PostgreSQL 15+ database with PostGIS and `pgcrypto`
+
+CI and the Docker image pin these versions. For local development, install the
+Node version in `.nvmrc` and npm 12.1.0 before running the commands below.
 
 The Docker database is exposed on local port `5433` so it can run alongside a Homebrew or system PostgreSQL server using the standard `5432` port.
 
@@ -35,7 +37,7 @@ From the repository root:
 
 ```bash
 cp .env.example .env
-npm install
+npm ci
 docker compose up -d postgres
 npm run db:migrate
 npm run db:seed
@@ -268,7 +270,8 @@ isolated Render database and free-tier limits. The hosted demo is available at
 ## Deploy the demo to Render
 
 Pushing to `main` automatically runs tests, builds the Docker image on GitHub,
-publishes it to GHCR, and asks Render to deploy that exact image digest.
+publishes it to GHCR, and asks Render to deploy that image digest (or the same
+verified commit when the service is Git-backed).
 To rebuild and deploy the **already-pushed remote main** manually:
 
 ```bash

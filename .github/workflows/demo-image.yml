@@ -33,8 +33,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '24'
+          node-version: '24.21.0'
           cache: npm
+      - run: npm install --global npm@12.1.0
       - run: npm ci
       - run: npm test
       - run: npm run db:migrate
@@ -82,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: demo
     steps:
-      - name: Deploy verified image digest when Render hook is configured
+      - name: Deploy verified image or commit when Render hook is configured
         env:
           RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEMO_DEPLOY_HOOK }}
           IMAGE: ${{ needs.publish.outputs.image }}
@@ -92,5 +93,13 @@ jobs:
             echo 'Image published. Configure RENDER_DEMO_DEPLOY_HOOK after the first Blueprint deployment.'
             exit 0
           fi
-          curl --fail --silent --show-error --get "$RENDER_DEPLOY_HOOK" \
-            --data-urlencode "imgURL=$IMAGE@$DIGEST" --output /dev/null
+          status=$(curl --silent --show-error --get "$RENDER_DEPLOY_HOOK" \
+            --data-urlencode "imgURL=$IMAGE@$DIGEST" --output /dev/null --write-out '%{http_code}')
+          if [ "$status" = 400 ]; then
+            echo 'Render rejected the image override; deploying the verified Git commit instead.'
+            curl --fail --silent --show-error --get "$RENDER_DEPLOY_HOOK" \
+              --data-urlencode "ref=$GITHUB_SHA" --output /dev/null
+          elif [ "$status" != 200 ] && [ "$status" != 202 ]; then
+            echo "Render deploy hook failed with HTTP $status"
+            exit 1
+          fi

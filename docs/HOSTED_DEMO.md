@@ -78,12 +78,16 @@ and database durability before relying on this demo long term. No paid resources
 are authorized by this configuration.
 
 The service's deploy-hook URL is configured as GitHub environment
-`demo` secret `RENDER_DEMO_DEPLOY_HOOK`. Subsequent successful main builds request
-deployment of the exact image digest. Never commit or print the hook. A successful
+`demo` secret `RENDER_DEMO_DEPLOY_HOOK`. Subsequent successful main builds first
+request the verified image digest. If Render rejects the image override because
+the service is Git-backed, the workflow requests that same verified commit SHA
+instead. As of September 26, the live service is Git-backed; the Blueprint in
+this repository remains image-backed. Never commit or print the hook. A successful
 hook request is not a healthy deployment: check Render's deploy status and `/health`.
-Rollback by selecting a previously successful retained image digest in Render;
-database migrations are not rolled back with the image. Do not delete a rollback
-image from GHCR while it may still be needed.
+Rollback must match the service's current source: select a retained image digest
+for image-backed mode or a previous commit for Git-backed mode. Database migrations
+are not rolled back with either. Do not delete a rollback image from GHCR while
+it may still be needed.
 
 ## Manual build and deploy
 
@@ -108,7 +112,7 @@ the Render request. Always check the deploy job output, not just its green icon.
 
 ### From the CLI
 
-Requirements: Node.js 24 LTS and repository Actions write permission. No local Docker,
+Requirements: Node.js 24.21.0 LTS, npm 12.1.0, and repository Actions write permission. No local Docker,
 database, npm installation, or Render CLI is needed just to dispatch a build.
 Use authenticated GitHub CLI (`gh auth login`) or a fine-grained token limited to
 `Demesheo/nitewide` with **Actions: read and write**, provided securely as
@@ -151,21 +155,23 @@ the CLI on your own machine. **Do not store a GitHub token or the Render hook in
 the long-running public demo service**, image layers, source, or browser frontend.
 The dispatch command is not an application endpoint and is not exposed to visitors.
 
-### Redeploy an existing image directly in Render
+### Redeploy directly in Render
 
 This is a redeploy, not a GitHub build. If code changed, run the GitHub workflow first.
 
 1. Open the existing `nitewide-demo` service in My Workspace.
-2. Confirm its assigned image reference in Settings. The Blueprint default is
-   `ghcr.io/demesheo/nitewide-demo:demo`; **Manual Deploy → Deploy latest reference**
-   pulls the current image for that reference. A pinned digest stays on that digest.
-3. For a specific release or rollback, choose a retained successful image digest
-   from GHCR/Render deployment history and explicitly deploy that reference.
-   Do not assume a previous deploy-hook override changed the default image setting.
+2. Confirm the service source in Settings. For an image-backed service, the Blueprint
+   default is `ghcr.io/demesheo/nitewide-demo:demo`; **Manual Deploy → Deploy latest
+   reference** pulls its current image. For the current Git-backed service, deploy
+   the intended `main` commit after GitHub verification completes.
+3. For a release or rollback, choose a retained image digest in image-backed mode
+   or a previous commit in Git-backed mode. Do not assume an earlier deploy-hook
+   override changed the service's default source setting.
 4. Wait for **Live**, check health, and verify login, bookings, and business reports.
 
-The normal GitHub pipeline pins each deployment by digest. Merely moving the GHCR
-`:demo` tag does not automatically cause an image-backed Render service to redeploy.
+The GitHub pipeline publishes a digest and requests that digest for image-backed
+services; for the current Git-backed service it requests the verified commit.
+Merely moving the GHCR `:demo` tag does not automatically redeploy an image-backed service.
 Keep the deploy hook secret in GitHub's `demo` environment. If rotating it, update
 that environment secret before the next deployment; never put the URL in docs.
 
@@ -186,8 +192,9 @@ The mock checkout and QR demo safeguards remain in place.
   configure the environment secret. A failed hook request fails the deploy job.
 - **Render startup fails:** inspect Render logs, required environment settings,
   database availability, and migration errors. Never reseed as a troubleshooting shortcut.
-- **Need rollback:** redeploy a retained previous digest. Database migrations and
-  visitor changes are not reverted by an image rollback; inspect migration compatibility.
+- **Need rollback:** redeploy a retained previous digest or commit, according to the
+  service source. Database migrations and visitor changes are not reverted; inspect
+  migration compatibility.
 - **Demo sleeps or DB expires:** free-tier limitations apply. The current temporary
   database expires October 23, 2026; preserve needed data before then. A rebuild
   does not extend database lifetime or recover expired data.

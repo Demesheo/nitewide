@@ -7,10 +7,14 @@ export default defineConfig({
   optimizeDeps: { include: ['@nitewide/pricing'] },
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   build: {
-    commonjsOptions: { include: [/node_modules/, /apps\/pricing/] },
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: { charts: ["recharts"], primitives: ["radix-ui"] },
+        codeSplitting: {
+          groups: [
+            { name: "charts", test: /node_modules[\\/]recharts[\\/]/ },
+            { name: "primitives", test: /node_modules[\\/](?:@radix-ui|radix-ui)[\\/]/ },
+          ],
+        },
       },
     },
   },
