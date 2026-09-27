@@ -27,5 +27,5 @@
     "db:seed:clean-purchases": "node apps/api/src/db/clean-seed-purchases.js"
   },
   "devDependencies": { "concurrently": "^9.1.2" },
-  "engines": { "node": ">=20" }
+  "engines": { "node": ">=24 <25" }
 }

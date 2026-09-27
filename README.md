@@ -23,7 +23,7 @@ This repository contains:
 
 ## Requirements
 
-- Node.js 20 or newer (Node 24 is also supported)
+- Node.js 24 LTS
 - npm 10 or newer
 - Docker, or a PostgreSQL 15+ database with PostGIS and `pgcrypto`
 

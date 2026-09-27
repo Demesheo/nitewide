@@ -133,13 +133,17 @@ test(
       server = app.listen(0);
       await new Promise((resolve) => server.once("listening", resolve));
       const base = `http://127.0.0.1:${server.address().port}/api`;
+      async function tokenFor(user) {
+        if (!user) return null;
+        const credential = await m.UserCredential.findByPk(user);
+        const issuedAt = Math.floor(Date.now() / 1000);
+        return signToken(
+          { sub: user, iat: issuedAt, exp: issuedAt + 300, pwd: credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null },
+          config.AUTH_TOKEN_SECRET,
+        );
+      }
       async function req(path, user, method = "GET", body) {
-        const token = user
-          ? signToken(
-              { sub: user, exp: Math.floor(Date.now() / 1000) + 300 },
-              config.AUTH_TOKEN_SECRET,
-            )
-          : null;
+        const token = await tokenFor(user);
         const res = await fetch(base + path, {
           method,
           headers: {
@@ -154,12 +158,7 @@ test(
       async function upload(user, bytes, name = "flyer.png") {
         const body = new FormData();
         body.append("image", new Blob([bytes], { type: "image/png" }), name);
-        const token = user
-          ? signToken(
-              { sub: user, exp: Math.floor(Date.now() / 1000) + 300 },
-              config.AUTH_TOKEN_SECRET,
-            )
-          : null;
+        const token = await tokenFor(user);
         const res = await fetch(base + "/business/uploads/image", {
           method: "POST",
           body,

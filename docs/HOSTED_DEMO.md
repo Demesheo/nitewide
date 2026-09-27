@@ -108,7 +108,7 @@ the Render request. Always check the deploy job output, not just its green icon.
 
 ### From the CLI
 
-Requirements: Node.js 20+ and repository Actions write permission. No local Docker,
+Requirements: Node.js 24 LTS and repository Actions write permission. No local Docker,
 database, npm installation, or Render CLI is needed just to dispatch a build.
 Use authenticated GitHub CLI (`gh auth login`) or a fine-grained token limited to
 `Demesheo/nitewide` with **Actions: read and write**, provided securely as

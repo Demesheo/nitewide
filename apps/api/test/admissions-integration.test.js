@@ -19,7 +19,10 @@ test('admissions HTTP: permissions, QR integrity, concurrent scans, manual entry
     await new Promise((resolve) => server.once('listening', resolve));
     const base = `http://127.0.0.1:${server.address().port}/api`;
     async function request(path, role = 'manager', body) {
-      const response = await fetch(base + path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(role ? { Authorization: `Bearer ${signToken({ sub: ids[role], exp: Math.floor(Date.now() / 1000) + 300 }, config.AUTH_TOKEN_SECRET)}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
+      const credential = role ? await m.UserCredential.findByPk(ids[role]) : null;
+      const issuedAt = Math.floor(Date.now() / 1000);
+      const token = role ? signToken({ sub: ids[role], iat: issuedAt, exp: issuedAt + 300, pwd: credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null }, config.AUTH_TOKEN_SECRET) : null;
+      const response = await fetch(base + path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
       return { status: response.status, ...await response.json() };
     }
     const listPath = '/business/admissions/events';

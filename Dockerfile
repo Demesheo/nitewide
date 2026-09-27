@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:22-bookworm-slim AS build
+FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
@@ -14,7 +14,7 @@ RUN VITE_BUSINESS_URL=/business npm run build --workspace @nitewide/customer && 
     VITE_BUSINESS_HOME=/business VITE_CUSTOMER_URL=/ npm run build --workspace @nitewide/business -- --base=/business/ && \
     VITE_CUSTOMER_URL=/ VITE_BUSINESS_URL=/business npm run build --workspace @nitewide/admin -- --base=/admin/
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 ENV NODE_ENV=production PORT=10000
 WORKDIR /app
 COPY --from=build /app/package*.json ./
