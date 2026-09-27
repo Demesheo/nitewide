@@ -81,9 +81,10 @@ The service's deploy-hook URL is configured as GitHub environment
 `demo` secret `RENDER_DEMO_DEPLOY_HOOK`. Subsequent successful main builds first
 request the verified image digest. If Render rejects the image override because
 the service is Git-backed, the workflow requests that same verified commit SHA
-instead. As of September 26, the live service is Git-backed; the Blueprint in
-this repository remains image-backed. Never commit or print the hook. A successful
-hook request is not a healthy deployment: check Render's deploy status and `/health`.
+instead. The Blueprint and current live service are image-backed; confirm the
+source in Render Settings before a manual deployment. Never commit or print the
+hook. A successful hook request is not a healthy deployment: check Render's
+deploy status and `/health`.
 Rollback must match the service's current source: select a retained image digest
 for image-backed mode or a previous commit for Git-backed mode. Database migrations
 are not rolled back with either. Do not delete a rollback image from GHCR while
@@ -162,15 +163,15 @@ This is a redeploy, not a GitHub build. If code changed, run the GitHub workflow
 1. Open the existing `nitewide-demo` service in My Workspace.
 2. Confirm the service source in Settings. For an image-backed service, the Blueprint
    default is `ghcr.io/demesheo/nitewide-demo:demo`; **Manual Deploy → Deploy latest
-   reference** pulls its current image. For the current Git-backed service, deploy
-   the intended `main` commit after GitHub verification completes.
+   reference** pulls its current image. If a service has been switched to Git-backed,
+   deploy the intended `main` commit after GitHub verification completes.
 3. For a release or rollback, choose a retained image digest in image-backed mode
    or a previous commit in Git-backed mode. Do not assume an earlier deploy-hook
    override changed the service's default source setting.
 4. Wait for **Live**, check health, and verify login, bookings, and business reports.
 
 The GitHub pipeline publishes a digest and requests that digest for image-backed
-services; for the current Git-backed service it requests the verified commit.
+services; for a Git-backed service it requests the verified commit.
 Merely moving the GHCR `:demo` tag does not automatically redeploy an image-backed service.
 Keep the deploy hook secret in GitHub's `demo` environment. If rotating it, update
 that environment secret before the next deployment; never put the URL in docs.
