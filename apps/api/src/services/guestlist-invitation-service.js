@@ -4,10 +4,11 @@ const { createQrToken } = require('../domain/qr');
 const { conflict, forbidden, notFound, DomainError } = require('../domain/errors');
 const { assertGuestlistCapacity } = require('./guestlist-capacity');
 const { createNotificationService } = require('./notification-service');
+const { queueGuestlistEmail } = require('./email-events');
 
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 const invitationsOpen = (event, at) => event?.status === 'published' && new Date(event.endsAt) > at;
-function createGuestlistInvitationService({ sequelize, models, permissions, now = () => new Date() }) {
+function createGuestlistInvitationService({ sequelize, models, permissions, email = null, customerAppUrl = 'http://localhost:5173', now = () => new Date() }) {
   const notifications = createNotificationService(models);
   async function pools(userId, eventId) {
     const scope = await permissions.guestlistReviewScope(userId, eventId);
@@ -40,6 +41,7 @@ function createGuestlistInvitationService({ sequelize, models, permissions, now 
     await entry.update({ status: 'confirmed', qrTokenHash: qr.hash, reviewedByUserId: actorId, reviewedAt: now(), reviewNote: 'Invited by event team' }, { transaction });
     await models.AuditLog.create({ actorUserId: actorId, organizationId: event.organizationId, entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.invited_and_confirmed', after: { partySize: entry.partySize, eventAffiliateId } }, { transaction });
     await notifications.emit({ userId: user.id, eventId: event.id, kind: 'guestlist_invited', title: 'You are on the guestlist', message: `You have a confirmed guestlist place for ${event.title}.`, metadata: { entryId: entry.id } }, transaction);
+    await queueGuestlistEmail({ email, models, entry, event, kind: 'approved', customerAppUrl, transaction });
     return entry;
   }
   async function invite(userId, eventId, input) {

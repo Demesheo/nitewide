@@ -2,6 +2,8 @@ const { Op, Transaction, fn, col } = require("sequelize");
 const { randomUUID } = require('node:crypto');
 const { assertEventEditable, eventFinished } = require('../domain/event-policy');
 const { activeEventAffiliates } = require('./event-affiliate-scope');
+const { queueEventEmail, formatTime, venueName } = require('./email-events');
+const { queueBusinessEventStatus } = require('./business-email-events');
 const {
   forbidden,
   conflict,
@@ -139,6 +141,9 @@ const { venueOptions, filterVenues } = require('./venue-scope');
 function createBusinessService({
   models,
   permissions,
+  email = null,
+  customerAppUrl = 'http://localhost:5173',
+  businessAppUrl = 'http://localhost:5174/app',
   now = () => new Date(),
 }) {
   async function context(userId) {
@@ -542,6 +547,38 @@ function createBusinessService({
           },
           { transaction },
         );
+        if (email?.enabled && saved.status === 'published' && (!event || before.status !== 'published')) {
+          await queueBusinessEventStatus({ email, models, event: saved, change: 'Published', details: 'Your event is now published.',
+            actionId: `published-${saved.version || saved.id}`, businessAppUrl, transaction });
+        }
+        if (event && before.status === 'published') {
+          if (saved.status === 'cancelled') {
+            await queueEventEmail({ email, models, event: saved, kind: 'cancelled',
+              variables: { EVENT_DATE: formatTime(before.startsAt, previousLocation?.timezone) },
+              customerAppUrl, transaction, key: `cancelled-${saved.version}` });
+            await queueBusinessEventStatus({ email, models, event: saved, change: 'Cancelled', details: 'Sales have stopped. Refunds are not automatic; coordinate them separately.',
+              actionId: `cancelled-${saved.version}`, businessAppUrl, transaction });
+          } else if (saved.status === 'published') {
+            if (Math.abs(+new Date(before.startsAt) - +new Date(saved.startsAt)) >= 15 * 60 * 1000 || Math.abs(+new Date(before.endsAt) - +new Date(saved.endsAt)) >= 15 * 60 * 1000) {
+              await queueEventEmail({ email, models, event: saved, kind: 'timeChange',
+                variables: {
+                  OLD_TIME: `${formatTime(before.startsAt, previousLocation?.timezone)} – ${formatTime(before.endsAt, previousLocation?.timezone)}`,
+                  NEW_TIME: `${formatTime(saved.startsAt, location?.timezone)} – ${formatTime(saved.endsAt, location?.timezone)}`,
+                }, customerAppUrl, transaction, key: `time-${saved.version}` });
+              await queueBusinessEventStatus({ email, models, event: saved, change: 'Time changed',
+                details: `${formatTime(before.startsAt, previousLocation?.timezone)} → ${formatTime(saved.startsAt, location?.timezone)}`,
+                actionId: `time-${saved.version}`, businessAppUrl, transaction });
+            }
+            if (previousLocation && venueName(previousLocation) !== venueName(location)) {
+              await queueEventEmail({ email, models, event: saved, kind: 'venueChange',
+                variables: { OLD_VENUE: venueName(previousLocation), NEW_VENUE: venueName(location) },
+                customerAppUrl, transaction, key: `venue-${saved.version}` });
+              await queueBusinessEventStatus({ email, models, event: saved, change: 'Venue changed',
+                details: `${venueName(previousLocation)} → ${venueName(location)}`,
+                actionId: `venue-${saved.version}`, businessAppUrl, transaction });
+            }
+          }
+        }
         return saved;
       },
     );

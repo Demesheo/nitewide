@@ -33,6 +33,7 @@ import { eventAddressLines, eventDate, eventTime } from "./lib/presentation";
 import { LoadingIndicator } from './components/loading-indicator';
 import { upcomingSavedEvents } from './lib/saved-events';
 import { AuthDialog } from "./components/auth-dialog";
+import { PasswordResetDialog } from './components/password-reset-dialog';
 import { Notifications } from "./components/notifications";
 import { notificationTarget, loadNotificationBooking } from './lib/notification-target';
 import { AccountDialog, initials } from './components/account-dialog';
@@ -45,6 +46,7 @@ import { api } from "./lib/api";
 import { businessLink } from './lib/business-link';
 import { referralCodeForEvent, referralFromSearch } from './lib/referral';
 import { eventIdFromSearch, eventShareUrl } from './lib/event-share';
+import { bookingFromSearch } from './lib/booking-link';
 import { isPremiumHost } from './lib/premium-host';
 import {
   availableQuantity,
@@ -93,6 +95,39 @@ export default function App() {
     [walletOpen, setWalletOpen] = useState(false);
   const [accountTab, setAccountTab] = useState('plans');
   const [notificationBooking, setNotificationBooking] = useState(null);
+  const [passwordResetToken, setPasswordResetToken] = useState(() => new URLSearchParams(window.location.search).get('resetPassword'));
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('verifyEmail');
+    if (!token) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('verifyEmail');
+    window.history.replaceState({}, '', url);
+    api('/auth/email/verify', { body: { token } })
+      .then(() => setNotice('Email verified. Welcome to Nitewide.'))
+      .catch((error) => setNotice(error.message || 'This verification link has expired.'));
+  }, []);
+  function clearResetToken() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('resetPassword');
+    window.history.replaceState({}, '', url);
+    setPasswordResetToken(null);
+  }
+  const emailedBookingAttempted = useRef(false);
+  useEffect(() => {
+    const target = bookingFromSearch(window.location.search);
+    if (!target || emailedBookingAttempted.current) return;
+    if (!session) { setAuthOpen(true); return; }
+    emailedBookingAttempted.current = true;
+    loadNotificationBooking(target, api, session.accessToken)
+      .then((ticket) => {
+        setSelected(null); setWalletOpen(false); setView('booked');
+        setNotificationBooking({ ticket });
+        const url = new URL(window.location.href);
+        url.searchParams.delete('booking');
+        window.history.replaceState({}, '', url);
+      })
+      .catch(() => setNotice('This booking is unavailable. Check your Booked list or sign in with the account used to book.'));
+  }, [session?.accessToken]);
   async function openNotification(item) {
     const target = notificationTarget(item);
     if (target?.type === 'booking') {
@@ -317,7 +352,7 @@ export default function App() {
   async function authSuccess(data) {
     setSession(data);
     writeStorage("nitewide.session", data);
-    setNotice(`You're in, ${data.user.displayName.split(" ")[0]}.`);
+    setNotice(data.verificationEmailQueued ? 'Account created. Check your email for a verification link.' : `You're in, ${data.user.displayName.split(" ")[0]}.`);
     if (guestlistInviteToken) {
       inviteClaimAttempted.current = true;
       try {
@@ -414,6 +449,7 @@ export default function App() {
   }
   return (
     <>
+      <PasswordResetDialog token={passwordResetToken} onClose={clearResetToken} onSuccess={() => { clearResetToken(); setNotice('Password updated. Sign in with your new password.'); setAuthOpen(true); }} />
       <a className="skip-link" href="#discover">
         Skip to events
       </a>

@@ -10,6 +10,8 @@ const initializers = [
   require('./OrganizationEmployee').initOrganizationEmployee,
   require('./GuestlistInvitation').initGuestlistInvitation,
   require('./Notification').initNotification,
+  require('./UserActionToken').initUserActionToken,
+  require('./EmailOutbox').initEmailOutbox,
 ];
 
 function initModels(sequelize) {

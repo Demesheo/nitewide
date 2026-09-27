@@ -4,8 +4,10 @@ const { DomainError, notFound, conflict } = require('../domain/errors');
 const { resolveAffiliate } = require('./affiliate-service');
 const { assertGuestlistCapacity } = require('./guestlist-capacity');
 const { createNotificationService } = require('./notification-service');
+const { queueGuestlistEmail } = require('./email-events');
+const { queueGuestlistReviewNeeded } = require('./business-email-events');
 
-function createGuestlistService({ sequelize, models, now = () => new Date() }) {
+function createGuestlistService({ sequelize, models, now = () => new Date(), email = null, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', reviewEmailsEnabled = false }) {
   const notifications = createNotificationService(models);
   async function request(input) {
     return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
@@ -23,13 +25,16 @@ function createGuestlistService({ sequelize, models, now = () => new Date() }) {
       }, { transaction });
       await models.AffiliateAttribution.create({ eventId: event.id, userId: input.userId, orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id, action: 'guestlist', occurredAt: requestedAt, metadata: { status: 'requested' } }, { transaction });
       await models.AuditLog.create({ actorUserId: input.userId, organizationId: event.organizationId, entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.requested', after: { partySize: input.partySize, source: entry.source } }, { transaction });
-      if (models.Notification) {
+      await queueGuestlistEmail({ email, models, entry, event, kind: 'received', customerAppUrl, transaction });
+      if (models.Notification || (reviewEmailsEnabled && email?.enabled)) {
         const requester = await models.User.findByPk(input.userId, { transaction });
         const leaders = event.organizationId
           ? (await models.OrganizationOwner.findAll({ where: { organizationId: event.organizationId }, attributes: ['userId'], transaction })).map((row) => row.userId)
           : [event.creatorUserId];
         const reviewerIds = [affiliate.eventAffiliate?.userId, ...leaders];
-        for (const reviewerId of new Set(reviewerIds.filter((id) => id && id !== input.userId))) await notifications.emit({ userId: reviewerId, eventId: event.id, kind: 'guestlist_request', title: 'Guestlist request', message: `${requester?.displayName || 'A customer'} requests ${input.partySize} ${input.partySize === 1 ? 'spot' : 'spots'} for ${event.title}.`, metadata: { entryId: entry.id, referrerUserId: affiliate.eventAffiliate?.userId || null } }, transaction);
+        const uniqueReviewers = [...new Set(reviewerIds.filter((id) => id && id !== input.userId))];
+        if (models.Notification) for (const reviewerId of uniqueReviewers) await notifications.emit({ userId: reviewerId, eventId: event.id, kind: 'guestlist_request', title: 'Guestlist request', message: `${requester?.displayName || 'A customer'} requests ${input.partySize} ${input.partySize === 1 ? 'spot' : 'spots'} for ${event.title}.`, metadata: { entryId: entry.id, referrerUserId: affiliate.eventAffiliate?.userId || null } }, transaction);
+        if (reviewEmailsEnabled) await queueGuestlistReviewNeeded({ email, models, reviewerIds: uniqueReviewers, entry, event, businessAppUrl, transaction });
       }
       return { entry, requiresApproval: true };
     });
@@ -49,6 +54,7 @@ function createGuestlistService({ sequelize, models, now = () => new Date() }) {
           before: { status: 'confirmed', partySize: entry.partySize, eventAffiliateId: entry.eventAffiliateId },
           after: { status: 'rejected', note: input.note || null } }, { transaction });
         if (models.Notification) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_declined', title: 'Guestlist approval revoked', message: `Your guestlist approval for ${event.title} was revoked.`, metadata: { entryId: entry.id } }, transaction);
+        await queueGuestlistEmail({ email, models, entry, event, kind: 'declined', customerAppUrl, transaction });
         return { entry, qrToken: null };
       }
       if (input.decision === 'approve' ? !['pending', 'rejected'].includes(entry.status) : entry.status !== 'pending') throw conflict('Guestlist request cannot be reviewed in its current state', 'GUESTLIST_ALREADY_REVIEWED');
@@ -57,6 +63,7 @@ function createGuestlistService({ sequelize, models, now = () => new Date() }) {
         await entry.update({ status: 'rejected', reviewedByUserId: input.reviewedByUserId, reviewedAt, reviewNote: input.note || null }, { transaction });
         await models.AuditLog.create({ actorUserId: input.reviewedByUserId, organizationId: event.organizationId, entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.rejected', after: { note: input.note || null } }, { transaction });
         if (models.Notification) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_declined', title: 'Guestlist request declined', message: `Your request for ${event.title} was declined.`, metadata: { entryId: entry.id } }, transaction);
+        await queueGuestlistEmail({ email, models, entry, event, kind: 'declined', customerAppUrl, transaction });
         return { entry, qrToken: null };
       }
 
@@ -65,6 +72,7 @@ function createGuestlistService({ sequelize, models, now = () => new Date() }) {
       await entry.update({ status: 'confirmed', qrTokenHash: qr.hash, reviewedByUserId: input.reviewedByUserId, reviewedAt, reviewNote: input.note || null }, { transaction });
       await models.AuditLog.create({ actorUserId: input.reviewedByUserId, organizationId: event.organizationId, entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.approved', after: { partySize: entry.partySize } }, { transaction });
       if (models.Notification) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_approved', title: 'Guestlist approved', message: `You're on the guestlist for ${event.title}.`, metadata: { entryId: entry.id } }, transaction);
+      await queueGuestlistEmail({ email, models, entry, event, kind: 'approved', customerAppUrl, transaction });
       return { entry, qrToken: qr.token };
     });
   }

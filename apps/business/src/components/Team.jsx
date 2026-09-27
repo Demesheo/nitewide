@@ -90,7 +90,6 @@ export function Team({ session, organizations, onUnauthorized }) {
       setLink(url);
       setInviteOpen(true);
       setRoster(await api(`/business/organizations/${organizationId}/team`, session));
-      window.location.href = `mailto:${encodeURIComponent(renewed.email)}?subject=${encodeURIComponent(`Invitation to ${renewed.organizationName} on Nitewide`)}&body=${encodeURIComponent(`Join ${renewed.organizationName} as ${roleLabel(renewed.role)} using this private link:\n\n${url}\n\nThis link expires in seven days.`)}`;
     } catch (err) { setError(err.message); }
   }
   async function saveRole() {
@@ -149,9 +148,9 @@ export function Team({ session, organizations, onUnauthorized }) {
           <div className="team-role-field"><span>Role</span><Choice label="Role" value={role} onChange={setRole} options={[...(canInviteManager ? [['manager', 'Manager']] : []), ['employee', 'Employee'], ['affiliate', 'Promoter']]} /></div>
           <Button disabled={busy || !organizationId}>{busy ? 'Creating…' : 'Create invitation'}</Button>
         </form>
-        <small>Phone is saved with the invitation for a future optional text invite. Share the link manually for now.</small>
+        <small>The invitation email is queued when email delivery is configured. The private link remains available to copy as a backup. Phone is saved for a future optional text invite.</small>
         {error && <p role="alert" className="error">{error}</p>}
-        {link && <div className="team-link"><p>Share this private link with the {roleLabel(role)}:</p><Input readOnly value={link} aria-label="Invitation link" onFocus={(event) => event.target.select()} /><Button variant="outline" onClick={() => navigator.clipboard.writeText(link)}>Copy link</Button><small>Only the invited email address can accept it. No email is sent automatically yet.</small></div>}
+        {link && <div className="team-link"><p>Private invitation link for the {roleLabel(role)}:</p><Input readOnly value={link} aria-label="Invitation link" onFocus={(event) => event.target.select()} /><Button variant="outline" onClick={() => navigator.clipboard.writeText(link)}>Copy link</Button><small>Only the invited email address can accept it.</small></div>}
         <DialogFooter><DialogClose asChild><Button variant="outline">Close</Button></DialogClose></DialogFooter>
       </DialogContent>
     </Dialog>
@@ -185,7 +184,7 @@ export function Team({ session, organizations, onUnauthorized }) {
         <DialogFooter className="team-remove-dialog-actions"><Button variant="destructive" disabled={memberRemoving} onClick={removeMember}>{memberRemoving ? 'Removing…' : 'Confirm removal'}</Button><Button variant="outline" disabled={memberRemoving} onClick={() => setConfirmRemove(false)}>Keep member</Button></DialogFooter>
       </DialogContent>}
     </Dialog>
-    <section className="panel team-pending"><h2>Pending invitations</h2>{roster?.invitations.length ? <ul>{roster.invitations.map((invitation) => <li key={invitation.id}><span><strong>{invitation.email}</strong><small>{roleLabel(invitation.role)}{invitation.phone ? ` · ${invitation.phone}` : ''} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</small></span><div><Button variant="outline" size="sm" onClick={() => resend(invitation)}>Resend</Button><Button variant="ghost" size="sm" onClick={() => revoke(invitation)}>Delete</Button></div></li>)}</ul> : <p>No pending invitations.</p>}<small>Resend creates a new private link and opens your email app. Nitewide does not send email automatically yet.</small></section>
+    <section className="panel team-pending"><h2>Pending invitations</h2>{roster?.invitations.length ? <ul>{roster.invitations.map((invitation) => <li key={invitation.id}><span><strong>{invitation.email}</strong><small>{roleLabel(invitation.role)}{invitation.phone ? ` · ${invitation.phone}` : ''} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</small></span><div><Button variant="outline" size="sm" onClick={() => resend(invitation)}>Resend</Button><Button variant="ghost" size="sm" onClick={() => revoke(invitation)}>Delete</Button></div></li>)}</ul> : <p>No pending invitations.</p>}<small>Resend renews the private link and queues a new email when delivery is configured. You can also copy the link.</small></section>
   </div>;
 }
 

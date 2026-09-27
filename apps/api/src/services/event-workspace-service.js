@@ -3,6 +3,7 @@ const { randomUUID } = require('node:crypto');
 const { forbidden, notFound, conflict } = require('../domain/errors');
 const { assertEventEditable, eventFinished, offeringSaleState } = require('../domain/event-policy');
 const { employeeReferralCode, leaderReferralCode } = require('./affiliate-service');
+const { queueEventTermsChanged, percent } = require('./business-email-events');
 
 function summarizeEvent({ orders, offerings, people, guests }) {
   const tiers = new Map(offerings.map((o) => [o.id, { id: o.id, name: o.name, kind: o.kind, units: 0, salesCents: 0, admissions: 0 }]));
@@ -69,7 +70,7 @@ function summarizeEvent({ orders, offerings, people, guests }) {
   return { summary, tiers: [...tiers.values()], people: [...referrals.values()].map(({ customerIds, guestlistCustomerIds, ...p }) => ({ ...p, customers: customerIds.size, guestlistCustomers: guestlistCustomerIds.size })), customers: [...customers.values()], channels: [...channels.values()] };
 }
 
-function createEventWorkspaceService({ models: m, permissions, now = () => new Date() }) {
+function createEventWorkspaceService({ models: m, permissions, email = null, businessAppUrl = 'http://localhost:5174/app', now = () => new Date() }) {
   async function roster(event) {
     if (!event.organizationId) return [];
     const include = [{ model: m.User, as: 'user', attributes: ['id', 'displayName', 'email', 'isActive'] }];
@@ -137,7 +138,10 @@ function createEventWorkspaceService({ models: m, permissions, now = () => new D
       const values = { commissionBps: input.commissionBps, status: input.status };
       if (assignment) await assignment.update(values, { transaction });
       else assignment = await m.EventAffiliate.create({ ...values, eventId, userId: person.id, orgAffiliateId: member?.orgAffiliateId || null, code: `NW-${randomUUID()}`, guestlistAllocation: 0 }, { transaction });
-      await m.AuditLog.create({ actorUserId: userId, organizationId: event.organizationId, entityType: 'EventAffiliate', entityId: assignment.id, action: input.status === 'inactive' ? 'event.referrer.removed' : 'event.referrer.updated', before, after: assignment.toJSON() }, { transaction });
+      const audit = await m.AuditLog.create({ actorUserId: userId, organizationId: event.organizationId, entityType: 'EventAffiliate', entityId: assignment.id, action: input.status === 'inactive' ? 'event.referrer.removed' : 'event.referrer.updated', before, after: assignment.toJSON() }, { transaction });
+      if (before && input.status === 'active') await queueEventTermsChanged({ email, models: m, userId: person.id, event,
+        term: 'Commission on future sales', oldValue: percent(before.commissionBps), newValue: percent(input.commissionBps),
+        actionId: audit.id, businessAppUrl, transaction });
       return assignment;
     });
   }

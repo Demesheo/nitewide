@@ -12,6 +12,7 @@ function initUser(sequelize) {
     transactionalSmsConsentAt: DataTypes.DATE,
     marketingSmsConsentAt: DataTypes.DATE,
     phoneVerifiedAt: DataTypes.DATE,
+    emailVerifiedAt: DataTypes.DATE,
     isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     isInternalAdmin: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   }, { sequelize, modelName: 'User', tableName: 'users' });

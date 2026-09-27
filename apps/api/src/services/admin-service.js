@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const { notFound, conflict, forbidden } = require('../domain/errors');
 const { createPasswordRecord } = require('./auth-service');
+const { queueEventEmail, formatTime } = require('./email-events');
 
 const plain = (record) => record?.toJSON ? record.toJSON() : record;
 const money = (value) => Number(value || 0);
@@ -31,7 +32,7 @@ function aggregateAdminSales(orders) {
   return { summary, daily: [...daily.values()].sort((a, b) => a.id.localeCompare(b.id)), events: values(events), organizations: values(organizations) };
 }
 
-function createAdminService({ models, permissions }) {
+function createAdminService({ models, permissions, email = null, customerAppUrl = 'http://localhost:5173' }) {
   async function workspace(userId, query) {
     await permissions.assertInternal(userId);
     const since = new Date(Date.now() - query.days * 86400000);
@@ -112,6 +113,19 @@ function createAdminService({ models, permissions }) {
         actorUserId: userId, organizationId: record.organizationId || null, entityType: config.audit, entityId,
         action: `admin.${entityType}.updated`, before, after: { ...plain(record), adminReason: reason },
       }, { transaction });
+      if (entityType === 'event' && before.status === 'published') {
+        if (record.status === 'cancelled') {
+          await queueEventEmail({ email, models, event: record, kind: 'cancelled',
+            variables: { EVENT_DATE: formatTime(before.startsAt) },
+            customerAppUrl, transaction, key: `admin-cancelled-${record.updatedAt.getTime()}` });
+        } else if (record.status === 'published' && (Math.abs(+new Date(before.startsAt) - +new Date(record.startsAt)) >= 15 * 60 * 1000 || Math.abs(+new Date(before.endsAt) - +new Date(record.endsAt)) >= 15 * 60 * 1000)) {
+          await queueEventEmail({ email, models, event: record, kind: 'timeChange',
+            variables: {
+              OLD_TIME: `${formatTime(before.startsAt)} – ${formatTime(before.endsAt)}`,
+              NEW_TIME: `${formatTime(record.startsAt)} – ${formatTime(record.endsAt)}`,
+            }, customerAppUrl, transaction, key: `admin-time-${record.updatedAt.getTime()}` });
+        }
+      }
     });
     return plain(record);
   }

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "node src/server.js",
     "start": "node src/server.js",
-    "test": "node --test test/**/*.test.js",
+    "test": "node --test test/**/*.test.js email-tests/*.test.js",
+    "test:email:customer:mocked": "node --test email-tests/delivery-check.test.js email-tests/email-auth.test.js email-tests/email-events.test.js email-tests/email-service.test.js",
+    "test:email:business:mocked": "node --test email-tests/business-workflows.test.js",
     "db:migrate": "sequelize-cli db:migrate",
     "db:migrate:undo": "sequelize-cli db:migrate:undo",
     "db:seed": "node src/db/seed.js",

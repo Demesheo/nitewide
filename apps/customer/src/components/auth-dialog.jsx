@@ -15,6 +15,8 @@ import { passwordConfirmationError } from "../lib/password-confirmation";
 
 export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken }) {
   const [register, setRegister] = useState(false);
+  const [forgot, setForgot] = useState(false);
+  const [message, setMessage] = useState('');
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [phone, setPhone] = useState("");
@@ -26,6 +28,8 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
   useEffect(() => {
     if (open) {
       setRegister(Boolean(guestlistInviteToken));
+      setForgot(false);
+      setMessage('');
       setError("");
       setPhone("");
       setPassword("");
@@ -36,6 +40,18 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
     event.preventDefault();
     setError("");
     const form = new FormData(event.currentTarget);
+    if (forgot) {
+      setBusy(true); setMessage('');
+      try {
+        await api('/auth/password-reset/request', { body: { email: form.get('email') } });
+        setMessage('If this email has an account, a reset link will arrive shortly.');
+      } catch (failure) {
+        setError(failure.message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const body = { email: form.get("email"), password: form.get("password") };
     if (register) {
       const message = passwordConfirmationError(body.password, form.get("confirmPassword"));
@@ -85,10 +101,10 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
           <div className="mini-mark">n.</div>
           <p className="eyebrow">GOOD NIGHTS START HERE</p>
           <DialogTitle>
-            {register ? "Make yourself a regular." : "Welcome back."}
+            {forgot ? 'Reset your password.' : register ? "Make yourself a regular." : "Welcome back."}
           </DialogTitle>
           <DialogDescription>
-            {register
+            {forgot ? 'Enter your account email to receive a one-time reset link.' : register
               ? guestlistInviteToken ? "Create an account with the invited email or phone to claim your guestlist place, if space remains." : "One account. Every kind of night."
               : "Your next great night is waiting for you."}
           </DialogDescription>
@@ -117,7 +133,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
               placeholder="you@example.com"
             />
           </label>
-          <label>
+          {!forgot && <label>
             Password
             <Input
               name="password"
@@ -134,8 +150,8 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
-          </label>
-          {register && (
+          </label>}
+          {register && !forgot && (
             <>
               <label>
                 Confirm password
@@ -180,18 +196,21 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
               {error}
             </p>
           )}
+          {message && <p role="status" className="fine-print">{message}</p>}
           <Button disabled={busy || (register && Boolean(confirmationError))} className={register ? "primary-action" : "primary-action dark-glass-action"}>
             {busy ? (
-              <LoadingIndicator>{register ? 'Creating account…' : 'Signing in…'}</LoadingIndicator>
+              <LoadingIndicator>{forgot ? 'Sending…' : register ? 'Creating account…' : 'Signing in…'}</LoadingIndicator>
             ) : (
               <>
-                {register ? "Create account" : "Sign in"}
+                {forgot ? 'Send reset link' : register ? "Create account" : "Sign in"}
                 <ArrowRight />
               </>
             )}
           </Button>
         </form>
+        {!forgot && !register && <p className="auth-switch"><button disabled={busy} onClick={() => { setForgot(true); setError(''); setMessage(''); }}>Forgot password?</button></p>}
         <p className="auth-switch">
+          {forgot ? <button disabled={busy} onClick={() => { setForgot(false); setError(''); setMessage(''); }}>Back to sign in</button> : <>
           {register ? "Already part of the night?" : "New around here?"}{" "}
           <button
             disabled={busy}
@@ -204,6 +223,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
           >
             {register ? "Sign in" : "Create an account"}
           </button>
+          </>}
         </p>
       </DialogContent>
     </Dialog>

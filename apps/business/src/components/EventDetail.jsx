@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Pencil, LockKeyhole, MapPin, CalendarDays, Users, Ticket, CircleDollarSign, Info } from 'lucide-react';
+import { ArrowLeft, Pencil, LockKeyhole, MapPin, CalendarDays, Users, Ticket, CircleDollarSign, Info, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -116,6 +116,24 @@ export function EventDetail({ eventId, session, refreshToken, initialTab = null,
   const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState('');
   const [customer, setCustomer] = useState(null);
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
+  const [instructions, setInstructions] = useState('');
+  const [instructionsBusy, setInstructionsBusy] = useState(false);
+  const [instructionsError, setInstructionsError] = useState('');
+  async function sendInstructions(event) {
+    event.preventDefault();
+    setInstructionsBusy(true); setInstructionsError('');
+    try {
+      const result = await api(`/business/events/${eventId}/instructions`, session, { method: 'POST', body: JSON.stringify({ instructions }) });
+      setInstructionsOpen(false); setInstructions('');
+      setNotice(`Instructions queued for ${result.queued} ${result.queued === 1 ? 'attendee' : 'attendees'}.`);
+    } catch (failure) {
+      if (failure.status === 401) onUnauthorized();
+      else setInstructionsError(failure.message);
+    } finally {
+      setInstructionsBusy(false);
+    }
+  }
   useEffect(() => {
     let active = true; setLoading(true); setError('');
     api(`/business/events/${eventId}/detail`, session).then((value) => { if (active) setData(value); }).catch((e) => { if (active) { if (e.status === 401) onUnauthorized(); else setError(e.message); } }).finally(() => {if (active) setLoading(false);});
@@ -132,6 +150,7 @@ export function EventDetail({ eventId, session, refreshToken, initialTab = null,
     <div className="event-detail-nav"><Button variant="ghost" onClick={onBack}><ArrowLeft/> {ownOnly ? 'My events' : 'All events'}</Button><span>{ownOnly ? 'Your referrals and customers only' : 'Full event history · All sales channels'}</span></div>
     <section className="event-detail-hero"><span className={`event-detail-status status-pill ${phase}`}>{phase === 'past' ? 'Past · read only' : phase}</span>{event.imageUrl ? <img className="event-detail-flyer" src={mediaSrc(event.imageUrl)} alt={`${event.title} flyer`}/> : <div className="event-detail-flyer event-art-placeholder"><CalendarDays size={35}/></div>}<div className="event-detail-heading"><h2>{event.title}</h2><p><CalendarDays size={16}/>{eventDateLabel(event)} · {new Date(event.startsAt).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:event.location?.timezone || 'UTC',timeZoneName:'short'})}</p>{event.location?.name && <p className="event-detail-venue"><MapPin size={16}/>{event.location.name}</p>}{(event.location?.addressLine1 || event.location?.city) && <p className="event-detail-address">{[event.location?.addressLine1, [event.location?.city, event.location?.region, event.location?.postalCode].filter(Boolean).join(', ')].filter(Boolean).join(', ')}</p>}</div>{event.canEdit ? <Button variant="outline" onClick={() => onEdit(event)}><Pencil/> Edit event</Button> : phase === 'past' && <span className="event-readonly"><LockKeyhole size={16}/> Event closed</span>}{event.summary && <p className="event-detail-summary">{event.summary}</p>}</section>
     {notice && <p className="notice" role="status">{notice}</p>}
+    {event.canEdit && event.status === 'published' && <div className="event-update-action"><Button variant="outline" onClick={() => setInstructionsOpen(true)}><Mail size={16}/> Send attendee instructions</Button></div>}
     {phase !== 'past' && <ReferralLink event={event} session={session} revision={revision} onUnauthorized={onUnauthorized} onInvited={() => saved('Guestlist invitation created.')}/>}
     <div className="event-metrics">{ownOnly ? <><Metric icon={CircleDollarSign} label="Your referred sales" value={money(s.salesCents)} detail="Ticket and package value before fees"/><Metric icon={Ticket} label="Your paid orders" value={s.orders.toLocaleString()}/><Metric icon={Users} label="Your admissions" value={s.admissions.toLocaleString()} detail="From your credited purchases"/><Metric icon={CircleDollarSign} label="Your commission" value={money(s.commissionCents)} detail="Recorded earnings · not payout status"/></> : <><Metric icon={CircleDollarSign} label="Total sales" value={money(s.salesCents)}/><Metric icon={CircleDollarSign} label="Commissions" value={money(s.commissionCents)}/><Metric icon={Ticket} label="Paid orders" value={s.orders.toLocaleString()}/><Metric icon={Users} label="Check-ins / expected" value={`${s.checkedIn.toLocaleString()} / ${(s.admissions + s.guestlistPlaces).toLocaleString()}`}/></>}</div>
     <Tabs defaultValue={initialTab || 'sales'} className="event-detail-tabs"><TabsList aria-label="Event detail sections"><TabsTrigger value="sales">Sales</TabsTrigger><TabsTrigger value="tickets">Offerings</TabsTrigger><TabsTrigger value="people">Team</TabsTrigger><TabsTrigger value="guestlist">Guestlist</TabsTrigger></TabsList>
@@ -143,5 +162,16 @@ export function EventDetail({ eventId, session, refreshToken, initialTab = null,
       <TabsContent value="guestlist"><Guestlists event={event} initialEntryId={initialGuestlistEntryId} refreshToken={revision} onChanged={() => setRevision((value) => value + 1)} session={session} expire={onUnauthorized}/></TabsContent>
     </Tabs>
     <Dialog open={Boolean(customer)} onOpenChange={(v) => {if (!v) setCustomer(null);}}><DialogContent className="event-customer-dialog"><DialogHeader><DialogTitle>{customer?.name}</DialogTitle><DialogDescription>{customer?.email}</DialogDescription></DialogHeader>{customer && <><div className="event-financials"><div><span>Event spending</span><strong>{money(customer.salesCents)}</strong></div><div><span>Guestlist status</span><strong>{customer.guestlistStatuses.map((v) => v.replaceAll('_',' ')).join(', ') || 'No request'}</strong></div></div><div className="event-customer-purchases"><EventTable rows={customer.purchases.map((p,i) => ({...p,id:String(i)}))} defaultSort="salesCents" defaultDescending empty="No purchases for this event" columns={[{key:'name',label:'Purchased'},{key:'quantity',label:'Quantity',numeric:true},{key:'salesCents',label:'Amount',numeric:true,render:(p) => money(p.salesCents)},{key:'referredBy',label:'Source'}]}/></div></>}</DialogContent></Dialog>
+    <Dialog open={instructionsOpen} onOpenChange={(open) => { if (!instructionsBusy) { setInstructionsOpen(open); setInstructionsError(''); } }}>
+      <DialogContent className="event-instructions-dialog sm:max-w-lg">
+        <DialogHeader><DialogTitle>Send attendee instructions</DialogTitle><DialogDescription>Email everyone with a paid order or active guestlist entry for this event. This cannot be recalled.</DialogDescription></DialogHeader>
+        <form onSubmit={sendInstructions}>
+          <label htmlFor="attendee-instructions">Instructions</label>
+          <textarea id="attendee-instructions" value={instructions} onChange={(event) => setInstructions(event.target.value)} minLength={3} maxLength={1800} required rows={5} placeholder="Arrival time, entrance, dress code, or other event-specific details" />
+          {instructionsError && <p className="error" role="alert">{instructionsError}</p>}
+          <DialogFooter><Button type="button" variant="outline" disabled={instructionsBusy} onClick={() => setInstructionsOpen(false)}>Cancel</Button><Button type="submit" disabled={instructionsBusy || instructions.trim().length < 3}>{instructionsBusy ? 'Queueing…' : 'Send email'}</Button></DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   </div>;
 }

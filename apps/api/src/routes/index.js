@@ -14,14 +14,15 @@ const { z } = require('zod');
 const { optionalPhone } = require('../domain/phone');
 const { createCustomerAccountService } = require('../services/customer-account-service');
 const { createAdmissionsService } = require('../services/admissions-service');
+const { sendAttendeeInstructions } = require('../services/attendee-instructions-service');
 
-function createRouter({ publicController, managementController, commerceController, authController, requireUser, models, permissions, invitations, notifications, tokenSecret }) {
+function createRouter({ publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', tokenSecret }) {
   const router = express.Router();
-  const business = createBusinessService({ models, permissions });
-  const admin = createAdminService({ models, permissions });
+  const business = createBusinessService({ models, permissions, email, customerAppUrl, businessAppUrl });
+  const admin = createAdminService({ models, permissions, email, customerAppUrl });
   const analytics = createAnalyticsService({ models, permissions });
-  const team = createTeamService({ models, permissions });
-  const eventWorkspace = createEventWorkspaceService({ models, permissions });
+  const team = createTeamService({ models, permissions, email, businessAppUrl });
+  const eventWorkspace = createEventWorkspaceService({ models, permissions, email, businessAppUrl });
   const referralLinks = createReferralLinkService({ models });
   const account = createCustomerAccountService({ models, tokenSecret });
   const admissions = createAdmissionsService({ models, permissions });
@@ -36,7 +37,12 @@ function createRouter({ publicController, managementController, commerceControll
   router.get('/customer/connections', asyncHandler(async (req, res) => res.json({ data: await account.connections(req.userId, z.object({ eventId: z.string().uuid().optional() }).parse(req.query)) })));
   router.get('/customer/connections/summary', asyncHandler(async (req, res) => res.json({ data: await account.connectionHistory(req.userId) })));
   router.patch('/customer/profile', validate(z.object({ displayName: z.string().trim().min(1).max(120), phone: optionalPhone, marketingConsent: z.boolean(), transactionalSmsConsent: z.boolean(), marketingSmsConsent: z.boolean() }).strict()), asyncHandler(async (req, res) => res.json({ data: await account.updateProfile(req.userId, req.body) })));
-  router.patch('/auth/profile', requireUser, validate(z.object({ displayName: z.string().trim().min(1).max(120), email: z.string().trim().toLowerCase().email().max(320), confirmEmail: z.string().trim().toLowerCase().email().max(320).optional(), phone: optionalPhone, confirmPhone: optionalPhone.optional() }).strict()), asyncHandler(async (req, res) => res.json({ data: await account.updateIdentity(req.userId, req.body) })));
+  router.patch('/auth/profile', requireUser, validate(z.object({ displayName: z.string().trim().min(1).max(120), email: z.string().trim().toLowerCase().email().max(320), confirmEmail: z.string().trim().toLowerCase().email().max(320).optional(), phone: optionalPhone, confirmPhone: optionalPhone.optional() }).strict()), asyncHandler(async (req, res) => {
+    const prior = await models.User.findByPk(req.userId, { attributes: ['email'] });
+    const updated = await account.updateIdentity(req.userId, req.body);
+    if (prior?.email !== updated.email) await auth.requestEmailVerification(req.userId);
+    res.json({ data: updated });
+  }));
   const eventPerson = z.object({ userId: z.string().uuid().optional(), email: z.string().trim().email().optional(), commissionBps: z.number().int().min(0).max(4000), status: z.enum(['active', 'inactive']).default('active') }).refine((v) => Boolean(v.userId) !== Boolean(v.email), 'Provide a user or an email');
   router.get('/business/events/:eventId/detail', requireUser, asyncHandler(async (req, res) => res.json({ data: await eventWorkspace.detail(req.userId, req.params.eventId) })));
   router.get('/business/events/:eventId/referral-link', requireUser, asyncHandler(async (req, res) => res.json({ data: await referralLinks.ownLink(req.userId, req.params.eventId) })));
@@ -64,8 +70,15 @@ function createRouter({ publicController, managementController, commerceControll
   router.get('/business/workspace', requireUser, asyncHandler(async (req, res) => res.json({ data: await business.workspace(req.userId, businessSchemas.reportQuery.parse(req.query)) })));
   router.post('/business/events', requireUser, validate(businessSchemas.eventEditor), asyncHandler(async (req, res) => res.status(201).json({ data: await business.saveEvent(req.userId, null, req.body) })));
   router.put('/business/events/:eventId', requireUser, validate(businessSchemas.eventEditor), asyncHandler(async (req, res) => res.json({ data: await business.saveEvent(req.userId, req.params.eventId, req.body) })));
+  router.post('/business/events/:eventId/instructions', requireUser, validate(z.object({ instructions: z.string().trim().min(3).max(1800) }).strict()), asyncHandler(async (req, res) => {
+    res.status(202).json({ data: await sendAttendeeInstructions({ models, permissions, email, customerAppUrl, businessAppUrl, userId: req.userId, eventId: req.params.eventId, instructions: req.body.instructions }) });
+  }));
   router.post('/auth/register', validate(schemas.register), asyncHandler(authController.register));
   router.post('/auth/sign-in', validate(schemas.signIn), asyncHandler(authController.signIn));
+  router.post('/auth/password-reset/request', validate(z.object({ email: z.string().trim().email().max(320) }).strict()), asyncHandler(authController.requestPasswordReset));
+  router.post('/auth/password-reset/complete', validate(z.object({ token: z.string().min(20).max(200), password: schemas.password }).strict()), asyncHandler(authController.resetPassword));
+  router.post('/auth/email/verify', validate(z.object({ token: z.string().min(20).max(200) }).strict()), asyncHandler(authController.verifyEmail));
+  router.post('/auth/email/resend', requireUser, asyncHandler(authController.requestEmailVerification));
   router.get('/auth/me', requireUser, asyncHandler(authController.me));
   router.get('/events', asyncHandler(publicController.listEvents));
   router.get('/events/:eventId', asyncHandler(publicController.getEvent));

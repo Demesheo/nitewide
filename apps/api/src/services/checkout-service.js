@@ -5,8 +5,9 @@ const { DomainError, notFound, conflict } = require('../domain/errors');
 const { resolveAffiliate } = require('./affiliate-service');
 const { eventFinished, offeringSaleState } = require('../domain/event-policy');
 const { createNotificationService } = require('./notification-service');
+const { queuePurchaseEmail } = require('./email-events');
 
-function createCheckoutService({ sequelize, models, now = () => new Date(), environment = process.env.NODE_ENV || 'development', hostedDemo = false }) {
+function createCheckoutService({ sequelize, models, now = () => new Date(), environment = process.env.NODE_ENV || 'development', hostedDemo = false, email = null, customerAppUrl = 'http://localhost:5173' }) {
   const notifications = createNotificationService(models);
   return async function checkout(input) {
     if (hostedDemo && input.payment && input.payment.provider !== 'demo') throw new DomainError('Only mock payments are available in the hosted demo', { code: 'DEMO_ONLY' });
@@ -68,6 +69,7 @@ function createCheckoutService({ sequelize, models, now = () => new Date(), envi
       await models.Payment.create({ orderId: order.id, provider: input.payment?.provider || 'free', providerReference: input.payment?.reference || `free-${order.id}`, status: 'succeeded', amountCents: pricing.totalCents, currency: offerings[0].currency, processedAt: current }, { transaction });
       await models.AffiliateAttribution.create({ eventId: event.id, userId: input.buyerUserId, orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id, action: 'purchase', orderId: order.id, occurredAt: current }, { transaction });
       await models.AuditLog.create({ actorUserId: input.buyerUserId, organizationId: event.organizationId, entityType: 'Order', entityId: order.id, action: demo ? 'order.demo' : 'order.paid', after: { totalCents: pricing.totalCents, demo } }, { transaction });
+      await queuePurchaseEmail({ email, models, order, event, lines, demo, buyerUserId: input.buyerUserId, customerAppUrl, transaction });
       if (models.Notification) {
         const buyer = await models.User.findByPk(input.buyerUserId, { transaction });
         const names = lines.map(({ offering, quantity }) => `${quantity} × ${offering.name}`).join(', ');

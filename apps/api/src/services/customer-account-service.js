@@ -9,7 +9,7 @@ const { ADMISSION_WINDOW_MS } = require('../domain/admission-policy');
 function profile(user) {
   return { id: user.id, displayName: user.displayName, email: user.email, phone: user.phone,
     marketingConsentAt: user.marketingConsentAt, transactionalSmsConsentAt: user.transactionalSmsConsentAt,
-    marketingSmsConsentAt: user.marketingSmsConsentAt, phoneVerifiedAt: user.phoneVerifiedAt };
+    marketingSmsConsentAt: user.marketingSmsConsentAt, phoneVerifiedAt: user.phoneVerifiedAt, emailVerifiedAt: user.emailVerifiedAt };
 }
 function eventSummary(event) {
   if (!event) return null;
@@ -107,6 +107,7 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
       }
       const before = profile(user);
       const updates = { email, displayName: input.displayName.trim(), phone: input.phone };
+      if (email !== user.email) updates.emailVerifiedAt = null;
       if (input.phone !== user.phone) updates.phoneVerifiedAt = null;
       try { await user.update(updates, { transaction }); }
       catch (error) {

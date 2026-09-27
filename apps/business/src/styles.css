@@ -32,6 +32,11 @@
 .attendee-info-icon { display: none; }
 .event-detail-nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 38px; }
 .event-detail-nav > span { font-size: 11px; color: #aaa3b8; text-align: right; }
+.event-update-action { display: flex; justify-content: flex-end; }
+.event-instructions-dialog form { display: grid; gap: 12px; }
+.event-instructions-dialog form > label { font-size: 13px; color: #d4cce1; }
+.event-instructions-dialog textarea { width: 100%; min-height: 120px; resize: vertical; border: 1px solid #4a4058; border-radius: 10px; padding: 12px; background: #211d29; color: #f7f2fb; font: inherit; line-height: 1.5; }
+.event-instructions-dialog textarea:focus-visible { outline: 2px solid #bda7ed; outline-offset: 2px; }
 .event-detail-hero { position: relative; display: grid; grid-template-columns: 104px minmax(0,1fr) auto; align-items: start; gap: 16px 22px; border: 1px solid #40364e; border-radius: 18px; padding: 22px; background: radial-gradient(ellipse at 8% 0%, #38254b50, transparent 66%), linear-gradient(145deg, #211e29, #19171f); box-shadow: inset 0 1px #ffffff08, 0 12px 32px #0002; }
 .event-detail-status { position: absolute; top: 14px; right: 18px; }
 .event-detail-flyer { width: 104px; height: 142px; margin-top: 22px; object-fit: cover; border-radius: 10px; flex-shrink: 0; }

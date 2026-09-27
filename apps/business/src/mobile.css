@@ -98,6 +98,7 @@
   .event-detail-heading p { line-height: 1.5; overflow-wrap: anywhere; }
   .event-detail-nav { align-items: center; flex-direction: row; }
   .event-detail-nav > span { max-width: 54%; line-height: 1.4; }
+  .event-update-action > button { width: 100%; justify-content: center; }
   .event-detail-hero { display: grid; grid-template-columns: 70px minmax(0,1fr); align-items: start; gap: 12px; padding: 15px; }
   .event-detail-hero > .event-detail-flyer { align-self: start; margin-top: 23px; }
   .event-detail-hero > .event-detail-heading { grid-column: 2; grid-row: 1; padding-top: 23px; }

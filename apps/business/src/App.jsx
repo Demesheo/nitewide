@@ -411,7 +411,7 @@ function Performance({ data, onEvents }) {
 export default function App() {
   const [session, setSession] = useState(readSession);
   const [inviteToken, setInviteToken] = useState(() => new URLSearchParams(window.location.search).get('invite'));
-  const [page, setPage] = useState("overview");
+  const [page, setPage] = useState(() => new URLSearchParams(window.location.search).has('event') ? 'events' : new URLSearchParams(window.location.search).get('section') === 'team' ? 'team' : 'overview');
   const [selectedOrganizations, setSelectedOrganizations] = useState([]);
   const [selectedVenues, setSelectedVenues] = useState([]);
   const [hasIndependentWorkspace, setHasIndependentWorkspace] = useState(false);
@@ -423,9 +423,9 @@ export default function App() {
   const [loginNotice, setLoginNotice] = useState("");
   const [revision, setRevision] = useState(0);
   const [editor, setEditor] = useState(null);
-  const [eventToOpen, setEventToOpen] = useState(null);
-  const [guestlistEntryToOpen, setGuestlistEntryToOpen] = useState(null);
-  const [eventTabToOpen, setEventTabToOpen] = useState(null);
+  const [eventToOpen, setEventToOpen] = useState(() => new URLSearchParams(window.location.search).get('event'));
+  const [guestlistEntryToOpen, setGuestlistEntryToOpen] = useState(() => new URLSearchParams(window.location.search).get('entry'));
+  const [eventTabToOpen, setEventTabToOpen] = useState(() => new URLSearchParams(window.location.search).get('tab'));
   const [eventNavigationRevision, setEventNavigationRevision] = useState(0);
   const [mobileNav, setMobileNav] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);

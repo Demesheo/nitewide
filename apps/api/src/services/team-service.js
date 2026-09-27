@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const { Op } = require('sequelize');
 const { forbidden, notFound, conflict } = require('../domain/errors');
 const { assertEventEditable } = require('../domain/event-policy');
+const { queueTeamInvitation, queuePromoterInvitation, queueAccessAccepted, queueAccessChanged } = require('./business-email-events');
 
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 function rosterPeople(leaders, employees, promoters) {
@@ -16,7 +17,7 @@ function rosterPeople(leaders, employees, promoters) {
   for (const entry of promoters.filter((row) => row.status === 'active')) add(entry, 'Promoter');
   return [...people.values()];
 }
-function createTeamService({ models, permissions }) {
+function createTeamService({ models, permissions, email: emailService = null, businessAppUrl = 'http://localhost:5174/app' }) {
   async function assertManager(userId, organizationId) {
     await permissions.assertManageOrganization(userId, organizationId);
     const organization = await models.Organization.findByPk(organizationId);
@@ -41,13 +42,14 @@ function createTeamService({ models, permissions }) {
     const token = crypto.randomBytes(32).toString('base64url');
     const invitation = await models.TeamInvitation.create({ organizationId, invitedByUserId: userId, email, phone: input.phone, role: input.role, tokenHash: hash(token), expiresAt: new Date(Date.now() + 7 * 86400000) });
     await models.AuditLog.create({ actorUserId: userId, organizationId, entityType: 'TeamInvitation', entityId: invitation.id, action: 'team.invited', after: { email, role: input.role } });
+    const queued = await queueTeamInvitation({ email: emailService, invitation, organization, token, businessAppUrl });
     // Future Twilio invitation delivery belongs after the invitation is saved.
     // Send only when the inviter explicitly chooses SMS, and log delivery status;
     // this inviter supplied number is never copied to the invitee's User record.
-    return { id: invitation.id, organizationName: organization.name, email, phone: invitation.phone, role: input.role, token, expiresAt: invitation.expiresAt };
+    return { id: invitation.id, organizationName: organization.name, email, phone: invitation.phone, role: input.role, token, expiresAt: invitation.expiresAt, delivery: queued ? 'queued' : 'manual' };
   }
   async function changeRole(actorUserId, organizationId, memberUserId, nextRole) {
-    await assertManager(actorUserId, organizationId);
+    const organization = await assertManager(actorUserId, organizationId);
     if (actorUserId === memberUserId) throw conflict('You cannot change your own organization role');
     const validRoles = ['manager', 'employee', 'affiliate'];
     if (!validRoles.includes(nextRole)) throw conflict('Unsupported team role');
@@ -75,12 +77,14 @@ function createTeamService({ models, permissions }) {
       } else {
         await models.OrgAffiliate.create({ organizationId, userId: memberUserId, code: `org-${crypto.randomUUID()}`, defaultCommissionBps: 0, defaultGuestlistAllocation: 0, status: 'active' }, { transaction });
       }
-      await models.AuditLog.create({ actorUserId, organizationId, entityType: 'OrganizationTeamMember', entityId: memberUserId, action: 'team.member.role_changed', before: { role: before }, after: { role: nextRole } }, { transaction });
+      const audit = await models.AuditLog.create({ actorUserId, organizationId, entityType: 'OrganizationTeamMember', entityId: memberUserId, action: 'team.member.role_changed', before: { role: before }, after: { role: nextRole } }, { transaction });
+      await queueAccessChanged({ email: emailService, models, userId: memberUserId, organization,
+        oldRole: before, newRole: nextRole, actionId: audit.id, businessAppUrl, transaction });
       return { userId: memberUserId, role: nextRole };
     });
   }
   async function removeMember(actorUserId, organizationId, memberUserId) {
-    await assertManager(actorUserId, organizationId);
+    const organization = await assertManager(actorUserId, organizationId);
     if (actorUserId === memberUserId) throw conflict('You cannot remove your own organization role');
     return models.Organization.sequelize.transaction(async (transaction) => {
       const owner = await models.OrganizationOwner.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE });
@@ -107,7 +111,9 @@ function createTeamService({ models, permissions }) {
           if (organizationScoped && assignment.status === 'active') await assignment.update({ status: 'inactive' }, { transaction });
         }
       }
-      await models.AuditLog.create({ actorUserId, organizationId, entityType: 'OrganizationTeamMember', entityId: memberUserId, action: 'team.member.removed', before, after: { status: 'inactive' } }, { transaction });
+      const audit = await models.AuditLog.create({ actorUserId, organizationId, entityType: 'OrganizationTeamMember', entityId: memberUserId, action: 'team.member.removed', before, after: { status: 'inactive' } }, { transaction });
+      await queueAccessChanged({ email: emailService, models, userId: memberUserId, organization,
+        oldRole: before.role, newRole: 'removed', actionId: audit.id, businessAppUrl, transaction });
       return { userId: memberUserId, removed: true };
     });
   }
@@ -134,8 +140,9 @@ function createTeamService({ models, permissions }) {
       const values = {tokenHash:hash(token),expiresAt,invitedByUserId:userId,phone:input.phone,commissionBps:input.commissionBps ?? 0};
       const row = pending ? await pending.update(values,{transaction}) : await models.TeamInvitation.create({...values,eventId,organizationId:null,email,role:'affiliate'},{transaction});
       await models.AuditLog.create({actorUserId:userId,organizationId:event.organizationId,entityType:'TeamInvitation',entityId:row.id,action:'event.promoter.invited',after:{eventId,email,commissionBps:values.commissionBps}},{transaction});
+      const queued = await queuePromoterInvitation({ email: emailService, invitation: row, event, token, businessAppUrl, transaction });
       // Future Twilio send can use row.phone only after an explicit SMS send action.
-      return {id:row.id,eventId,eventTitle:event.title,email,phone:row.phone,role:'affiliate',commissionBps:values.commissionBps,token,expiresAt,delivery:'manual'};
+      return {id:row.id,eventId,eventTitle:event.title,email,phone:row.phone,role:'affiliate',commissionBps:values.commissionBps,token,expiresAt,delivery:queued ? 'queued' : 'manual'};
     });
   }
   async function revokeEvent(userId,eventId,invitationId) {
@@ -162,7 +169,8 @@ function createTeamService({ models, permissions }) {
     const token = crypto.randomBytes(32).toString('base64url');
     await row.update({ tokenHash: hash(token), expiresAt: new Date(Date.now() + 7 * 86400000) });
     await models.AuditLog.create({ actorUserId: userId, organizationId, entityType: 'TeamInvitation', entityId: row.id, action: 'team.invitation.renewed', after: { email: row.email, role: row.role } });
-    return { email: row.email, phone: row.phone, role: row.role, organizationName: organization.name, token, expiresAt: row.expiresAt };
+    const queued = await queueTeamInvitation({ email: emailService, invitation: row, organization, token, businessAppUrl });
+    return { email: row.email, phone: row.phone, role: row.role, organizationName: organization.name, token, expiresAt: row.expiresAt, delivery: queued ? 'queued' : 'manual' };
   }
   async function accept(userId, token) {
     return models.TeamInvitation.sequelize.transaction(async (transaction) => {
@@ -186,6 +194,7 @@ function createTeamService({ models, permissions }) {
         await models.AuditLog.create({actorUserId:userId,organizationId:event.organizationId,entityType:'EventAffiliate',entityId:assignment.id,action:'event.promoter.invitation_terms_accepted',before,after:assignment.toJSON()},{transaction});
         await row.update({acceptedAt:new Date(),acceptedByUserId:userId},{transaction});
         await models.AuditLog.create({actorUserId:userId,organizationId:event.organizationId,entityType:'TeamInvitation',entityId:row.id,action:'event.promoter.accepted',after:{eventId:row.eventId,userId}},{transaction});
+        await queueAccessAccepted({ email: emailService, models, invitation: row, invitee: user, context: event.title, transaction });
         return {eventId:row.eventId,role:'affiliate'};
       } else if (row.role === 'employee') {
         const membership = await models.OrganizationEmployee.findOne({ where: { organizationId: row.organizationId, userId }, transaction });
@@ -201,6 +210,10 @@ function createTeamService({ models, permissions }) {
       } else throw conflict('Invalid invitation role');
       await row.update({ acceptedAt: new Date(), acceptedByUserId: userId }, { transaction });
       await models.AuditLog.create({ actorUserId: userId, organizationId: row.organizationId, entityType: 'TeamInvitation', entityId: row.id, action: 'team.invitation.accepted', after: { role: row.role, userId } }, { transaction });
+      if (emailService?.enabled) {
+        const organization = await models.Organization.findByPk(row.organizationId, { transaction });
+        await queueAccessAccepted({ email: emailService, models, invitation: row, invitee: user, context: organization?.name || 'your organization', transaction });
+      }
       return { organizationId: row.organizationId, role: row.role };
     });
   }

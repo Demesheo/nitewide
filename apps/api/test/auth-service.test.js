@@ -31,7 +31,7 @@ test('registration normalizes an optional phone and keeps SMS choices separate',
     sequelize: { transaction: async (fn) => fn({}) },
     models: {
       User: { create: async (values) => { saved = values; return { id: 'user-1', ...values }; } },
-      UserCredential: { create: async () => {} }, AuditLog: { create: async () => {} },
+      UserCredential: { create: async () => {}, findByPk: async () => ({ passwordChangedAt: now }) }, AuditLog: { create: async () => {} },
       OrganizationOwner: { findAll: async () => [] }, OrganizationEmployee: { count: async () => 0 },
       OrgAffiliate: { count: async () => 0 }, EventAffiliate: { count: async () => 0 }, Event: { count: async () => 0 },
     },

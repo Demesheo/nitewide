@@ -1,7 +1,8 @@
 const { notFound, conflict } = require('../domain/errors');
 const { assertEventEditable } = require('../domain/event-policy');
+const { queueEventTermsChanged } = require('../services/business-email-events');
 
-function createManagementController({ models, permissions }) {
+function createManagementController({ models, permissions, email = null, businessAppUrl = 'http://localhost:5174/app' }) {
   return {
     createOrganization: async (req, res) => {
       const organization = await models.Organization.sequelize.transaction(async (transaction) => {
@@ -54,7 +55,10 @@ function createManagementController({ models, permissions }) {
         if (limit < used) throw conflict(`Promoter guestlist already has ${used} approved guests`);
         const before = { guestlistAllocation: affiliate.guestlistAllocation };
         await affiliate.update({ guestlistAllocation: req.body.guestlistAllocation }, { transaction });
-        await models.AuditLog.create({ actorUserId: req.userId, organizationId: event.organizationId, entityType: 'EventAffiliate', entityId: affiliate.id, action: 'event_affiliate.guestlist_allocation.updated', before, after: { guestlistAllocation: affiliate.guestlistAllocation } }, { transaction });
+        const audit = await models.AuditLog.create({ actorUserId: req.userId, organizationId: event.organizationId, entityType: 'EventAffiliate', entityId: affiliate.id, action: 'event_affiliate.guestlist_allocation.updated', before, after: { guestlistAllocation: affiliate.guestlistAllocation } }, { transaction });
+        await queueEventTermsChanged({ email, models, userId: affiliate.userId, event: lockedEvent,
+          term: 'Guestlist allocation', oldValue: String(before.guestlistAllocation ?? 'Inherited'), newValue: String(affiliate.guestlistAllocation ?? 'Inherited'),
+          actionId: audit.id, businessAppUrl, transaction });
         return affiliate;
       });
       res.json({ data });

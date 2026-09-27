@@ -4,6 +4,8 @@ Nitewide is a web-first event discovery, commerce, guestlist, promoter, admissio
 
 Business **Admissions** now supports iPhone rear-camera QR scanning, photo scanning, and searchable manual check-in for owners, managers, employees, independent creators, and assigned promoters. Confirmed, Already admitted, and Invalid results share one atomic backend with customer pass updates and attendance reporting. See [Admissions and mobile check-in](docs/ADMISSIONS.md) for event windows, access, API, and testing.
 
+Transactional account, purchase, guestlist, and event-update emails use published Resend templates and a durable encrypted outbox. Live delivery requires a verified sender domain, a server-side sending key, and an HTTPS customer app URL. See [Resend setup, template list, triggers, and testing](docs/TRANSACTIONAL_EMAIL.md). The Codex Resend connection can manage templates but does not configure the application runtime.
+
 This repository contains:
 
 - `apps/api` — Express, Sequelize, PostgreSQL, and PostGIS REST API
@@ -96,8 +98,16 @@ npm run dev:customer
 npm run dev:business
 npm run dev:admin
 
-# Automated API and domain tests
+# Automated API, domain, and mocked email tests (0 email sends)
 npm test
+
+# Run either mocked email suite on its own (0 email sends)
+npm run test:email:customer:mocked
+npm run test:email:business:mocked
+
+# Explicit, quota-consuming Resend simulator checks (never automatic)
+npm run test:email:customer:simulated
+npm run test:email:business:simulated
 
 # Production builds of all web apps
 npm run build
@@ -111,6 +121,16 @@ The API development process uses a normal Node process for compatibility with ma
 The assumptions, outputs, valuation sensitivities, and evidence gates behind the Florida model are documented in [docs/FLORIDA_50M_MODEL.md](docs/FLORIDA_50M_MODEL.md).
 
 Tests use Node's test runner and exercise the REST boundary, pricing rules, promoter attribution precedence, transactional checkout behavior, inventory oversell rejection, business reporting, event edit protections, and frontend helpers. Fast tests inject repositories. An optional real-PostgreSQL HTTP workflow runs with `RUN_DB_TESTS=1 node --test apps/api/test/business-integration.test.js`; it creates and cleans only its isolated fixtures, without reseeding your data. To verify all seeded teams and their Overview/Analytics figures against the local database without writing to it, run `RUN_DB_TESTS=1 node --test apps/api/test/seed-team-integration.test.js` after the demo seed.
+
+The customer and business mocked email suites run automatically in `npm test`, including GitHub's build/deploy verification. They use isolated fixtures and mocked provider requests, so they consume **0 Resend sends**. The two simulated commands are separate manual actions; neither is invoked by `npm test`, `npm run build`, Docker, or deployment. See [docs/TRANSACTIONAL_EMAIL.md](docs/TRANSACTIONAL_EMAIL.md).
+
+The root `npm test` command also blanks Resend credentials for its child test processes, so a local `.env` cannot accidentally enable provider sends during the standard suite.
+
+To opt into a customer provider delivery-event check, use `npm run test:email:customer:simulated`. It first requires the customer mocked suite to pass, then exercises all 11 implemented customer workflows (except waitlisted) through isolated application actions and checks that each message reaches Resend's **delivered** event. **Quota cost: 11 sends per complete run** (monthly quota, plus daily quota on the free plan); a partial run can still count 1–11 sends. The command uses only `delivered+...@resend.dev`, requires local full-access Resend read permission (on the existing key or an optional separate read key), and is blocked in CI and the hosted demo. See [the email testing guide](docs/TRANSACTIONAL_EMAIL.md) for the exact workflow list and safeguards.
+
+For a focused retry of the guestlist-request template, use `npm run test:email:customer:simulated -- --only=guestlist-request`; this sends **one** quota-counting simulator email. To continue after the first five customer cases were already delivered, `npm run test:email:customer:simulated -- --only=remaining` sends only the other **six** cases. Neither option repeats the entire suite.
+
+Business-action delivery has its own opt-in command: `npm run test:email:business:simulated`. It exercises 14 actions across eight published business templates, uses delivered-only simulator recipients, and costs **14 sends per complete run**. `npm run test:email:business:mocked` consumes no quota and also runs within `npm test`. Neither simulated command runs automatically.
 
 ## Demo users and authentication
 
