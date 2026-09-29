@@ -12,7 +12,7 @@ export function EventCard({ event, saved, onSave, onOpen, children, actionLabel 
     ? Math.min(...offerings.map((o) => o.priceCents))
     : null;
   return (
-    <article className={`event-card${isPremiumHost(event) ? ' premium-host-card' : ''}`}>
+    <article className={`event-card${isPremiumHost(event) ? ' premium-host-card' : ''}`} onClick={(click) => { if (!click.target.closest('button')) onOpen?.(); }}>
       <div className="card-image">
         <div className="image-link">
           <EventArtwork event={event} loading="lazy" />
@@ -27,10 +27,11 @@ export function EventCard({ event, saved, onSave, onOpen, children, actionLabel 
             </Badge>
           )}
           <button
+            type="button"
             className={`save-button ${saved ? "saved" : ""}`}
             aria-label={`${saved ? "Unsave" : "Save"} ${event.title}`}
             aria-pressed={saved}
-            onClick={onSave}
+            onClick={(click) => { click.stopPropagation(); onSave?.(); }}
           >
             <Heart size={17} fill={saved ? "currentColor" : "none"} />
           </button>
@@ -43,8 +44,9 @@ export function EventCard({ event, saved, onSave, onOpen, children, actionLabel 
         </p>
         <h3 className="card-title">
           <button
+            type="button"
             className="card-open"
-            onClick={onOpen}
+            onClick={(click) => { click.stopPropagation(); onOpen?.(); }}
             aria-label={`Explore ${event.title}`}
           >
             <span className="card-title-text">{event.title}</span>

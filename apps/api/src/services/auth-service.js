@@ -3,6 +3,7 @@ const { promisify } = require('node:util');
 const { DomainError } = require('../domain/errors');
 const { Op } = require('sequelize');
 const { TEMPLATES } = require('./email-templates');
+const { activeUser } = require('./lifecycle-service');
 
 const scrypt = promisify(crypto.scrypt);
 const TOKEN_TTL_SECONDS = 12 * 60 * 60;
@@ -84,7 +85,7 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
     if (memberships.some((membership) => membership.role === 'admin')) roles.push('venue_manager');
     if (employeeCount) roles.push('employee');
     if (orgAffiliateCount || eventAffiliateCount) roles.push('promoter');
-    if (createdEventCount) roles.push('event_creator');
+    if (user.independentCreator) roles.push('event_creator');
     return roles;
   }
 
@@ -122,7 +123,7 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
   async function signIn(input) {
     const user = await models.User.findOne({ where: { email: input.email.trim().toLowerCase() } });
     const credential = user ? await models.UserCredential.findByPk(user.id) : null;
-    if (!user || !user.isActive || !credential || !(await passwordMatches(input.password, credential))) {
+    if (!activeUser(user) || !credential || !(await passwordMatches(input.password, credential))) {
       throw new DomainError('Email or password is incorrect', { code: 'INVALID_CREDENTIALS', status: 401 });
     }
     return sessionFor(user);
@@ -131,7 +132,7 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
   async function authenticate(accessToken) {
     const payload = verifyToken(accessToken, tokenSecret, now);
     const user = await models.User.findByPk(payload.sub);
-    if (!user?.isActive) throw new DomainError('Session is invalid or expired', { code: 'UNAUTHENTICATED', status: 401 });
+    if (!activeUser(user)) throw new DomainError('Session is invalid or expired', { code: 'UNAUTHENTICATED', status: 401 });
     const credential = await models.UserCredential.findByPk(user.id);
     const changedAt = credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null;
     // Sessions issued before the password-version claim was introduced remain
@@ -167,7 +168,7 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
         throw new DomainError('This link is invalid or expired', { code: 'ACTION_TOKEN_INVALID', status: 400 });
       }
       const user = await models.User.findByPk(record.userId, { transaction, lock: transaction.LOCK.UPDATE });
-      if (!user?.isActive || user.email !== record.email) {
+      if (!activeUser(user) || user.email !== record.email) {
         throw new DomainError('This link is invalid or expired', { code: 'ACTION_TOKEN_INVALID', status: 400 });
       }
       await onValid(user, transaction);
@@ -197,7 +198,7 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
 
   async function me(userId) {
     const user = await models.User.findByPk(userId);
-    if (!user?.isActive) throw new DomainError('User not found', { code: 'UNAUTHENTICATED', status: 401 });
+    if (!activeUser(user)) throw new DomainError('User not found', { code: 'UNAUTHENTICATED', status: 401 });
     return { user: publicUser(user), roles: await rolesFor(user) };
   }
 

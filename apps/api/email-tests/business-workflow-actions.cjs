@@ -40,7 +40,7 @@ async function collectBusinessWorkflowMessages(run) {
 
   // Organization and event invitation actions, acceptance, role change, removal.
   {
-    const organization = { id: `org-${run}`, name: 'Test organization' };
+    const organization = { id: `org-${run}`, name: 'Test organization', status: 'active' };
     const event = { id: `team-event-${run}`, title: 'Test event', organizationId: organization.id,
       status: 'published', startsAt: future(48), endsAt: future(52) };
     const inviter = { id: 'manager', email: address('manager', run), displayName: 'Test manager', isActive: true };

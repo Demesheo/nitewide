@@ -76,7 +76,7 @@ The three-step editor omits category and URL-slug inputs; the API preserves exis
 
 **Event Team:** the event-detail Team table uses plain Sales and Commission columns, with Role before Commission. Click the name or row for details and authorized editing/removal. A shared Roles multiselect derives its options from roles actually in the roster. **Add promoter** opens `EventPromoterInvite`: email, 0–40% offered commission slider, private link/email sharing, and pending invitation renewal/revocation. This grants event-only promoter access, not venue membership. The invitation landing shows the offered rate and routes successful event invitees to Events; their reports and guestlists remain limited to their own referrals. Automatic email sending is not yet configured.
 
-The local demo seed varies team sizes repeatably by venue: 1–3 managers plus the owner, 9–12 employees, and two promoters. These are fixture counts, not invitation limits. Team, Overview, and Analytics use the same people and attribution rules for a matching venue and date range. A read-only seeded-database test checks all 12 venues with `RUN_DB_TESTS=1 node --test apps/api/test/seed-team-integration.test.js`.
+The local demo seed varies team sizes repeatably by venue: 1–3 managers plus the owner, 9–12 employees, and two promoters. These are fixture counts, not invitation limits. Team, Overview, and Analytics use the same people and attribution rules for a matching venue and date range. The standard `business-reporting-integration.test.js` suite verifies that reconciliation using deterministic test-owned teams and real PostgreSQL queries, without depending on demo venues. It runs with `npm test`; see [Testing](TESTING.md).
 
 All data tables use sortable headers and 10 rows per page by default, with 25/50 options. Management lists default A–Z; sales-focused lists default by sales descending. The Create event button appears only on Overview and Events (including the Events empty state), never in the shared navigation or analytics/guestlist/team pages.
 
@@ -183,8 +183,8 @@ Accessibility: use labeled inputs, visible keyboard focus, Radix-managed dialog 
 npm test
 # Only business helper tests
 npm test --workspace @nitewide/business
-# Live PostgreSQL HTTP workflow (local DB must be running/migrated)
-RUN_DB_TESTS=1 node --test apps/api/test/business-integration.test.js
+# Required API workflows use fresh migrated PostgreSQL test databases
+npm test --workspace @nitewide/api
 # Production web builds
 npm run build
 ```
@@ -208,4 +208,4 @@ Organizations are ownership/permission containers; their event locations identif
 - Business analytics drilldowns separate physical venues. Admin organization aggregation is unchanged. Duplicate imported Location rows with matching normalized names/addresses under the same organization share one stable venue key.
 - This is a reporting/event-list filter, not a new Venue entity or a change to event creation/address permissions. Existing events keep their saved locations; new organization events still use the organization's saved default location.
 
-Regression checks: `node --test apps/api/test/venue-scope.test.js`, `npm test --workspace @nitewide/business`, and the read-only seeded database check `RUN_DB_TESTS=1 node --test apps/api/test/venue-selection-integration.test.js`. The database check requires the refreshed Orlando fixtures and verifies owners/managers, either/both selections, report totals, and unrelated-manager isolation.
+Regression checks: `node --test apps/api/test/venue-scope.test.js` and `npm test --workspace @nitewide/business`. The seeded venue-selection check belongs to the separate `npm run test:demo` command with an explicitly prepared `DEMO_TEST_DATABASE_URL`; it requires refreshed Orlando fixtures and verifies owners/managers, either/both selections, report totals, and unrelated-manager isolation. It is excluded from standard production coverage; see [Testing](TESTING.md).

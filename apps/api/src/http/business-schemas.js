@@ -52,6 +52,7 @@ const eventEditor = z
   .object({
     version: z.number().int().nonnegative().optional(),
     organizationId: uuid.nullable(),
+    locationId: uuid.nullish(),
     imageAssetId: uuid.nullish(),
     title: text(180).min(2),
     slug: text(200).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),

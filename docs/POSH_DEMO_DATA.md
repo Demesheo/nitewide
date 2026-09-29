@@ -78,8 +78,9 @@ Only future starts within the actual next 30 days are imported. This snapshot ne
 
 ```sh
 node --test apps/api/test/posh-importer.test.js
-RUN_DB_TESTS=1 node --test apps/api/test/posh-importer*.test.js
-RUN_DB_TESTS=1 npm test
+# Set DEMO_TEST_DATABASE_URL to a separately prepared nitewide_demo_test database
+npm run test:demo
+npm test
 npm run build
 ```
 

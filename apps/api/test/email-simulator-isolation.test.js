@@ -16,8 +16,12 @@ test('commit, build, and deploy paths never invoke quota-consuming email simulat
     assert.doesNotMatch(read(file), automatic, file);
   }
   assert.match(read('.github/workflows/demo-image.yml'), /- run: npm test/);
-  assert.match(apiScripts.test, /email-tests\/\*\.test\.js/);
-  assert.match(read('scripts/run-default-tests.cjs'), /RESEND_API_KEY: ''/);
+  assert.match(apiScripts.test, /scripts\/run-tests\.cjs/);
+  assert.match(read('apps/api/scripts/run-tests.cjs'), /discoverTests\(path\.join\(apiRoot, 'email-tests'\)\)/);
+  assert.match(read('scripts/run-default-tests.cjs'), /offlineEnvironment\(\)/);
+  const testDatabase = read('apps/api/scripts/test-database.cjs');
+  assert.match(testDatabase, /RESEND_API_KEY:\s*''/);
+  assert.match(testDatabase, /RESEND_TEST_MODE:\s*'false'/);
   assert.match(scripts['test:email:customer:simulated'], /check-resend-workflows\.cjs/);
   assert.match(scripts['test:email:business:simulated'], /check-resend-business-workflows\.cjs/);
 });

@@ -53,8 +53,8 @@ Five new organizations each have a demo owner, 1–3 managers and 9–12 employe
 
 ```bash
 npm test --workspace @nitewide/api
-RUN_DB_TESTS=1 node --test apps/api/test/seed-cleanup-integration.test.js apps/api/test/posh-importer-integration.test.js apps/api/test/seed-team-integration.test.js
-RUN_ORLANDO_SEED_TESTS=1 node --test apps/api/test/orlando-seed-integration.test.js
+# Set DEMO_TEST_DATABASE_URL to a separately prepared nitewide_demo_test database
+npm run test:demo
 ```
 
 Unit coverage includes overnight/adjacent intervals, same-event repeat purchases, protected mock orders, buyer-pool growth independent of guestlists, venue aliases, snapshot bounds and first-source overlap precedence. Isolated database coverage checks guestlist preservation, inventory reconciliation, full audit archives, idempotency and import atomicity. The team report contract checks the combined Proper/Room 22 roster against Overview and Analytics.

@@ -1,6 +1,6 @@
 # Admissions and mobile check-in
 
-Business **Admissions** is available in the sidebar and mobile bottom navigation. Select an authorized, published event whose admission window is open: **24 hours before its start through 24 hours after its finish**, inclusive. Times are enforced by the API; moving a phone's clock cannot open an event. Draft, cancelled, and completed events are excluded. Event choices refresh every 30 seconds.
+Business **Admissions** is available in the sidebar and mobile bottom navigation. Select an authorized, published event whose admission window is open: **24 hours before its start through 24 hours after its finish**, inclusive. Times are enforced by the API; moving a phone's clock cannot open an event. Draft, cancelled, and completed events are excluded. Event choices are searched and paged by the API (20 per page), ordered by start time and ID, and refresh every 30 seconds. Next/Previous return to the top of the event-selection card.
 
 ## At the door
 
@@ -18,7 +18,7 @@ Internal admins, organization owners/managers, active organization employees, in
 
 Tickets use signed `nw1` wallet tokens; guestlist passes use signed `nwg1` tokens bound to the current approval, holder, event and party size. Legacy random-token QR credentials remain supported. The selected event is part of every lookup. Authenticity is checked before returning Already admitted, preventing forged codes from revealing admission history.
 
-The existing `tickets`, `guestlist_entries`, and `check_ins` tables remain the source of truth. A single PostgreSQL transaction locks the credential, checks its state and paid-order eligibility, updates it, and inserts the admission record. READ COMMITTED plus row locks serializes competing scans; unique credential constraints on `check_ins` provide a second duplicate safeguard. QR and manual entry share this path and record the operator, timestamp, and `qr`/`manual` method. No new migration is needed.
+The existing `tickets`, `guestlist_entries`, and `check_ins` tables remain the source of truth. A single PostgreSQL transaction locks the credential, checks its state and paid-order eligibility, updates it, and inserts the admission record. READ COMMITTED plus row locks serializes competing scans; unique credential constraints on `check_ins` provide a second duplicate safeguard. QR and manual entry share this path and record the operator, timestamp, and `qr`/`manual` method. The admissions-selector pagination adds a partial event-window index but does not alter credential or check-in records.
 
 ## Synchronization and reporting
 
@@ -30,7 +30,7 @@ Event details, customer histories, guestlist status, workspace summaries, and an
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/business/admissions/events` | Authorized events in the server's admission window |
+| `GET /api/business/admissions/events` | Authorized events in the server's admission window; `search`, `page`, `pageSize` (1–50, default 20). Response has `items`, `total`, and `hasMore`; `events` remains as a legacy alias. |
 | `GET /api/business/admissions/events/:eventId` | Paginated credentials and admitted/expected headcount; `search`, `status=all\|ready\|admitted`, `page` |
 | `POST /api/check-ins` | QR: `{ eventId, qrToken }`; manual: `{ eventId, credentialId, kind: "ticket"\|"guestlist" }` |
 
@@ -41,7 +41,7 @@ Success returns HTTP 201. Duplicates return 409 / `CREDENTIAL_ALREADY_USED`; inv
 Run `npm test` and `npm run build`. For real PostgreSQL verification:
 
 ```sh
-RUN_DB_TESTS=1 node --test apps/api/test/admissions-integration.test.js
+npm test --workspace @nitewide/api
 ```
 
 This test is restricted to a local, non-production database. It creates and removes UUID-scoped fixtures and checks authorization, scan authenticity, concurrent attempts, individual package tickets, whole-party guestlists, manual entry, customer passes and report reconciliation. It does not reseed the database.

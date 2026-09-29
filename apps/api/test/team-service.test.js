@@ -6,7 +6,7 @@ const { forbidden } = require('../src/domain/errors');
 test('managers can invite managers, employees, and promoters within their organizations', async () => {
   const writes = [];
   const models = {
-    Organization: { findByPk: async () => ({ name: 'Venue' }) },
+    Organization: { findByPk: async () => ({ name: 'Venue', status: 'active' }) },
     TeamInvitation: { create: async (input) => { writes.push(input); return { ...input, id: 'invite' }; } },
     AuditLog: { create: async () => {} },
   };
@@ -28,13 +28,14 @@ test('accepting an employee invitation adds staff access, not manager access, to
   const writes = [];
   const row = { role: 'employee', email: 'customer@example.com', organizationId: 'org', expiresAt: new Date(Date.now() + 60000), update: async (values) => writes.push(['accepted', values]) };
   const models = {
+    Organization: { findByPk: async () => ({ id: 'org', status: 'active' }) },
     TeamInvitation: { sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: true } }) }, findOne: async () => row },
     User: { findByPk: async () => ({ id: 'customer', email: 'customer@example.com' }) },
     OrganizationEmployee: { findOne: async () => null, create: async (values) => writes.push(['employee', values]) },
     OrganizationOwner: { findOne: async () => null, create: async () => writes.push(['manager']) },
     AuditLog: { create: async () => {} },
   };
-  const service = createTeamService({ models, permissions: {} });
+  const service = createTeamService({ models, permissions: { assertManageOrganization: async () => ({}) } });
   assert.deepEqual(await service.accept('customer', 'private-token'), { organizationId: 'org', role: 'employee' });
   assert.equal(writes[0][0], 'employee');
   assert.equal(writes.some((entry) => entry[0] === 'manager'), false);
@@ -43,6 +44,7 @@ test('accepting an employee invitation adds staff access, not manager access, to
 test('an invitation cannot be accepted from a different customer email', async () => {
   const row = { role: 'employee', email: 'invited@example.com', organizationId: 'org', expiresAt: new Date(Date.now() + 60000) };
   const models = {
+    Organization: { findByPk: async () => ({ id: 'org', status: 'active' }) },
     TeamInvitation: { sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: true } }) }, findOne: async () => row },
     User: { findByPk: async () => ({ id: 'other', email: 'other@example.com' }) },
   };

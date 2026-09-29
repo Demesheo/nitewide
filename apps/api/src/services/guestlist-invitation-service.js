@@ -44,8 +44,8 @@ function createGuestlistInvitationService({ sequelize, models, permissions, emai
     await queueGuestlistEmail({ email, models, entry, event, kind: 'approved', customerAppUrl, transaction });
     return entry;
   }
-  async function invite(userId, eventId, input) {
-    const eventAffiliateId = await assertPool(userId, eventId, input.pool, input.eventAffiliateId);
+  async function invite(userId, eventId, input, context = {}) {
+    const eventAffiliateId = context.resolvePool ? await context.resolvePool(userId, eventId, input) : await assertPool(userId, eventId, input.pool, input.eventAffiliateId);
     return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
       const event = await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!event) throw notFound('Event');
@@ -62,6 +62,7 @@ function createGuestlistInvitationService({ sequelize, models, permissions, emai
         tokenHash: hash(token), partySize: input.partySize, status: target ? 'accepted' : 'pending', expiresAt: new Date(now().getTime() + 7 * 86400000), acceptedAt: target ? now() : null, acceptedByUserId: target?.id || null }, { transaction });
       const entry = target ? await confirm(event, target, eventAffiliateId, input.partySize, userId, transaction) : null;
       await models.AuditLog.create({ actorUserId: userId, organizationId: event.organizationId, entityType: 'GuestlistInvitation', entityId: invitation.id, action: target ? 'guestlist.invite_existing' : 'guestlist.invite_created', after: { eventId, eventAffiliateId, partySize: input.partySize, contact: input.email ? 'email' : 'phone' } }, { transaction });
+      if (context.onCreated) await context.onCreated(invitation, event, transaction);
       return { invitation: { id: invitation.id, email: invitation.email, phone: invitation.phone, partySize: invitation.partySize, status: invitation.status, expiresAt: invitation.expiresAt }, entryId: entry?.id || null, token: target ? null : token };
     });
   }

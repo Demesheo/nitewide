@@ -6,6 +6,17 @@
 @media(max-width:720px){.login-shell{grid-template-columns:1fr}.login-story{display:none}.app-shell{grid-template:60px 1fr/1fr}.topbar{height:60px;padding:0 14px}.menu{display:inline-flex}.topbar .brand>span,.topbar .brand em{display:none}aside{display:none;position:fixed;z-index:30;top:60px;left:0;width:260px;height:calc(100vh - 60px);box-shadow:20px 0 50px #000}aside.open{display:flex}.workspace{padding:26px 14px}.metrics{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.form-grid .wide{grid-column:auto}.head-actions button,.head-actions select{flex:1}.page-head h1{font-size:31px}}
 .filterbar select{height:36px;border:1px solid var(--border);border-radius:6px;background:#151b1f;color:#d9dfdc;padding:0 10px;margin-left:auto}.filterbar label{flex:1}
 .workspace:has(.analytics-page) .head-actions{display:none}
+table.sr-only{min-width:0}
+@media(max-width:600px){
+  .head-actions .demo-action{order:3;flex:0 0 100%;white-space:nowrap}
+  .head-actions button:not(.demo-action){white-space:nowrap}
+  .analytics-toolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:end}
+  .analytics-toolbar>label,.analytics-toolbar>details{min-width:0;width:100%}
+  .analytics-toolbar details summary{min-width:0}
+  .analytics-toolbar .analytics-search{grid-column:1/-1;min-width:0;width:100%}
+  .analytics-toolbar>button{width:100%}
+}
+@media(max-width:420px){.analytics-toolbar{grid-template-columns:1fr}.analytics-toolbar .analytics-search{grid-column:auto}}
 
 /* Shared Nitewide nightlife tokens; the Admin layout stays deliberately denser. */
 :root{--retro-blue:#0446ef;--nightlife:#1c1859;--velvety:#440327;--lingonberries:#8b0535;--hot-pink:#f10393;--light-magenta:#fe6ef0;--background:#13141b;--foreground:#f4f3f9;--card:#191a22;--popover:#22232e;--primary:#b9a9ff;--primary-foreground:#21193d;--secondary:#252631;--accent:#302c41;--muted:#a5a5b8;--border:#30303d}

@@ -1,0 +1,38 @@
+# Pagination contract and scale migration
+
+Status: implementation contract for the customer, business, and admin apps. This document distinguishes behavior already shipped from the remaining migration work; it does not imply that every endpoint below is complete.
+
+## Two list modes
+
+Use **cursor pagination** for chronological discovery, event collections, and other high-cardinality feeds where users move forward with “More” or Next. Use **numbered pages** only for operational tables that require exact totals or direct page navigation. Both modes apply authorization, lifecycle, search, filters, and sorting **before** limiting rows in PostgreSQL. Never fetch a capped first slice and then search, sort, or count it in React.
+
+| Mode | Request | `data` response | UI rule |
+| --- | --- | --- | --- |
+| Cursor | `pageSize` (1–100), optional opaque `cursor`, endpoint-specific filters/sort | `{ items, hasMore, nextCursor }` | Append only while `nextCursor` exists; refresh from the first page on filter/sort/scope change. Do not show an exact total unless independently computed. |
+| Numbered | `page` (1-based), `pageSize` (1–100), endpoint-specific filters/sort | `{ items, page, pageSize, total, hasMore }` | Replace rows on page change; derive page count from authoritative server `total`, never the loaded slice. |
+
+Existing endpoints can keep their current response shape for legacy callers. A new or opt-in paged request must return one of these envelopes under the existing top-level `{ data: ... }`. The public `/events?pageSize=...` cursor response is the first implementation. New clients must not depend on the legacy `/events?limit=...` array.
+
+## Ordering and cursor invariants
+
+1. Every order is explicit, allowlisted, and deterministic. Add a unique ID as the final tie-breaker. Sort nulls explicitly and use the same expression and collation in both `ORDER BY` and the cursor predicate.
+2. Cursor payloads are opaque to clients and include the complete order boundary and a fingerprint of normalized filters, sort, timezone, and authorized scope. Reject malformed, expired (if versioned), or mismatched cursors with a validation response; do not silently restart at page one. Do not treat a cursor as authorization.
+3. Apply tenant/event permissions and active/suspended/archived policy in SQL before paging. A count query must use the same scoped predicates. Only select columns needed for a list; fetch bounded details for the page IDs afterward when associations would multiply rows.
+4. Keyset continuation prevents duplicates from inserts before the cursor. New rows before that boundary appear on a fresh first-page load; rows after it may appear on a later page. Mutating sort keys can move a row, so provide a visible Refresh action instead of claiming a snapshot. A transaction/snapshot or high-water mark is required for export jobs that promise a fixed result set.
+5. Bound page size and date/range inputs, use parameterized SQL, and index leading scope/filter/order columns. When a query cannot meet its performance target, return a bounded actionable error; never substitute an incomplete client-side list.
+
+## Application rollout
+
+1. **Customer discovery (implemented in progress):** `/events?pageSize=9` filters city, seven-day/date window, words, and category on the server. Preserve the existing venue-local calendar day → Premium host → numeric/base-strength title → UUID global order across every page. Saved event IDs and shared-event deep links resolve directly, independent of which discovery page is loaded. Customer booking history already has server-numbered pages; connections and attribution history still need their own scoped cursor/list endpoints.
+2. **Business event collection:** separate the bounded event list from lightweight workspace identity/summary. Page server-side across all authorized organizations, venues, and independent creator events, removing the 500-event collection rejection. Preserve collection tabs, status/date/search/venue filters, default date-time order, and existing event-detail routes. Prefer a cursor for the collection; if numbered controls remain, use an indexed server count and page data rather than client slicing.
+3. **Admin legacy tables and pickers:** replace 100-record workspace samples for Users, Organizations, Events, Orders, and Audit with scoped server-filtered/sorted pages and correct totals. Management/Operations already page server-side; their reference pickers must support searching beyond the first 100 options without broad loading. Do not weaken admin lifecycle permissions or remove rows merely because their parent is inactive.
+4. **High-cardinality operations:** page customer connections/history, business team rosters/invitations, and event purchases/attendees/guestlist review. The admissions event selector now has server-side 20-row pages with search and authoritative totals; its roster retains its existing 20-row search/status/count behavior. Keep summary counts/analytics separate from detail rows so paging does not change reported totals.
+5. **Analytics and reports:** replace business/admin 5k/10k/20k raw-row caps and in-memory aggregations with scoped SQL aggregates and paged drilldowns. Preserve face-value, commission, and fee privacy boundaries. Large CSV exports should stream or run as bounded background jobs from a consistent filter/scope, not download only the current page.
+
+## Frontend behavior and acceptance
+
+- Changing filters, sort, selected organization/event, or date cancels/invalidates in-flight pages and returns to page one. A late response cannot append into a different query. Show loading, empty, and retry states without discarding a successful previous page unintentionally.
+- Next/Previous on numbered tables and event collections scrolls to the **top of the containing card**, as established elsewhere in the business app. Preserve the user's viewport itself; responsive checks use separate test tabs.
+- Page controls have accessible names, disabled boundaries, current-page status, and no duplicate or missing cards. If `total` is unavailable, say “More results” rather than displaying a false total.
+- API tests must cross the old 100/500/10,000/20,000 limits, check authorization isolation, lifecycle filtering, all filter/sort combinations, ties, insert-before/after-cursor behavior, invalid cursor/scope changes, and empty/final pages. UI tests must cover stale requests, retry, deep links, page reset, card-top scrolling, and iPhone-width rendering.
+- All database tests use isolated migrated fixture databases. Standard `npm test` may run mocked email tests but must never invoke quota-consuming simulated/live email commands. Before committing, run full standard tests and builds; after pushing, verify CI and the demo build/deploy health.

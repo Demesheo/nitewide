@@ -47,6 +47,7 @@ import { TeamPerformanceTable } from "@/components/TeamPerformanceTable";
 import { PersonalOverview } from "@/components/PersonalOverview";
 import { Notifications } from "@/components/Notifications";
 import { Team, TeamInviteLanding } from "@/components/Team";
+import { OnboardingSetup } from "@/components/OnboardingSetup";
 import { BusinessProfile } from "@/components/BusinessProfile";
 import { LoadingState } from "@/components/LoadingState";
 import { Admissions } from "@/components/Admissions";
@@ -410,6 +411,8 @@ function Performance({ data, onEvents }) {
 
 export default function App() {
   const [session, setSession] = useState(readSession);
+  const [onboardingToken, setOnboardingToken] = useState(() => new URLSearchParams(window.location.search).get('onboarding'));
+  const [onboardingSignIn, setOnboardingSignIn] = useState(false);
   const [inviteToken, setInviteToken] = useState(() => new URLSearchParams(window.location.search).get('invite'));
   const [page, setPage] = useState(() => new URLSearchParams(window.location.search).has('event') ? 'events' : new URLSearchParams(window.location.search).get('section') === 'team' ? 'team' : 'overview');
   const [selectedOrganizations, setSelectedOrganizations] = useState([]);
@@ -441,7 +444,7 @@ export default function App() {
     return () => screen.removeEventListener("change", closeOnDesktop);
   }, []);
   const signOut = useCallback((expired = false) => {
-    window.history.replaceState(null, '', '/sign-in');
+    if (!onboardingToken) window.history.replaceState(null, '', '/sign-in');
     sessionStorage.removeItem(SESSION_KEY);
     setSession(null);
     setData(null);
@@ -457,7 +460,7 @@ export default function App() {
     setLoginNotice(
       expired ? "Your session has expired. Please sign in again." : "",
     );
-  }, []);
+  }, [onboardingToken]);
   const expire = useCallback(() => signOut(true), [signOut]);
   const refreshAdmissions = useCallback(() => setRevision((value) => value + 1), []);
   useEffect(() => {
@@ -466,8 +469,8 @@ export default function App() {
     return () => window.removeEventListener('focus', refreshAdmissions);
   }, [session, refreshAdmissions]);
   useEffect(() => {
-    window.history.replaceState(null, '', session ? '/app' : '/sign-in');
-  }, [session]);
+    if (!onboardingToken) window.history.replaceState(null, '', session ? '/app' : '/sign-in');
+  }, [session, onboardingToken]);
   useEffect(() => {
     if (!session) return;
     const remaining = new Date(session.expiresAt) - new Date();
@@ -479,7 +482,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [session, expire]);
   useEffect(() => {
-    if (!session) return;
+    if (!session || onboardingToken) return;
     const controller = new AbortController();
     setLoading(true);
     setError("");
@@ -497,10 +500,11 @@ export default function App() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [session, selectedOrganizations, selectedVenues, days, revision, expire]);
+  }, [session, onboardingToken, selectedOrganizations, selectedVenues, days, revision, expire]);
   function login(value) {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(value));
     setSession(value);
+    setOnboardingSignIn(false);
     setLoginNotice("");
   }
   function navigate(value, eventId = null, entryId = null, eventTab = null) {
@@ -559,6 +563,8 @@ export default function App() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  if (onboardingToken && onboardingSignIn) return <SignIn onSession={login} notice={loginNotice || 'Sign in with the email address on your invitation. You will return to the invitation to accept access.'} />;
+  if (onboardingToken) return <OnboardingSetup token={onboardingToken} session={session} onSignIn={() => setOnboardingSignIn(true)} onSwitchAccount={(signIn) => { signOut(); setOnboardingSignIn(signIn); }} onContinue={() => { setOnboardingToken(null); setRevision((value) => value + 1); }} />;
   if (inviteToken) return <TeamInviteLanding token={inviteToken} session={session} onSession={login} onAccepted={(updated, accepted) => { login(updated); setInviteToken(null); setNotice('Invitation accepted. Your access is ready.'); setPage(accepted?.eventId ? 'events' : 'team'); setRevision((value) => value + 1); }} />;
   if (!session) return <SignIn onSession={login} notice={loginNotice} />;
   const title =

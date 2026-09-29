@@ -16,11 +16,16 @@ function createManagementController({ models, permissions, email = null, busines
     addOrgAffiliate: async (req, res) => { await permissions.assertManageOrganization(req.userId, req.params.organizationId); const data = await models.OrgAffiliate.create({ ...req.body, organizationId: req.params.organizationId }); res.status(201).json({ data }); },
     createEvent: async (req, res) => {
       if (req.body.organizationId) await permissions.assertManageOrganization(req.userId, req.body.organizationId);
+      else {
+        const creator = await models.User.findByPk(req.userId);
+        if (!creator?.isActive || creator.onboardingPending || (creator.lifecycleState && creator.lifecycleState !== 'active') || (!creator.isInternalAdmin && !creator.independentCreator)) throw require('../domain/errors').forbidden('Independent event creation access is required');
+      }
       let locationId = req.body.locationId;
       if (req.body.organizationId) {
         const org = await models.Organization.findByPk(req.body.organizationId);
-        if (!org?.locationId) throw conflict('This organization needs a saved venue address before creating an event.');
-        locationId = org.locationId;
+        if (!org?.locationId && !locationId) throw conflict('This organization needs a saved venue address before creating an event.');
+        locationId = locationId || org.locationId;
+        await require('../services/lifecycle-service').assertOrganizationVenue(models, org, locationId);
       }
       assertEventEditable(req.body);
       const data = await models.Event.create({ ...req.body, locationId, creatorUserId: req.userId }); res.status(201).json({ data });

@@ -1,4 +1,6 @@
 const initializers = [
+  require('./OrganizationVenue').initOrganizationVenue,
+  require('./OnboardingInvitation').initOnboardingInvitation,
   require('./MediaAsset').initMediaAsset,
   require('./User').initUser, require('./UserCredential').initUserCredential, require('./Organization').initOrganization, require('./OrganizationOwner').initOrganizationOwner,
   require('./Location').initLocation, require('./Event').initEvent, require('./OrgAffiliate').initOrgAffiliate,
@@ -18,6 +20,10 @@ function initModels(sequelize) {
   for (const initialize of initializers) initialize(sequelize);
   const m = sequelize.models;
   m.Organization.belongsTo(m.Location, { as: 'location', foreignKey: 'locationId' });
+  m.Organization.belongsToMany(m.Location, { as: 'venues', through: m.OrganizationVenue, foreignKey: 'organizationId', otherKey: 'locationId' });
+  m.Location.belongsToMany(m.Organization, { as: 'organizations', through: m.OrganizationVenue, foreignKey: 'locationId', otherKey: 'organizationId' });
+  m.OrganizationVenue.belongsTo(m.Organization, { as: 'organization', foreignKey: 'organizationId' });
+  m.OrganizationVenue.belongsTo(m.Location, { as: 'location', foreignKey: 'locationId' });
   m.Event.belongsTo(m.MediaAsset, { as: 'imageAsset', foreignKey: 'imageAssetId' });
 
   m.User.hasOne(m.UserCredential, { as: 'credential', foreignKey: 'userId' }); m.UserCredential.belongsTo(m.User, { as: 'user', foreignKey: 'userId' });

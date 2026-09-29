@@ -26,8 +26,9 @@ function createRouter({ publicController, managementController, commerceControll
   const referralLinks = createReferralLinkService({ models });
   const account = createCustomerAccountService({ models, tokenSecret });
   const admissions = createAdmissionsService({ models, permissions });
+  require('./admin-onboarding').registerAdminOnboarding({ router, models, permissions, email, customerAppUrl, businessAppUrl, auth, requireUser, asyncHandler });
   router.use('/business/admissions', requireUser, (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
-  router.get('/business/admissions/events', asyncHandler(async (req, res) => res.json({ data: await admissions.events(req.userId) })));
+  router.get('/business/admissions/events', asyncHandler(async (req, res) => res.json({ data: await admissions.events(req.userId, z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), pageSize: z.coerce.number().int().min(1).max(50).default(20), search: z.string().trim().max(120).default('') }).parse(req.query)) })));
   router.get('/business/admissions/events/:eventId', asyncHandler(async (req, res) => res.json({ data: await admissions.roster(req.userId, z.string().uuid().parse(req.params.eventId), z.object({ search: z.string().trim().max(120).default(''), page: z.coerce.number().int().min(1).max(10000).default(1), status: z.enum(['all', 'ready', 'admitted']).default('all') }).parse(req.query)) })));
   router.use('/customer', requireUser, (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   router.get('/customer/bookings', asyncHandler(async (req, res) => res.json({ data: await account.bookings(req.userId, z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), period: z.enum(['upcoming', 'past']).default('upcoming') }).parse(req.query)) })));
@@ -63,9 +64,12 @@ function createRouter({ publicController, managementController, commerceControll
   router.get('/admin/analytics', requireUser, asyncHandler(async (req, res) => res.json({ data: await analytics.adminReport(req.userId, analyticsQuery.parse(req.query)) })));
   router.get('/business/analytics', requireUser, asyncHandler(async (req, res) => res.json({ data: await analytics.businessReport(req.userId, analyticsQuery.parse(req.query)) })));
   router.get('/admin/workspace', requireUser, asyncHandler(async (req, res) => res.json({ data: await admin.workspace(req.userId, adminSchemas.reportQuery.parse(req.query)) })));
-  router.patch('/admin/users/:id', requireUser, validate(adminSchemas.userUpdate), asyncHandler(async (req, res) => res.json({ data: await admin.updateUser(req.userId, req.params.id, req.body) })));
-  router.patch('/admin/organizations/:id', requireUser, validate(adminSchemas.organizationUpdate), asyncHandler(async (req, res) => res.json({ data: await admin.updateOrganization(req.userId, req.params.id, req.body) })));
-  router.patch('/admin/events/:id', requireUser, validate(adminSchemas.eventUpdate), asyncHandler(async (req, res) => res.json({ data: await admin.updateEvent(req.userId, req.params.id, req.body) })));
+  require('./admin-management').registerAdminManagement({ router, models, permissions, email, customerAppUrl, businessAppUrl, requireUser, asyncHandler });
+  router.get('/admin/operations', requireUser, asyncHandler(async (req, res) => res.json({ data: await admin.operations(req.userId, adminSchemas.operationsQuery.parse(req.query)) })));
+  for (const entity of ['users', 'organizations', 'events']) router.patch(`/admin/${entity}/:id`, requireUser, asyncHandler(async (req) => {
+    await permissions.assertInternal(req.userId);
+    throw require('../domain/errors').conflict('Use the versioned Management editor or lifecycle actions.', 'LEGACY_ADMIN_EDIT_DISABLED');
+  }));
   router.post('/admin/demo-users', requireUser, validate(adminSchemas.demoUser), asyncHandler(async (req, res) => res.status(201).json({ data: await admin.createDemoUser(req.userId, req.body) })));
   router.get('/business/workspace', requireUser, asyncHandler(async (req, res) => res.json({ data: await business.workspace(req.userId, businessSchemas.reportQuery.parse(req.query)) })));
   router.post('/business/events', requireUser, validate(businessSchemas.eventEditor), asyncHandler(async (req, res) => res.status(201).json({ data: await business.saveEvent(req.userId, null, req.body) })));

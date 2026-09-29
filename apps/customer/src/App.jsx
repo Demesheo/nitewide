@@ -34,6 +34,7 @@ import { LoadingIndicator } from './components/loading-indicator';
 import { upcomingSavedEvents } from './lib/saved-events';
 import { AuthDialog } from "./components/auth-dialog";
 import { PasswordResetDialog } from './components/password-reset-dialog';
+import { OnboardingSetup } from './components/onboarding-setup';
 import { Notifications } from "./components/notifications";
 import { notificationTarget, loadNotificationBooking } from './lib/notification-target';
 import { AccountDialog, initials } from './components/account-dialog';
@@ -53,9 +54,7 @@ import {
   offeringAvailabilityLabel,
   checkoutTotal,
   cityName,
-  filterDiscoveryEvents,
   discoveryDateRange,
-  filterUpcomingWeek,
   upcomingWeekRange,
   money,
   readStorage,
@@ -85,6 +84,15 @@ function validSession() {
 export default function App() {
   const [events, setEvents] = useState([]),
     [loadState, setLoadState] = useState("loading");
+  const [nextCursor, setNextCursor] = useState(null);
+  const [moreState, setMoreState] = useState('idle');
+  const [previewEvents, setPreviewEvents] = useState([]);
+  const [previewCursor, setPreviewCursor] = useState(null);
+  const [previewState, setPreviewState] = useState('idle');
+  const [savedEvents, setSavedEvents] = useState([]);
+  const [savedLoadState, setSavedLoadState] = useState('idle');
+  const [reloadRevision, setReloadRevision] = useState(0);
+  const [savedRevision, setSavedRevision] = useState(0);
   const [city, setCity] = useState(""),
     [date, setDate] = useState(""),
     [query, setQuery] = useState("");
@@ -96,6 +104,7 @@ export default function App() {
   const [accountTab, setAccountTab] = useState('plans');
   const [notificationBooking, setNotificationBooking] = useState(null);
   const [passwordResetToken, setPasswordResetToken] = useState(() => new URLSearchParams(window.location.search).get('resetPassword'));
+  const [onboardingToken, setOnboardingToken] = useState(() => new URLSearchParams(window.location.search).get('onboarding'));
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get('verifyEmail');
     if (!token) return;
@@ -169,8 +178,7 @@ export default function App() {
   const [guestState, setGuestState] = useState(""),
     [guestBusy, setGuestBusy] = useState(false),
     [guestError, setGuestError] = useState("");
-  const [limit, setLimit] = useState(9),
-    [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState("");
   const locationEdited = useRef(false),
     pendingAuth = useRef(null);
   const eventDialogRef = useRef(null);
@@ -178,26 +186,66 @@ export default function App() {
     if (selected) focusEventDialogStart(eventDialogRef.current);
   }, [selected?.id]);
   const [locationState, setLocationState] = useState("finding");
-  async function loadEvents() {
-    setLoadState("loading");
+  const discoveryTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const discoveryRange = discoveryDateRange(date);
+  const discoveryKey = JSON.stringify([city, date, query, discoveryTimezone]);
+  const currentDiscoveryKey = useRef(discoveryKey);
+  currentDiscoveryKey.current = discoveryKey;
+  const moreRequest = useRef(null);
+  function discoveryUrl({ start, end }, cursor = null) {
+    const params = new URLSearchParams({ pageSize: '9', city, startDate: start, endDate: end, query, timezone: discoveryTimezone });
+    if (cursor) params.set('cursor', cursor);
+    return `/events?${params}`;
+  }
+  const prepareEvents = (items) => items.map((event) => ({
+    ...event,
+    offerings: [...(event.offerings || [])].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)),
+  }));
+  function loadEvents() { setReloadRevision((value) => value + 1); }
+  useEffect(() => {
+    const controller = new AbortController();
+    moreRequest.current?.abort();
+    setEvents([]); setNextCursor(null); setMoreState('idle'); setLoadState('loading');
+    api(discoveryUrl(discoveryRange), { signal: controller.signal })
+      .then((page) => { if (!controller.signal.aborted) { setEvents(prepareEvents(page.items)); setNextCursor(page.nextCursor); setLoadState('ready'); } })
+      .catch(() => { if (!controller.signal.aborted) setLoadState('error'); });
+    return () => controller.abort();
+  }, [discoveryKey, reloadRevision]);
+  async function loadMore(preview = false) {
+    const cursor = preview ? previewCursor : nextCursor;
+    if (!cursor || (preview ? previewState === 'loading-more' : moreState === 'loading')) return;
+    const key = currentDiscoveryKey.current;
+    const controller = new AbortController();
+    if (!preview) moreRequest.current = controller;
+    if (preview) setPreviewState('loading-more'); else setMoreState('loading');
     try {
-      const loaded = await api("/events?limit=100");
-      setEvents(
-        loaded.map((event) => ({
-          ...event,
-          offerings: [...(event.offerings || [])].sort(
-            (a, b) => (a.sortOrder || 0) - (b.sortOrder || 0),
-          ),
-        })),
-      );
-      setLoadState("ready");
+      const page = await api(discoveryUrl(preview ? upcomingWeekRange(date) : discoveryRange, cursor), { signal: controller.signal });
+      if (controller.signal.aborted || key !== currentDiscoveryKey.current) return;
+      if (preview) { setPreviewEvents((previous) => [...previous, ...prepareEvents(page.items)]); setPreviewCursor(page.nextCursor); setPreviewState('ready'); }
+      else { setEvents((previous) => [...previous, ...prepareEvents(page.items)]); setNextCursor(page.nextCursor); setMoreState('idle'); }
     } catch {
-      setLoadState("error");
+      if (controller.signal.aborted || key !== currentDiscoveryKey.current) return;
+      if (preview) setPreviewState('error-more'); else setMoreState('error');
     }
   }
   useEffect(() => {
-    loadEvents();
-  }, []);
+    if (!date || loadState !== 'ready' || events.length) { setPreviewEvents([]); setPreviewCursor(null); setPreviewState('idle'); return; }
+    const controller = new AbortController();
+    setPreviewEvents([]); setPreviewCursor(null); setPreviewState('loading');
+    api(discoveryUrl(upcomingWeekRange(date)), { signal: controller.signal })
+      .then((page) => { if (!controller.signal.aborted) { setPreviewEvents(prepareEvents(page.items)); setPreviewCursor(page.nextCursor); setPreviewState('ready'); } })
+      .catch(() => { if (!controller.signal.aborted) setPreviewState('error'); });
+    return () => controller.abort();
+  }, [discoveryKey, loadState, events.length === 0]);
+  useEffect(() => {
+    if (view !== 'saved') return;
+    const controller = new AbortController();
+    setSavedLoadState('loading');
+    Promise.all(saved.map((id) => api(`/events/${encodeURIComponent(id)}`, { signal: controller.signal }).catch(() => null)))
+      .then((items) => { if (!controller.signal.aborted) { setSavedEvents(prepareEvents(items.filter(Boolean))); setSavedLoadState('ready'); } })
+      .catch(() => { if (!controller.signal.aborted) setSavedLoadState('error'); });
+    return () => controller.abort();
+  }, [view, saved.join(','), savedRevision]);
   useEffect(() => {
     const incoming = referralFromSearch(window.location.search);
     const eventId = eventIdFromSearch(window.location.search);
@@ -261,25 +309,15 @@ export default function App() {
     };
   }, [session?.accessToken]);
   useEffect(() => {
-    setLimit(9);
-  }, [city, date, query, view]);
-  useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 4500);
     return () => clearTimeout(timer);
   }, [notice]);
 
-  const filters = {
-    city,
-    date,
-    query,
-    savedIds: view === "saved" ? saved : null,
-  };
-  const results = filterDiscoveryEvents(events, filters);
-  const discoveryRange = discoveryDateRange(date);
-  const savedUpcoming = upcomingSavedEvents(events, saved);
+  const results = events;
+  const savedUpcoming = upcomingSavedEvents(savedEvents, saved);
   const weekRange = date ? upcomingWeekRange(date) : null;
-  const weeklyEvents = date ? filterUpcomingWeek(events, filters) : [];
+  const weeklyEvents = previewEvents;
   const offering = selected?.offerings?.find((o) => o.id === offeringId);
   const totals = checkoutTotal(offering?.priceCents || 0, quantity, offering?.currency || 'USD');
   function openEvent(event) {
@@ -447,6 +485,16 @@ export default function App() {
       setGuestBusy(false);
     }
   }
+  if (onboardingToken) return <>
+    <OnboardingSetup
+      token={onboardingToken}
+      session={session}
+      onSignIn={() => setAuthOpen(true)}
+      onSwitchAccount={(signIn) => { writeStorage('nitewide.session', null); setSession(null); setAuthOpen(signIn); }}
+      onContinue={() => { setOnboardingToken(null); if (!session) setAuthOpen(true); }}
+    />
+    <AuthDialog open={authOpen} onOpenChange={setAuthOpen} onSuccess={authSuccess} />
+  </>;
   return (
     <>
       <PasswordResetDialog token={passwordResetToken} onClose={clearResetToken} onSuccess={() => { clearResetToken(); setNotice('Password updated. Sign in with your new password.'); setAuthOpen(true); }} />
@@ -507,7 +555,7 @@ export default function App() {
       </main>}
       {view === 'saved' && <main className="booked-page wrap" id="saved">
         <div className="booked-page-heading"><p className="eyebrow">KEEP THE GOOD NIGHTS CLOSE</p><h1>Saved.</h1><p>Your shortlist of upcoming events.</p></div>
-        {loadState === 'loading' ? <LoadingIndicator>Finding your saved nights…</LoadingIndicator> : loadState === 'error' ? <div className="account-empty"><p>We couldn’t load your saved events.</p><Button onClick={loadEvents}>Try again</Button></div> : savedUpcoming.length ? <div className="event-grid">{savedUpcoming.map((event) => <EventCard key={event.id} event={event} saved onSave={() => save(event)} onOpen={() => openEvent(event)} />)}</div> : <div className="account-empty"><h2>No upcoming saved events yet.</h2><p>Tap the heart on an event to keep it here. Past events stay out of your shortlist.</p><Button className="dark-glass-action" onClick={() => setView('discover')}>Discover events</Button></div>}
+        {savedLoadState === 'loading' ? <LoadingIndicator>Finding your saved nights…</LoadingIndicator> : savedLoadState === 'error' ? <div className="account-empty"><p>We couldn’t load your saved events.</p><Button onClick={() => setSavedRevision((value) => value + 1)}>Try again</Button></div> : savedUpcoming.length ? <div className="event-grid">{savedUpcoming.map((event) => <EventCard key={event.id} event={event} saved onSave={() => save(event)} onOpen={() => openEvent(event)} />)}</div> : <div className="account-empty"><h2>No upcoming saved events yet.</h2><p>Tap the heart on an event to keep it here. Past events stay out of your shortlist.</p><Button className="dark-glass-action" onClick={() => setView('discover')}>Discover events</Button></div>}
       </main>}
       <main hidden={view !== 'discover'}>
         <section className="hero wrap">
@@ -578,7 +626,9 @@ export default function App() {
                   name="date"
                   type="date"
                   value={date}
+                  onInput={(event) => setDate(event.currentTarget.value)}
                   onChange={(event) => setDate(event.target.value)}
+                  onBlur={(event) => setDate(event.currentTarget.value)}
                 />
               </span>
               {date && (
@@ -627,7 +677,7 @@ export default function App() {
           <div aria-live="polite" className="results-summary">
             {loadState === "ready" && (
               <>
-                {results.length}{" "}
+                {results.length}{nextCursor ? '+' : ''}{" "}
                 {results.length === 1 ? "experience" : "experiences"}
                 {city ? ` in ${city.split(",")[0]}` : ""} ·{" "}
                 {date
@@ -661,7 +711,7 @@ export default function App() {
           ) : results.length ? (
             <>
               <div className="event-grid">
-                {results.slice(0, limit).map((event) => (
+                {results.map((event) => (
                   <EventCard
                     key={event.id}
                     event={event}
@@ -671,13 +721,14 @@ export default function App() {
                   />
                 ))}
               </div>
-              {results.length > limit && (
+              {nextCursor && (
                 <Button
                   variant="outline"
                   className="load-more"
-                  onClick={() => setLimit(limit + 9)}
+                  disabled={moreState === 'loading'}
+                  onClick={() => loadMore()}
                 >
-                  More nights, more possibilities <Plus size={17} />
+                  {moreState === 'loading' ? 'Loading more nights…' : moreState === 'error' ? 'Retry more nights' : 'More nights, more possibilities'} <Plus size={17} />
                 </Button>
               )}
             </>
@@ -704,7 +755,7 @@ export default function App() {
                 {city ? ` in ${city.split(",")[0]}` : " across all cities"}
               </p>
               <div className="event-grid">
-                {weeklyEvents.slice(0, limit).map((event) => (
+                {weeklyEvents.map((event) => (
                   <EventCard
                     key={event.id}
                     event={event}
@@ -714,7 +765,9 @@ export default function App() {
                   />
                 ))}
               </div>
-              {!weeklyEvents.length && (
+              {previewState === 'loading' && <LoadingIndicator>Finding the following week…</LoadingIndicator>}
+              {previewState === 'error' && <div className="empty-state"><p>We couldn’t load the following week.</p><Button onClick={loadEvents}>Try again</Button></div>}
+              {previewState === 'ready' && !weeklyEvents.length && (
                 <div className="empty-state">
                   <CalendarDays />
                   <h3>No matches in this seven-day window.</h3>
@@ -723,13 +776,14 @@ export default function App() {
                   </p>
                 </div>
               )}
-              {weeklyEvents.length > limit && (
+              {previewCursor && (
                 <Button
                   variant="outline"
                   className="load-more"
-                  onClick={() => setLimit(limit + 9)}
+                  disabled={previewState === 'loading-more'}
+                  onClick={() => loadMore(true)}
                 >
-                  Show more from this week <Plus size={17} />
+                  {previewState === 'loading-more' ? 'Loading more nights…' : previewState === 'error-more' ? 'Retry more from this week' : 'Show more from this week'} <Plus size={17} />
                 </Button>
               )}
             </section>

@@ -6,13 +6,16 @@ const { assertGuestlistCapacity } = require('./guestlist-capacity');
 const { createNotificationService } = require('./notification-service');
 const { queueGuestlistEmail } = require('./email-events');
 const { queueGuestlistReviewNeeded } = require('./business-email-events');
+const { assertActiveUser, assertActiveEvent } = require('./lifecycle-service');
 
 function createGuestlistService({ sequelize, models, now = () => new Date(), email = null, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', reviewEmailsEnabled = false }) {
   const notifications = createNotificationService(models);
-  async function request(input) {
+  async function request(input, context = {}) {
     return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
       const event = await models.Event.findByPk(input.eventId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!event) throw notFound('Event');
+      await assertActiveEvent(models, event, transaction);
+      assertActiveUser(await models.User.findByPk(input.userId, { transaction, lock: transaction.LOCK.UPDATE }));
       if (event.status !== 'published') throw new DomainError('Guestlist is not open', { code: 'GUESTLIST_CLOSED' });
       const requestedAt = now();
       const affiliate = await resolveAffiliate(models, { event, code: input.affiliateCode, now: requestedAt, transaction });
@@ -36,11 +39,12 @@ function createGuestlistService({ sequelize, models, now = () => new Date(), ema
         if (models.Notification) for (const reviewerId of uniqueReviewers) await notifications.emit({ userId: reviewerId, eventId: event.id, kind: 'guestlist_request', title: 'Guestlist request', message: `${requester?.displayName || 'A customer'} requests ${input.partySize} ${input.partySize === 1 ? 'spot' : 'spots'} for ${event.title}.`, metadata: { entryId: entry.id, referrerUserId: affiliate.eventAffiliate?.userId || null } }, transaction);
         if (reviewEmailsEnabled) await queueGuestlistReviewNeeded({ email, models, reviewerIds: uniqueReviewers, entry, event, businessAppUrl, transaction });
       }
+      if (context.onCreated) await context.onCreated(entry, event, transaction);
       return { entry, requiresApproval: true };
     });
   }
 
-  async function review(input) {
+  async function review(input, context = {}) {
     return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
       const event = await models.Event.findByPk(input.eventId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!event) throw notFound('Event');
@@ -55,6 +59,7 @@ function createGuestlistService({ sequelize, models, now = () => new Date(), ema
           after: { status: 'rejected', note: input.note || null } }, { transaction });
         if (models.Notification) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_declined', title: 'Guestlist approval revoked', message: `Your guestlist approval for ${event.title} was revoked.`, metadata: { entryId: entry.id } }, transaction);
         await queueGuestlistEmail({ email, models, entry, event, kind: 'declined', customerAppUrl, transaction });
+        if (context.onReviewed) await context.onReviewed(entry, event, transaction);
         return { entry, qrToken: null };
       }
       if (input.decision === 'approve' ? !['pending', 'rejected'].includes(entry.status) : entry.status !== 'pending') throw conflict('Guestlist request cannot be reviewed in its current state', 'GUESTLIST_ALREADY_REVIEWED');
@@ -64,6 +69,7 @@ function createGuestlistService({ sequelize, models, now = () => new Date(), ema
         await models.AuditLog.create({ actorUserId: input.reviewedByUserId, organizationId: event.organizationId, entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.rejected', after: { note: input.note || null } }, { transaction });
         if (models.Notification) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_declined', title: 'Guestlist request declined', message: `Your request for ${event.title} was declined.`, metadata: { entryId: entry.id } }, transaction);
         await queueGuestlistEmail({ email, models, entry, event, kind: 'declined', customerAppUrl, transaction });
+        if (context.onReviewed) await context.onReviewed(entry, event, transaction);
         return { entry, qrToken: null };
       }
 
@@ -73,6 +79,7 @@ function createGuestlistService({ sequelize, models, now = () => new Date(), ema
       await models.AuditLog.create({ actorUserId: input.reviewedByUserId, organizationId: event.organizationId, entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.approved', after: { partySize: entry.partySize } }, { transaction });
       if (models.Notification) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_approved', title: 'Guestlist approved', message: `You're on the guestlist for ${event.title}.`, metadata: { entryId: entry.id } }, transaction);
       await queueGuestlistEmail({ email, models, entry, event, kind: 'approved', customerAppUrl, transaction });
+      if (context.onReviewed) await context.onReviewed(entry, event, transaction);
       return { entry, qrToken: qr.token };
     });
   }

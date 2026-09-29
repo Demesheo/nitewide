@@ -3,10 +3,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
+const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 test(
   "business HTTP workflow: real PostgreSQL, authentication, isolation, sales, create/edit and approvals",
-  { skip: process.env.RUN_DB_TESTS !== "1" },
   async () => {
+    assertManagedTestDatabase();
     require("dotenv").config({
       path: require("node:path").resolve(__dirname, "../../../.env"),
     });
@@ -98,6 +99,7 @@ test(
           displayName: `QA ${Object.keys(ids).find((k) => ids[k] === id)}`,
           email: `${id}@integration.nitewide.test`,
           isActive: true,
+          independentCreator: id === ids.outsider,
         })),
       );
       const venueLocation = await m.Location.create(input.location);
@@ -546,6 +548,7 @@ test(
       const otherVenue = await m.Location.create({ ...input.location, name:'Another venue', addressLine1:'22 Other Street' });
       locations.add(otherVenue.id);
       await m.Organization.update({locationId:otherVenue.id},{where:{id:ids.org}});
+      await m.OrganizationVenue.create({ organizationId: ids.org, locationId: otherVenue.id });
       const tierEdit = {
         ...input, slug:undefined, category:undefined, version:detail.body.data.event.version,
         location:{...input.location,city:'Forged city',addressLine1:'999 Wrong Address'},
@@ -635,7 +638,7 @@ test(
       await m.Offering.update({quantitySold:soldCount},{where:{id:tiers[0].id}});
       assert.equal((await req(`/business/events/${event.id}`,ids.owner,'PUT',await removalInput(remainingSettings.filter((tier)=>tier.id!==dependent.id)))).status,200);
       const lastOfferingEvent = await req('/business/events',ids.manager,'POST',{...input,title:'QA guestlist-only removal'});
-      assert.equal(lastOfferingEvent.status,201);
+      assert.equal(lastOfferingEvent.status,201,JSON.stringify(lastOfferingEvent.body));
       events.push(lastOfferingEvent.body.data.id);
       locations.add(lastOfferingEvent.body.data.locationId);
       assert.equal((await req(`/business/events/${lastOfferingEvent.body.data.id}`,ids.manager,'PUT',{
@@ -1043,6 +1046,7 @@ test(
           transaction,
         });
         await m.OrganizationEmployee.destroy({ where: { organizationId: ids.org }, transaction });
+        await m.OrganizationVenue.destroy({ where: { organizationId: [ids.org, ids.secondOrg] }, transaction });
         await m.Organization.destroy({ where: { id: [ids.org, ids.secondOrg] }, transaction });
         await m.Location.destroy({
           where: { id: [...locations].filter(Boolean) },

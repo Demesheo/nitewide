@@ -17,7 +17,7 @@ test('health endpoint reports the API is ready', async () => { const response = 
 test('public discovery returns published events', async () => { const response = await request(setup(), '/api/events'); assert.equal(response.status, 200); assert.equal(response.body.data[0].title, 'Afterglow'); });
 test('public discovery filters finished events before applying its limit', async () => {
   let query;
-  const response = await request(setup(undefined, undefined, (value) => { query = value; }), '/api/events?limit=100');
+  const response = await request(setup(undefined, undefined, (value) => { query ||= value; }), '/api/events?limit=100');
   assert.equal(response.status, 200);
   assert.equal(query.where.status, 'published');
   assert.equal(query.where.isDiscoverable, true);

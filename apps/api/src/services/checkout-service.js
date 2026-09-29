@@ -6,16 +6,19 @@ const { resolveAffiliate } = require('./affiliate-service');
 const { eventFinished, offeringSaleState } = require('../domain/event-policy');
 const { createNotificationService } = require('./notification-service');
 const { queuePurchaseEmail } = require('./email-events');
+const { assertActiveUser, assertActiveEvent } = require('./lifecycle-service');
 
 function createCheckoutService({ sequelize, models, now = () => new Date(), environment = process.env.NODE_ENV || 'development', hostedDemo = false, email = null, customerAppUrl = 'http://localhost:5173' }) {
   const notifications = createNotificationService(models);
   return async function checkout(input) {
     if (hostedDemo && input.payment && input.payment.provider !== 'demo') throw new DomainError('Only mock payments are available in the hosted demo', { code: 'DEMO_ONLY' });
     return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
+      assertActiveUser(await models.User.findByPk(input.buyerUserId, { transaction, lock: transaction.LOCK.UPDATE }));
       const existing = await models.Order.findOne({ where: { buyerUserId: input.buyerUserId, idempotencyKey: input.idempotencyKey }, include: [{ model: models.OrderItem, as: 'items' }], transaction });
       if (existing) return { order: existing, credentials: [], replayed: true };
       const event = await models.Event.findByPk(input.eventId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!event) throw notFound('Event');
+      await assertActiveEvent(models, event, transaction);
       const organization = event.organizationId ? await models.Organization.findByPk(event.organizationId, { transaction }) : null;
       const current = now();
       if (event.status !== 'published' || eventFinished(event, current)) throw new DomainError('Event is not on sale', { code: 'EVENT_NOT_ON_SALE' });

@@ -10,6 +10,13 @@ const reportQuery = z.object({
   organizationId: z.string().uuid().optional(),
 });
 
+const operationsQuery = z.object({
+  kind: z.enum(['failed_payments', 'pending_guestlist', 'suspended_organizations']).default('failed_payments'),
+  page: z.coerce.number().int().min(1).max(1000000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+  search: text(120).default(''),
+});
+
 const userUpdate = z.object({
   displayName: text(120).min(1).optional(),
   phone: text(32).nullable().optional(),
@@ -53,4 +60,4 @@ const demoUser = z.object({
   if (value.role === 'event_promoter' && !value.eventId) context.addIssue({ code: 'custom', path: ['eventId'], message: 'Choose an event for this role' });
 });
 
-module.exports = { reportQuery, userUpdate, organizationUpdate, eventUpdate, demoUser };
+module.exports = { reportQuery, operationsQuery, userUpdate, organizationUpdate, eventUpdate, demoUser };

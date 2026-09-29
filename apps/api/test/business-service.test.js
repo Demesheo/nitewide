@@ -195,7 +195,8 @@ function harness({ denied = false, sold = 4, orderHistory = 0 } = {}) {
     },
   };
   const models = {
-    Organization: { findByPk: async () => ({ locationId: 'venue-location' }) },
+    User: { findByPk: async () => ({ id: 'owner', isActive: true }) },
+    Organization: { findByPk: async () => ({ locationId: 'venue-location', status: 'active' }) },
     Event: {
       sequelize: {
         transaction: async (_opts, fn) => fn({ LOCK: { UPDATE: "UPDATE" } }),

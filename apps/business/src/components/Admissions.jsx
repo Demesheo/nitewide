@@ -14,12 +14,14 @@ import './admissions.css';
 const dateLabel = (event) => new Date(event.startsAt).toLocaleString('en-US', { timeZone: event.location?.timezone || 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 export function Admissions({ session, onAdmitted, onUnauthorized }) {
   const [events, setEvents] = useState(null), [event, setEvent] = useState(null), [eventSearch, setEventSearch] = useState('');
+  const [eventQuery, setEventQuery] = useState(''), [eventPage, setEventPage] = useState(1), [eventTotal, setEventTotal] = useState(0), [eventLoading, setEventLoading] = useState(false);
   const [mode, setMode] = useState('scan'), [camera, setCamera] = useState(false), [cameraMessage, setCameraMessage] = useState('');
   const [roster, setRoster] = useState(null), [search, setSearch] = useState(''), [query, setQuery] = useState(''), [status, setStatus] = useState('all'), [page, setPage] = useState(1);
   const [busy, setBusy] = useState(false), [loading, setLoading] = useState(false), [error, setError] = useState(''), [revision, setRevision] = useState(0);
   const [result, setResult] = useState(null), [confirm, setConfirm] = useState(null), [online, setOnline] = useState(navigator.onLine);
-  const inFlight = useRef(false), photoInput = useRef(null), panel = useRef(null), photoRun = useRef(0);
+  const inFlight = useRef(false), photoInput = useRef(null), panel = useRef(null), eventPanel = useRef(null), photoRun = useRef(0);
   const eventId = event?.id;
+  useEffect(() => { const timer = setTimeout(() => { setEventQuery(eventSearch); setEventPage(1); }, 250); return () => clearTimeout(timer); }, [eventSearch]);
   useEffect(() => { photoRun.current += 1; return () => { photoRun.current += 1; }; }, [eventId]);
   useEffect(() => {
     const update = () => { setOnline(navigator.onLine); if (!navigator.onLine) setCamera(false); };
@@ -29,16 +31,20 @@ export function Admissions({ session, onAdmitted, onUnauthorized }) {
   useEffect(() => { const timer = setTimeout(() => { setQuery(search); setPage(1); }, 250); return () => clearTimeout(timer); }, [search]);
   useEffect(() => {
     const controller = new AbortController();
+    setEvents(null);
     async function load() {
+      setEventLoading(true);
       try {
-        const data = await api('/business/admissions/events', session, { signal: controller.signal });
-        if (!controller.signal.aborted) setEvents(data.events);
+        const params = new URLSearchParams({ page: String(eventPage), pageSize: '20', search: eventQuery });
+        const data = await api(`/business/admissions/events?${params}`, session, { signal: controller.signal });
+        if (!controller.signal.aborted) { setEvents(data.items); setEventTotal(data.total); setError(''); }
       } catch (err) { if (!controller.signal.aborted) { if (err.status === 401) onUnauthorized(); else setError(err.message); } }
+      finally { if (!controller.signal.aborted) setEventLoading(false); }
     }
     load();
     const timer = setInterval(() => { if (!document.hidden) load(); }, 30000);
     return () => { controller.abort(); clearInterval(timer); };
-  }, [session, onUnauthorized, revision]);
+  }, [session, onUnauthorized, revision, eventPage, eventQuery]);
   useEffect(() => {
     if (!eventId) return;
     const controller = new AbortController(); let pending = false;
@@ -97,15 +103,17 @@ export function Admissions({ session, onAdmitted, onUnauthorized }) {
     finally { URL.revokeObjectURL(url); setBusy(false); }
   }
   function chooseEvent(selected) { setEvent(selected); setSearch(''); setQuery(''); setStatus('all'); setPage(1); setRoster(null); setCamera(false); setCameraMessage(''); setError(''); setResult(null); }
-  const matchingEvents = events?.filter((row) => `${row.title} ${row.location?.name || ''}`.toLowerCase().includes(eventSearch.toLowerCase())) || [];
+  function changeEventPage(next) { setEventPage(next); eventPanel.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
+  const matchingEvents = events || [];
   const ResultIcon = result?.type === 'confirmed' ? CheckCircle2 : result?.type === 'already' ? CircleAlert : ShieldX;
   return <div className="admissions">
     {!online && <p className="error" role="alert">You are offline. Reconnect to confirm admissions.</p>}
     {error && <p className="error" role="alert">{error}<Button variant="outline" onClick={() => setRevision((v) => v + 1)}>Retry</Button></p>}
-    {!event ? <section className="panel"><div className="section-heading"><div><h2>Select an event</h2><p>Available 24 hours before start through 24 hours after finish.</p></div></div><div className="admissions-body"><label className="admission-search"><Search size={18}/><Input aria-label="Search admission events" placeholder="Search events or venues" value={eventSearch} onChange={(e) => setEventSearch(e.target.value)}/></label>
-      {!events && !error && <LoadingState>Finding your events…</LoadingState>}
-      {events && !matchingEvents.length && <Empty title="No events in this window">Your assigned events will appear here when admissions become available.</Empty>}
+    {!event ? <section ref={eventPanel} className="panel"><div className="section-heading"><div><h2>Select an event</h2><p>Available 24 hours before start through 24 hours after finish.</p></div></div><div className="admissions-body"><label className="admission-search"><Search size={18}/><Input aria-label="Search admission events" placeholder="Search events or venues" value={eventSearch} onChange={(e) => setEventSearch(e.target.value)}/></label>
+      {eventLoading && <LoadingState>Finding your events…</LoadingState>}
+      {!eventLoading && events && !matchingEvents.length && <Empty title="No events in this window">Your assigned events will appear here when admissions become available.</Empty>}
       <div className="admission-events">{matchingEvents.map((row) => <button key={row.id} className="admission-event" onClick={() => chooseEvent(row)}><span><small>{dateLabel(row)}</small><strong>{row.title}</strong><span>{row.location?.name || row.location?.city || 'Independent event'}</span></span><ChevronRight size={20}/></button>)}</div>
+      {!eventLoading && eventTotal > 20 && <div className="admission-pagination"><Button variant="outline" disabled={eventPage <= 1} onClick={() => changeEventPage(eventPage - 1)}>Previous</Button><span>Page {eventPage} of {Math.ceil(eventTotal / 20)}</span><Button variant="outline" disabled={eventPage * 20 >= eventTotal} onClick={() => changeEventPage(eventPage + 1)}>Next</Button></div>}
     </div></section> : <section ref={panel} className="panel admission-workspace">
       <div className="admission-heading"><Button variant="ghost" size="sm" disabled={busy} onClick={() => chooseEvent(null)}><ArrowLeft size={16}/> Events</Button><div><h2>{event.title}</h2><p>{dateLabel(event)} · {event.location?.name || 'Event admissions'}</p></div><div className="admission-count" aria-live="polite"><strong>{roster ? `${roster.admitted} / ${roster.expected}` : '—'}</strong><span>Admitted / expected</span></div></div>
       <Tabs value={mode} onValueChange={(value) => { setMode(value); setCamera(false); setCameraMessage(''); }}>

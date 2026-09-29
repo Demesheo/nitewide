@@ -1,6 +1,21 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
 const { aggregateAdminSales, createAdminService } = require('../src/services/admin-service');
+const serviceSource = readFileSync(require.resolve('../src/services/admin-service'), 'utf8');
+const salesIndexMigration = readFileSync(require.resolve('../src/db/migrations/202609290002-admin-paid-sales-index.cjs'), 'utf8');
+
+test('Overview sales use parameterized SQL aggregates in a consistent read-only snapshot and a selective paid-date index', () => {
+  assert.match(serviceSource, /sequelize\.query\(sql, \{ type: QueryTypes\.SELECT, replacements, transaction \}\)/);
+  assert.match(serviceSource, /const replacements = \{ since, organizationId \}/);
+  assert.match(serviceSource, /CAST\(:organizationId AS uuid\)/);
+  assert.match(serviceSource, /o\.status = 'paid' AND o\.paid_at >= :since/);
+  assert.match(serviceSource, /isolationLevel: Transaction\.ISOLATION_LEVELS\.REPEATABLE_READ, readOnly: true/);
+  assert.match(serviceSource, /loadAdminSales\(models, since, query\.organizationId \|\| null\)/);
+  assert.doesNotMatch(serviceSource, /reportEventIds|const paidOrders =/);
+  assert.match(salesIndexMigration, /ON orders \(paid_at, event_id\) WHERE status = 'paid'/);
+  assert.match(salesIndexMigration, /CREATE INDEX CONCURRENTLY/);
+});
 
 test('admin sales aggregate paid totals by day, event, and organization', () => {
   const result = aggregateAdminSales([

@@ -101,7 +101,7 @@ blur, fade or recolor the QR image itself.
 npm test --workspace @nitewide/customer
 npm run build --workspace @nitewide/customer
 node --test apps/api/test/premium-discovery.test.js apps/api/test/customer-wallet.test.js apps/api/test/api.test.js
-RUN_DB_TESTS=1 node --test apps/api/test/business-integration.test.js
+npm test --workspace @nitewide/api
 ```
 
 Browser review: Discover → event → checkout review; save/unsave; Booked → purchase

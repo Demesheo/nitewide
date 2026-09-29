@@ -11,6 +11,7 @@ function fixture() {
   let sum = async () => 0;
   const models = {
     Event: { findByPk: async () => event },
+    Organization: { findByPk: async () => ({ id: 'org-1', status: 'active' }) },
     User: { findByPk: async () => ({ isActive: true }) },
     EventAffiliate: { findByPk: async (id) => id === affiliate.id ? affiliate : null, findOne: async ({ where }) => where.code === affiliate.code ? affiliate : null },
     OrgAffiliate: {},

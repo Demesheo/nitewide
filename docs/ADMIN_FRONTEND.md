@@ -1,5 +1,7 @@
 # Nitewide Admin frontend
 
+The Management page provides versioned granular editing, scoped role changes, and suspend/archive/restore controls. Permanent admin deletion is disabled; purchases, admissions, and audit history remain intact. See [Internal admin management](ADMIN_MANAGEMENT.md) for resource capabilities and API details.
+
 Nitewide Admin is the internal operations console at `http://127.0.0.1:5175`. It is intentionally separate from the Customer and Business applications and every API operation independently requires an authenticated `isInternalAdmin` user.
 
 ## Local access
@@ -21,17 +23,19 @@ Sign in with `admin@nitewide.test` and `NitewideDemo!2026`. The UI stores the 12
 - Overview of paid volume, platform fees, organizations, published events, failed payments, pending guestlists, check-ins, and operational alerts.
 - Analytics explorer with 7-, 30-, 90-, and 365-day presets or an inclusive custom start/end date (up to 366 days), multi-select region and organization filters, blanket search, CSV export, and region → organization/independent creator → event → customer drill-down.
 - Paid-sales pace, top-region, experience-category, and ticket/package visualizations. Drill rows show event count, paid checkouts, face-value sales, unique customers, units, admissions, and average order.
-- Searchable users, organizations, events, orders/payments, and audit history; the loaded view can be exported as CSV. Table headers sort, and all data tables page at 10 rows by default with 25/50 options. Management tables start A–Z; sales tables start highest sales first.
+- Server-searchable users, organizations, events, orders/payments, and audit history in Management, with authoritative counts, allowlisted sorting/status filters, and 25-row pages. Overview and analytics CSV exports remain available; Management record lists do not yet export the entire filtered result. Analytics tables page at 10 rows by default with 25/50 options.
 - Audited overrides for reasonable operational fields: user access/display data, organization plan/status/profile, and event schedule/content/status/capacity/discoverability.
+- Guided onboarding for a multi-venue organization, a single-venue business, or an independent event creator. The recipient confirms their email and sets their own password; an existing account signs in before accepting scoped access. Setup links are never returned to administrators.
+- Strict, versioned editing of users, organizations, events, locations, and organization/event role assignments; archived records remain inspectable by internal admins.
 - Creation of real demo identities for customer, internal administrator, organization owner, venue manager, employee/host, organization promoter, event promoter, and independent event creator workflows.
 
 Demo role assignments are implemented through the platform's actual data model. Owners and managers receive `OrganizationOwner` membership, employees receive separate `OrganizationEmployee` membership, promoters receive `OrgAffiliate` or `EventAffiliate`, and an event creator receives a private independent draft fixture. Organization/event roles require selecting their scope. Demo passwords are salted with scrypt and never returned by the API. The demo-user endpoint is disabled in production.
 
 ## Guardrails
 
-Admin pages are not a substitute for a payments provider dashboard. The UI does not permit edits to primary IDs, email identities, ownership links, slugs, credential secrets, QR hashes, order/payment status, payment provider references, or financial amounts. Financial status changes require a later provider-reconciled workflow so an admin cannot fabricate a paid/refunded order or leave ticket inventory inconsistent. Event capacity cannot be reduced below issued tickets, and the direct venue guestlist capacity cannot fall below approved guests. Every supported change requires a reason and creates an `AuditLog` record containing the actor, prior state, resulting state, entity, and timestamp. An administrator cannot remove their own admin access or the last active administrator.
+Admin pages are not a substitute for a payments provider dashboard. Admins cannot edit credential secrets, QR hashes, provider references, payment status, or financial amounts. A changed user email is unverified, invalidates active credentials/tokens, and queues a verification message only when email delivery is configured. Event capacity cannot fall below ticket and approved guestlist admissions. Every supported change requires a reason and audit entry; high-risk edits require the current version. An administrator cannot remove their own admin access, the last active administrator, or the last active owner of an active organization. Suspension/archive blocks new activity at the server; restore does not republish cancelled events or issue refunds.
 
-Admin schedule overrides show UTC explicitly. The Business editor remains the venue-time-zone-aware flow for routine scheduling. Lists load up to 100 recent rows per resource, with search/status filtering on that loaded window; server-side pagination and cross-history search are still required for large deployments.
+Admin schedule overrides show UTC explicitly. The Business editor remains the venue-time-zone-aware flow for routine scheduling. The legacy Overview snapshot still includes at most 100 recent rows per resource, but the focused Management and Operations lists search and paginate against the full authorized server-side dataset. Analytics drilldowns still need their own scale migration.
 
 Analytics uses `GET /api/admin/analytics`. Dates are based on paid-order `paidAt` in UTC; the current day is included. Region means the event location's city/region/country, with an “Unspecified region” bucket. Sales are paid USD order subtotals (face value), not settlements, profit, or total customer charges. Orders count checkouts, units count offering quantities, and admissions use historical entries-per-unit snapshots—not door scans. Search selects matching events (or events with a matching customer), then aggregates their authorized paid orders; it does not filter individual matching orders. Region choices and organization choices are OR within each field and AND across fields. Customer names/emails and CSV exports are sensitive operational data. The report has explicit 5,000-event and 20,000-order limits; narrow filters when reached. Larger deployments need server-side grouped reporting and pagination.
 
@@ -52,4 +56,4 @@ node --test apps/api/test/analytics-service.test.js
 npm run build --workspace @nitewide/admin
 ```
 
-The tests cover search helpers, formatting, reporting math, server-side authorization order, and protection against administrator self-lockout. Full API boundary tests require permission to bind an ephemeral local test port; the real-database integration suite remains opt-in.
+The default `npm test` includes isolated migrated PostgreSQL integration suites and mocked email checks. See [Testing](TESTING.md); no live provider messages are sent.

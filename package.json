@@ -14,6 +14,7 @@
     "build": "npm run build --workspaces --if-present",
     "deploy:demo": "node deploy/trigger-demo.cjs",
     "test": "node scripts/run-default-tests.cjs",
+    "test:demo": "npm run test:demo --workspace @nitewide/api",
     "test:email:customer:mocked": "npm run test:email:customer:mocked --workspace @nitewide/api",
     "test:email:customer:simulated": "node scripts/check-resend-workflows.cjs",
     "test:email:business:mocked": "npm run test:email:business:mocked --workspace @nitewide/api",

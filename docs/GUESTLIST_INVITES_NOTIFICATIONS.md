@@ -17,7 +17,7 @@ Once a booking opens successfully, its notification is dismissed from the inbox.
 ```bash
 npm run db:migrate
 npm test --workspace @nitewide/api --workspace @nitewide/business --workspace @nitewide/customer
-RUN_DB_TESTS=1 node --test apps/api/test/business-integration.test.js
+# API tests include the required isolated PostgreSQL workflows (docs/TESTING.md)
 npm run build --workspace @nitewide/business
 npm run build --workspace @nitewide/customer
 ```

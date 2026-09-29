@@ -19,7 +19,7 @@ Run:
 ```sh
 npm run db:migrate
 npm test
-RUN_DB_TESTS=1 npm test --workspace @nitewide/api
+# npm test already includes the required isolated PostgreSQL workflows
 npm run build
 ```
 

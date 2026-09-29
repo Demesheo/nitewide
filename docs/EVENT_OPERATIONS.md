@@ -101,7 +101,7 @@ npm test --workspace @nitewide/business
 npm test --workspace @nitewide/customer
 npm run build --workspace @nitewide/business
 npm run build --workspace @nitewide/customer
-RUN_DB_TESTS=1 node --test apps/api/test/business-integration.test.js
+npm test --workspace @nitewide/api
 ```
 
 The integration test uses isolated UUID fixtures in a local non-production database and cleans only those fixtures. It verifies location tampering, role isolation, different individual rates, historical commission preservation, sellout/date gates, public availability, promoter removal through both referral codes, attendee spend totals, past-event protection, and independent creator assignment. Unit tests cover date boundaries, invalid tier ladders, report reconciliation, and frontend event filtering/payloads.

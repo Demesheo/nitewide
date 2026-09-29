@@ -4,6 +4,8 @@ class Location extends Model {}
 function initLocation(sequelize) {
   Location.init({
     id: id(),
+    lifecycleState: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'active', validate: { isIn: [['active', 'suspended', 'archived']] } },
+    version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     name: DataTypes.STRING(180),
     addressLine1: DataTypes.STRING(180),
     addressLine2: DataTypes.STRING(180),
@@ -16,8 +18,7 @@ function initLocation(sequelize) {
     longitude: { type: DataTypes.DECIMAL(9, 6), validate: { min: -180, max: 180 } },
     geo: DataTypes.GEOGRAPHY('POINT', 4326),
     privacy: { type: DataTypes.ENUM('public', 'attendees_only', 'private'), allowNull: false, defaultValue: 'public' },
-  }, { sequelize, modelName: 'Location', tableName: 'locations' });
+  }, { sequelize, modelName: 'Location', tableName: 'locations', version: true });
   return Location;
 }
 module.exports = { Location, initLocation };
-

@@ -53,6 +53,8 @@ Open:
 - Admin: <http://localhost:5175>
 - API health: <http://localhost:4000/health>
 
+The API binds to `127.0.0.1` by default in development and tests, so local startup does not expose it to the network. `BIND_HOST` accepts `127.0.0.1` or `0.0.0.0`; the latter is permitted only in production, where it is the default for Render.
+
 The seed command is intentionally destructive to local data: it truncates platform tables and creates a coherent sample marketplace. It refuses to run in production unless explicitly invoked with `--allow-production` from the API workspace.
 
 For a **non-destructive** demo refresh, run `npm run db:seed:sales`. This repeatable local-only command adds up to four weeks of Friday/Saturday/Sunday venue history, varied paid orders across GA and all three bottle packages, and a stable varied team for each venue: 1–3 managers plus the owner, 9–12 employees, and two promoters. Those counts are demo fixtures, not product limits. Two of each six demo orders are direct purchases with no promoter or employee attribution. It preserves existing accounts, edits, and sales, and fills the 30-day analytics and event → paid-customer drill-downs.
@@ -122,7 +124,7 @@ The API development process uses a normal Node process for compatibility with ma
 
 The assumptions, outputs, valuation sensitivities, and evidence gates behind the Florida model are documented in [docs/FLORIDA_50M_MODEL.md](docs/FLORIDA_50M_MODEL.md).
 
-Tests use Node's test runner and exercise the REST boundary, pricing rules, promoter attribution precedence, transactional checkout behavior, inventory oversell rejection, business reporting, event edit protections, and frontend helpers. Fast tests inject repositories. An optional real-PostgreSQL HTTP workflow runs with `RUN_DB_TESTS=1 node --test apps/api/test/business-integration.test.js`; it creates and cleans only its isolated fixtures, without reseeding your data. To verify all seeded teams and their Overview/Analytics figures against the local database without writing to it, run `RUN_DB_TESTS=1 node --test apps/api/test/seed-team-integration.test.js` after the demo seed.
+`npm test` runs the unit/frontend tests and five required real-PostgreSQL suites: admissions, the Business HTTP workflow, Team/Overview/Analytics consistency, admin onboarding/lifecycle, and public discovery pagination. Each integration suite receives a fresh generated database, migrations, and deterministic fixtures; the runner removes that database afterward. No development/demo seed is required or modified, and email delivery is disabled. Missing PostgreSQL/PostGIS prerequisites fail with setup guidance rather than skipping coverage. See [Testing](docs/TESTING.md) for local/CI setup and the separate demo-only command.
 
 The customer and business mocked email suites run automatically in `npm test`, including GitHub's build/deploy verification. They use isolated fixtures and mocked provider requests, so they consume **0 Resend sends**. The two simulated commands are separate manual actions; neither is invoked by `npm test`, `npm run build`, Docker, or deployment. See [docs/TRANSACTIONAL_EMAIL.md](docs/TRANSACTIONAL_EMAIL.md).
 
@@ -155,6 +157,12 @@ Passwords are salted and hashed with scrypt. Successful authentication returns a
 
 ## Admin experience
 
+The [internal Management surface](docs/ADMIN_MANAGEMENT.md) adds creation, audited edits, and suspend/archive controls across platform resources. Hard deletion is disabled; purchase, admission, and audit history is retained. Every mutation requires an audit reason and internal administrator access.
+
+The internal admin Operations view provides searchable, paginated queues for failed payment attempts, pending guestlist requests, and suspended organizations. Overview alerts open the corresponding queue. Counts cover the entire platform, and record context remains available beyond the workspace's latest 100 records. The view is read-only; failed attempts show the linked order's current status because a later attempt may have succeeded.
+
+`GET /admin/operations` requires internal administrator access and accepts `kind` (`failed_payments`, `pending_guestlist`, or `suspended_organizations`), `page` (default 1), `pageSize` (default 25, maximum 100), and `search` (maximum 120 characters). It returns a successful-load timestamp, global queue counts, and the selected queue's filtered total and records. The mobile layout uses stacked queue selectors and record cards with read-only context dialogs.
+
 The Admin app is a dark, responsive shadcn/ui operations console with real administrator sign-in, platform health and alert counts, and a filterable analytics explorer. Its region → organization/creator → event → customer table supports preset or custom UTC date ranges, multi-select regions/organizations, search, and CSV export; charts show sales pace, region contribution, experience mix, and ticket/package performance. Authorized admins can correct supported user, organization, and event fields; every override requires a reason and records its before/after state. Protected identifiers, credentials, payment references, financial amounts, order/payment statuses, and ownership links are not editable, and an administrator cannot remove their own access. Financial corrections await a provider-reconciled workflow.
 
 Admins can also create working demo users for every currently modeled persona: customer, internal admin, organization owner, venue manager, employee/host, organization promoter, event promoter, and independent event creator. Scoped roles require an organization or event and use the real membership and promoter-attribution tables. Open <http://127.0.0.1:5175> and use the Nitewide Admin credential above. See [Admin frontend, role fixtures, override guardrails, and tests](docs/ADMIN_FRONTEND.md).
@@ -164,14 +172,16 @@ Admins can also create working demo users for every currently modeled persona: c
 The customer app uses shadcn/ui (Radix primitives), Tailwind CSS, and Lucide icons with the mobile-first [Nitewide Noir design system](docs/CUSTOMER_DESIGN_SYSTEM.md): charcoal, crimson, subtle glass, and gold Premium-host cards. See [Frontend components and styling](docs/FRONTEND.md) for component contracts, layout and development guidance. Run `npm run dev:api` and `npm run dev:customer`, then open http://localhost:5173. Vite proxies `/api` to the local API; for a separately hosted API, set `VITE_API_URL` when building the customer app. Production hosting must proxy `/api` or supply that build-time URL.
 
 - Sign in and registration use the real API and existing seeded credentials above. Sessions are checked on reload and expire automatically.
-- Discovery filters live API events by city, blanket search, venue-local calendar date, experience type, and starting price. The Search field matches titles, summaries, descriptions, venues, cities/regions, categories, and offering text. Today's date remains the default. An empty date shows an explanation followed by matching events on the next seven calendar dates (selected date + 1 through + 7, inclusive), preserving all other filters. The complete card opens its event; the separate heart only saves it. Click **All upcoming** to browse without a date limit.
+- Discovery requests server-filtered pages by city, keyword search, and venue-local calendar date. An empty date shows the next seven local calendar dates; when a selected date has no matches, the following seven dates are offered separately with the same city/search filters. The Search field matches titles, summaries, descriptions, venues, cities/regions, categories, and public offering text. The complete card opens its event; the separate heart only saves it.
 - Tickets and packages open an event-detail dialog with inventory-aware quantity controls. Checkout is **demo only**: it displays full payment and the customer-paid **standard 8% + $0.80 (automatic discounts and minimum-cost exceptions apply) per paid ticket/package** service fee. Nitewide pays Stripe processing from its service fee; no Stripe surcharge is added to the customer total. Demo checkout records an order, inventory, tickets, attribution and notifications through the API without collecting a payment. **My nights** loads upcoming/past purchases and guestlists from the database, including seeded purchases. Mini-flyer purchase cards open every ticket QR in that purchase, with individual checked-in highlights and automatic status refresh. The avatar opens editable profile details and **Connections**, a feed of upcoming events across venues from previous referrers/inviters. See [Customer account and tickets](docs/CUSTOMER_ACCOUNT.md).
 - Guestlist requests are real API requests for one person and require host approval. A successful request is pending, not admission confirmation.
 - Saved events live in this browser. Demo bookings are filtered to the signed-in user but are not encrypted or synchronized across devices. Use **Sign out** when switching accounts.
-- The initial discovery API response is capped at 100 events. Server-side search/pagination and synchronized saved events/wallet are follow-up production milestones.
+- **More nights** fetches the next server page rather than slicing an initial 100-event snapshot. Saved IDs remain browser-local and are resolved through public event detail; saved events/wallet are not synchronized across devices.
 - Uploaded event artwork from Nitewide Business appears on customer cards and details, with portrait flyers shown uncropped. Events without artwork use stock Unsplash mood photography (not verified venue photography). Replace fallback imagery with approved venue/event assets before public launch.
 
 Customer checks: `npm test --workspace @nitewide/customer`. Production build: `npm run build --workspace @nitewide/customer`. Browser verification covers sign-in, combined search filters, saved events, demo checkout/receipt, and desktop/mobile layouts. Component setup follows the [shadcn Vite integration](https://ui.shadcn.com/docs/installation/vite); installed component source is in `apps/customer/src/components/ui`.
+
+Before using cursor-paged discovery, run `npm run db:migrate` to apply `202609290003-discovery-pagination`. It adds the ICU numeric/base-strength title collation and a concurrently built partial discovery index; no reseed is needed. A cursor belongs to its original filters and is rejected if reused with different filters. Pages follow venue-local day, Premium host, title, then event ID; inserts before a cursor do not displace already-read rows.
 
 ## Business experience
 
@@ -205,7 +215,7 @@ See [Business frontend, roles, reporting, tests, and styling](docs/BUSINESS_FRON
 | `PUT` | `/api/business/events/:eventId` | Role-enforced full event edit with optimistic version and sold-inventory protection |
 | `POST` | `/api/business/uploads/image` | Authenticated multipart image upload; optimized WebP asset |
 | `GET` | `/api/media/images/:assetId` | Public event artwork |
-| `GET` | `/api/events` | Public discovery |
+| `GET` | `/api/events` | Public discovery; legacy array response without `pageSize`, or cursor-paged `{ items, hasMore, nextCursor }` with `pageSize` (1–100), `startDate`, `endDate`, optional `city`, `query`, `category`, `timezone`, and returned `cursor` |
 | `GET` | `/api/events/:eventId` | Public event detail and offerings |
 | `POST` | `/api/organizations` | Create an organization and owner membership |
 | `POST` | `/api/organizations/:id/affiliates` | Add an `OrgAffiliate` with defaults |

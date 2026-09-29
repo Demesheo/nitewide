@@ -3,9 +3,10 @@ function fixture({ sold = 0, total = 5, environment = 'development', hostedDemo 
   let increments = 0; const offering = { id: '50000000-0000-4000-8000-000000000001', eventId: 'e1', name: 'GA', kind: 'ticket', priceCents: 2000, currency: 'USD', inventoryMode: 'finite', quantityTotal: total, quantitySold: sold, entriesPerUnit: 1, minPerOrder: 1, maxPerOrder: 4, isActive: true, increment: async (_field, { by }) => { increments += by; } };
   const created = { tickets: 0, payment: null }; const tx = { LOCK: { UPDATE: 'UPDATE' } };
   const models = {
+    User: { findByPk: async () => ({ id: 'u1', isActive: true }) },
     Order: { findOne: async () => null, create: async (data) => ({ id: 'order-1', ...data }) },
     Event: { findByPk: async () => ({ id: 'e1', status: 'published', organizationId: 'o1' }) },
-    Organization: { findByPk: async () => ({ planTier: 'free' }) }, Offering: { findAll: async () => [offering] }, EventAffiliate: {}, OrgAffiliate: {},
+    Organization: { findByPk: async () => ({ id: 'o1', status: 'active', planTier: 'free' }) }, Offering: { findAll: async () => [offering] }, EventAffiliate: {}, OrgAffiliate: {},
     OrderItem: { create: async (data) => ({ id: 'item-1', ...data }) }, Ticket: { create: async () => ({ id: `ticket-${++created.tickets}` }) },
     Payment: { create: async (data) => { created.payment = data; return data; } }, AffiliateAttribution: { create: async () => ({}) }, AuditLog: { create: async () => ({}) },
   };

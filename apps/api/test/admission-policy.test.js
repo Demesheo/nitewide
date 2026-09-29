@@ -19,6 +19,7 @@ test('admission access covers venue leaders, active employees and assigned promo
   const permissions = createPermissionService({
     User: { findByPk: async () => ({ isActive: role !== 'disabled', isInternalAdmin: role === 'admin' }) },
     Event: { findByPk: async () => ({ organizationId: 'org' }) },
+    Organization: { findByPk: async () => ({ id: 'org', status: 'active' }) },
     OrganizationOwner: { findOne: async () => ['owner', 'manager'].includes(role) ? {} : null },
     OrganizationEmployee: { findOne: async () => role === 'employee' ? {} : null },
     EventAffiliate: { findAll: async () => role === 'promoter' ? [{ code: 'PROMOTER' }] : role === 'former_employee' ? [{ code: 'STAFFEV-old' }] : role === 'former_owner' ? [{ code: 'LEADEV-old' }] : [] },

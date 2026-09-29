@@ -1,5 +1,6 @@
 const crypto = require('node:crypto');
 const { Op } = require('sequelize');
+const { renderOnboardingEmail } = require('./onboarding-email');
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 const MAX_ATTEMPTS = 5;
@@ -31,7 +32,7 @@ async function sendTemplate({ apiKey, from, to, templateAlias, variables, dedupe
       'Idempotency-Key': dedupeKey,
     },
     body: JSON.stringify({
-      from, to: [to], template: { id: templateAlias, variables },
+      from, to: [to], ...(templateAlias === 'nitewide-account-setup' ? renderOnboardingEmail(variables) : { template: { id: templateAlias, variables } }),
     }),
     signal: AbortSignal.timeout(10000),
   });

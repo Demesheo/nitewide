@@ -4,6 +4,7 @@ class Event extends Model {}
 function initEvent(sequelize) {
   Event.init({
     id: id(),
+    lifecycleState: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'active', validate: { isIn: [['active', 'suspended', 'archived']] } },
     creatorUserId: { type: DataTypes.UUID, allowNull: false },
     organizationId: { type: DataTypes.UUID, allowNull: true },
     locationId: { type: DataTypes.UUID, allowNull: true },

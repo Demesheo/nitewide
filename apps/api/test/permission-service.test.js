@@ -5,6 +5,7 @@ const { createPermissionService } = require('../src/services/permission-service'
 function modelsFor({ eventAffiliate = null, leaderRole = null, employee = null } = {}) {
   return {
     Event: { findByPk: async () => ({ id: 'event-1', creatorUserId: 'creator-1', organizationId: 'org-1' }) },
+    Organization: { findByPk: async () => ({ id: 'org-1', status: 'active' }) },
     User: { findByPk: async () => ({ id: 'user-1', isActive: true, isInternalAdmin: false }) },
     OrganizationOwner: { findOne: async () => leaderRole ? { userId: 'user-1', role: leaderRole } : null },
     EventAffiliate: { findAll: async () => eventAffiliate ? [eventAffiliate] : [] },

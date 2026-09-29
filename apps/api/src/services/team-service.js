@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const { forbidden, notFound, conflict } = require('../domain/errors');
 const { assertEventEditable } = require('../domain/event-policy');
 const { queueTeamInvitation, queuePromoterInvitation, queueAccessAccepted, queueAccessChanged } = require('./business-email-events');
+const { activeUser, assertActiveEvent, assertActiveOrganization } = require('./lifecycle-service');
 
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 function rosterPeople(leaders, employees, promoters) {
@@ -180,14 +181,15 @@ function createTeamService({ models, permissions, email: emailService = null, bu
       const row = await models.TeamInvitation.findOne({ where: { tokenHash: hash(token) }, transaction, lock: transaction.LOCK.UPDATE });
       if (!row || row.acceptedAt || row.expiresAt <= new Date()) throw notFound('Active invitation');
       const user = await models.User.findByPk(userId, { transaction });
-      if (!user || user.email.toLowerCase() !== row.email) throw forbidden('Sign in with the invited email address');
+      if (!activeUser(user) || user.email.toLowerCase() !== row.email) throw forbidden('Sign in with the active invited email address');
+      const inviter = await models.User.findByPk(row.invitedByUserId, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!activeUser(inviter)) throw forbidden('The inviter no longer has access');
       if (row.eventId) {
         if (!user.isActive || row.role !== 'affiliate') throw forbidden();
         const event = await models.Event.findByPk(row.eventId,{transaction,lock:transaction.LOCK.UPDATE});
+        await assertActiveEvent(models, event, transaction);
         assertEventEditable(event);
         await permissions.assertManageEvent(row.invitedByUserId,row.eventId);
-        const inviter = await models.User.findByPk(row.invitedByUserId,{transaction});
-        if (!inviter?.isActive) throw forbidden('The inviter no longer has access');
         const [assignment,created] = await models.EventAffiliate.findOrCreate({where:{eventId:row.eventId,userId},defaults:{code:`NW-${crypto.randomUUID()}`,commissionBps:row.commissionBps,guestlistAllocation:0,status:'active'},transaction});
         const before = created ? null : assignment.toJSON();
         if (!created) await assignment.update({status:'active',commissionBps:row.commissionBps},{transaction});
@@ -197,13 +199,19 @@ function createTeamService({ models, permissions, email: emailService = null, bu
         await queueAccessAccepted({ email: emailService, models, invitation: row, invitee: user, context: event.title, transaction });
         return {eventId:row.eventId,role:'affiliate'};
       } else if (row.role === 'employee') {
+        await assertActiveOrganization(models, row.organizationId, transaction);
+        await permissions.assertManageOrganization(row.invitedByUserId, row.organizationId);
         const membership = await models.OrganizationEmployee.findOne({ where: { organizationId: row.organizationId, userId }, transaction });
         if (membership) await membership.update({ status: 'active' }, { transaction });
         else await models.OrganizationEmployee.create({ organizationId: row.organizationId, userId, status: 'active' }, { transaction });
       } else if (row.role === 'manager') {
+        await assertActiveOrganization(models, row.organizationId, transaction);
+        await permissions.assertManageOrganization(row.invitedByUserId, row.organizationId);
         const membership = await models.OrganizationOwner.findOne({ where: { organizationId: row.organizationId, userId }, transaction });
         if (!membership) await models.OrganizationOwner.create({ organizationId: row.organizationId, userId, role: 'admin' }, { transaction });
       } else if (row.role === 'affiliate') {
+        await assertActiveOrganization(models, row.organizationId, transaction);
+        await permissions.assertManageOrganization(row.invitedByUserId, row.organizationId);
         const affiliate = await models.OrgAffiliate.findOne({ where: { organizationId: row.organizationId, userId }, transaction });
         if (affiliate) await affiliate.update({ status: 'active' }, { transaction });
         else await models.OrgAffiliate.create({ organizationId: row.organizationId, userId, code: `org-${crypto.randomUUID()}`, defaultCommissionBps: 0, defaultGuestlistAllocation: 0 }, { transaction });

@@ -1,9 +1,10 @@
 const { Op, QueryTypes } = require('sequelize');
 const { forbidden } = require('../domain/errors');
 const { ADMISSION_WINDOW_MS, assertAdmissionOpen } = require('../domain/admission-policy');
+const { activeEventScope } = require('./lifecycle-service');
 
 function createAdmissionsService({ models: m, permissions, now = () => new Date() }) {
-  async function events(userId) {
+  async function events(userId, { page = 1, pageSize = 20, search = '' } = {}) {
     const user = await m.User.findByPk(userId);
     if (!user?.isActive) throw forbidden('An active account is required');
     const [leaders, employees, affiliates] = await Promise.all([
@@ -14,11 +15,19 @@ function createAdmissionsService({ models: m, permissions, now = () => new Date(
     const orgIds = [...new Set([...leaders, ...employees].map((row) => row.organizationId))];
     const assignedIds = affiliates.filter((a) => !a.code?.startsWith('STAFFEV-') && !a.code?.startsWith('LEADEV-')).map((a) => a.eventId);
     const time = now();
-    const rows = await m.Event.findAll({ where: {
+    const scope = activeEventScope(m, { locationAttributes: ['name', 'timezone', 'city'] });
+    const where = { ...scope.where,
       status: 'published', startsAt: { [Op.lte]: new Date(+time + ADMISSION_WINDOW_MS) }, endsAt: { [Op.gte]: new Date(+time - ADMISSION_WINDOW_MS) },
       ...(!user.isInternalAdmin ? { [Op.or]: [{ organizationId: orgIds }, { organizationId: null, creatorUserId: userId }, { id: assignedIds }] } : {}),
-    }, attributes: ['id', 'title', 'startsAt', 'endsAt', 'imageUrl'], include: [{ model: m.Location, as: 'location', attributes: ['name', 'timezone', 'city'] }], order: [['startsAt', 'ASC']] });
-    return { events: rows, serverTime: time };
+    };
+    if (search) where[Op.and] = [...scope.where[Op.and], { [Op.or]: [
+      { title: { [Op.iLike]: `%${search.replace(/[\\%_]/g, '\\$&')}%` } },
+      { '$location.name$': { [Op.iLike]: `%${search.replace(/[\\%_]/g, '\\$&')}%` } },
+      { '$location.city$': { [Op.iLike]: `%${search.replace(/[\\%_]/g, '\\$&')}%` } },
+    ] }];
+    const result = await m.Event.findAndCountAll({ where, attributes: ['id', 'title', 'startsAt', 'endsAt', 'imageUrl'], include: scope.include, distinct: true, subQuery: false,
+      order: [['startsAt', 'ASC'], ['id', 'ASC']], limit: pageSize, offset: (page - 1) * pageSize });
+    return { items: result.rows, events: result.rows, page, pageSize, total: result.count, hasMore: page * pageSize < result.count, serverTime: time };
   }
   async function roster(userId, eventId, { search = '', page = 1, status = 'all' } = {}) {
     const event = await permissions.assertAdmitEvent(userId, eventId);

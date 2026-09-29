@@ -563,6 +563,8 @@ h3 {
   transform: scale(1.025);
 }
 .card-meta {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1745,10 +1747,11 @@ h3 {
   }
 }
 
-/* The main card button stretches across the article. Saving is a separate control. */
+/* The article is pointer-clickable; its explicit title button remains the keyboard path. */
 .event-card {
   position: relative;
   isolation: isolate;
+  cursor: pointer;
 }
 .card-open {
   text-align: left;
@@ -1760,19 +1763,9 @@ h3 {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.card-open::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  border-radius: 12px;
-}
 .card-open:focus-visible {
-  outline: none;
-}
-.card-open:focus-visible::after {
-  outline: 2px solid var(--highlight);
-  outline-offset: -3px;
+  box-shadow: 0 0 0 2px var(--highlight);
+  border-radius: 4px;
 }
 .save-button {
   z-index: 2;

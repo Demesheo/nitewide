@@ -37,7 +37,9 @@ test('default window uses local calendar arithmetic across year, leap-day and DS
 test('Discover UI starts with no exact date and clearing explicitly restores the week', async () => {
   const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   assert.match(app, /\[date, setDate\] = useState\(""\)/);
-  assert.match(app, /filterDiscoveryEvents\(events, filters\)/);
+  assert.match(app, /const discoveryRange = discoveryDateRange\(date\)/);
+  assert.match(app, /startDate: start, endDate: end/);
+  assert.match(app, /api\(discoveryUrl\(discoveryRange\)/);
   assert.match(app, /aria-label="Reset to next 7 days"/);
   assert.match(app, /NEXT 7 DAYS/);
 });

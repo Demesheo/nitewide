@@ -2,6 +2,7 @@ const { Op, Transaction, fn, col } = require("sequelize");
 const { randomUUID } = require('node:crypto');
 const { assertEventEditable, eventFinished } = require('../domain/event-policy');
 const { activeEventAffiliates } = require('./event-affiliate-scope');
+const { active, activeUser, assertActiveEvent, assertActiveOrganization, assertOrganizationVenue } = require('./lifecycle-service');
 const { queueEventEmail, formatTime, venueName } = require('./email-events');
 const { queueBusinessEventStatus } = require('./business-email-events');
 const {
@@ -155,7 +156,12 @@ function createBusinessService({
         models.OrgAffiliate.findAll({ where: { userId, status: "active" } }),
         models.EventAffiliate.findAll({ where: { userId, status: "active" } }),
       ]);
-    if (!user?.isActive) throw forbidden("An active account is required");
+    if (!activeUser(user)) throw forbidden("An active account is required");
+    if (!user.isInternalAdmin) {
+      const activeOrganizations = await models.Organization.findAll({ where: { id: [...new Set([...memberships, ...employees, ...orgAffiliates].map((row) => row.organizationId))], lifecycleState: 'active', status: 'active' }, attributes: ['id'] });
+      const activeIds = new Set(activeOrganizations.map((organization) => organization.id));
+      memberships = memberships.filter((row) => activeIds.has(row.organizationId)); employees = employees.filter((row) => activeIds.has(row.organizationId)); orgAffiliates = orgAffiliates.filter((row) => activeIds.has(row.organizationId));
+    }
     eventAffiliates = await activeEventAffiliates(models, eventAffiliates, memberships, employees);
     const managedOrgIds = memberships.map((m) => m.organizationId);
     const ownedOrgIds = memberships.filter((m) => m.role === 'owner').map((m) => m.organizationId);
@@ -213,8 +219,12 @@ function createBusinessService({
         "Choose an organization to narrow this workspace (500 event limit)",
         { status: 422 },
       );
-    const accessibleEvents = foundEvents.filter((event) => event.status !== 'draft' || canManage(ctx, event) || ctx.eventAffiliates.some((affiliate) => affiliate.eventId === event.id));
-    const venues = venueOptions(accessibleEvents);
+    const accessibleEvents = [];
+    for (const event of foundEvents) {
+      if (!ctx.user.isInternalAdmin) { try { await assertActiveEvent(models, event); } catch { continue; } }
+      if (event.status !== 'draft' || canManage(ctx, event) || ctx.eventAffiliates.some((affiliate) => affiliate.eventId === event.id)) accessibleEvents.push(event);
+    }
+    let venues = venueOptions(accessibleEvents);
     const events = filterVenues(accessibleEvents, query.venueIds);
     const organizationIds = [
       ...new Set([
@@ -227,6 +237,11 @@ function createBusinessService({
       include: [{ model: models.Location, as: 'location' }],
       order: [["name", "ASC"]],
     });
+    if (models.OrganizationVenue) {
+      const links = await models.OrganizationVenue.findAll({ where: { organizationId: organizations.map((organization) => organization.id) }, include: [{ model: models.Location, as: 'location' }] });
+      const linkedVenues = links.filter((link) => ctx.user.isInternalAdmin || active(link.location)).map((link) => ({ organizationId: link.organizationId, locationId: link.locationId, location: link.location }));
+      venues = venueOptions([...accessibleEvents, ...linkedVenues]);
+    }
     const eventIds = events.map((e) => e.id);
     const managedEventIds = events
       .filter((e) => canManage(ctx, e))
@@ -396,7 +411,7 @@ function createBusinessService({
       await permissions.assertManageOrganization(userId, input.organizationId);
     else {
       const user = await models.User.findByPk(userId);
-      if (!user?.isActive) throw forbidden();
+      if (!activeUser(user) || (!user.isInternalAdmin && !user.independentCreator)) throw forbidden('Independent event creation access is required');
     }
     return models.Event.sequelize.transaction(
       { isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE },
@@ -408,6 +423,13 @@ function createBusinessService({
             })
           : null;
         if (eventId && !event) throw notFound("Event");
+        const actor = await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE });
+        if (!activeUser(actor)) throw forbidden('An active account is required');
+        if (!actor.isInternalAdmin) {
+          if (event) await assertActiveEvent(models, event, transaction);
+          else if (input.organizationId) await assertActiveOrganization(models, input.organizationId, transaction);
+          else if (!actor.independentCreator) throw forbidden('Independent event creation access is required');
+        }
         if (event) assertEventEditable(event, now());
         if (input.endsAt <= now() || input.status === 'completed') throw conflict('Create or edit events with a future end time. Past events are read-only.');
         if (event && event.organizationId !== input.organizationId)
@@ -489,7 +511,8 @@ function createBusinessService({
         let venueLocation;
         if (input.organizationId) {
           const organization = await models.Organization.findByPk(input.organizationId, { transaction });
-          const venueLocationId = event?.locationId || organization?.locationId;
+          const venueLocationId = input.locationId || event?.locationId || organization?.locationId;
+          await assertOrganizationVenue(models, organization, venueLocationId, transaction);
           venueLocation = venueLocationId ? await models.Location.findByPk(venueLocationId, { transaction }) : null;
           if (!venueLocation) throw conflict('This organization needs a saved venue address before creating an event.');
         }

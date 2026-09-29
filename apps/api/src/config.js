@@ -3,6 +3,7 @@ const { z } = require('zod');
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
+  BIND_HOST: z.enum(['127.0.0.1', '0.0.0.0']).optional(),
   DATABASE_URL: z.string().default('postgres://postgres:postgres@localhost:5432/nitewide'),
   DATABASE_SSL: z.enum(['true', 'false']).default('false'),
   MEDIA_UPLOAD_DIR: z.string().optional(),
@@ -19,6 +20,9 @@ const schema = z.object({
 
 function getConfig(environment = process.env) {
   const values = schema.parse(environment);
+  if (values.NODE_ENV !== 'production' && values.BIND_HOST === '0.0.0.0') {
+    throw new Error('BIND_HOST=0.0.0.0 is reserved for production; local API binds to 127.0.0.1');
+  }
   if (values.HOSTED_DEMO === 'true' && (values.NODE_ENV !== 'production' || values.AUTH_TOKEN_SECRET === 'nitewide-development-secret-change-me')) {
     throw new Error('Hosted demo requires production runtime and a non-default signing secret');
   }
@@ -40,6 +44,7 @@ function getConfig(environment = process.env) {
   }
   return {
     ...values,
+    bindHost: values.BIND_HOST || (values.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1'),
     hostedDemo: values.HOSTED_DEMO === 'true',
     databaseSsl: values.DATABASE_SSL === 'true',
     resendTestMode: values.RESEND_TEST_MODE === 'true',

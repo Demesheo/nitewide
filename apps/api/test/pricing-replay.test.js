@@ -5,8 +5,8 @@ const { createCheckoutService } = require('../src/services/checkout-service');
 test('idempotent replay preserves historical fee amount and payer without repricing', async () => {
   const historical = { id: 'historical', subtotalCents: 10000, platformFeeCents: 829,
     totalCents: 10829, pricingPlanSnapshot: { percentageBps: 750, perPaidOrderCents: 79, processingPaidBy: 'organizer' } };
-  const models = { Order: { findOne: async () => historical }, OrderItem: {} };
-  const sequelize = { transaction: async (_options, run) => run({}) };
+  const models = { User: { findByPk: async () => ({ id: 'buyer', isActive: true }) }, Order: { findOne: async () => historical }, OrderItem: {} };
+  const sequelize = { transaction: async (_options, run) => run({ LOCK: { UPDATE: 'UPDATE' } }) };
   const checkout = createCheckoutService({ sequelize, models });
   const result = await checkout({ buyerUserId: 'buyer', idempotencyKey: 'already-paid' });
   assert.equal(result.order, historical);

@@ -8,7 +8,7 @@ test('workspace venue multiselect reaches the API and resets when organization s
   assert.match(source, /data\?\.venues\?\.length \|\| 0\) > 1/);
   assert.match(source, /label="Venues" options=\{data\.venues\} selected=\{selectedVenues\}/);
   assert.match(source, /setSelectedOrganizations\(ids\); setSelectedVenues\(\[\]\)/);
-  assert.match(source, /session, selectedOrganizations, selectedVenues, days/);
+  assert.match(source, /session, onboardingToken, selectedOrganizations, selectedVenues, days, revision, expire/);
 });
 test('analytics uses authorized venue options and sends all selected venue IDs', async () => {
   const source = await readFile(new URL('../src/components/Analytics.jsx', import.meta.url), 'utf8');
