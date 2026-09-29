@@ -21,7 +21,7 @@ test('both connection feeds and header counts exclude the debug owner without mu
   const summary = { eligible: true, people: [owner, promoter] };
   assert.deepEqual(customerPresentation('/customer/connections/summary', summary), { eligible: true, people: [promoter] });
   assert.deepEqual(summary.people, [owner, promoter]);
-  assert.equal(customerPresentation('/customer/connections/summary', { eligible: true, people: [owner] }).eligible, false);
+  assert.equal(customerPresentation('/customer/connections/summary', { eligible: true, people: [owner], hasMore: false }).eligible, false);
 });
 test('owner link attribution and actionable notification records remain intact while masking the name', () => {
   const visit = { eventId: 'event', code: 'OWNER', referrerName: owner.name };
@@ -33,4 +33,15 @@ test('owner link attribution and actionable notification records remain intact w
   assert.doesNotMatch(JSON.stringify(displayed), /Maya Portfolio Owner/);
   assert.match(notifications.items[0].title, /Maya Portfolio Owner/);
   assert.equal(customerPresentation('/customer/bookings', visit), visit);
+});
+test('connection presentation supports legacy arrays and preserves paged response metadata', () => {
+  const hidden = { referrer: owner, event: { id: 'hidden-event' } };
+  const visible = { referrer: promoter, event: { id: 'visible-event' } };
+  assert.deepEqual(customerPresentation('/customer/connections', [hidden, visible]), [visible]);
+  const page = { items: [hidden, visible], page: 2, pageSize: 1, total: 5, hasMore: true };
+  assert.deepEqual(customerPresentation('/customer/connections', page), { ...page, items: [visible] });
+  const peoplePage = { eligible: true, people: [owner], page: 2, pageSize: 10, total: 21, hasMore: true };
+  assert.deepEqual(customerPresentation('/customer/connections/people', peoplePage), { ...peoplePage, people: [], eligible: true });
+  assert.equal(customerPresentation('/customer/connections/summary', { ...peoplePage, hasMore: false }).eligible, false,
+    'a page containing only the hidden owner is ineligible only when no later page can contain a visible person');
 });

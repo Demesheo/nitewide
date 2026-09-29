@@ -1,8 +1,10 @@
-# Persistent model preference
+# Persistent model roles
 
-Use `gpt-6-astra` (GPT-6 Astra) at high reasoning effort for NiteWide planning, implementation, tests, review, UI testing, and command-line work until the user explicitly changes this preference. Do not delegate these roles to Sol or Luna by default. The user may explicitly request a different model or delegation for a particular task.
+Use `gpt-6-astra` (GPT-6 Astra) at high reasoning effort for NiteWide planning, orchestration, and final overview.
+Use `gpt-6-sol` (GPT-6 Sol) at high reasoning effort for coding and implementation following Astra's direction, then code review after Luna's checks.
+Use `gpt-6-luna` (GPT-6 Luna) at high reasoning effort for writing unit tests and UI/UX testing and review.
 
-If Astra is unavailable, report that limitation to the user rather than silently substituting another model.
+Use role-based subagents within the user's requested task. If a required model is unavailable, report that limitation rather than silently substituting another model.
 
 These instructions guide model selection and delegation; they do not automatically change the active chat's model.
 

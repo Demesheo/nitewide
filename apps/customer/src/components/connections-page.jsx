@@ -6,30 +6,39 @@ import { EventCard } from './event-card';
 import { LoadingIndicator } from './loading-indicator';
 import { ConnectionFilter } from './connection-filter';
 import { api } from '../lib/api';
-import { connectionCity, connectionEvents, connectionLink, selectedConnection } from '../lib/connections';
+import { connectionEvents, connectionLink, selectedConnection } from '../lib/connections';
 
-export function ConnectionsPage({ session, history, saved, onSave, onReferral, onRefresh }) {
+export function ConnectionsPage({ session, history, saved, onSave, onReferral, onRefresh, onVisible }) {
   const [entries, setEntries] = useState([]), [loading, setLoading] = useState(true), [error, setError] = useState('');
-  const [refresh, setRefresh] = useState(0), [people, setPeople] = useState(null), [city, setCity] = useState('all'), [query, setQuery] = useState('');
-  const [choices, setChoices] = useState({}), [limit, setLimit] = useState(9), [opening, setOpening] = useState(''), [message, setMessage] = useState('');
+  const [refresh, setRefresh] = useState(0), [people, setPeople] = useState(null), [city, setCity] = useState(''), [query, setQuery] = useState(''), [submittedQuery, setSubmittedQuery] = useState('');
+  const [page, setPage] = useState(1), [hasMore, setHasMore] = useState(false), [total, setTotal] = useState(0);
+  const [choices, setChoices] = useState({}), [opening, setOpening] = useState(''), [message, setMessage] = useState('');
+  useEffect(() => { const timer = setTimeout(() => setSubmittedQuery(query.trim()), 300); return () => clearTimeout(timer); }, [query]);
+  useEffect(() => { setPage(1); setEntries([]); }, [people, city, submittedQuery]);
   useEffect(() => {
-    const controller = new AbortController(); setLoading(true); setError(''); setEntries([]);
-    api('/customer/connections', { token: session.accessToken, signal: controller.signal })
-      .then((data) => { if (!controller.signal.aborted) setEntries(data); })
-      .catch((err) => { if (!controller.signal.aborted) setError(err.message); })
+    const controller = new AbortController(); setLoading(true); setError('');
+    const params = new URLSearchParams({ page: String(page), pageSize: '20' });
+    if (city.trim()) params.set('city', city.trim());
+    if (submittedQuery) params.set('query', submittedQuery);
+    if (people?.length) params.set('personIds', people.join(','));
+    api(`/customer/connections?${params}`, { token: session.accessToken, signal: controller.signal })
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        setEntries((current) => page === 1 ? result.items : [...current, ...result.items]);
+        setTotal(result.total); setHasMore(result.hasMore);
+      })
+      .catch((cause) => { if (!controller.signal.aborted) setError(cause.message); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [session.accessToken, refresh]);
-  useEffect(() => { setLimit(9); }, [people, city, query]);
+  }, [session.accessToken, page, people?.join(','), city, submittedQuery, refresh]);
+  useEffect(() => { onVisible?.(entries.map((entry) => entry.event)); return () => onVisible?.([]); }, [entries, onVisible]);
   useEffect(() => { if (!message) return; const timer = setTimeout(() => setMessage(''), 4000); return () => clearTimeout(timer); }, [message]);
-  const groups = connectionEvents(entries, { people, city, query });
-  const upcoming = connectionEvents(entries);
-  const cities = [...new Set(upcoming.map(({ event }) => connectionCity(event)))].sort();
+  const groups = connectionEvents(entries);
   async function open(entry) {
     if (opening) return;
     setOpening(entry.event.id); setError('');
     try { await onReferral(entry); }
-    catch (err) { setError(err.message); }
+    catch (cause) { setError(cause.message); }
     finally { setOpening(''); }
   }
   async function share(entry) {
@@ -39,18 +48,18 @@ export function ConnectionsPage({ session, history, saved, onSave, onReferral, o
   return <main className="connections-page booked-page wrap" id="connections">
     <div className="booked-page-heading"><p className="eyebrow">FAMILIAR FACES. NEW NIGHTS.</p><h1>Connections.</h1><p>Find where your people are next. Book with them again.</p></div>
     <div className="connections-toolbar">
-      <ConnectionFilter people={history.people} selected={people} onApply={setPeople} upcoming={upcoming} loading={loading} />
-      <label className="connection-search"><span className="sr-only">Search connections and events</span><input type="search" placeholder="Search" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-      {cities.length > 1 && <Select value={city} onValueChange={setCity}><SelectTrigger aria-label="Connection event city"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All cities</SelectItem>{cities.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select>}
-      {(people !== null || city !== 'all' || query) && <Button variant="ghost" onClick={() => { setPeople(null); setCity('all'); setQuery(''); }}>Clear filters</Button>}
+      <ConnectionFilter session={session} selected={people} onApply={setPeople} />
+      <label className="connection-search"><span className="sr-only">Search connections and events</span><input type="search" placeholder="Search events or people" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+      <label className="connection-city"><span className="sr-only">Connection event city</span><input type="search" placeholder="City" value={city} onChange={(event) => setCity(event.target.value)} /></label>
+      {(people !== null || city || query) && <Button variant="ghost" onClick={() => { setPeople(null); setCity(''); setQuery(''); }}>Clear filters</Button>}
       <Button variant="ghost" onClick={() => { setRefresh((value) => value + 1); onRefresh(); }} aria-label="Refresh connections" disabled={loading}><RefreshCw size={16} /></Button>
     </div>
-    {error && <p className="account-error" role="alert">{error}</p>}
+    {error && <p className="account-error" role="alert">{error} <button onClick={() => setRefresh((value) => value + 1)}>Try again</button></p>}
     {message && <p role="status" className="connections-message">{message}</p>}
-    {loading ? <LoadingIndicator>Finding your connections’ next events…</LoadingIndicator> : <>
-      <div className="connections-heading"><h2>Book with them again</h2><span>{groups.length} upcoming {groups.length === 1 ? 'event' : 'events'}</span></div>
-      {!groups.length && !error && <div className="account-empty"><Users /><h3>{history.people.length ? 'No upcoming matches just yet.' : 'Your connections will appear here.'}</h3><p>{history.people.length ? 'Your people stay here between events. Try another person or city, or check back for their next night.' : 'Only active referrers and hosts are shown. New nights will appear when they have events to share.'}</p></div>}
-      <div className="event-grid">{groups.slice(0, limit).map((group) => {
+    {loading && !entries.length ? <LoadingIndicator>Finding your connections’ next events…</LoadingIndicator> : <>
+      <div className="connections-heading"><h2>Book with them again</h2><span>{total} matching {total === 1 ? 'connection' : 'connections'} across upcoming events</span></div>
+      {!groups.length && !error && !hasMore && <div className="account-empty"><Users /><h3>{history?.eligible ? 'No upcoming matches just yet.' : 'Your connections will appear here.'}</h3><p>Try another person, city, or search. Your connection history stays available between events.</p></div>}
+      <div className="event-grid">{groups.map((group) => {
         const entry = selectedConnection(group, choices[group.event.id]);
         return <EventCard key={group.event.id} event={group.event} saved={saved.includes(group.event.id)} onSave={() => onSave(group.event)} onOpen={() => open(entry)} actionLabel={opening === group.event.id ? 'Opening…' : `Book with ${entry.referrer.name.split(' ')[0]}`}>
           <div className="connection-referral">
@@ -60,7 +69,8 @@ export function ConnectionsPage({ session, history, saved, onSave, onReferral, o
           </div>
         </EventCard>;
       })}</div>
-      {groups.length > limit && <Button className="load-more" variant="outline" onClick={() => setLimit((value) => value + 9)}>More nights with your connections</Button>}
+      {loading && entries.length > 0 && <LoadingIndicator>Loading more connections…</LoadingIndicator>}
+      {hasMore && <Button className="load-more" variant="outline" disabled={loading} onClick={() => setPage((value) => value + 1)}>More nights with your connections</Button>}
     </>}
   </main>;
 }

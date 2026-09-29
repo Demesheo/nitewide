@@ -8,8 +8,7 @@ function createNotificationService(models) {
     // until addresses/numbers, consent, idempotency and retries are verified.
     return models.Notification.create({ userId, eventId, kind, title, message, metadata }, { transaction });
   }
-  async function list(userId) {
-    const rows = await models.Notification.findAll({ where: { userId, dismissedAt: { [Op.is]: null } }, order: [['createdAt', 'DESC']], limit: 50 });
+  async function enrichLegacy(userId, rows) {
     // Older invitation notifications predate entryId metadata. Resolve only this
     // recipient's entry, without reseeding or guessing from another customer's data.
     const legacy = rows.filter(row => ['guestlist_invited', 'guestlist_approved', 'guestlist_declined'].includes(row.kind) && !row.metadata?.entryId && row.eventId);
@@ -19,6 +18,19 @@ function createNotificationService(models) {
     return rows.map(row => legacy.includes(row) && byEvent.has(row.eventId)
       ? { ...(row.toJSON ? row.toJSON() : row), metadata: { ...row.metadata, entryId: byEvent.get(row.eventId) } }
       : row);
+  }
+  async function list(userId) {
+    const rows = await models.Notification.findAll({ where: { userId, dismissedAt: { [Op.is]: null } }, order: [['createdAt', 'DESC'], ['id', 'DESC']], limit: 50 });
+    return enrichLegacy(userId, rows);
+  }
+  async function page(userId, { page = 1, pageSize = 20 } = {}) {
+    const where = { userId, dismissedAt: { [Op.is]: null } };
+    const [total, rows, unreadCount] = await Promise.all([
+      models.Notification.count({ where }),
+      models.Notification.findAll({ where, order: [['createdAt', 'DESC'], ['id', 'DESC']], limit: pageSize, offset: (page - 1) * pageSize }),
+      models.Notification.count({ where: { ...where, readAt: { [Op.is]: null } } }),
+    ]);
+    return { items: await enrichLegacy(userId, rows), page, pageSize, total, hasMore: page * pageSize < total, unreadCount };
   }
   async function unreadCount(userId) {
     return models.Notification.count({ where: { userId, readAt: { [Op.is]: null }, dismissedAt: { [Op.is]: null } } });
@@ -39,6 +51,6 @@ function createNotificationService(models) {
     const [count] = await models.Notification.update({ dismissedAt: new Date() }, { where: { userId, dismissedAt: { [Op.is]: null } } });
     return { dismissed: count };
   }
-  return { emit, list, unreadCount, markRead, dismiss, clearAll };
+  return { emit, list, page, unreadCount, markRead, dismiss, clearAll };
 }
 module.exports = { createNotificationService };

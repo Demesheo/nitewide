@@ -1,33 +1,35 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight, CheckCircle2, LogOut, MapPin, Ticket, Users, UserRound, RefreshCw } from 'lucide-react';
+import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight, LogOut, Ticket, UserRound, RefreshCw } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
+import { Tabs, TabsContent } from './ui/tabs';
 import { Button } from './ui/button';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/select';
 import { api } from '../lib/api';
-import { money } from '../lib/discovery';
-import { eventAddress, eventDate, eventTime } from '../lib/presentation';
-import { EventArtwork } from './event-artwork';
 import { NightCard } from './night-card';
 import { LoadingIndicator } from './loading-indicator';
-import { eventVenueName } from '../lib/event-venue';
+import { AdmissionPassView } from './admission-pass-view';
+import { loadPassCache, removePassCache, savePassCache } from '../lib/pass-cache';
 
 export function initials(name = '') { return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase(); }
-const statusLabel = { pending: 'Awaiting approval', confirmed: 'Approved', rejected: 'Declined', checked_in: 'Checked in', no_show: 'Not attended' };
-
 function InlineAccount({ children }) { return children; }
+function withPassKind(pass, kind) { return { ...pass, kind: pass.kind || kind }; }
 
-export function AccountDialog({ open, onOpenChange, session, initialTab = 'plans', onProfile, onSignOut, onReferral, embedded = false, notificationBooking, onNotificationOpened }) {
+export function AccountDialog({ open, onOpenChange, session, onProfile, onSignOut, embedded = false, notificationBooking, bookingRoute, onBookingRouteChange, onNotificationOpened }) {
   const Container = embedded ? InlineAccount : Dialog;
   const Content = embedded ? 'div' : DialogContent;
   const scrollContainer = useRef(null), ticketReturn = useRef(null), restoreTicketPosition = useRef(false);
-  const [tab, setTab] = useState(initialTab), [period, setPeriod] = useState('upcoming'), [page, setPage] = useState(1);
-  const [data, setData] = useState(null), [connections, setConnections] = useState([]), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [tab, setTab] = useState(embedded ? 'plans' : 'profile'), [period, setPeriod] = useState('upcoming'), [page, setPage] = useState(1);
+  const [data, setData] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0), [ticket, setTicket] = useState(null), [ticketBusy, setTicketBusy] = useState('');
-  const [circlePerson, setCirclePerson] = useState('all'), [circleLimit, setCircleLimit] = useState(12);
-  const circlePeople = [...new Map(connections.map((entry) => [entry.referrer.id, entry.referrer])).values()].sort((a, b) => a.name.localeCompare(b.name));
-  const circleEvents = connections.filter((entry) => circlePerson === 'all' || entry.referrer.id === circlePerson);
-  const [name, setName] = useState(''), [phone, setPhone] = useState(''), [consents, setConsents] = useState({}), [message, setMessage] = useState('');
+  const [ticketIndex, setTicketIndex] = useState(0), [cachedPass, setCachedPass] = useState(false);
+  const [editingSpots, setEditingSpots] = useState(false), [requestedSpots, setRequestedSpots] = useState(1);
+  const [name, setName] = useState(''), [email, setEmail] = useState(''), [confirmEmail, setConfirmEmail] = useState(''), [phone, setPhone] = useState(''), [confirmPhone, setConfirmPhone] = useState('');
+  const [consents, setConsents] = useState({}), [message, setMessage] = useState(''), [resendCooldown, setResendCooldown] = useState(0);
+  const previousBookingRoute = useRef(bookingRoute);
+  useEffect(() => {
+    if (!embedded) return;
+    if (previousBookingRoute.current && !bookingRoute) setTicket(null);
+    previousBookingRoute.current = bookingRoute;
+  }, [bookingRoute, embedded]);
   useLayoutEffect(() => {
     if (ticket) {
       if (embedded) window.scrollTo({ top: scrollContainer.current?.offsetTop || 0 });
@@ -48,37 +50,74 @@ export function AccountDialog({ open, onOpenChange, session, initialTab = 'plans
       if (document.hidden || inFlight) return;
       inFlight = true;
       try {
-        const updated = await api(ticket.kind === 'guestlist' ? `/customer/guestlists/${ticket.id}/pass` : `/customer/purchases/${ticket.id}/tickets`, { token: session.accessToken, signal: controller.signal });
+        const updated = withPassKind(await api(ticket.kind === 'guestlist' ? `/customer/guestlists/${ticket.id}/pass` : `/customer/purchases/${ticket.id}/tickets`, { token: session.accessToken, signal: controller.signal }), ticket.kind);
         if (!controller.signal.aborted) {
           setTicket(updated);
+          setTicketIndex((index) => Math.min(index, Math.max(0, updated.tickets.length - 1)));
+          setCachedPass(false);
+          if (updated.tickets.some((row) => row.qrImage)) savePassCache(session.user.id, updated);
+          else removePassCache(session.user.id, ticket.kind, updated.id);
           setData((current) => current && ({ ...current, guestlists: current.guestlists.map((guest) => updated.kind === 'guestlist' && guest.id === updated.id ? { ...guest, status: updated.tickets[0].status } : guest), orders: current.orders.map((order) => order.id !== updated.id ? order : ({ ...order, items: order.items.map((item) => ({ ...item, tickets: item.tickets.map((t) => ({ ...t, ...(updated.tickets.find((row) => row.id === t.id) || {}) })) })) })) }));
         }
-      } catch (error) { if (!controller.signal.aborted) setError(`Ticket status could not refresh: ${error.message}`); }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        if (error.status && [401, 403, 404].includes(error.status)) {
+          removePassCache(session.user.id, ticket.kind, ticket.id);
+          setTicket(null);
+          setError('This pass is no longer available.');
+        } else if (!error.status || error.status >= 500) {
+          const cached = loadPassCache(session.user.id, ticket.kind, ticket.id);
+          if (cached) { setTicket(withPassKind(cached, ticket.kind)); setCachedPass(true); }
+          else { setTicket((current) => current && ({ ...current, tickets: current.tickets.map((entry) => ({ ...entry, qrImage: null })) })); setCachedPass(false); setError('Could not verify this pass. Reconnect to refresh it.'); }
+        }
+      }
       finally { inFlight = false; }
     };
     const interval = setInterval(refreshTickets, 5000);
     window.addEventListener('focus', refreshTickets);
     return () => { controller.abort(); clearInterval(interval); window.removeEventListener('focus', refreshTickets); };
   }, [open, ticket?.id, tab, session?.accessToken]);
-  useEffect(() => { if (open) { setTab(initialTab); setTicket(null); setError(''); setMessage(''); } }, [open, initialTab]);
+  useEffect(() => { if (open) { setTab(embedded ? 'plans' : 'profile'); setTicket(null); setTicketIndex(0); setCachedPass(false); setError(''); setMessage(''); } }, [open, embedded]);
   useEffect(() => {
     if (!open || !notificationBooking) return;
-    const { ticket } = notificationBooking;
+    const { ticket: incoming } = notificationBooking;
+    const ticket = withPassKind(incoming, bookingRoute?.split(':')[0] || incoming.kind || 'purchase');
     ticketReturn.current = null; restoreTicketPosition.current = false;
-    setTab('plans'); setTicket(ticket); setError(''); setPage(1);
+    setTab('plans'); setTicket(ticket); setTicketIndex(0); setCachedPass(false); savePassCache(session.user.id, ticket); setError(''); setPage(1);
     setPeriod(new Date(ticket.event.endsAt) <= new Date() ? 'past' : 'upcoming');
     onNotificationOpened?.();
   }, [open, notificationBooking, onNotificationOpened]);
   useEffect(() => {
-    setName(session?.user.displayName || ''); setPhone(session?.user.phone || '');
+    if (!embedded || !open || !session || !bookingRoute || notificationBooking) return;
+    const [kind, id] = bookingRoute.split(':');
+    if (ticket?.id === id && ticket?.kind === kind) return;
+    let active = true;
+    setTicket(null);
+    setTicketBusy(id); setError('');
+    api(kind === 'guestlist' ? `/customer/guestlists/${id}/pass` : `/customer/purchases/${id}/tickets`, { token: session.accessToken })
+      .then((response) => { if (active) { const pass = withPassKind(response, kind); setTicket(pass); setTicketIndex(0); setCachedPass(false); savePassCache(session.user.id, pass); } })
+      .catch((error) => {
+        if (!active) return;
+        if (error.status && [401, 403, 404].includes(error.status)) removePassCache(session.user.id, kind, id);
+        else if (!error.status || error.status >= 500) {
+          const cached = loadPassCache(session.user.id, kind, id);
+          if (cached) { setTicket(withPassKind(cached, kind)); setTicketIndex(0); setCachedPass(true); return; }
+        }
+        setError(`This booking could not be opened: ${error.message}`);
+      })
+      .finally(() => { if (active) setTicketBusy(''); });
+    return () => { active = false; };
+  }, [embedded, open, bookingRoute, session?.accessToken, notificationBooking]);
+  useEffect(() => {
+    setName(session?.user.displayName || ''); setEmail(session?.user.email || ''); setConfirmEmail(''); setPhone(session?.user.phone || ''); setConfirmPhone('');
     setConsents({ marketingConsent: Boolean(session?.user.marketingConsentAt), transactionalSmsConsent: Boolean(session?.user.transactionalSmsConsentAt), marketingSmsConsent: Boolean(session?.user.marketingSmsConsentAt) });
   }, [session?.user]);
   useEffect(() => {
     if (!open || !session) return;
     if (tab === 'profile') { setBusy(false); return; }
-    const controller = new AbortController(); setBusy(true); setError(''); setData(null); setConnections([]);
-    api(tab === 'circle' ? '/customer/connections' : `/customer/bookings?period=${period}&page=${page}`, { token: session.accessToken, signal: controller.signal })
-      .then((result) => { if (!controller.signal.aborted) { if (tab === 'circle') setConnections(result); else setData(result); } })
+    const controller = new AbortController(); setBusy(true); setError(''); setData(null);
+    api(`/customer/bookings?period=${period}&page=${page}`, { token: session.accessToken, signal: controller.signal })
+      .then((result) => { if (!controller.signal.aborted) setData(result); })
       .catch((error) => { if (!controller.signal.aborted) setError(error.message); })
       .finally(() => { if (!controller.signal.aborted) setBusy(false); });
     return () => controller.abort();
@@ -86,36 +125,70 @@ export function AccountDialog({ open, onOpenChange, session, initialTab = 'plans
   async function showTicket(id, kind = 'purchase') {
     ticketReturn.current = { id, top: embedded ? window.scrollY : scrollContainer.current?.scrollTop || 0 };
     setTicketBusy(id); setError('');
-    try { setTicket(await api(kind === 'guestlist' ? `/customer/guestlists/${id}/pass` : `/customer/purchases/${id}/tickets`, { token: session.accessToken })); }
-    catch (error) { setError(error.message); }
+    try {
+      const pass = withPassKind(await api(kind === 'guestlist' ? `/customer/guestlists/${id}/pass` : `/customer/purchases/${id}/tickets`, { token: session.accessToken }), kind);
+      setTicket(pass); setTicketIndex(0); setCachedPass(false); setRequestedSpots(pass.partySize || 1); savePassCache(session.user.id, pass);
+      if (embedded) onBookingRouteChange?.(`${kind}:${id}`);
+    } catch (error) {
+      if (error.status && [401, 403, 404].includes(error.status)) removePassCache(session.user.id, kind, id);
+      else if (!error.status || error.status >= 500) {
+        const cached = loadPassCache(session.user.id, kind, id);
+        if (cached) { setTicket(withPassKind(cached, kind)); setTicketIndex(0); setCachedPass(true); if (embedded) onBookingRouteChange?.(`${kind}:${id}`); return; }
+      }
+      setError(error.message);
+    }
     finally { setTicketBusy(''); }
   }
   async function saveProfile(event) {
     event.preventDefault(); setBusy(true); setError(''); setMessage('');
-    try { const user = await api('/customer/profile', { token: session.accessToken, method: 'PATCH', body: { displayName: name, phone, ...consents } }); onProfile(user); setMessage('Your profile is updated.'); }
+    const changedEmail = email.trim().toLowerCase() !== session.user.email;
+    const changedPhone = phone !== (session.user.phone || '');
+    if (changedEmail && email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) { setBusy(false); setError('Email addresses must match.'); return; }
+    if (changedPhone && phone.trim() !== confirmPhone.trim()) { setBusy(false); setError('Phone numbers must match.'); return; }
+    try {
+      const result = await api('/auth/profile', { token: session.accessToken, method: 'PATCH', body: { displayName: name, email, ...(changedEmail ? { confirmEmail } : {}), phone, ...(changedPhone ? { confirmPhone } : {}) } });
+      onProfile(result.user || result);
+      setConfirmEmail(''); setConfirmPhone('');
+      setMessage(changedEmail ? result.verificationMessage || 'Your profile changed. Check your new email for a verification link if delivery is available.' : 'Your profile is updated.');
+    }
     catch (error) { setError(error.message); }
     finally { setBusy(false); }
   }
+  async function savePreferences(event) {
+    event.preventDefault(); setBusy(true); setError(''); setMessage('');
+    try { const user = await api('/customer/profile', { token: session.accessToken, method: 'PATCH', body: { displayName: session.user.displayName, phone: session.user.phone || '', ...consents } }); onProfile(user); setMessage('Your preferences are updated.'); }
+    catch (error) { setError(error.message); }
+    finally { setBusy(false); }
+  }
+  async function resendVerification() {
+    if (resendCooldown) return;
+    setBusy(true); setError(''); setMessage('');
+    try { const result = await api('/auth/email/resend', { token: session.accessToken, method: 'POST' }); setMessage(result.message || 'If verification is needed and email delivery is available, a new link will arrive shortly.'); setResendCooldown(60); }
+    catch (error) { setError(error.status === 503 ? 'Email delivery is unavailable in this environment. Try again when it is enabled.' : error.message); }
+    finally { setBusy(false); }
+  }
+  useEffect(() => {
+    if (!resendCooldown) return;
+    const timer = setTimeout(() => setResendCooldown((value) => Math.max(0, value - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
   return <Container open={open && Boolean(session)} onOpenChange={onOpenChange}>
     <Content ref={scrollContainer} className={embedded ? 'booked-content' : 'account-modal'}>
       {!embedded && <DialogHeader className="account-heading">
         <span className="profile-avatar large" aria-hidden="true">{initials(session?.user.displayName)}</span>
-        <div><p className="eyebrow">YOUR NITEWIDE</p><DialogTitle>A little more you.</DialogTitle><DialogDescription>{session?.user.displayName} · Your nights, your people, your plans.</DialogDescription></div>
+        <div><p className="eyebrow">YOUR NITEWIDE</p><DialogTitle>Your profile.</DialogTitle><DialogDescription>{session?.user.displayName} · Account details and preferences.</DialogDescription></div>
       </DialogHeader>}
       <Tabs value={tab} onValueChange={(value) => { setTab(value); setTicket(null); setError(''); }}>
-        <TabsList className={embedded ? 'sr-only' : 'account-tabs'}><TabsTrigger value="plans"><Ticket size={16} /> My nights</TabsTrigger>{!embedded && <><TabsTrigger value="circle"><Users size={16} /> Connections</TabsTrigger><TabsTrigger value="profile"><UserRound size={16} /> Profile</TabsTrigger></>}</TabsList>
         {error && <p className="account-error" role="alert">{error} <button onClick={() => setRefresh((v) => v + 1)}>Try again</button></p>}
         <TabsContent value="plans">
           {ticket ? <section className="ticket-view">
-            <Button variant="ghost" onClick={() => { restoreTicketPosition.current = true; setTicket(null); }}><ChevronLeft size={16} /> Back to my nights</Button>
-            <div className="purchase-ticket-heading"><EventArtwork event={ticket.event} className="booking-flyer" /><div><p className="eyebrow">{ticket.demo ? 'DEMO PURCHASE' : 'YOUR NIGHT, CONFIRMED'}</p><h3>{ticket.event.title}</h3><p>{eventDate(ticket.event)} · {eventTime(ticket.event)}</p><p>{eventVenueName(ticket.event)}</p><p aria-label="Event address">{eventAddress(ticket.event.location)}</p></div></div>
-            <div className="ticket-list-summary" aria-live="polite"><strong>{ticket.tickets.filter((t) => t.status === 'checked_in').length} of {ticket.tickets.length} checked in</strong><span>Show your QR code at the door · Status updates automatically</span></div>
-            <div className="admission-list">{ticket.tickets.map((entry, index) => <article key={entry.id} className={`admission-pass ${entry.status}`} aria-label={`${ticket.kind === 'guestlist' ? 'Guest list entry' : `Ticket ${index + 1}`}: ${entry.status === 'checked_in' ? 'Checked in' : entry.status}`}>
-              <div className="pass-code">{entry.qrImage ? <img src={entry.qrImage} alt={`QR code for ${ticket.kind === 'guestlist' ? 'guest list entry' : `ticket ${index + 1}`}, ${entry.offering}`} /> : <div className="pass-no-code"><Ticket /><span>{entry.status === 'checked_in' ? 'Admitted' : 'QR unavailable'}</span></div>}</div>
-              <div className="pass-info"><p className="eyebrow">{ticket.kind === 'guestlist' ? 'GUEST LIST ENTRY' : `TICKET ${index + 1} OF ${ticket.tickets.length}`}</p><h4>{entry.offering}</h4><span className="pass-status">{entry.status === 'checked_in' ? <><CheckCircle2 size={16} /> Checked in</> : ['valid', 'confirmed'].includes(entry.status) ? (entry.qrImage ? 'Ready for entry' : 'Event ended or unavailable') : statusLabel[entry.status] || entry.status.replace('_', ' ')}</span><p>{entry.checkedInAt ? `Admitted ${new Date(entry.checkedInAt).toLocaleString('en-US', { timeZone: ticket.event.location?.timezone, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ticket.kind === 'guestlist' ? `${ticket.partySize} ${ticket.partySize === 1 ? 'guest' : 'guests'} · One code for your party` : 'One admission · Keep this code private'}</p><small>{ticket.demo ? 'Local demo only · No payment collected' : entry.status === 'checked_in' ? 'Entry confirmed. This code cannot be used again.' : ticket.kind === 'guestlist' ? 'Arrive together. This code checks in your entire approved party.' : 'Show this code at the door.'}</small><code>{entry.id}</code></div>
-            </article>)}</div>
-            {!ticket.tickets.length && <p className="account-empty">No tickets are currently assigned to you for this purchase.</p>}
-            {ticket.kind !== 'guestlist' && <details className="booking-receipt purchase-receipt"><summary>Purchase receipt · {money(ticket.totalCents, ticket.currency)}</summary><p>Tickets & packages: {money(ticket.subtotalCents, ticket.currency)}<br />Service fee: {money(ticket.totalCents - ticket.subtotalCents, ticket.currency)}</p><small>Order {ticket.id}</small></details>}
+            <Button variant="ghost" onClick={() => { restoreTicketPosition.current = true; setTicket(null); onBookingRouteChange?.(null); }}><ChevronLeft size={16} /> Back to my nights</Button>
+            <AdmissionPassView ticket={ticket} index={Math.min(ticketIndex, Math.max(0, ticket.tickets.length - 1))} onIndex={setTicketIndex} cached={cachedPass} />
+            {ticket.kind === 'guestlist' && ticket.tickets[0]?.status === 'pending' && !cachedPass && <div className="pending-guestlist-actions">
+              <p>Your request is pending review. You can change your party size or withdraw it while it is pending.</p>
+              {editingSpots ? <form onSubmit={async (event) => { event.preventDefault(); setTicketBusy(ticket.id); setError(''); try { const result = await api(`/customer/guestlists/${ticket.id}`, { token: session.accessToken, method: 'PATCH', body: { partySize: Number(requestedSpots) } }); setTicket((current) => ({ ...current, partySize: result.entry.partySize })); setEditingSpots(false); setRefresh((value) => value + 1); } catch (error) { setError(error.message); } finally { setTicketBusy(''); } }}><label>Spots <input type="number" inputMode="numeric" min="1" max="20" value={requestedSpots} onChange={(event) => setRequestedSpots(event.target.value)} /></label><Button type="submit" disabled={Boolean(ticketBusy)}>Save spots</Button><Button type="button" variant="ghost" onClick={() => setEditingSpots(false)}>Cancel</Button></form> : <Button variant="outline" onClick={() => setEditingSpots(true)}>Edit spots</Button>}
+              <Button variant="ghost" disabled={Boolean(ticketBusy)} onClick={async () => { if (!window.confirm('Withdraw this pending guestlist request?')) return; setTicketBusy(ticket.id); setError(''); try { await api(`/customer/guestlists/${ticket.id}`, { token: session.accessToken, method: 'DELETE' }); setTicket(null); setRefresh((value) => value + 1); } catch (error) { setError(error.message); } finally { setTicketBusy(''); } }}>Withdraw request</Button>
+            </div>}
           </section> : <>
             <div className="account-toolbar"><div className="period-switch" aria-label="Booking period">{['upcoming', 'past'].map((value) => <button key={value} aria-pressed={period === value} onClick={() => { setPeriod(value); setPage(1); }}>{value === 'upcoming' ? 'Upcoming' : 'Past nights'}</button>)}</div><button className="account-refresh" aria-label="Refresh bookings" onClick={() => setRefresh((v) => v + 1)}><RefreshCw size={16} /></button></div>
             {busy && <div className="account-loading"><LoadingIndicator>Finding your nights…</LoadingIndicator></div>}
@@ -127,14 +200,26 @@ export function AccountDialog({ open, onOpenChange, session, initialTab = 'plans
             {data && data.total > 10 && <div className="account-pagination"><Button variant="ghost" disabled={page === 1} onClick={() => setPage(page - 1)}><ChevronLeft /> Previous</Button><span>{page} / {Math.ceil(data.total / 10)}</span><Button variant="ghost" disabled={page * 10 >= data.total} onClick={() => setPage(page + 1)}>Next <ChevronRight /></Button></div>}
           </>}
         </TabsContent>
-        <TabsContent value="circle"><div className="circle-intro"><p className="eyebrow">FAMILIAR FACES. NEW PLANS.</p><h3>Book another night with your connections.</h3><p>Discover upcoming events from people you’ve booked or joined a guestlist through before. Find them across venues and cities, and book with them again.</p></div>
-          {busy && <div className="account-loading"><LoadingIndicator>Finding your connections…</LoadingIndicator></div>}
-          {!busy && !connections.length && !error && <div className="account-empty"><Users /><h3>Your next connection starts with a night out.</h3><p>After a referred purchase or guestlist invitation, their upcoming events will appear here.</p></div>}
-          {!!connections.length && <div className="account-toolbar"><Select value={circlePerson} onValueChange={(value) => { setCirclePerson(value); setCircleLimit(12); }}><SelectTrigger aria-label="Filter connections"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All connections</SelectItem>{circlePeople.map((person) => <SelectItem key={person.id} value={person.id}>{person.name}</SelectItem>)}</SelectContent></Select><span>{circleEvents.length} upcoming</span></div>}
-          <div className="circle-grid">{circleEvents.slice(0, circleLimit).map((entry) => <article key={`${entry.event.id}-${entry.referrer.id}`}><div className="circle-person"><span className="profile-avatar">{initials(entry.referrer.name)}</span><div><small>GO WITH</small><strong>{entry.referrer.name}</strong></div></div><h3>{entry.event.title}</h3><p>{eventDate(entry.event)} · {eventTime(entry.event)}</p><p>{eventVenueName(entry.event, entry.event.location?.city)}</p><Button onClick={async () => { setError(''); try { await onReferral(entry); } catch (error) { setError(error.message); } }}>Explore with {entry.referrer.name.split(' ')[0]} <ArrowRight size={16} /></Button></article>)}</div>
-          {circleEvents.length > circleLimit && <Button className="circle-more" variant="outline" onClick={() => setCircleLimit((value) => value + 12)}>More events from connections</Button>}
+        <TabsContent value="profile">
+          <form className="profile-form" onSubmit={saveProfile}>
+            <h3>Your details</h3><p>Keep your contact information current for bookings and guestlist updates.</p>
+            <label>Display name<input value={name} maxLength={120} required autoComplete="name" onChange={(event) => setName(event.target.value)} /></label>
+            <label>Email<input value={email} type="email" required autoComplete="email" onChange={(event) => setEmail(event.target.value)} /></label>
+            {email.trim().toLowerCase() !== session?.user.email && <label>Confirm new email<input value={confirmEmail} type="email" required autoComplete="off" onChange={(event) => setConfirmEmail(event.target.value)} /></label>}
+            <div className="verification-row"><span>Email: {session?.user.emailVerifiedAt ? 'Verified' : 'Not verified'}</span>{!session?.user.emailVerifiedAt && <Button type="button" variant="ghost" disabled={busy || Boolean(resendCooldown)} onClick={resendVerification}>{resendCooldown ? `Retry in ${resendCooldown}s` : 'Resend verification'}</Button>}</div>
+            <label>Phone number<input value={phone} type="tel" autoComplete="tel" placeholder="+1 (407) 555-0123" onChange={(event) => setPhone(event.target.value)} /></label>
+            {phone !== (session?.user.phone || '') && <label>Confirm new phone<input value={confirmPhone} type="tel" autoComplete="off" required={Boolean(phone)} onChange={(event) => setConfirmPhone(event.target.value)} /></label>}
+            {phone && <small>Phone: {session?.user.phoneVerifiedAt ? 'Verified' : 'Not verified'}</small>}
+            <Button disabled={busy} type="submit">{busy ? 'Saving…' : 'Save details'}</Button>
+          </form>
+          <form className="profile-form profile-preferences" onSubmit={savePreferences}>
+            <fieldset><legend>Stay in the loop</legend>{[['transactionalSmsConsent','Event and booking reminders by text'], ['marketingSmsConsent','Offers and recommendations by text'], ['marketingConsent','Offers and recommendations by email']].map(([key,label]) => <label className="consent-choice" key={key}><input type="checkbox" checked={Boolean(consents[key])} onChange={(event) => setConsents({ ...consents, [key]: event.target.checked })} />{label}</label>)}<small>Optional. Delivery depends on the messaging services enabled for this environment.</small></fieldset>
+            <Button disabled={busy} type="submit">Save preferences</Button>
+          </form>
+          <div className="profile-security"><h3>Password</h3><p>If you need a new password, request a reset link from the sign-in screen.</p><Button variant="outline" onClick={async () => { try { await api('/auth/password-reset/request', { body: { email: session.user.email } }); setMessage('If email delivery is available, a reset link will arrive shortly.'); } catch (error) { setError(error.message); } }}>Request password reset</Button></div>
+          {message && <p className="profile-message" role="status">{message}</p>}
+          <div className="profile-signout"><Button variant="ghost" onClick={onSignOut}><LogOut size={16} /> Sign out</Button></div>
         </TabsContent>
-        <TabsContent value="profile"><form className="profile-form" onSubmit={saveProfile}><h3>Your details</h3><p>A familiar face, wherever the night takes you.</p><label>Display name<input value={name} maxLength={120} required autoComplete="name" onChange={(event) => setName(event.target.value)} /></label><label>Email<input value={session?.user.email || ''} disabled type="email" /></label><small>Your sign-in email is managed separately.</small><label>Phone number<input value={phone} type="tel" autoComplete="tel" placeholder="+1 (407) 555-0123" onChange={(event) => setPhone(event.target.value)} /></label><fieldset><legend>Stay in the loop</legend>{[['transactionalSmsConsent','Event and booking reminders by text'], ['marketingSmsConsent','Offers and recommendations by text'], ['marketingConsent','Offers and recommendations by email']].map(([key,label]) => <label className="consent-choice" key={key}><input type="checkbox" checked={Boolean(consents[key])} onChange={(event) => setConsents({ ...consents, [key]: event.target.checked })} />{label}</label>)}<small>Optional. Email and text delivery are coming soon; your preferences are saved.</small></fieldset><Button disabled={busy} type="submit">{busy ? 'Saving…' : 'Save changes'}</Button>{message && <p role="status">{message}</p>}</form><div className="profile-signout"><Button variant="ghost" onClick={onSignOut}><LogOut size={16} /> Sign out</Button></div></TabsContent>
       </Tabs>
     </Content>
   </Container>;

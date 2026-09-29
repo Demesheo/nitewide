@@ -122,7 +122,7 @@ async function collectBusinessWorkflowMessages(run) {
       creatorUserId: reviewer.id, startsAt: future(48), endsAt: future(52) };
     const models = {
       Event: { findByPk: async () => event }, User: { findByPk: async () => guest, findAll: async () => [reviewer] },
-      GuestlistEntry: { create: async (values) => row({ id: `entry-${run}`, ...values }) },
+      GuestlistEntry: { findOne: async () => null, sum: async () => 0, create: async (values) => row({ id: `entry-${run}`, ...values }) },
       EventAffiliate: {}, OrgAffiliate: {},
       AffiliateAttribution: { create: async () => ({}) }, AuditLog: { create: async () => ({}) },
     };

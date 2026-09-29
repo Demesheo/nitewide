@@ -8,11 +8,14 @@ export function isHiddenDemoPerson(person) {
 }
 export function customerPresentation(path, data) {
   const route = path.split('?')[0];
-  if (route === '/customer/connections') return data.filter((entry) => !isHiddenDemoPerson(entry.referrer));
-  if (route === '/customer/connections/summary') {
-    const people = data.people.filter((person) => !isHiddenDemoPerson(person));
-    const onlyHidden = data.people.length > 0 && people.length === 0;
-    return { ...data, people, eligible: data.eligible && !onlyHidden };
+  if (route === '/customer/connections') {
+    if (Array.isArray(data)) return data.filter((entry) => !isHiddenDemoPerson(entry.referrer));
+    return { ...data, items: (data.items || []).filter((entry) => !isHiddenDemoPerson(entry.referrer)) };
+  }
+  if (route === '/customer/connections/summary' || route === '/customer/connections/people') {
+    const people = (data.people || []).filter((person) => !isHiddenDemoPerson(person));
+    const onlyHidden = data.people?.length > 0 && people.length === 0;
+    return { ...data, people, eligible: data.eligible && (!onlyHidden || data.hasMore) };
   }
   if (/^\/events\/[^/]+\/referral-visits$/.test(route) && isHiddenDemoPerson({ name: data.referrerName })) {
     // Keep existing attribution intact for a directly opened demo-owner link.

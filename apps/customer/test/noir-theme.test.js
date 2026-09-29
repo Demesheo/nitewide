@@ -86,7 +86,7 @@ test('login, discovery search and checkout actions share dark glass without size
   assert.match(app, /className="primary-action dark-glass-action"[\s\S]*?onClick=\{checkout\}/);
   assert.match(app, /className="primary-action dark-glass-action" onClick=\{completeDemo\}/);
   assert.match(app, /className="dark-glass-action" onClick=\{\(\) => setAuthOpen\(true\)\}>Sign in<\/Button>/);
-  assert.match(app, /className="dark-glass-action" onClick=\{\(\) => setView\('discover'\)\}>Discover events<\/Button>/);
+  assert.match(app, /className="dark-glass-action" onClick=\{\(\) => navigateView\('discover'\)\}>Discover events<\/Button>/);
   assert.match(auth, /className=\{register \? "primary-action" : "primary-action dark-glass-action"\}/);
   const glass = css.match(/\.signin-button\[data-slot="button"\], \.search-submit\[data-slot="button"\], \.dark-glass-action\[data-slot="button"\] \{([^}]+)\}/)?.[1];
   assert.ok(glass);

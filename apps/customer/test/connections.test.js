@@ -32,11 +32,11 @@ test('multi-select drafts are immutable, apply only valid IDs, and combine conne
 });
 test('multi-select applies explicitly and Booking with appears above the purchase action', async () => {
   const filter = await readFile(new URL('../src/components/connection-filter.jsx', import.meta.url), 'utf8');
-  assert.match(filter, /onApply\(applyConnectionSelection\(draft, availableIds\)\)/);
+  assert.match(filter, /onApply\(all \? null : draft\)/);
   assert.match(filter, /onClick=\{\(\) => changeOpen\(false\)\}>Cancel/);
-  assert.match(filter, /disabled=\{!selectedCount\}/);
+  assert.match(filter, /disabled=\{!all && !draft\.length\}/);
   const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  assert.match(app, /referralCodeForEvent\(referral, selected.id\).*Booking with <strong>\{referral.referrerName\}<\/strong><\/p>\}\s*<Button\s*className="primary-action dark-glass-action"/);
+  assert.match(app, /className="connection-context">Booking with <strong>\{referral.referrerName\}<\/strong><\/p>\}\s*<Button className="primary-action dark-glass-action" onClick=\{completeDemo\}/);
   assert.doesNotMatch(app, /Referred by/);
 });
 test('shared connection links round-trip the chosen referral and are scoped to the new event', () => {

@@ -910,7 +910,7 @@ test(
       assert.equal(ticketList.body.data.tickets[0].status, 'valid');
       assert.equal((await req(`/customer/purchases/${booked.id}/tickets`, ids.owner)).status, 404);
       assert.ok(!JSON.stringify(wallet.body).includes('qrTokenHash'));
-      const savedProfile = await req('/customer/profile', ids.matrixCustomer, 'PATCH', { displayName: 'Updated customer', phone: '(407) 555-0199', marketingConsent: false, transactionalSmsConsent: true, marketingSmsConsent: false });
+      const savedProfile = await req('/customer/profile', ids.matrixCustomer, 'PATCH', { displayName: 'Updated customer', phone: '(407) 555-0199', confirmPhone: '(407) 555-0199', marketingConsent: false, transactionalSmsConsent: true, marketingSmsConsent: false });
       assert.equal(savedProfile.status, 200, JSON.stringify(savedProfile.body));
       assert.equal(savedProfile.body.data.phone, '+14075550199');
       assert.equal(savedProfile.body.data.phoneVerifiedAt, null);
@@ -961,7 +961,7 @@ test(
       assert.equal((await req('/customer/connections/summary', ids.matrixCustomer)).body.data.people.find((person) => person.id === ids.eventPromoter).bookings, promoterHistory.bookings + 1);
       await m.EventAffiliate.update({ status: 'inactive' }, { where: { eventId: nextNight.body.data.id, userId: ids.eventPromoter } });
       assert.ok(!(await req(scopedConnectionsPath, ids.matrixCustomer)).body.data.some((row) => row.referrer.id === ids.eventPromoter));
-      assert.ok(!(await req('/customer/connections', ids.matrixCustomer)).body.data.some((row) => row.event.id === nextNight.body.data.id));
+      assert.ok(!(await req('/customer/connections', ids.matrixCustomer)).body.data.items.some((row) => row.event.id === nextNight.body.data.id));
       assert.equal((await req(`/events/${nextLink.event.id}/referral-visits`, null, 'POST', { code: nextLink.code, sessionKey: randomUUID() })).body.error.code, 'INVALID_AFFILIATE', 'A removed connection cannot be reapplied from a stale picker');
       await m.Ticket.update({ status: 'void' }, { where: { id: ticketId } });
       assert.equal((await req(`/customer/tickets/${ticketId}`, ids.matrixCustomer)).status, 409);

@@ -1,12 +1,13 @@
 # Standard and demo-only tests
 
-Run `npm test` from the repository root, or `npm test --workspace @nitewide/api` for the API alone. The API runner first executes unit tests and mocked email tests, then runs these five required integration suites serially:
+Run `npm test` from the repository root, or `npm test --workspace @nitewide/api` for the API alone. The API runner first executes unit tests and mocked email tests, then runs these six required integration suites serially:
 
 - `admissions-integration.test.js`: permission boundaries, QR integrity, concurrent admissions, reporting, and customer passes.
 - `business-integration.test.js`: authentication, organization isolation, checkout, sales, event creation/editing, and guestlist approvals through the REST boundary.
 - `business-reporting-integration.test.js`: deterministic Team, Overview, and Analytics reconciliation against real PostgreSQL queries and test-owned fixtures.
 - `admin-onboarding-lifecycle-integration.test.js`: role/lifecycle protections, onboarding, scoped edits, retained history, and admin management filtering.
 - `public-discovery-integration.test.js`: discovery cursor stability, filters, ordering, deep links, and collections larger than the former 100-event limit.
+- `customer-experience-integration.test.js`: customer identity confirmation, saved-event merging, guestlist state, attendee-only location privacy, and paged Connections/people results.
 
 There is no opt-in flag for these suites. Each receives its own generated `nitewide_test_<UUID>` database on a PostgreSQL/PostGIS server. The runner migrates only that database, executes its suite, then drops that exact generated database. It does not seed, migrate, or inspect development/demo application data. Integration files reject direct execution without the runner's managed database URL and marker. Interrupting the runner stops its child process group and performs the same generated-database cleanup.
 

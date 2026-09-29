@@ -16,12 +16,16 @@ function createGuestlistService({ sequelize, models, now = () => new Date(), ema
       if (!event) throw notFound('Event');
       await assertActiveEvent(models, event, transaction);
       assertActiveUser(await models.User.findByPk(input.userId, { transaction, lock: transaction.LOCK.UPDATE }));
-      if (event.status !== 'published') throw new DomainError('Guestlist is not open', { code: 'GUESTLIST_CLOSED' });
+      if (event.status !== 'published' || +new Date(event.endsAt) < +now()) throw new DomainError('Guestlist is not open', { code: 'GUESTLIST_CLOSED' });
+      if (await models.GuestlistEntry.findOne({ where: { eventId: event.id, userId: input.userId }, transaction, lock: transaction.LOCK.UPDATE })) {
+        throw conflict('You already have a guestlist request for this event', 'GUESTLIST_ALREADY_REQUESTED');
+      }
       const requestedAt = now();
       const affiliate = await resolveAffiliate(models, { event, code: input.affiliateCode, now: requestedAt, transaction });
       if (input.affiliateCode) {
         if (!affiliate.eventAffiliate) throw new DomainError('Promoter must be selected for this event', { code: 'AFFILIATE_NOT_SELECTED' });
       }
+      // Pending requests reserve no spots. Capacity is enforced at approval.
       const entry = await models.GuestlistEntry.create({
         eventId: event.id, userId: input.userId, eventAffiliateId: affiliate.eventAffiliate?.id,
         source: input.affiliateCode ? 'affiliate' : 'event', partySize: input.partySize, status: 'pending', qrTokenHash: null,

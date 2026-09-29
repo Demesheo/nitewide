@@ -5,22 +5,93 @@ const { walletToken, guestlistWalletToken } = require('../domain/wallet-qr');
 const { createReferralLinkService } = require('./referral-link-service');
 const { redactLocation } = require('../controllers/public-controller');
 const { ADMISSION_WINDOW_MS } = require('../domain/admission-policy');
+const { assertActiveEvent } = require('./lifecycle-service');
+const { connectionHistorySql, pagedConnections } = require('./customer-connections-page-service');
 
 function profile(user) {
   return { id: user.id, displayName: user.displayName, email: user.email, phone: user.phone,
     marketingConsentAt: user.marketingConsentAt, transactionalSmsConsentAt: user.transactionalSmsConsentAt,
     marketingSmsConsentAt: user.marketingSmsConsentAt, phoneVerifiedAt: user.phoneVerifiedAt, emailVerifiedAt: user.emailVerifiedAt };
 }
-function eventSummary(event) {
+function eventSummary(event, { canViewAttendeeAddress = false } = {}) {
   if (!event) return null;
+  const location = event.location?.privacy === 'attendees_only' && canViewAttendeeAddress
+    ? event.location.toJSON() : redactLocation(event.location);
+  if (location) location.addressVisible = location.privacy === 'public' || (location.privacy === 'attendees_only' && canViewAttendeeAddress);
   return { id: event.id, title: event.title, startsAt: event.startsAt, endsAt: event.endsAt, status: event.status,
     imageUrl: event.imageUrl, isPremiumHost: event.organization?.planTier === 'premium', organization: event.organization ? { name: event.organization.name } : null,
-    location: redactLocation(event.location) };
+    location };
+}
+function guestlistSummary(entry) {
+  if (!entry) return null;
+  return { id: entry.id, status: entry.status, partySize: entry.partySize,
+    createdAt: entry.createdAt, reviewedAt: entry.reviewedAt };
 }
 function createCustomerAccountService({ models, tokenSecret, now = () => new Date(), referralLinks }) {
   const eventInclude = { model: models.Event, as: 'event', include: [
     { model: models.Location, as: 'location' }, { model: models.Organization, as: 'organization', attributes: ['id', 'name', 'planTier'] },
   ] };
+  async function attendeeLocationEventIds(userId, eventIds) {
+    const ids = [...new Set(eventIds.filter(Boolean))];
+    if (!ids.length) return new Set();
+    const [orders, guests] = await Promise.all([
+      models.Order.findAll({ where: { buyerUserId: userId, eventId: { [Op.in]: ids }, status: 'paid' }, attributes: ['eventId'] }),
+      models.GuestlistEntry.findAll({ where: { userId, eventId: { [Op.in]: ids }, status: { [Op.in]: ['confirmed', 'checked_in'] } }, attributes: ['eventId'] }),
+    ]);
+    return new Set([...orders, ...guests].map((row) => row.eventId));
+  }
+  async function eventActiveForAdmission(event) {
+    try { await assertActiveEvent(models, event); return true; }
+    catch (error) { if ([403, 404].includes(error.status)) return false; throw error; }
+  }
+  async function guestlistStatus(userId, eventId) {
+    const event = await models.Event.findByPk(eventId);
+    if (!event) throw notFound('Event');
+    const entry = await models.GuestlistEntry.findOne({ where: { userId, eventId }, attributes: ['id', 'status', 'partySize', 'createdAt', 'reviewedAt'] });
+    let active = true;
+    try { await assertActiveEvent(models, event); }
+    catch (error) { if (![403, 404].includes(error.status)) throw error; active = false; }
+    const requestsOpen = active && event.status === 'published' && +new Date(event.endsAt) > +now();
+    return { entry: guestlistSummary(entry), maxPartySize: 20, requestsOpen };
+  }
+  async function updatePendingGuestlist(userId, entryId, partySize) {
+    return models.GuestlistEntry.sequelize.transaction(async (transaction) => {
+      const existing = await models.GuestlistEntry.findOne({ where: { id: entryId, userId }, attributes: ['eventId'], transaction });
+      if (!existing) throw notFound('Guestlist request');
+      const event = await models.Event.findByPk(existing.eventId, { transaction, lock: transaction.LOCK.UPDATE });
+      const entry = await models.GuestlistEntry.findOne({ where: { id: entryId, userId }, transaction, lock: transaction.LOCK.UPDATE });
+      if (!entry) throw notFound('Guestlist request');
+      if (entry.status !== 'pending') throw conflict('Only pending guestlist requests can be edited', 'GUESTLIST_NOT_EDITABLE');
+      await assertActiveEvent(models, event, transaction);
+      if (!event || event.status !== 'published' || +new Date(event.endsAt) < +now()) throw conflict('Guestlist request is closed', 'GUESTLIST_CLOSED');
+      const before = { partySize: entry.partySize };
+      if (entry.partySize !== partySize) {
+        await entry.update({ partySize }, { transaction });
+        await models.AuditLog.create({ actorUserId: userId, organizationId: event.organizationId, entityType: 'GuestlistEntry', entityId: entry.id,
+          action: 'guestlist.party_size_changed', before, after: { partySize } }, { transaction });
+      }
+      return { entry: guestlistSummary(entry) };
+    });
+  }
+  async function withdrawPendingGuestlist(userId, entryId) {
+    return models.GuestlistEntry.sequelize.transaction(async (transaction) => {
+      const existing = await models.GuestlistEntry.findOne({ where: { id: entryId, userId }, attributes: ['eventId'], transaction });
+      if (!existing) throw notFound('Guestlist request');
+      const event = await models.Event.findByPk(existing.eventId, { transaction, lock: transaction.LOCK.UPDATE });
+      const entry = await models.GuestlistEntry.findOne({ where: { id: entryId, userId }, transaction, lock: transaction.LOCK.UPDATE });
+      if (!entry) throw notFound('Guestlist request');
+      if (entry.status !== 'pending') throw conflict('Only pending guestlist requests can be withdrawn', 'GUESTLIST_NOT_WITHDRAWABLE');
+      await assertActiveEvent(models, event, transaction);
+      if (event.status !== 'published' || +new Date(event.endsAt) < +now()) throw conflict('Guestlist request is closed', 'GUESTLIST_CLOSED');
+      await models.AuditLog.create({ actorUserId: userId, organizationId: event?.organizationId || null, entityType: 'GuestlistEntry', entityId: entry.id,
+        action: 'guestlist.withdrawn', before: { eventId: entry.eventId, partySize: entry.partySize, status: entry.status }, after: null }, { transaction });
+      await entry.destroy({ transaction });
+      if (models.Notification) await models.Notification.update({ dismissedAt: now() }, { where: {
+        eventId: entry.eventId, kind: 'guestlist_request', metadata: { [Op.contains]: { entryId: entry.id } }, dismissedAt: { [Op.is]: null },
+      }, transaction });
+      return { withdrawn: true };
+    });
+  }
   async function bookings(userId, { page = 1, period = 'upcoming' } = {}) {
     // Paginate the combined timeline BEFORE loading ticket details, so guest
     // list entries neither repeat across pages nor fall behind later purchases.
@@ -35,28 +106,31 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     { replacements: { userId, now: now(), offset: (page - 1) * 10 }, type: QueryTypes.SELECT });
     const orders = await models.Order.findAll({ where: { buyerUserId: userId, id: timeline.entries.filter((row) => row.kind === 'purchase').map((row) => row.id) }, include: [eventInclude,
       { model: models.OrderItem, as: 'items', separate: true, include: [{ model: models.Ticket, as: 'tickets', attributes: ['id', 'holderUserId', 'status', 'checkedInAt'] }] }] });
-    const guests = await models.GuestlistEntry.findAll({ where: { userId, id: timeline.entries.filter((row) => row.kind === 'guestlist').map((row) => row.id) }, attributes: ['id', 'partySize', 'status', 'createdAt'], include: [eventInclude] });
+    const guests = await models.GuestlistEntry.findAll({ where: { userId, id: timeline.entries.filter((row) => row.kind === 'guestlist').map((row) => row.id) }, attributes: ['id', 'eventId', 'partySize', 'status', 'createdAt'], include: [eventInclude] });
+    const addressEvents = await attendeeLocationEventIds(userId, [...orders, ...guests].map((row) => row.eventId));
     return { page, total: timeline.total, entries: timeline.entries, pageSize: 10, orders: orders.map((order) => ({ id: order.id, status: order.status, currency: order.currency,
       subtotalCents: order.subtotalCents, totalCents: order.totalCents, paidAt: order.paidAt,
-      demo: Boolean(order.pricingPlanSnapshot?.demo), event: eventSummary(order.event),
+      demo: Boolean(order.pricingPlanSnapshot?.demo), event: eventSummary(order.event, { canViewAttendeeAddress: addressEvents.has(order.eventId) }),
       items: order.items.map((item) => ({ id: item.id, name: item.nameSnapshot, quantity: item.quantity,
         lineTotalCents: item.lineTotalCents, tickets: item.tickets.filter((ticket) => ticket.holderUserId === userId).map(({ id, status, checkedInAt }) => ({ id, status, checkedInAt })) })) })),
-      guestlists: guests.map((guest) => ({ id: guest.id, partySize: guest.partySize, status: guest.status, event: eventSummary(guest.event) })) };
+      guestlists: guests.map((guest) => ({ id: guest.id, partySize: guest.partySize, status: guest.status, event: eventSummary(guest.event, { canViewAttendeeAddress: addressEvents.has(guest.eventId) }) })) };
   }
   async function ticket(userId, ticketId) {
     const ticket = await models.Ticket.findOne({ where: { id: ticketId, holderUserId: userId }, include: [{ model: models.OrderItem, as: 'orderItem', include: [{ model: models.Order, as: 'order', include: [eventInclude] }] }] });
     if (!ticket) throw notFound('Ticket');
     const order = ticket.orderItem.order;
-    if (ticket.status !== 'valid' || order.status !== 'paid' || order.event.status !== 'published' || +new Date(order.event.endsAt) + ADMISSION_WINDOW_MS < +now()) throw conflict('This ticket is not available for admission', 'TICKET_UNAVAILABLE');
+    if (ticket.status !== 'valid' || order.status !== 'paid' || order.event.status !== 'published' || +new Date(order.event.endsAt) + ADMISSION_WINDOW_MS < +now() || !(await eventActiveForAdmission(order.event))) throw conflict('This ticket is not available for admission', 'TICKET_UNAVAILABLE');
     const qrToken = walletToken(ticket, tokenSecret);
-    return { id: ticket.id, event: eventSummary(order.event), offering: ticket.orderItem.nameSnapshot,
+    const addressEvents = await attendeeLocationEventIds(userId, [order.eventId]);
+    return { id: ticket.id, event: eventSummary(order.event, { canViewAttendeeAddress: addressEvents.has(order.eventId) }), offering: ticket.orderItem.nameSnapshot,
       demo: Boolean(order.pricingPlanSnapshot?.demo), qrImage: await QRCode.toDataURL(qrToken, { width: 320, margin: 4, errorCorrectionLevel: 'M' }) };
   }
   async function guestlistPass(userId, entryId) {
     const entry = await models.GuestlistEntry.findOne({ where: { id: entryId, userId }, include: [eventInclude] });
     if (!entry) throw notFound('Guest list entry');
-    const showCode = ['confirmed', 'checked_in'].includes(entry.status) && entry.qrTokenHash && entry.event.status === 'published' && +new Date(entry.event.endsAt) + ADMISSION_WINDOW_MS >= +now();
-    return { id: entry.id, kind: 'guestlist', event: eventSummary(entry.event), partySize: entry.partySize,
+    const showCode = ['confirmed', 'checked_in'].includes(entry.status) && entry.qrTokenHash && entry.event.status === 'published' && +new Date(entry.event.endsAt) + ADMISSION_WINDOW_MS >= +now() && await eventActiveForAdmission(entry.event);
+    const addressEvents = await attendeeLocationEventIds(userId, [entry.eventId]);
+    return { id: entry.id, kind: 'guestlist', event: eventSummary(entry.event, { canViewAttendeeAddress: addressEvents.has(entry.eventId) }), partySize: entry.partySize,
       tickets: [{ id: entry.id, offering: 'Guest list entry', status: entry.status, checkedInAt: entry.checkedInAt,
         qrImage: showCode ? await QRCode.toDataURL(guestlistWalletToken(entry, tokenSecret), { width: 320, margin: 4, errorCorrectionLevel: 'M' }) : null }] };
   }
@@ -64,7 +138,7 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     const order = await models.Order.findOne({ where: { id: orderId, buyerUserId: userId }, include: [eventInclude,
       { model: models.OrderItem, as: 'items', include: [{ model: models.Ticket, as: 'tickets' }] }] });
     if (!order) throw notFound('Purchase');
-    const admissionAvailable = order.status === 'paid' && order.event.status === 'published' && +new Date(order.event.endsAt) + ADMISSION_WINDOW_MS >= +now();
+    const admissionAvailable = order.status === 'paid' && order.event.status === 'published' && +new Date(order.event.endsAt) + ADMISSION_WINDOW_MS >= +now() && await eventActiveForAdmission(order.event);
     const tickets = [];
     for (const item of order.items) for (const credential of [...item.tickets].sort((a, b) => a.id.localeCompare(b.id))) {
       if (credential.holderUserId !== userId) continue;
@@ -72,13 +146,17 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
       tickets.push({ id: credential.id, offering: item.nameSnapshot, status: credential.status, checkedInAt: credential.checkedInAt,
         qrImage: showCode ? await QRCode.toDataURL(walletToken(credential, tokenSecret), { width: 320, margin: 4, errorCorrectionLevel: 'M' }) : null });
     }
-    return { id: order.id, status: order.status, event: eventSummary(order.event), demo: Boolean(order.pricingPlanSnapshot?.demo),
+    const addressEvents = await attendeeLocationEventIds(userId, [order.eventId]);
+    return { id: order.id, status: order.status, event: eventSummary(order.event, { canViewAttendeeAddress: addressEvents.has(order.eventId) }), demo: Boolean(order.pricingPlanSnapshot?.demo),
       subtotalCents: order.subtotalCents, totalCents: order.totalCents, currency: order.currency, tickets };
   }
   async function updateProfile(userId, input) {
     return models.User.sequelize.transaction(async (transaction) => {
       const user = await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!user?.isActive) throw notFound('User');
+      if (input.phone !== user.phone && input.confirmPhone !== input.phone) {
+        throw conflict('Phone confirmation does not match', 'PROFILE_CONFIRMATION_MISMATCH');
+      }
       const before = profile(user);
       const updates = { displayName: input.displayName, phone: input.phone };
       if (input.phone !== user.phone) updates.phoneVerifiedAt = null;
@@ -118,7 +196,8 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
       return profile(user);
     });
   }
-  async function connectionHistory(userId) {
+  async function connectionHistory(userId, options = {}) {
+    if (models.Order.sequelize?.query) return connectionHistorySql(models, userId, options);
     const [orders, guests, invitations] = await Promise.all([
       models.Order.findAll({ where: { buyerUserId: userId, status: 'paid', [Op.or]: [{ eventAffiliateId: { [Op.ne]: null } }, { orgAffiliateId: { [Op.ne]: null } }] }, attributes: ['id', 'eventId', 'eventAffiliateId', 'orgAffiliateId', 'paidAt', 'createdAt'] }),
       models.GuestlistEntry.findAll({ where: { userId, eventAffiliateId: { [Op.ne]: null } }, attributes: ['id', 'eventId', 'eventAffiliateId', 'status', 'createdAt'] }),
@@ -145,6 +224,18 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     return { eligible: referrerIds.length > 0, people };
   }
   async function connections(userId, { eventId } = {}) {
+    if (eventId && models.Order.sequelize?.query) {
+      const items = [];
+      let page = 1;
+      let hasMore = true;
+      while (hasMore) {
+        const result = await pagedConnections({ models, userId, eventId, page, pageSize: 50, now, referralLinks });
+        items.push(...result.items);
+        hasMore = result.hasMore;
+        page += 1;
+      }
+      return items;
+    }
     const history = await connectionHistory(userId);
     const referrerIds = history.people.map((person) => person.id);
     if (!referrerIds.length) return [];
@@ -173,6 +264,9 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     }
     return result;
   }
-  return { bookings, ticket, purchaseTickets, guestlistPass, updateProfile, updateIdentity, connections, connectionHistory };
+  async function connectionsPage(userId, { eventId = null, page = 1, pageSize = 9, city = '', query = '', personIds = [] } = {}) {
+    return pagedConnections({ models, userId, eventId, page, pageSize, city, query, personIds, now, referralLinks });
+  }
+  return { bookings, ticket, purchaseTickets, guestlistPass, guestlistStatus, updatePendingGuestlist, withdrawPendingGuestlist, updateProfile, updateIdentity, connections, connectionsPage, connectionHistory };
 }
 module.exports = { createCustomerAccountService, profile, eventSummary };

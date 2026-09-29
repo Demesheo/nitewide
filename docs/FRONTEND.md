@@ -26,8 +26,12 @@ The app is served on port 5173. Vite proxies `/api` to port 4000. A separately h
 | File                                                 | Responsibility                                                                                                    |
 | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `src/main.jsx`                                       | React root, StrictMode, global stylesheet                                                                         |
-| `src/App.jsx`                                        | Discovery state, search, navigation, event details, booking review/confirmation, account integration, guestlist requests |
-| `src/components/account-dialog.jsx`                  | Server-backed My nights, mini-flyer purchase cards, grouped ticket QR lists with live entry states, profile editing, and cross-venue Connections; see [Customer account](CUSTOMER_ACCOUNT.md) |
+| `src/App.jsx`                                        | Discovery state, search, URL navigation, event details, demo booking review/confirmation, account integration, guestlist requests |
+| `src/components/account-dialog.jsx`                  | Paginated Booked entries, one-pass QR view, guestlist editing, and profile settings; see [Customer account](CUSTOMER_ACCOUNT.md) |
+| `src/components/connections-page.jsx`                | Paginated, server-filtered connection events and person selection |
+| `src/components/notifications.jsx`                   | Paginated booking and guestlist notices |
+| `src/components/discovery-results.jsx`               | Discovery result cards, refresh states, and following-week preview |
+| `src/lib/use-discovery.js`                            | Discovery loading, cursors, filter requests, and retained results during refresh |
 | `src/components/event-card.jsx`                      | Reusable discovery and weekly-results card; event selection and independent saved toggle                          |
 | `src/components/event-artwork.jsx`                   | Uploaded flyer → local mood artwork → CSS placeholder, with explicit illustrative labels and no error loops |
 | `src/components/auth-dialog.jsx`                     | Real login/registration, validation, loading/error states, session handoff                                        |
@@ -93,7 +97,7 @@ Props: `open`, `onOpenChange`, `onSuccess(session)`. Uses shadcn Dialog for focu
 
 ### Discovery/search
 
-The form has three fields: **Where to?**, **When?**, and **Search**. Search is a generic, case-insensitive, all-words match over public title, summary, description, venue/organization, city/region, category, and offering name/description. City/date/type/price filters still narrow it. The form submission reads named fields explicitly; filters also update on edits.
+The form has three fields: **Where to?**, **When?**, and **Search**. Search is a generic, case-insensitive, all-words match over public title, summary, description, venue/organization, city/region, category, and offering name/description. The form submission reads named fields explicitly. Submitted filters stay in the URL and appear as removable chips; previous results remain visible during refresh. Tonight, Tomorrow, and This Weekend are one-tap date ranges.
 
 Discover opens with **Next 7 days**: today in the browser's local calendar through today + 6, inclusive. For September 22, that is September 22–28. The date input starts empty to represent this default range; selecting a date switches to that exact day, including dates outside the default week. Clearing the date restores the seven-day range without clearing the city or search. `discoveryDateRange()` and `filterDiscoveryEvents()` keep this policy limited to Discover; Saved, Booked, Connections, Business, and Admin are unchanged. Pagination still exposes every matching result.
 
@@ -107,7 +111,7 @@ Detail artwork always uses a **4:5 portrait frame** for flyers, real venue photo
 
 The event dialog uses a non-shrinking flex column to prevent controls overlapping tall artwork. `overflow-anchor: none` prevents browser scroll anchoring from undoing the top reset when reopening content during the close animation.
 
-shadcn Dialog contains Tabs for tickets/tables and guestlist. Quantity controls respect sale windows, stock, and per-order minimum/maximum. Demo checkout shows the full amount plus **standard 8% + $0.80 (automatic discounts and minimum-cost exceptions apply) per paid ticket/package**, rounded to cents; free orders have no fee. Stripe processing is paid by Nitewide and is not added to the customer total. `@nitewide/pricing` supplies the API, Customer and Business calculator with the same cent-based discount and minimum-fee rules. Demo checkout calls `/orders` with the development-only demo provider, recording inventory, credentials, attribution and notifications without collecting payment details. Guestlist requests remain pending until approved. My nights loads account purchases and individual signed admission QR images from the API; demo tickets are explicitly labeled for local testing.
+shadcn Dialog contains Tabs for tickets/tables and guestlist. Quantity controls respect sale windows, stock, and per-order minimum/maximum. Demo checkout shows the full amount plus **standard 8% + $0.80 (automatic discounts and minimum-cost exceptions apply) per paid ticket/package**, rounded to cents; free orders have no fee. Stripe processing is paid by Nitewide and is not added to the customer total. `@nitewide/pricing` supplies the API, Customer and Business calculator with the same cent-based discount and minimum-fee rules. Demo checkout calls `/orders` with the development-only demo provider, recording inventory, credentials, attribution and notifications without collecting payment details. Guestlist requests take a party size of 1–20 and remain pending until approved. Pending requests reserve no spots; capacity is enforced when the host approves one. The event panel reloads an existing request; pending entries can be edited or withdrawn, and Booked shows approved and declined entries. Booked loads signed admission QR images from the API, one large pass at a time. A pass previously loaded by the same account can be shown for up to 24 hours or one hour after event end, whichever comes first, when the network fails. It is labeled as unverified. Demo tickets are labeled for local testing. Attendees-only exact addresses appear in eligible Booked views; private addresses stay redacted. Apple Maps links require an exposed street address.
 
 ### Shared shadcn primitives
 
@@ -125,7 +129,7 @@ Use Button variants for primary/secondary/ghost actions, Badge for status labels
 
 ## State, limits and testing
 
-Saved events are browser-local (`nitewide.saved`). Purchases and tickets are server-backed and scoped to the authenticated customer; the old `nitewide.demo-bookings` list is no longer read or written. `nitewide.session` holds the existing API bearer session. Account requests use `no-store`; QR images are held in component memory. The API discovery response is currently capped at 100 events; server-side discovery search/pagination remains a production follow-up.
+Saved events are browser-local for guests (`nitewide.saved`) and server-backed for signed-in customers. Guest saves merge into the account after sign-in; Saved uses paginated event data and hides ended events. Booked, notifications, Connections people, and the Connections feed use server paging. Purchases and tickets are scoped to the authenticated customer; the old `nitewide.demo-bookings` list is no longer read or written. `nitewide.session` holds the existing API bearer session. Account requests use `no-store`; eligible QR pass images may be cached locally for the limited offline fallback described above and are cleared on sign-out or session expiration. Discovery uses cursor pagination.
 
 Automated tests cover combined filtering, generic text fields, venue-local dates, next-week boundaries, month/year/leap/DST transitions, availability, and pricing parity with the API. For browser regression checks:
 

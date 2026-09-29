@@ -19,8 +19,7 @@ export function useConnections(session, revision) {
     }
     refresh();
     window.addEventListener('focus', refresh);
-    const timer = setInterval(refresh, 60000);
-    return () => { controller.abort(); window.removeEventListener('focus', refresh); clearInterval(timer); };
+    return () => { controller.abort(); window.removeEventListener('focus', refresh); };
   }, [token, revision]);
   return token && snapshot?.token === token ? snapshot.data : null;
 }

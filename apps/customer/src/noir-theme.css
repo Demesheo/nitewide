@@ -341,3 +341,39 @@ button:focus-visible, a:focus-visible, input:focus-visible, [role="tab"]:focus-v
   .detail-art { background: #100d16; }
   .site-header, [data-slot="dialog-content"], .account-modal[data-slot="dialog-content"], .event-card, .purchase-card, .circle-grid article, .search-bar, .vip-copy, .expanded-filters, .admission-pass, .skeleton-card { background: #100d16; }
 }
+.return-visitor-discovery .hero { padding-top: 14px; padding-bottom: 8px; }
+.return-visitor-discovery .hero h1 { font-size: clamp(28px, 4vw, 48px); letter-spacing: -2px; }
+.return-visitor-discovery .hero-copy > .text-link { margin-top: 10px; }
+.discovery-shortcuts, .active-discovery-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.discovery-shortcuts button, .active-discovery-filters button { min-height: 44px; border: 1px solid var(--border-strong); border-radius: 999px; padding: 8px 14px; color: var(--text-primary); font-size: 13px; }
+.discovery-shortcuts button[aria-pressed="true"], .active-discovery-filters button { border-color: var(--highlight); background: #fe6ef017; }
+.active-discovery-filters button { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; overflow-wrap: anywhere; }
+.results-refresh { color: var(--text-secondary); margin: 10px 0; font-size: 13px; }
+.results-refresh button, .account-error button { color: var(--highlight); text-decoration: underline; }
+.guestlist-party-form { display: grid; gap: 10px; text-align: left; margin: 16px auto; max-width: 360px; }
+.guestlist-party-form label { font-size: 13px; font-weight: 650; }
+.guestlist-party-form select { width: 100%; min-height: 48px; padding: 10px 14px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--noir-panel); color: var(--text-primary); }
+.guestlist-panel .guestlist-entry-summary { font-size: 14px; color: var(--text-primary); font-weight: 650; margin-bottom: 8px; }
+.guestlist-panel > [data-slot="button"] { margin: 6px; }
+.event-maps-link, .ticket-maps-link { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; color: var(--highlight); font-size: 13px; }
+.pass-pager { display: flex; justify-content: center; align-items: center; gap: 16px; margin: 16px 0; }
+.pass-pager [data-slot="button"] { min-width: 44px; min-height: 44px; }
+.pass-code { width: min(320px, 100%); }
+.pass-offline-note { margin: 12px 0; padding: 12px; border: 1px solid var(--border-strong); border-radius: 10px; color: var(--text-primary); font-size: 13px; line-height: 1.5; }
+.pass-id summary, .booking-receipt summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+.pending-guestlist-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
+.pending-guestlist-actions p { flex: 1 1 100%; font-size: 13px; }
+.pending-guestlist-actions form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pending-guestlist-actions input { width: 76px; min-height: 44px; padding: 8px; background: var(--noir-panel); border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text-primary); }
+.connection-city { flex: 0 1 160px; }
+.connection-city input { width: 100%; min-height: 44px; background: var(--noir-glass); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 10px 14px; color: var(--text-primary); font-size: 16px; }
+.connection-filter-help { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+@media (max-width: 760px) {
+  .return-visitor-discovery .hero { padding-top: 8px; padding-bottom: 4px; }
+  .return-visitor-discovery .hero h1 { font-size: 25px; letter-spacing: -1px; }
+  .discovery-shortcuts, .active-discovery-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+  .discovery-shortcuts button, .active-discovery-filters button { flex: 0 0 auto; }
+  .connection-city { flex: 1 1 140px; }
+  .admission-pass { flex-direction: column; text-align: center; }
+  .pass-code { width: min(320px, 100%); }
+}

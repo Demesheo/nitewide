@@ -52,7 +52,7 @@ export function eventAddress(location) {
   if (!location) return 'Address not available yet';
   const region = [location.city, location.region].filter(Boolean).join(', ');
   const locality = [region, location.postalCode].filter(Boolean).join(' ');
-  if (location.privacy && location.privacy !== 'public') {
+  if (location.privacy === 'private' || (location.privacy === 'attendees_only' && location.addressVisible !== true)) {
     return [region, 'Exact address shared by the host'].filter(Boolean).join(' · ');
   }
   return [location.addressLine1, location.addressLine2, locality, location.countryCode]
@@ -60,7 +60,7 @@ export function eventAddress(location) {
 }
 
 export function eventAddressLines(location) {
-  if (!location || (location.privacy && location.privacy !== 'public')) {
+  if (!location || location.privacy === 'private' || (location.privacy === 'attendees_only' && location.addressVisible !== true)) {
     return [eventAddress(location)];
   }
   const street = [location.addressLine1, location.addressLine2].filter(Boolean).join(', ');

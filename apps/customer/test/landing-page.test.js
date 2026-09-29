@@ -4,27 +4,31 @@ import { readFile } from 'node:fs/promises';
 
 test('Discover stays focused on location, date and search without radar or extra filters', async () => {
   const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const results = await readFile(new URL('../src/components/discovery-results.jsx', import.meta.url), 'utf8');
+  const hook = await readFile(new URL('../src/lib/use-discovery.js', import.meta.url), 'utf8');
   const css = await readFile(new URL('../src/noir-theme.css', import.meta.url), 'utf8');
-  assert.doesNotMatch(app, /ON OUR RADAR|className="hero-art"|className="category-list"|className="expanded-filters"|setCategory|setPriceCap|setFiltersOpen/);
-  assert.doesNotMatch(app, /hero-tags|Tickets, tables, guestlists\. Your night starts here\.|VIP tables|GOOD COMPANY\. GREAT NIGHTS\./);
+  assert.doesNotMatch(`${app}\n${results}`, /ON OUR RADAR|className="hero-art"|className="category-list"|className="expanded-filters"|setCategory|setPriceCap|setFiltersOpen/);
+  assert.doesNotMatch(`${app}\n${results}`, /hero-tags|Tickets, tables, guestlists\. Your night starts here\.|VIP tables|GOOD COMPANY\. GREAT NIGHTS\./);
   for (const name of ['city', 'date', 'query']) assert.ok(app.includes(`name="${name}"`));
-  assert.match(app, /discoveryRange = discoveryDateRange\(date\)/);
-  assert.match(app, /startDate: start, endDate: end/);
-  assert.match(app, /api\(discoveryUrl\(upcomingWeekRange\(date\)\)/);
-  assert.doesNotMatch(app, /Explore all upcoming events|We couldn’t find any experiences matching|All upcoming(?: dates)? <|KEEP THE NIGHT GOING/);
-  assert.match(app, /Upcoming this week\./);
-  assert.doesNotMatch(app, /Your people\.|Your own space\.|className="vip-banner wrap"/);
-  assert.doesNotMatch(app, /✳|LESS PLANNING\. MORE DANCING\.|<small>\{num\}<\/small>/);
+  assert.match(app, /useDiscovery\(submitted\)/);
+  assert.match(hook, /discoveryDateRange\(submitted\.date\)/);
+  assert.match(hook, /startDate: start, endDate: end/);
+  assert.match(hook, /url\(upcomingWeekRange\(submitted\.date\)\)/);
+  assert.doesNotMatch(`${app}\n${results}`, /Explore all upcoming events|We couldn’t find any experiences matching|All upcoming(?: dates)? <|KEEP THE NIGHT GOING/);
+  assert.match(results, /Upcoming this week\./);
+  assert.doesNotMatch(`${app}\n${results}`, /Your people\.|Your own space\.|className="vip-banner wrap"/);
+  assert.doesNotMatch(`${app}\n${results}`, /✳|LESS PLANNING\. MORE DANCING\.|<small>\{num\}<\/small>/);
   for (const copy of ['FIND YOUR VIBE', 'Discover your scene', 'Book your spot', 'Make your entrance']) assert.ok(app.includes(copy));
   assert.match(css, /\.hero \{ grid-template-columns: minmax\(0, 1fr\)/);
 });
 
 test('customer landing swaps the hero and event heading while keeping a compact mobile layout', async () => {
   const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const results = await readFile(new URL('../src/components/discovery-results.jsx', import.meta.url), 'utf8');
   const css = await readFile(new URL('../src/noir-theme.css', import.meta.url), 'utf8');
   const controls = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
   assert.match(app, /<h1>Find your kind of night\.<\/h1>/);
-  assert.match(app, /The night is <span className="heading-accent">yours\.<\/span>/);
+  assert.match(results, /The night is <span className="heading-accent">yours\.<\/span>/);
   assert.doesNotMatch(app, /LocateFixed|Your plans start here\./);
   assert.match(app, /Log in <LogIn size=\{16\}/);
   assert.match(css, /--surface-page: #08080b/);

@@ -18,14 +18,27 @@ test('Discover connection options are event-scoped, deduplicated and exclude the
   assert.equal(referralCodeForEvent(referral, 'another'), undefined);
   assert.equal(referralCodeForEvent(null, 'chosen'), undefined);
 });
+test('event-scoped picker transforms paged envelopes and preserves later-page metadata', () => {
+  const first = { referrer: { id: 'visible', name: 'Alex' }, event: { id: 'chosen', title: 'Night' }, code: 'REF' };
+  const hidden = { referrer: { id: 'debug', name: 'Maya Portfolio Owner' }, event: { id: 'chosen', title: 'Night' }, code: 'OWNER' };
+  const page = customerPresentation('/customer/connections?eventId=chosen', { items: [first, hidden], total: 14, page: 1, pageSize: 9, hasMore: true });
+  assert.deepEqual(page.items, [first]);
+  assert.equal(page.total, 14);
+  assert.equal(page.hasMore, true);
+  const later = { items: [first], total: 14, page: 2, pageSize: 9, hasMore: false };
+  assert.deepEqual(customerPresentation('/customer/connections?eventId=chosen', later), later);
+});
 test('event picker supports direct choice, retains incoming links, and hides with no matches', async () => {
   const picker = await readFile(new URL('../src/components/event-connection-picker.jsx', import.meta.url), 'utf8');
   assert.match(picker, /customer\/connections\?eventId=/);
-  assert.match(picker, /if \(!entries.length\) return null/);
-  assert.match(picker, /value="direct">Book directly/);
+  assert.match(picker, /if \(!entries\.length\) return hasMore \?/);
+  assert.match(picker, /<SelectItem value="direct">Book directly<\/SelectItem>/);
   assert.match(picker, /Current link/);
   assert.match(picker, /controller.abort\(\)/);
   assert.match(picker, /Retry connections/);
+  assert.match(picker, /pageSize=30/);
+  assert.match(picker, /data\.items/);
+  assert.match(picker, /More connections/);
   assert.match(picker, /disabled=\{busy\}/);
 });
 test('changing connection revalidates attribution without resetting tickets or quantity; actions wait for validation', async () => {

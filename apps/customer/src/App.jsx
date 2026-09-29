@@ -28,10 +28,13 @@ import {
 } from "./components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
 import { EventCard } from "./components/event-card";
+import { DiscoveryResults } from './components/discovery-results';
 import { EventArtwork } from './components/event-artwork';
 import { eventAddressLines, eventDate, eventTime } from "./lib/presentation";
 import { LoadingIndicator } from './components/loading-indicator';
 import { upcomingSavedEvents } from './lib/saved-events';
+import { useSavedEvents } from './lib/use-saved-events';
+import { useDiscovery } from './lib/use-discovery';
 import { AuthDialog } from "./components/auth-dialog";
 import { PasswordResetDialog } from './components/password-reset-dialog';
 import { OnboardingSetup } from './components/onboarding-setup';
@@ -46,15 +49,17 @@ import { detectCurrentCity } from "./discovery-defaults";
 import { api } from "./lib/api";
 import { businessLink } from './lib/business-link';
 import { referralCodeForEvent, referralFromSearch } from './lib/referral';
-import { eventIdFromSearch, eventShareUrl } from './lib/event-share';
+import { eventShareUrl } from './lib/event-share';
 import { bookingFromSearch } from './lib/booking-link';
+import { parseCustomerRoute, updateCustomerRoute } from './lib/customer-route';
+import { mapsUrlForLocation } from './lib/maps-link';
+import { clearPassCache } from './lib/pass-cache';
 import { isPremiumHost } from './lib/premium-host';
 import {
   availableQuantity,
   offeringAvailabilityLabel,
   checkoutTotal,
   cityName,
-  discoveryDateRange,
   upcomingWeekRange,
   money,
   readStorage,
@@ -74,35 +79,29 @@ const Brand = () => (
 );
 function validSession() {
   const session = readStorage("nitewide.session", null);
-  return session?.user?.id &&
+  const valid = session?.user?.id &&
     session.accessToken &&
-    new Date(session.expiresAt) > new Date()
-    ? session
-    : null;
+    new Date(session.expiresAt) > new Date();
+  if (!valid && session?.user?.id) clearPassCache(session.user.id);
+  return valid ? session : null;
 }
 
 export default function App() {
-  const [events, setEvents] = useState([]),
-    [loadState, setLoadState] = useState("loading");
-  const [nextCursor, setNextCursor] = useState(null);
-  const [moreState, setMoreState] = useState('idle');
-  const [previewEvents, setPreviewEvents] = useState([]);
-  const [previewCursor, setPreviewCursor] = useState(null);
-  const [previewState, setPreviewState] = useState('idle');
-  const [savedEvents, setSavedEvents] = useState([]);
-  const [savedLoadState, setSavedLoadState] = useState('idle');
-  const [reloadRevision, setReloadRevision] = useState(0);
-  const [savedRevision, setSavedRevision] = useState(0);
-  const [city, setCity] = useState(""),
-    [date, setDate] = useState(""),
-    [query, setQuery] = useState("");
-  const [saved, setSaved] = useState(() => readStorage("nitewide.saved", [])),
-    [view, setView] = useState("discover");
+  const initialRoute = useRef(parseCustomerRoute(window.location.search)).current;
+  const [city, setCity] = useState(initialRoute.city),
+    [date, setDate] = useState(initialRoute.date),
+    [query, setQuery] = useState(initialRoute.query);
+  const [shortcut, setShortcut] = useState(initialRoute.shortcut);
+  const [submitted, setSubmitted] = useState({ city: initialRoute.city, date: initialRoute.date, query: initialRoute.query, shortcut: initialRoute.shortcut });
+  const { events, previewEvents, loadState, nextCursor, moreState, previewCursor, previewState, range: discoveryRange, reload: loadEvents, loadMore } = useDiscovery(submitted);
+  const [view, setView] = useState(initialRoute.tab);
+  const [returnVisitor] = useState(() => Boolean(readStorage('nitewide.returning', false)));
+  useEffect(() => { writeStorage('nitewide.returning', true); }, []);
   const [session, setSession] = useState(validSession),
     [authOpen, setAuthOpen] = useState(false),
     [walletOpen, setWalletOpen] = useState(false);
-  const [accountTab, setAccountTab] = useState('plans');
   const [notificationBooking, setNotificationBooking] = useState(null);
+  const [bookingRoute, setBookingRoute] = useState(initialRoute.booking);
   const [passwordResetToken, setPasswordResetToken] = useState(() => new URLSearchParams(window.location.search).get('resetPassword'));
   const [onboardingToken, setOnboardingToken] = useState(() => new URLSearchParams(window.location.search).get('onboarding'));
   useEffect(() => {
@@ -129,11 +128,8 @@ export default function App() {
     emailedBookingAttempted.current = true;
     loadNotificationBooking(target, api, session.accessToken)
       .then((ticket) => {
-        setSelected(null); setWalletOpen(false); setView('booked');
+        setSelected(null); setWalletOpen(false); setView('booked'); setBookingRoute(`${target.kind}:${target.id}`);
         setNotificationBooking({ ticket });
-        const url = new URL(window.location.href);
-        url.searchParams.delete('booking');
-        window.history.replaceState({}, '', url);
       })
       .catch(() => setNotice('This booking is unavailable. Check your Booked list or sign in with the account used to book.'));
   }, [session?.accessToken]);
@@ -141,8 +137,9 @@ export default function App() {
     const target = notificationTarget(item);
     if (target?.type === 'booking') {
       const ticket = await loadNotificationBooking(target, api, session.accessToken);
-      setSelected(null); setWalletOpen(false); setView('booked');
+      setSelected(null); setWalletOpen(false); setView('booked'); setBookingRoute(`${target.kind}:${target.id}`);
       setNotificationBooking({ ticket });
+      updateCustomerRoute({ tab: 'booked', eventId: null, booking: `${target.kind}:${target.id}` });
       window.scrollTo({ top: 0 });
       return true;
     } else if (target?.type === 'event') {
@@ -155,8 +152,8 @@ export default function App() {
   const hasConnections = Boolean(session && connectionsHistory?.eligible);
   const refreshConnections = () => setConnectionsRevision((value) => value + 1);
   useEffect(() => {
-    if (view === 'connections' && !hasConnections) setView('discover');
-  }, [view, hasConnections]);
+    if (view === 'connections' && (!session || (connectionsHistory && !hasConnections))) navigateView('discover');
+  }, [view, hasConnections, connectionsHistory, session]);
   const guestlistInviteToken = new URLSearchParams(window.location.search).get('guestlistInvite');
   const [referral, setReferral] = useState(null);
   const [demoBusy, setDemoBusy] = useState(false);
@@ -178,77 +175,77 @@ export default function App() {
   const [guestState, setGuestState] = useState(""),
     [guestBusy, setGuestBusy] = useState(false),
     [guestError, setGuestError] = useState("");
+  const [guestEntry, setGuestEntry] = useState(null);
+  const [guestPartySize, setGuestPartySize] = useState(1);
+  const [guestMaxPartySize, setGuestMaxPartySize] = useState(20);
+  const [guestRequestsOpen, setGuestRequestsOpen] = useState(true);
+  const [guestStatusLoading, setGuestStatusLoading] = useState(false);
   const [notice, setNotice] = useState("");
+  const savedCollection = useSavedEvents(session, view, [...events, ...previewEvents, ...(selected ? [selected] : [])], setNotice);
+  const { saved, save } = savedCollection;
   const locationEdited = useRef(false),
     pendingAuth = useRef(null);
   const eventDialogRef = useRef(null);
+  function rememberScroll() {
+    window.history.replaceState({ ...window.history.state, nitewideScrollY: window.scrollY }, '', window.location.href);
+  }
+  function navigateView(next, { replace = false } = {}) {
+    rememberScroll();
+    setView(next);
+    setSelected(null);
+    setBookingRoute(null);
+    updateCustomerRoute({ tab: next, eventId: null, booking: null }, { replace });
+    if (next === 'discover') requestAnimationFrame(() => document.getElementById('discover')?.scrollIntoView({ behavior: 'smooth' }));
+    else window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function applyDiscovery(next) {
+    rememberScroll();
+    setSubmitted(next);
+    setView('discover');
+    updateCustomerRoute({ tab: 'discover', city: next.city, date: next.date, query: next.query, shortcut: next.shortcut, eventId: null, booking: null });
+    requestAnimationFrame(() => document.getElementById('discover')?.scrollIntoView({ behavior: 'smooth' }));
+  }
+  useEffect(() => {
+    let active = true;
+    const onPopState = () => {
+      const route = parseCustomerRoute(window.location.search);
+      setView(route.tab);
+      setCity(route.city); setDate(route.date); setQuery(route.query); setShortcut(route.shortcut);
+      setSubmitted({ city: route.city, date: route.date, query: route.query, shortcut: route.shortcut });
+      setBookingRoute(route.booking);
+      requestAnimationFrame(() => window.scrollTo({ top: window.history.state?.nitewideScrollY || 0 }));
+      if (!route.eventId) { setSelected(null); return; }
+      api(`/events/${encodeURIComponent(route.eventId)}`)
+        .then((event) => { if (active && parseCustomerRoute(window.location.search).eventId === event.id) openEvent(event, { fromRoute: true }); })
+        .catch(() => { if (active) setNotice('This event is no longer available.'); });
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => { active = false; window.removeEventListener('popstate', onPopState); };
+  }, []);
   useLayoutEffect(() => {
     if (selected) focusEventDialogStart(eventDialogRef.current);
   }, [selected?.id]);
   const [locationState, setLocationState] = useState("finding");
-  const discoveryTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  const discoveryRange = discoveryDateRange(date);
-  const discoveryKey = JSON.stringify([city, date, query, discoveryTimezone]);
-  const currentDiscoveryKey = useRef(discoveryKey);
-  currentDiscoveryKey.current = discoveryKey;
-  const moreRequest = useRef(null);
-  function discoveryUrl({ start, end }, cursor = null) {
-    const params = new URLSearchParams({ pageSize: '9', city, startDate: start, endDate: end, query, timezone: discoveryTimezone });
-    if (cursor) params.set('cursor', cursor);
-    return `/events?${params}`;
-  }
-  const prepareEvents = (items) => items.map((event) => ({
-    ...event,
-    offerings: [...(event.offerings || [])].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)),
-  }));
-  function loadEvents() { setReloadRevision((value) => value + 1); }
   useEffect(() => {
+    if (!selected?.id || !session?.accessToken) { setGuestEntry(null); setGuestState(''); setGuestStatusLoading(false); return; }
     const controller = new AbortController();
-    moreRequest.current?.abort();
-    setEvents([]); setNextCursor(null); setMoreState('idle'); setLoadState('loading');
-    api(discoveryUrl(discoveryRange), { signal: controller.signal })
-      .then((page) => { if (!controller.signal.aborted) { setEvents(prepareEvents(page.items)); setNextCursor(page.nextCursor); setLoadState('ready'); } })
-      .catch(() => { if (!controller.signal.aborted) setLoadState('error'); });
+    setGuestStatusLoading(true);
+    api(`/customer/events/${encodeURIComponent(selected.id)}/guestlist${referralCodeForEvent(referral, selected.id) ? `?affiliateCode=${encodeURIComponent(referralCodeForEvent(referral, selected.id))}` : ''}`, { token: session.accessToken, signal: controller.signal })
+      .then(({ entry, maxPartySize, requestsOpen }) => {
+        if (controller.signal.aborted) return;
+        setGuestEntry(entry);
+        setGuestState(entry?.status || '');
+        setGuestPartySize(entry?.partySize || 1);
+        setGuestMaxPartySize(Math.max(1, Math.min(20, maxPartySize || 1)));
+        setGuestRequestsOpen(Boolean(requestsOpen));
+      })
+      .catch((error) => { if (!controller.signal.aborted) setGuestError(`Couldn’t check your guestlist status: ${error.message}`); })
+      .finally(() => { if (!controller.signal.aborted) setGuestStatusLoading(false); });
     return () => controller.abort();
-  }, [discoveryKey, reloadRevision]);
-  async function loadMore(preview = false) {
-    const cursor = preview ? previewCursor : nextCursor;
-    if (!cursor || (preview ? previewState === 'loading-more' : moreState === 'loading')) return;
-    const key = currentDiscoveryKey.current;
-    const controller = new AbortController();
-    if (!preview) moreRequest.current = controller;
-    if (preview) setPreviewState('loading-more'); else setMoreState('loading');
-    try {
-      const page = await api(discoveryUrl(preview ? upcomingWeekRange(date) : discoveryRange, cursor), { signal: controller.signal });
-      if (controller.signal.aborted || key !== currentDiscoveryKey.current) return;
-      if (preview) { setPreviewEvents((previous) => [...previous, ...prepareEvents(page.items)]); setPreviewCursor(page.nextCursor); setPreviewState('ready'); }
-      else { setEvents((previous) => [...previous, ...prepareEvents(page.items)]); setNextCursor(page.nextCursor); setMoreState('idle'); }
-    } catch {
-      if (controller.signal.aborted || key !== currentDiscoveryKey.current) return;
-      if (preview) setPreviewState('error-more'); else setMoreState('error');
-    }
-  }
-  useEffect(() => {
-    if (!date || loadState !== 'ready' || events.length) { setPreviewEvents([]); setPreviewCursor(null); setPreviewState('idle'); return; }
-    const controller = new AbortController();
-    setPreviewEvents([]); setPreviewCursor(null); setPreviewState('loading');
-    api(discoveryUrl(upcomingWeekRange(date)), { signal: controller.signal })
-      .then((page) => { if (!controller.signal.aborted) { setPreviewEvents(prepareEvents(page.items)); setPreviewCursor(page.nextCursor); setPreviewState('ready'); } })
-      .catch(() => { if (!controller.signal.aborted) setPreviewState('error'); });
-    return () => controller.abort();
-  }, [discoveryKey, loadState, events.length === 0]);
-  useEffect(() => {
-    if (view !== 'saved') return;
-    const controller = new AbortController();
-    setSavedLoadState('loading');
-    Promise.all(saved.map((id) => api(`/events/${encodeURIComponent(id)}`, { signal: controller.signal }).catch(() => null)))
-      .then((items) => { if (!controller.signal.aborted) { setSavedEvents(prepareEvents(items.filter(Boolean))); setSavedLoadState('ready'); } })
-      .catch(() => { if (!controller.signal.aborted) setSavedLoadState('error'); });
-    return () => controller.abort();
-  }, [view, saved.join(','), savedRevision]);
+  }, [selected?.id, session?.accessToken, referral?.code]);
   useEffect(() => {
     const incoming = referralFromSearch(window.location.search);
-    const eventId = eventIdFromSearch(window.location.search);
+    const eventId = initialRoute.eventId;
     if (!eventId) return;
     let active = true;
     if (incoming) {
@@ -260,11 +257,11 @@ export default function App() {
       ]).then(([event, visit]) => {
         if (!active) return;
         setReferral({ ...incoming, referrerName: visit.referrerName });
-        openEvent(event);
+        openEvent(event, { fromRoute: true });
       }).catch(() => { if (active) setNotice('This referral link is no longer active. You can still browse events.'); });
     } else {
       api(`/events/${encodeURIComponent(eventId)}`)
-        .then((event) => { if (active) openEvent(event); })
+        .then((event) => { if (active) openEvent(event, { fromRoute: true }); })
         .catch(() => { if (active) setNotice('This event is no longer available. You can still browse events.'); });
     }
     return () => { active = false; };
@@ -273,7 +270,12 @@ export default function App() {
     let active = true;
     detectCurrentCity().then((value) => {
       if (active) {
-        if (!locationEdited.current) setCity(value || "Orlando, FL");
+        if (!locationEdited.current && !initialRoute.city) {
+          const detected = value || 'Orlando, FL';
+          setCity(detected);
+          setSubmitted((current) => ({ ...current, city: detected }));
+          updateCustomerRoute({ city: detected }, { replace: true });
+        }
         setLocationState(value ? "detected" : "fallback");
       }
     });
@@ -291,6 +293,7 @@ export default function App() {
       setSession((current) => { if (!current || current.user.id !== data.user.id) return current; const updated = { ...current, user: data.user }; writeStorage('nitewide.session', updated); return updated; });
     }).catch((error) => {
       if (error.status === 401) {
+        clearPassCache(session.user.id);
         setSession(null);
         writeStorage("nitewide.session", null);
         setNotice("Your session expired. Please sign in again.");
@@ -298,6 +301,7 @@ export default function App() {
     });
     const timer = setTimeout(
       () => {
+        clearPassCache(session.user.id);
         setSession(null);
         writeStorage("nitewide.session", null);
       },
@@ -315,20 +319,47 @@ export default function App() {
   }, [notice]);
 
   const results = events;
-  const savedUpcoming = upcomingSavedEvents(savedEvents, saved);
-  const weekRange = date ? upcomingWeekRange(date) : null;
+  const savedUpcoming = upcomingSavedEvents(savedCollection.items, savedCollection.items.map((event) => event.id));
+  const weekRange = submitted.date ? upcomingWeekRange(submitted.date) : null;
   const weeklyEvents = previewEvents;
   const offering = selected?.offerings?.find((o) => o.id === offeringId);
   const totals = checkoutTotal(offering?.priceCents || 0, quantity, offering?.currency || 'USD');
-  function openEvent(event) {
+  function openEvent(event, { fromRoute = false } = {}) {
     setSelected(event);
+    if (!fromRoute) { rememberScroll(); updateCustomerRoute({ eventId: event.id }, { eventEntry: true }); }
     setShareFeedback('');
     const first = event.offerings?.find((o) => availableQuantity(o));
     setOfferingId(first?.id || "");
     setQuantity(first?.minPerOrder || 1);
     setStage("details");
     setGuestState("");
+    setGuestEntry(null);
+    setGuestPartySize(1);
     setGuestError("");
+  }
+  async function changeGuestPartySize(event) {
+    event.preventDefault();
+    if (!guestEntry?.id || guestState !== 'pending') return;
+    setGuestBusy(true); setGuestError('');
+    try {
+      const result = await api(`/customer/guestlists/${guestEntry.id}`, { token: session.accessToken, method: 'PATCH', body: { partySize: Number(guestPartySize) } });
+      setGuestEntry(result.entry);
+      setNotice('Guestlist party size updated.');
+    } catch (error) { setGuestError(error.message); }
+    finally { setGuestBusy(false); }
+  }
+  async function withdrawGuestRequest() {
+    if (!guestEntry?.id || guestState !== 'pending' || !window.confirm('Withdraw this pending guestlist request?')) return;
+    setGuestBusy(true); setGuestError('');
+    try {
+      await api(`/customer/guestlists/${guestEntry.id}`, { token: session.accessToken, method: 'DELETE' });
+      setGuestEntry(null); setGuestState(''); setGuestPartySize(1); setNotice('Guestlist request withdrawn.'); refreshConnections();
+    } catch (error) { setGuestError(error.message); }
+    finally { setGuestBusy(false); }
+  }
+  function closeEvent() {
+    if (window.history.state?.nitewideEventEntry) window.history.back();
+    else { setSelected(null); updateCustomerRoute({ eventId: null }, { replace: true }); }
   }
   async function shareSelectedEvent() {
     if (!selected) return;
@@ -380,14 +411,8 @@ export default function App() {
     const item = selected.offerings.find((o) => o.id === id);
     setQuantity(item.minPerOrder || 1);
   }
-  function save(event) {
-    const next = saved.includes(event.id)
-      ? saved.filter((id) => id !== event.id)
-      : [...saved, event.id];
-    setSaved(next);
-    writeStorage("nitewide.saved", next);
-  }
   async function authSuccess(data) {
+    if (session?.user?.id && session.user.id !== data.user.id) clearPassCache(session.user.id);
     setSession(data);
     writeStorage("nitewide.session", data);
     setNotice(data.verificationEmailQueued ? 'Account created. Check your email for a verification link.' : `You're in, ${data.user.displayName.split(" ")[0]}.`);
@@ -396,20 +421,20 @@ export default function App() {
       try {
         const result = data.guestlistInvite || await api(`/guestlist-invitations/${encodeURIComponent(guestlistInviteToken)}/claim`, { token: data.accessToken, method: 'POST' });
         setNotice(result.status === 'confirmed' ? 'You are confirmed on the guestlist.' : result.status === 'full' ? 'The guestlist is full. Your invitation link can be tried again if space opens.' : 'Your account is ready, but this guestlist invitation could not be claimed.');
-        if (result.status === 'confirmed') { refreshConnections(); const url = new URL(window.location.href); url.searchParams.delete('guestlistInvite'); window.history.replaceState({}, '', url); }
+        if (result.status === 'confirmed') { refreshConnections(); const url = new URL(window.location.href); url.searchParams.delete('guestlistInvite'); window.history.replaceState({}, '', url); if (result.entryId) await openGuestlistEntry(result.entryId, data.accessToken); }
       } catch (error) { setNotice(`Signed in, but the guestlist invitation could not be claimed: ${error.message}`); }
     }
     const next = pendingAuth.current;
     pendingAuth.current = null;
     if (next === "checkout") setStage("checkout");
-    if (next === "wallet") setWalletOpen(true);
+    if (next === "wallet") navigateView('booked');
   }
   useEffect(() => {
     if (!guestlistInviteToken || inviteClaimAttempted.current) return;
     if (!session) { setAuthOpen(true); return; }
     inviteClaimAttempted.current = true;
     api(`/guestlist-invitations/${encodeURIComponent(guestlistInviteToken)}/claim`, { token: session.accessToken, method: 'POST' })
-      .then((result) => { setNotice(result.status === 'confirmed' ? 'You are confirmed on the guestlist.' : 'Your invitation is not confirmed; the guestlist may be full or closed.'); if (result.status === 'confirmed') { refreshConnections(); const url = new URL(window.location.href); url.searchParams.delete('guestlistInvite'); window.history.replaceState({}, '', url); } })
+      .then(async (result) => { setNotice(result.status === 'confirmed' ? 'You are confirmed on the guestlist.' : 'Your invitation is not confirmed; the guestlist may be full or closed.'); if (result.status === 'confirmed') { refreshConnections(); const url = new URL(window.location.href); url.searchParams.delete('guestlistInvite'); window.history.replaceState({}, '', url); if (result.entryId) await openGuestlistEntry(result.entryId, session.accessToken); } })
       .catch((error) => setNotice(`Guestlist invitation could not be claimed: ${error.message}`));
   }, [guestlistInviteToken, session]);
   function checkout() {
@@ -465,15 +490,18 @@ export default function App() {
     setGuestBusy(true);
     setGuestError("");
     try {
-      await api(`/events/${selected.id}/guestlist`, {
+      const result = await api(`/events/${selected.id}/guestlist`, {
         token: session.accessToken,
-        body: { partySize: 1, affiliateCode: referralCodeForEvent(referral, selected.id) },
+        body: { partySize: guestPartySize, affiliateCode: referralCodeForEvent(referral, selected.id) },
       });
       setGuestState("pending");
+      setGuestEntry(result?.entry || result);
       refreshConnections();
     } catch (error) {
       if (error.status === 401) {
+        clearPassCache(session.user.id);
         setSession(null);
+        writeStorage('nitewide.session', null);
         setAuthOpen(true);
       }
       setGuestError(
@@ -485,12 +513,21 @@ export default function App() {
       setGuestBusy(false);
     }
   }
+  async function openGuestlistEntry(entryId, token = session?.accessToken) {
+    if (!entryId || !token) return;
+    try {
+      const ticket = await api(`/customer/guestlists/${encodeURIComponent(entryId)}/pass`, { token });
+      setSelected(null); setWalletOpen(false); setView('booked'); setBookingRoute(`guestlist:${entryId}`); setNotificationBooking({ ticket });
+      updateCustomerRoute({ tab: 'booked', eventId: null, booking: `guestlist:${entryId}` });
+      window.scrollTo({ top: 0 });
+    } catch (error) { setNotice(`Your guestlist entry is in Booked, but it couldn’t open just now: ${error.message}`); }
+  }
   if (onboardingToken) return <>
     <OnboardingSetup
       token={onboardingToken}
       session={session}
       onSignIn={() => setAuthOpen(true)}
-      onSwitchAccount={(signIn) => { writeStorage('nitewide.session', null); setSession(null); setAuthOpen(signIn); }}
+      onSwitchAccount={(signIn) => { if (session?.user?.id) clearPassCache(session.user.id); writeStorage('nitewide.session', null); setSession(null); setAuthOpen(signIn); }}
       onContinue={() => { setOnboardingToken(null); if (!session) setAuthOpen(true); }}
     />
     <AuthDialog open={authOpen} onOpenChange={setAuthOpen} onSuccess={authSuccess} />
@@ -509,33 +546,29 @@ export default function App() {
               className={view === "discover" ? "active" : ""}
               aria-current={view === 'discover' ? 'page' : undefined}
               onClick={() => {
-                setView("discover");
-                document
-                  .getElementById("discover")
-                  .scrollIntoView({ behavior: "smooth" });
+                navigateView('discover');
               }}
             >
               Discover
             </button>
-            <button className={view === 'booked' ? 'active' : ''} aria-current={view === 'booked' ? 'page' : undefined} onClick={() => { setView('booked'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Booked</button>
+            <button className={view === 'booked' ? 'active' : ''} aria-current={view === 'booked' ? 'page' : undefined} onClick={() => navigateView('booked')}>Booked</button>
             <button
               className={view === 'saved' ? 'active' : ''}
               aria-current={view === 'saved' ? 'page' : undefined}
               onClick={() => {
-                setView("saved");
-                window.scrollTo({ top: 0, behavior: 'smooth' });
+                navigateView('saved');
               }}
             >
               Saved
             </button>
-            {hasConnections && <button className={view === 'connections' ? 'active' : ''} aria-current={view === 'connections' ? 'page' : undefined} onClick={() => { setView('connections'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Connections</button>}
+            {hasConnections && <button className={view === 'connections' ? 'active' : ''} aria-current={view === 'connections' ? 'page' : undefined} onClick={() => navigateView('connections')}>Connections</button>}
           </nav>
           <div className="header-actions">
             {!session && <a className="business-nav-link" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a>}
             {session ? (
               <>
-                <Notifications session={session} onNotification={openNotification} />
-                <button className="profile-avatar profile-trigger" aria-label={`Open ${session.user.displayName}'s profile`} title="Your profile and plans" onClick={() => { setAccountTab('profile'); setWalletOpen(true); }}>{initials(session.user.displayName)}</button>
+                <Notifications key={session.user.id} session={session} onNotification={openNotification} />
+                <button className="profile-avatar profile-trigger" aria-label={`Open ${session.user.displayName}'s profile`} title="Your profile" onClick={() => setWalletOpen(true)}>{initials(session.user.displayName)}</button>
               </>
             ) : (
               <Button
@@ -548,16 +581,19 @@ export default function App() {
           </div>
         </div>
       </header>
-      {view === 'connections' && hasConnections && <ConnectionsPage key={session.user.id} session={session} history={connectionsHistory} saved={saved} onSave={save} onReferral={openConnection} onRefresh={refreshConnections} />}
+      {view === 'connections' && hasConnections && <ConnectionsPage key={session.user.id} session={session} history={connectionsHistory} saved={saved} onSave={save} onReferral={openConnection} onRefresh={refreshConnections} onVisible={savedCollection.checkVisible} />}
       {view === 'booked' && <main className="booked-page wrap" id="booked">
         <div className="booked-page-heading"><p className="eyebrow">YOUR NEXT NIGHT STARTS HERE</p><h1>Booked.</h1><p>Your tickets and guest list entries, all in one place.</p></div>
-        {session ? <AccountDialog embedded open session={session} notificationBooking={notificationBooking} onNotificationOpened={() => setNotificationBooking(null)} onOpenChange={() => setView('discover')} /> : <div className="account-empty"><Ticket /><h2>Your nights are waiting.</h2><p>Sign in to see your upcoming bookings and guest list entries.</p><Button className="dark-glass-action" onClick={() => setAuthOpen(true)}>Sign in</Button></div>}
+        {session ? <AccountDialog key={session.user.id} embedded open session={session} notificationBooking={notificationBooking} bookingRoute={bookingRoute} onBookingRouteChange={(value) => { setBookingRoute(value); updateCustomerRoute({ tab: 'booked', booking: value }, { replace: !value }); }} onNotificationOpened={() => setNotificationBooking(null)} onOpenChange={() => navigateView('discover')} /> : <div className="account-empty"><Ticket /><h2>Your nights are waiting.</h2><p>Sign in to see your upcoming bookings and guest list entries.</p><Button className="dark-glass-action" onClick={() => setAuthOpen(true)}>Sign in</Button></div>}
       </main>}
       {view === 'saved' && <main className="booked-page wrap" id="saved">
         <div className="booked-page-heading"><p className="eyebrow">KEEP THE GOOD NIGHTS CLOSE</p><h1>Saved.</h1><p>Your shortlist of upcoming events.</p></div>
-        {savedLoadState === 'loading' ? <LoadingIndicator>Finding your saved nights…</LoadingIndicator> : savedLoadState === 'error' ? <div className="account-empty"><p>We couldn’t load your saved events.</p><Button onClick={() => setSavedRevision((value) => value + 1)}>Try again</Button></div> : savedUpcoming.length ? <div className="event-grid">{savedUpcoming.map((event) => <EventCard key={event.id} event={event} saved onSave={() => save(event)} onOpen={() => openEvent(event)} />)}</div> : <div className="account-empty"><h2>No upcoming saved events yet.</h2><p>Tap the heart on an event to keep it here. Past events stay out of your shortlist.</p><Button className="dark-glass-action" onClick={() => setView('discover')}>Discover events</Button></div>}
+        {savedCollection.mergeError && <p className="account-error" role="alert">Your guest saves have not synced yet. <button type="button" onClick={savedCollection.retry}>Retry sync</button></p>}
+        {savedCollection.loadState === 'error' && Boolean(savedCollection.items.length) && <p className="account-error" role="alert">Couldn’t refresh Saved. Showing previously loaded nights. <button type="button" onClick={savedCollection.retry}>Try again</button></p>}
+        {savedCollection.loadState === 'loading' && !savedCollection.items.length ? <LoadingIndicator>Finding your saved nights…</LoadingIndicator> : savedCollection.loadState === 'error' && !savedCollection.items.length ? <div className="account-empty"><p>We couldn’t load your saved events.</p><Button onClick={savedCollection.retry}>Try again</Button></div> : savedUpcoming.length ? <div className="event-grid">{savedUpcoming.map((event) => <EventCard key={event.id} event={event} saved onSave={() => save(event)} onOpen={() => openEvent(event)} />)}</div> : <div className="account-empty"><h2>{savedCollection.hasMore ? 'No active nights on this page.' : 'No upcoming saved events yet.'}</h2><p>{savedCollection.hasMore ? 'More saved nights may appear on the next page.' : 'Tap the heart on an event to keep it here. Past events stay out of your shortlist.'}</p><Button className="dark-glass-action" onClick={() => navigateView('discover')}>Discover events</Button></div>}
+        {savedCollection.hasMore && savedCollection.loadState !== 'error' && <Button className="load-more" variant="outline" disabled={savedCollection.loadState === 'loading'} onClick={savedCollection.loadMore}>More saved nights</Button>}
       </main>}
-      <main hidden={view !== 'discover'}>
+      <main hidden={view !== 'discover'} className={returnVisitor ? 'return-visitor-discovery' : ''}>
         <section className="hero wrap">
           <div className="hero-copy">
             <h1>Find your kind of night.</h1>
@@ -572,13 +608,9 @@ export default function App() {
             onSubmit={(event) => {
               event.preventDefault();
               const form = new FormData(event.currentTarget);
-              setDate(form.get("date") || "");
-              setCity(form.get("city") || "");
-              setQuery(form.get("query") || "");
-              setView("discover");
-              document
-                .getElementById("discover")
-                .scrollIntoView({ behavior: "smooth" });
+              const next = { date: String(form.get('date') || ''), city: String(form.get('city') || ''), query: String(form.get('query') || ''), shortcut: '' };
+              setShortcut('');
+              applyDiscovery(next);
             }}
           >
             <label className="search-field">
@@ -626,8 +658,8 @@ export default function App() {
                   name="date"
                   type="date"
                   value={date}
-                  onInput={(event) => setDate(event.currentTarget.value)}
-                  onChange={(event) => setDate(event.target.value)}
+                  onInput={(event) => { setDate(event.currentTarget.value); setShortcut(''); }}
+                  onChange={(event) => { setDate(event.target.value); setShortcut(''); }}
                   onBlur={(event) => setDate(event.currentTarget.value)}
                 />
               </span>
@@ -635,7 +667,7 @@ export default function App() {
                 <button
                   type="button"
                   aria-label="Reset to next 7 days"
-                  onClick={() => setDate("")}
+                  onClick={() => { setDate(''); setShortcut(''); }}
                 >
                   <X size={14} />
                 </button>
@@ -659,136 +691,21 @@ export default function App() {
               <ArrowRight size={19} />
             </Button>
           </form>
+          <div className="discovery-shortcuts" aria-label="Quick dates">
+            {[['tonight', 'Tonight'], ['tomorrow', 'Tomorrow'], ['weekend', 'This weekend']].map(([value, label]) => <button key={value} type="button" aria-pressed={submitted.shortcut === value} onClick={() => { setShortcut(value); setDate(''); applyDiscovery({ city, date: '', query, shortcut: value }); }}>{label}</button>)}
+          </div>
+          {(submitted.city || submitted.date || submitted.query || submitted.shortcut) && <div className="active-discovery-filters" aria-label="Active filters">
+            {submitted.city && <button onClick={() => { setCity(''); applyDiscovery({ ...submitted, city: '' }); }}>City: {submitted.city} <X size={13} /></button>}
+            {submitted.date && <button onClick={() => { setDate(''); applyDiscovery({ ...submitted, date: '' }); }}>Date: {calendarLabel(submitted.date)} <X size={13} /></button>}
+            {submitted.shortcut && <button onClick={() => { setShortcut(''); applyDiscovery({ ...submitted, shortcut: '' }); }}>{submitted.shortcut === 'weekend' ? 'This weekend' : submitted.shortcut === 'tonight' ? 'Tonight' : 'Tomorrow'} <X size={13} /></button>}
+            {submitted.query && <button onClick={() => { setQuery(''); applyDiscovery({ ...submitted, query: '' }); }}>Search: {submitted.query} <X size={13} /></button>}
+          </div>}
           <div className="search-caption">
             <span>Book on the web. Be there in real life.</span>
           </div>
         </div>
-        <section id="discover" className="discovery wrap">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">GO WHERE THE NIGHT TAKES YOU</p>
-              <h2>
-                {view === "saved"
-                  ? "Your shortlist."
-                  : <>The night is <span className="heading-accent">yours.</span></>}
-              </h2>
-            </div>
-          </div>
-          <div aria-live="polite" className="results-summary">
-            {loadState === "ready" && (
-              <>
-                {results.length}{nextCursor ? '+' : ''}{" "}
-                {results.length === 1 ? "experience" : "experiences"}
-                {city ? ` in ${city.split(",")[0]}` : ""} ·{" "}
-                {date
-                  ? new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                    })
-                  : `Next 7 days · ${calendarLabel(discoveryRange.start)} – ${calendarLabel(discoveryRange.end)}`}
-              </>
-            )}
-          </div>
-          {loadState === "loading" ? (
-            <div className="event-grid" aria-label="Loading events" role="status" aria-busy="true">
-              {[1, 2, 3].map((i) => (
-                <div className="skeleton-card" key={i}>
-                  <div />
-                  <span />
-                  <span />
-                </div>
-              ))}
-            </div>
-          ) : loadState === "error" ? (
-            <div className="empty-state">
-              <Compass />
-              <h3>The night’s still out there.</h3>
-              <p>
-                We couldn’t load events. Check your connection and try again.
-              </p>
-              <Button onClick={loadEvents}>Try again</Button>
-            </div>
-          ) : results.length ? (
-            <>
-              <div className="event-grid">
-                {results.map((event) => (
-                  <EventCard
-                    key={event.id}
-                    event={event}
-                    saved={saved.includes(event.id)}
-                    onSave={() => save(event)}
-                    onOpen={() => openEvent(event)}
-                  />
-                ))}
-              </div>
-              {nextCursor && (
-                <Button
-                  variant="outline"
-                  className="load-more"
-                  disabled={moreState === 'loading'}
-                  onClick={() => loadMore()}
-                >
-                  {moreState === 'loading' ? 'Loading more nights…' : moreState === 'error' ? 'Retry more nights' : 'More nights, more possibilities'} <Plus size={17} />
-                </Button>
-              )}
-            </>
-          ) : (
-            <div className="empty-state">
-              <CalendarDays />
-              <h3>{date ? 'No experiences on this date.' : 'No experiences in the next 7 days.'}</h3>
-              <p>{date ? 'Upcoming events for the following week are shown below.' : 'Try another date, city, or search.'}</p>
-            </div>
-          )}
-        </section>
-        {loadState === "ready" &&
-          date &&
-          !results.length &&
-          view === "discover" && (
-            <section className="upcoming-preview wrap">
-              <div className="section-heading">
-                <h2>Upcoming this week.</h2>
-              </div>
-              <p className="results-summary">
-                {calendarLabel(weekRange.start)} –{" "}
-                {calendarLabel(weekRange.end)} · {weeklyEvents.length}{" "}
-                {weeklyEvents.length === 1 ? "experience" : "experiences"}
-                {city ? ` in ${city.split(",")[0]}` : " across all cities"}
-              </p>
-              <div className="event-grid">
-                {weeklyEvents.map((event) => (
-                  <EventCard
-                    key={event.id}
-                    event={event}
-                    saved={saved.includes(event.id)}
-                    onSave={() => save(event)}
-                    onOpen={() => openEvent(event)}
-                  />
-                ))}
-              </div>
-              {previewState === 'loading' && <LoadingIndicator>Finding the following week…</LoadingIndicator>}
-              {previewState === 'error' && <div className="empty-state"><p>We couldn’t load the following week.</p><Button onClick={loadEvents}>Try again</Button></div>}
-              {previewState === 'ready' && !weeklyEvents.length && (
-                <div className="empty-state">
-                  <CalendarDays />
-                  <h3>No matches in this seven-day window.</h3>
-                  <p>
-                    Try another city or search to find more events.
-                  </p>
-                </div>
-              )}
-              {previewCursor && (
-                <Button
-                  variant="outline"
-                  className="load-more"
-                  disabled={previewState === 'loading-more'}
-                  onClick={() => loadMore(true)}
-                >
-                  {previewState === 'loading-more' ? 'Loading more nights…' : previewState === 'error-more' ? 'Retry more from this week' : 'Show more from this week'} <Plus size={17} />
-                </Button>
-              )}
-            </section>
-          )}
-        <section className="how-section wrap">
+        <DiscoveryResults submitted={submitted} results={results} loadState={loadState} nextCursor={nextCursor} moreState={moreState} loadEvents={loadEvents} loadMore={loadMore} saved={saved} save={save} openEvent={openEvent} discoveryRange={discoveryRange} weekRange={weekRange} weeklyEvents={weeklyEvents} previewState={previewState} previewCursor={previewCursor} visible={view === 'discover'} />
+        {!returnVisitor && <section className="how-section wrap">
           <div>
             <p className="eyebrow">FIND YOUR VIBE</p>
             <h2>
@@ -826,7 +743,7 @@ export default function App() {
               </div>
             ))}
           </div>
-        </section>
+        </section>}
       </main>
       <footer className="site-footer wrap">
         <div className="footer-identity">
@@ -843,7 +760,7 @@ export default function App() {
       <Dialog
         open={!!selected}
         onOpenChange={(open) => {
-          if (!open && !guestBusy && !referralBusy) setSelected(null);
+          if (!open && !guestBusy && !referralBusy) closeEvent();
         }}
       >
         <DialogContent
@@ -905,6 +822,7 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              {mapsUrlForLocation(selected.location) && <a className="event-maps-link" href={mapsUrlForLocation(selected.location)} target="_blank" rel="noopener noreferrer"><MapPin size={15} /> Open in Maps</a>}
               {shareFeedback && <p className="event-share-feedback" role="status">{shareFeedback}</p>}
               {session && <EventConnectionPicker key={`${session.user.id}:${selected.id}`} session={session} eventId={selected.id} referral={referral} busy={referralBusy} onSelect={chooseEventConnection} />}
               {referralError && <p className="error-message" role="alert">{referralError}</p>}
@@ -987,42 +905,24 @@ export default function App() {
                 <TabsContent value="guestlist">
                   <div className="guestlist-panel">
                     <Users />
-                    <h3>
-                      {guestState === "pending"
-                        ? "You’re on their radar."
-                        : "Get on the guestlist."}
-                    </h3>
-                    <p>
-                      {guestState === "pending"
-                        ? "Your request has been sent to the host. Entry is only confirmed after approval."
-                        : "Request a spot for yourself. The venue or promoter will review it before confirming your entry."}
-                    </p>
+                    <h3>{guestState === 'pending' ? 'Awaiting host approval.' : guestState === 'confirmed' || guestState === 'checked_in' ? 'You’re on the guestlist.' : guestState === 'rejected' ? 'Request declined.' : 'Get on the guestlist.'}</h3>
+                    <p>{guestState === 'pending' ? 'Your request is pending. Entry is confirmed only after the host approves it.' : guestState === 'confirmed' ? 'Your entry is approved. Open your pass in Booked.' : guestState === 'checked_in' ? 'Your party has checked in.' : guestState === 'rejected' ? 'The host declined this request. Your Booked history keeps the result.' : 'Choose 1–20 guests, including yourself. The host reviews your request before entry is confirmed.'}</p>
                     {guestError && (
                       <p className="error-message" role="alert">
                         {guestError}
                       </p>
                     )}
                     {referralCodeForEvent(referral, selected.id) && <p className="connection-context">Booking with <strong>{referral.referrerName}</strong></p>}
-                    <Button
-                      disabled={
-                        guestBusy || referralBusy ||
-                        guestState === "pending" ||
-                        !selected.guestlistCapacity
-                      }
-                      onClick={requestGuestlist}
-                    >
-                      {guestBusy ? (
-                        <LoadingIndicator>Requesting approval…</LoadingIndicator>
-                      ) : guestState === "pending" ? (
-                        "Awaiting approval"
-                      ) : !selected.guestlistCapacity ? (
-                        "Guestlist not available"
-                      ) : session ? (
-                        "Request guestlist approval"
-                      ) : (
-                        "Sign in to request"
-                      )}
-                    </Button>
+                    {guestStatusLoading && <LoadingIndicator>Checking your request…</LoadingIndicator>}
+                    {guestEntry && <p className="guestlist-entry-summary">{guestEntry.partySize} {guestEntry.partySize === 1 ? 'guest' : 'guests'} · {guestState === 'pending' ? 'Pending' : guestState === 'confirmed' ? 'Approved' : guestState === 'rejected' ? 'Declined' : guestState === 'checked_in' ? 'Checked in' : guestState.replace('_', ' ')}</p>}
+                    {(!guestEntry || guestState === 'pending') && <form className="guestlist-party-form" onSubmit={guestEntry ? changeGuestPartySize : (event) => { event.preventDefault(); requestGuestlist(); }}>
+                      <label htmlFor="guest-party-size">Party size, including you</label>
+                      <select id="guest-party-size" value={guestPartySize} disabled={guestBusy || guestStatusLoading} onChange={(event) => setGuestPartySize(Number(event.target.value))}>{Array.from({ length: guestEntry ? 20 : Math.max(1, Math.min(20, session ? guestMaxPartySize : 20)) }, (_, index) => index + 1).map((size) => <option key={size} value={size}>{size} {size === 1 ? 'guest' : 'guests'}</option>)}</select>
+                      <Button type="submit" disabled={guestBusy || referralBusy || guestStatusLoading || (!guestEntry && session && !guestRequestsOpen) || (guestEntry && guestPartySize === guestEntry.partySize)}>{guestBusy ? 'Updating…' : guestEntry ? 'Update party size' : session ? guestRequestsOpen ? 'Request guestlist approval' : 'Guestlist requests closed' : 'Sign in to request'}</Button>
+                    </form>}
+                    {guestState === 'pending' && <Button variant="ghost" disabled={guestBusy} onClick={withdrawGuestRequest}>Withdraw request</Button>}
+                    {guestEntry && <Button variant="outline" onClick={() => openGuestlistEntry(guestEntry.id)}>View entry in Booked</Button>}
+                    {!session && guestlistInviteToken && <p>Have an invitation? Sign in to claim it.</p>}
                   </div>
                 </TabsContent>
               </Tabs>
@@ -1092,9 +992,7 @@ export default function App() {
               <Button
                 className="primary-action"
                 onClick={() => {
-                  setSelected(null);
-                  setAccountTab('plans');
-                  setWalletOpen(true);
+                  navigateView('booked');
                 }}
               >
                 View my bookings <ArrowRight />
@@ -1112,10 +1010,9 @@ export default function App() {
         }}
         onSuccess={authSuccess}
       />
-      <AccountDialog open={walletOpen} onOpenChange={setWalletOpen} session={session} initialTab={accountTab}
+      <AccountDialog open={walletOpen} onOpenChange={setWalletOpen} session={session}
         onProfile={(user) => { const updated = { ...session, user }; setSession(updated); writeStorage('nitewide.session', updated); }}
-        onSignOut={() => { setWalletOpen(false); setSession(null); setReferral(null); writeStorage('nitewide.session', null); setNotice('You’re signed out.'); }}
-        onReferral={openConnection} />
+        onSignOut={() => { clearPassCache(session.user.id); setWalletOpen(false); setSession(null); setReferral(null); writeStorage('nitewide.session', null); setNotice('You’re signed out.'); }} />
       {notice && (
         <div className="toast-message" role="status">
           <Check size={17} />

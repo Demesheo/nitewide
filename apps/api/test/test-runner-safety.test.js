@@ -24,8 +24,8 @@ test('maintenance DB URL is local-only and points to postgres rather than an app
   assert.throws(() => maintenanceUrl({ TEST_DATABASE_ADMIN_URL: 'postgres://test:test@127.0.0.1:5433/nitewide' }), /maintenance database/i);
 });
 
-test('standard runner classifies the five mandatory integrations and five demo-only suites exactly', () => {
-  assert.deepEqual(INTEGRATION_TESTS, ['admissions-integration.test.js', 'business-integration.test.js', 'business-reporting-integration.test.js', 'admin-onboarding-lifecycle-integration.test.js', 'public-discovery-integration.test.js']);
+test('standard runner classifies the six mandatory integrations and five demo-only suites exactly', () => {
+  assert.deepEqual(INTEGRATION_TESTS, ['admissions-integration.test.js', 'business-integration.test.js', 'business-reporting-integration.test.js', 'admin-onboarding-lifecycle-integration.test.js', 'public-discovery-integration.test.js', 'customer-experience-integration.test.js']);
   assert.deepEqual(DEMO_TESTS, ['orlando-seed-integration.test.js', 'posh-importer-integration.test.js', 'seed-cleanup-integration.test.js', 'seed-guestlists-integration.test.js', 'venue-selection-integration.test.js']);
   const discovered = discoverTests(path.resolve(__dirname));
   for (const filename of [...INTEGRATION_TESTS, ...DEMO_TESTS]) assert.ok(discovered.some((item) => path.basename(item) === filename), `${filename} must be classified`);

@@ -153,9 +153,11 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
   async function requestEmailVerification(userId) {
     if (!email?.enabled) throw new DomainError('Email delivery is not configured', { code: 'EMAIL_UNAVAILABLE', status: 503 });
     const user = await models.User.findByPk(userId);
-    if (!user?.isActive || user.emailVerifiedAt) return { message: 'If verification is needed, an email will be sent shortly.' };
-    await sequelize.transaction((transaction) => issueAction(user, 'verify_email', transaction));
-    return { message: 'If verification is needed, an email will be sent shortly.' };
+    if (!user?.isActive || user.emailVerifiedAt) return { verificationEmailQueued: false, message: 'No verification email is needed for this account.' };
+    const queued = await sequelize.transaction((transaction) => issueAction(user, 'verify_email', transaction));
+    return queued
+      ? { verificationEmailQueued: true, message: 'Verification email queued. Check your inbox.' }
+      : { verificationEmailQueued: false, message: 'A verification email could not be queued right now. Try again later.' };
   }
 
   async function consumeAction(raw, purpose, onValid) {

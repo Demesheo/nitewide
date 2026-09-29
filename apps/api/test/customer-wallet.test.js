@@ -11,7 +11,13 @@ test('approved guest list passes are customer-scoped and bind the approved party
   const token = guestlistWalletToken(entry, secret);
   assert.equal(verifyGuestlistWalletToken(token, entry, secret), true);
   for (const field of ['userId', 'eventId', 'partySize', 'qrTokenHash']) assert.equal(verifyGuestlistWalletToken(token, { ...entry, [field]: 'changed' }, secret), false);
-  const service = createCustomerAccountService({ tokenSecret: secret, models: { GuestlistEntry: { findOne: async ({ where }) => where.userId === entry.userId ? entry : null } } });
+  const service = createCustomerAccountService({ tokenSecret: secret, models: {
+    GuestlistEntry: {
+      findOne: async ({ where }) => where.userId === entry.userId ? entry : null,
+      findAll: async ({ where }) => where.userId === entry.userId ? [{ eventId: entry.eventId }] : [],
+    },
+    Order: { findAll: async () => [] },
+  } });
   const pass = await service.guestlistPass(entry.userId, entry.id);
   assert.equal(pass.kind, 'guestlist'); assert.equal(pass.partySize, 3);
   assert.match(pass.tickets[0].qrImage, /^data:image\/png;base64,/);

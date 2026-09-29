@@ -111,6 +111,20 @@ function redactLocation(location) {
 }
 function createPublicController({ models }) {
   return {
+    batchEvents: async (req, res) => {
+      const ids = z.string().min(1).max(1200).transform((value) => value.split(',')).pipe(z.array(z.uuid()).min(1).max(30)).parse(req.query.ids);
+      const unique = [...new Set(ids)];
+      const events = await models.Event.findAll({ where: { id: { [Op.in]: unique }, status: 'published', lifecycleState: 'active', endsAt: { [Op.gte]: new Date() } },
+        include: [{ model: models.Location, as: 'location' }, { model: models.Organization, as: 'organization', attributes: ['id', 'name', 'slug', 'planTier'] },
+          { model: models.Offering, as: 'offerings', required: false }] });
+      const allowed = [];
+      for (const event of events) {
+        try { await assertActiveEvent(models, event); allowed.push(event); }
+        catch (error) { if (![403, 404].includes(error.status)) throw error; }
+      }
+      const byId = new Map(allowed.map((event) => [event.id, event]));
+      res.json({ data: { items: unique.map((id) => byId.get(id)).filter(Boolean).map(publicEvent) } });
+    },
     listEvents: async (req, res) => {
       // Existing callers receive an array. Opt-in discovery callers receive a page.
       if (req.query.pageSize !== undefined) return res.json({ data: await pagedEvents(models, discoveryQuery.parse(req.query)) });
@@ -140,4 +154,4 @@ function createPublicController({ models }) {
     },
   };
 }
-module.exports = { createPublicController, redactLocation };
+module.exports = { createPublicController, publicEvent, redactLocation };
