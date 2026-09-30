@@ -53,18 +53,18 @@ test('queue deduplicates a purchase and suppresses reserved demo addresses befor
 test('transient delivery errors remain retryable while invalid requests do not', async () => {
   const clock = new Date('2026-09-26T12:00:00Z');
   const rows = [
-    { dedupeKey: 'one', recipientEmail: 'one@example.org', templateAlias: TEMPLATES.welcome,
+    { id: 'one', dedupeKey: 'one', recipientEmail: 'one@example.org', templateAlias: TEMPLATES.welcome,
       encryptedVariables: encryptVariables({ NAME: 'One' }, 'same-secret'), status: 'pending', attemptCount: 0,
       async update(values) { Object.assign(this, values); } },
-    { dedupeKey: 'two', recipientEmail: 'two@example.org', templateAlias: TEMPLATES.welcome,
+    { id: 'two', dedupeKey: 'two', recipientEmail: 'two@example.org', templateAlias: TEMPLATES.welcome,
       encryptedVariables: encryptVariables({ NAME: 'Two' }, 'same-secret'), status: 'pending', attemptCount: 0,
       async update(values) { Object.assign(this, values); } },
   ];
   const email = createEmailService({
     sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: 'UPDATE' } }) },
     models: { EmailOutbox: {
-      update: async () => {},
-      findAll: async () => rows,
+      update: async (values, { where }) => { const row = rows.find(row => row.id === where.id && row.leaseToken === where.leaseToken); if (row) Object.assign(row, values); },
+      findAll: async ({ limit }) => rows.filter(row => row.status === 'pending' && (!row.nextAttemptAt || row.nextAttemptAt <= clock)).slice(0, limit),
     } },
     apiKey: 're_test_key', from: 'Nitewide <tickets@example.org>', encryptionKey: 'same-secret',
     now: () => clock,

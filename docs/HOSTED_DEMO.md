@@ -199,6 +199,15 @@ Expected: HTTP 200 with `{"status":"ok","service":"nitewide-api"}`. Test custome
 gateway or injected floating banner; normal account permissions remain enforced.
 The mock checkout and QR demo safeguards remain in place.
 
+Email, notification fan-out and large CSV exports now run in a separate worker
+process supervised alongside the API in the free demo container. Startup applies
+the worker migrations; no reseed or paid resource is needed. A worker failure
+causes the supervisor to stop the API and exit so hosting can restart both. The
+worker stores its heartbeat in PostgreSQL; internal admins can inspect
+`/api/admin/background/workers`. Free-host sleep still pauses both processes.
+Production should use an independently deployed always-on worker; see
+[worker deployment and replay](BACKGROUND_WORKERS.md).
+
 - **Build fails:** inspect the first failed GitHub step; fix it and push. Render
   keeps the previous healthy release when no new image is deployed.
 - **Deploy job green but no Render deployment:** check the missing-hook message and

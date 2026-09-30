@@ -146,13 +146,15 @@ test('pending guest can edit party size and withdraw without an admission QR', a
   await expect(page.getByRole('button', { name: /View guest list entry/ })).toHaveCount(0);
 });
 
-test('demo VIP checkout creates three individual passes and a receipt', async ({ page, fixture }) => {
+test('demo VIP checkout creates passes, a receipt and an asynchronous booking notification', async ({ page, request, fixture }) => {
   await login(page, fixture, 'customer');
   await page.goto(`/?event=${fixture.ids.event}`);
   const details = page.getByTestId('customer-event-details');
   await details.getByRole('button', { name: /VIP Package/ }).click();
   await details.getByRole('button', { name: /^Continue ·/ }).click();
+  const checkout = page.waitForResponse(response => response.url().endsWith('/api/orders') && response.request().method() === 'POST');
   await details.getByRole('button', { name: 'Confirm demo booking', exact: true }).click();
+  const orderId = (await (await checkout).json()).data.order.id;
   await expect(details.getByRole('heading', { name: 'Your demo night is booked.' })).toBeVisible();
   await details.getByRole('button', { name: 'View my bookings', exact: true }).click();
   await page.getByRole('button', { name: /View tickets for Playwright Friday Night, 1 VIP Package/ }).click();
@@ -160,4 +162,16 @@ test('demo VIP checkout creates three individual passes and a receipt', async ({
   await page.getByRole('button', { name: 'Next pass' }).click();
   await expect(page.getByText('Pass 2 of 3', { exact: true })).toBeVisible();
   await expect(page.getByRole('img', { name: 'QR code for ticket 2, VIP Package' })).toBeVisible();
+  const token = await page.evaluate(() => JSON.parse(localStorage.getItem('nitewide.session')).accessToken);
+  await expect.poll(async () => {
+    const response = await request.get(`${urls.api}/api/notifications?page=1&pageSize=20`, { headers: { Authorization: `Bearer ${token}` } });
+    const { data } = await response.json();
+    return data.items.filter(item => item.kind === 'purchase_confirmed' && item.metadata?.orderId === orderId).length;
+  }).toBe(1);
+  await page.getByRole('button', { name: /^Notifications/ }).click();
+  await page.getByRole('button', { name: /Demo booking recorded/ }).click();
+  await expect(page).toHaveURL(new RegExp(`booking=purchase(?:%3A|:)${orderId}`));
+  await expect(page.getByRole('img', { name: 'QR code for ticket 1, VIP Package' })).toBeVisible();
+  await page.getByRole('button', { name: /^Notifications/ }).click();
+  await expect(page.getByRole('button', { name: /Demo booking recorded/ })).toHaveCount(0);
 });

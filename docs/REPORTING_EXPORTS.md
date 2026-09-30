@@ -26,7 +26,7 @@ Business and Admin show a collapsible Prepared exports section with progress, Do
 
 ## Snapshot and worker lifecycle
 
-Migration `202609300005-report-export-jobs` adds durable job, snapshot-row and CSV-chunk tables. Run `npm run db:migrate`, then restart the API. No reseed is needed. The API process polls the queue every two seconds; no new Redis service, paid worker or persistent disk is required for the current deployment.
+Migration `202609300005-report-export-jobs` adds durable job, snapshot-row and CSV-chunk tables. Run `npm run db:migrate`, then restart the API and start `npm run dev:worker`. No reseed is needed. The dedicated worker process polls exports every two seconds; the API never dispatches them. The free demo supervises separate API and worker processes in its existing container; production should run a dedicated worker service. See [Background workers](BACKGROUND_WORKERS.md).
 
 The worker captures ordered aggregate rows in one repeatable-read transaction, commits them, then renders 250-row batches using sequence-key pagination. Each render checkpoint commits its CSV chunk and progress together. Subsequent batches do not recount or reread live orders. Purchases, refunds and changing sales rankings during rendering cannot duplicate, skip or alter captured rows. Failed jobs retain their snapshot/checkpoint; retries resume it instead of mixing in newer data.
 
@@ -34,7 +34,7 @@ Workers claim jobs with `FOR UPDATE SKIP LOCKED` and a five-minute token-fenced 
 
 Files are identity-bound, never public URLs. Effective access is checked at submission, capture, status, retry and download. Membership/role/lifecycle changes invalidate old exports conservatively; ordinary purchases and financial changes do not. New requests expire at 24 hours. A download begun before expiry pins its chunks for a bounded 30-minute stream so cleanup cannot truncate it mid-download. Cleanup subsequently cascades the stored data. Completed jobs discard snapshot payload rows and retain only CSV chunks.
 
-CSV chunks currently live in PostgreSQL to survive restarts and free-host ephemeral storage. Monitor database size, queue age, failures, throughput and lease recovery. At higher sustained export volume, move completed chunks to private R2 objects with short-lived downloads and use a dedicated worker; do not enable public buckets or store permanent presigned URLs. That storage change is not implemented here.
+CSV chunks currently live in PostgreSQL to survive restarts and free-host ephemeral storage. Monitor database size, queue age, failures, throughput and lease recovery. At higher sustained export volume, move completed chunks to private R2 objects with short-lived downloads; do not enable public buckets or store permanent presigned URLs. That storage change is not implemented here.
 
 ## Measurements and rollup decision
 

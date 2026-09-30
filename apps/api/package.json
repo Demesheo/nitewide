@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node src/server.js",
     "start": "node src/server.js",
+    "worker": "node src/worker.js",
     "test": "node scripts/run-tests.cjs",
     "test:unit": "node scripts/run-tests.cjs --unit",
     "test:integration": "node scripts/run-tests.cjs --integration",

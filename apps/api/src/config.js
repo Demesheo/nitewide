@@ -28,6 +28,13 @@ const schema = z.object({
   CUSTOMER_APP_URL: z.string().url().default('http://localhost:5173'),
   BUSINESS_APP_URL: z.string().url().optional(),
   BUSINESS_GUESTLIST_REVIEW_EMAILS: z.enum(['true', 'false']).default('false'),
+  EMAIL_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
+  EMAIL_WORKER_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(25),
+  EMAIL_REQUEST_INTERVAL_MS: z.coerce.number().int().min(500).max(5000).default(600),
+  NOTIFICATION_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
+  EXPORT_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
+  WORKER_POLL_INTERVAL_MS: z.coerce.number().int().min(250).max(60000).default(2000),
+  WORKER_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(10000).max(300000).default(150000),
 });
 
 function getConfig(environment = process.env) {

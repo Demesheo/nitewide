@@ -13,6 +13,7 @@ const initializers = [
   require('./OrganizationEmployee').initOrganizationEmployee,
   require('./GuestlistInvitation').initGuestlistInvitation,
   require('./Notification').initNotification,
+  require('./NotificationJob').initNotificationJob,
   require('./UserActionToken').initUserActionToken,
   require('./EmailOutbox').initEmailOutbox,
   require('./EmailDeliveryEvent').initEmailDeliveryEvent,

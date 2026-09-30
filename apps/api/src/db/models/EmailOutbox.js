@@ -15,6 +15,13 @@ function initEmailOutbox(sequelize) {
     expiresAt: DataTypes.DATE,
     providerMessageId: DataTypes.STRING(100),
     lastError: DataTypes.STRING(160),
+    leaseToken: DataTypes.UUID,
+    leaseUntil: DataTypes.DATE,
+    firstAttemptAt: DataTypes.DATE,
+    senderSnapshot: DataTypes.STRING(320),
+    cycleAttemptCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    replayCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    attemptHistory: { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
   }, { sequelize, modelName: 'EmailOutbox', tableName: 'email_outbox', underscored: true });
   return EmailOutbox;
 }

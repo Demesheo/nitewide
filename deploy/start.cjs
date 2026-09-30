@@ -58,5 +58,5 @@ async function initialize() {
     }
   } finally { await client.end(); }
 }
-if (require.main === module) initialize().then(() => require('../apps/api/src/server')).catch(error => { console.error('Demo startup failed:', error.message); process.exitCode = 1; });
+if (require.main === module) initialize().then(() => require('./supervise.cjs').supervise({ graceMs: getConfig().WORKER_SHUTDOWN_TIMEOUT_MS + 10000 })).catch(error => { console.error('Demo startup failed:', error.message); process.exitCode = 1; });
 module.exports = { initialize };

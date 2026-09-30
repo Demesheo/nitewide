@@ -110,7 +110,7 @@ async function collectWorkflowMessages(runLabel) {
       AuditLog: { create: async () => ({}) },
       User: { findByPk: async () => buyer },
     };
-    const checkout = createCheckoutService({ sequelize, models, email, customerAppUrl: APP_URL, environment: 'development' });
+    const checkout = createCheckoutService({ sequelize, models, email, customerAppUrl: APP_URL, environment: 'development', notificationJobs: { enqueueCheckout: async () => {} } });
     await action('successful ticket checkout', TEMPLATES.purchaseReceipt, () => checkout({
       buyerUserId: buyer.id, eventId: event.id, idempotencyKey: `workflow-${runLabel}`,
       items: [{ offeringId: offering.id, quantity: 1 }], payment: { provider: 'demo', status: 'succeeded' },

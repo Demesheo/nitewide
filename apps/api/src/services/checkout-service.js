@@ -3,7 +3,7 @@ const { createQrToken } = require('../domain/qr');
 const { DomainError, notFound, conflict } = require('../domain/errors');
 const { resolveAffiliate } = require('./affiliate-service');
 const { eventFinished, offeringSaleState } = require('../domain/event-policy');
-const { createNotificationService } = require('./notification-service');
+const { createNotificationJobService } = require('./notification-job-service');
 const { queuePurchaseEmail } = require('./email-events');
 const { assertActiveUser, assertActiveEvent } = require('./lifecycle-service');
 const { createHash } = require('node:crypto');
@@ -23,8 +23,7 @@ function canonicalCart(eventId, items) {
 }
 const fingerprint = (input) => createHash('sha256').update(JSON.stringify({ cart: canonicalCart(input.eventId, input.items), affiliateCode: input.affiliateCode || null })).digest('hex');
 
-function createCheckoutService({ sequelize, models, now = () => new Date(), environment = process.env.NODE_ENV || 'development', hostedDemo = false, email = null, customerAppUrl = 'http://localhost:5173' }) {
-  const notifications = createNotificationService(models);
+function createCheckoutService({ sequelize, models, now = () => new Date(), environment = process.env.NODE_ENV || 'development', hostedDemo = false, email = null, customerAppUrl = 'http://localhost:5173', notificationJobs = createNotificationJobService({ sequelize, models, now }) }) {
   return async function checkout(input) {
     if (hostedDemo && input.payment && input.payment.provider !== 'demo') throw new DomainError('Only mock payments are available in the hosted demo', { code: 'DEMO_ONLY' });
     const requestFingerprint = fingerprint(input);
@@ -83,7 +82,7 @@ function createCheckoutService({ sequelize, models, now = () => new Date(), envi
         subtotalCents, ...pricing, pricingPlanSnapshot: { ...pricing.pricingPlanSnapshot, commissionBps: affiliate.commissionBps, demo }, orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id,
         idempotencyKey: input.idempotencyKey, requestFingerprint, paidAt: current,
       }, { transaction });
-      const soldOutOfferings = lines.filter(({ offering, quantity }) => offering.inventoryMode === 'finite' && offering.quantitySold + quantity === offering.quantityTotal).map(({ offering }) => offering.name);
+      const soldOutOfferings = lines.filter(({ offering, quantity }) => offering.inventoryMode === 'finite' && offering.quantitySold + quantity === offering.quantityTotal).map(({ offering }) => ({ id: offering.id, name: offering.name }));
       const credentials = [];
       for (const line of lines) {
         const item = await models.OrderItem.create({ orderId: order.id, offeringId: line.offering.id, nameSnapshot: line.offering.name, kindSnapshot: line.offering.kind, quantity: line.quantity, entriesPerUnitSnapshot: line.offering.entriesPerUnit, unitPriceCents: line.offering.priceCents, lineTotalCents: line.lineTotalCents }, { transaction });
@@ -99,25 +98,11 @@ function createCheckoutService({ sequelize, models, now = () => new Date(), envi
       await models.AffiliateAttribution.create({ eventId: event.id, userId: input.buyerUserId, orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id, action: 'purchase', orderId: order.id, occurredAt: current }, { transaction });
       await models.AuditLog.create({ actorUserId: input.buyerUserId, organizationId: event.organizationId, entityType: 'Order', entityId: order.id, action: demo ? 'order.demo' : 'order.paid', after: { totalCents: pricing.totalCents, demo } }, { transaction });
       await queuePurchaseEmail({ email, models, order, event, lines, demo, buyerUserId: input.buyerUserId, customerAppUrl, transaction });
-      if (models.Notification) {
-        const buyer = await models.User.findByPk(input.buyerUserId, { transaction });
-        const names = lines.map(({ offering, quantity }) => `${quantity} × ${offering.name}`).join(', ');
-        const referrerId = affiliate.eventAffiliate?.userId || affiliate.orgAffiliate?.userId;
-        const referrer = referrerId ? await models.User.findByPk(referrerId, { transaction }) : null;
-        const metadata = { orderId: order.id, referrerUserId: referrerId || null, demo };
-        await notifications.emit({ userId: input.buyerUserId, eventId: event.id, kind: 'purchase_confirmed', title: demo ? 'Demo booking recorded' : 'Purchase confirmed', message: `${names} for ${event.title} · ${demo ? 'demo only, no charge' : 'confirmed'}.`, metadata }, transaction);
-        if (referrerId) await notifications.emit({ userId: referrerId, eventId: event.id, kind: 'referral_purchase', title: demo ? 'Demo referral sale' : 'Referral sale', message: `${buyer?.displayName || 'A customer'} booked ${names} for ${event.title}. Sale ${subtotalCents / 100} USD; your commission ${(pricing.affiliateCommissionCents || 0) / 100} USD${demo ? ' (demo only)' : ''}.`, metadata }, transaction);
-        const leaderIds = event.organizationId
-          ? (await models.OrganizationOwner.findAll({ where: { organizationId: event.organizationId }, attributes: ['userId'], transaction })).map((row) => row.userId)
-          : [event.creatorUserId];
-        for (const leaderId of new Set(leaderIds.filter((id) => id !== input.buyerUserId && id !== referrerId))) await notifications.emit({ userId: leaderId, eventId: event.id, kind: 'event_purchase', title: demo ? 'Demo event sale' : 'Event sale', message: `${referrer ? `${referrer.displayName}'s customer` : buyer?.displayName || 'A customer'} booked ${names} for ${event.title}. Sale ${subtotalCents / 100} USD; commission ${(pricing.affiliateCommissionCents || 0) / 100} USD${demo ? ' (demo only)' : ''}.`, metadata }, transaction);
-        if (soldOutOfferings.length) {
-          const recipients = event.organizationId
-            ? (await models.OrganizationOwner.findAll({ where: { organizationId: event.organizationId }, attributes: ['userId'], transaction })).map((row) => row.userId)
-            : [event.creatorUserId];
-          for (const recipient of new Set(recipients)) for (const offeringName of soldOutOfferings) await notifications.emit({ userId: recipient, eventId: event.id, kind: 'offering_sold_out', title: 'Ticket or package sold out', message: `${offeringName} for ${event.title} has sold out.` }, transaction);
-        }
-      }
+      await notificationJobs.enqueueCheckout({ orderId: order.id, eventId: event.id, eventTitle: event.title,
+        buyerUserId: input.buyerUserId, referrerUserId: affiliate.eventAffiliate?.userId || affiliate.orgAffiliate?.userId || null,
+        eventAffiliateId: affiliate.eventAffiliate?.id || null, orgAffiliateId: affiliate.orgAffiliate?.id || null,
+        names: lines.map(({ offering, quantity }) => `${quantity} × ${offering.name}`).join(', '),
+        subtotalCents, commissionCents: pricing.affiliateCommissionCents || 0, demo, soldOutOfferings }, transaction);
       return { order, credentials, replayed: false };
     });
   };

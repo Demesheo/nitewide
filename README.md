@@ -6,6 +6,8 @@ Business **Admissions** now supports iPhone rear-camera QR scanning, photo scann
 
 Transactional account, purchase, guestlist, and event-update emails use published Resend templates and a durable encrypted outbox. Live delivery requires a verified sender domain, a server-side sending key, and an HTTPS customer app URL. See [Resend setup, template list, triggers, and testing](docs/TRANSACTIONAL_EMAIL.md). The Codex Resend connection can manage templates but does not configure the application runtime.
 
+Emails, checkout notification fan-out and large exports run in a [dedicated background worker](docs/BACKGROUND_WORKERS.md), not the API process. `npm run dev` starts it automatically; `npm run dev:worker` starts only the worker. Apply migrations before starting either process. Standard tests mock email delivery and consume no Resend quota.
+
 This repository contains:
 
 - `apps/api` — Express, Sequelize, PostgreSQL, and PostGIS REST API
@@ -133,6 +135,7 @@ npm run dev
 
 # One application
 npm run dev:api
+npm run dev:worker
 npm run dev:customer
 npm run dev:business
 npm run dev:admin

@@ -1,9 +1,13 @@
 const crypto = require('node:crypto');
-const { Op } = require('sequelize');
+const { Op, QueryTypes } = require('sequelize');
+const { conflict, notFound } = require('../domain/errors');
 const { renderOnboardingEmail } = require('./onboarding-email');
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 const MAX_ATTEMPTS = 5;
+// Stay conservatively inside Resend's 24-hour idempotency retention.
+const REPLAY_WINDOW_MS = 23 * 60 * 60 * 1000;
+const LEASE_MS = 120000;
 const sanitize = (value) => String(value ?? '').replace(/[<>&"\r\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2000);
 const isResendTestRecipient = (email) => /^(?:delivered|bounced|complained)(?:\+[a-z0-9_-]+)?@resend\.dev$|^suppressed@resend\.dev$/i.test(email);
 
@@ -41,14 +45,19 @@ async function sendTemplate({ apiKey, from, to, templateAlias, variables, dedupe
     const error = new Error('Transactional email provider rejected the request');
     error.status = response.status;
     error.code = typeof result.name === 'string' ? result.name.slice(0, 80) : 'PROVIDER_ERROR';
+    const retryAfter = response.headers?.get?.('retry-after');
+    error.retryAfterMs = retryAfter ? (/^\d+(\.\d+)?$/.test(retryAfter) ? Number(retryAfter) * 1000 : Math.max(0, Date.parse(retryAfter) - Date.now())) : 0;
     throw error;
   }
   return result.id;
 }
 
-function createEmailService({ sequelize, models, apiKey, from, encryptionKey, testMode = false, fetchImpl = fetch, now = () => new Date() }) {
+function createEmailService({ sequelize, models, apiKey, from, encryptionKey, testMode = false, fetchImpl = fetch,
+  now = () => new Date(), concurrency = 2, batchSize = 25, requestIntervalMs = 0 }) {
   const enabled = Boolean(apiKey && from && encryptionKey && models.EmailOutbox);
-  let draining = false;
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8 || !Number.isInteger(batchSize) || batchSize < 1 || batchSize > 100) throw new Error('Invalid email worker bounds');
+  if (!Number.isInteger(requestIntervalMs) || requestIntervalMs < 0 || requestIntervalMs > 5000) throw new Error('Invalid email request interval');
+  let active = null, stopping = false;
 
   async function queue({ key, to, template, variables, expiresAt }, transaction) {
     if (!enabled || !to || !template) return null;
@@ -67,60 +76,93 @@ function createEmailService({ sequelize, models, apiKey, from, encryptionKey, te
     return row.id;
   }
 
-  async function drain() {
-    if (!enabled || draining) return 0;
-    draining = true;
+  const outsideWindow = row => row.firstAttemptAt && now().getTime() - new Date(row.firstAttemptAt).getTime() >= REPLAY_WINDOW_MS;
+  async function finish(row, values) {
+    const history = [...(row.attemptHistory || []), { at: now().toISOString(), attempt: row.attemptCount,
+      status: values.status, error: values.lastError || null }].slice(-20);
+    return models.EmailOutbox.update({ ...values, attemptHistory: history, leaseToken: null, leaseUntil: null },
+      { where: { id: row.id, status: 'processing', leaseToken: row.leaseToken } });
+  }
+  async function deliver(row) {
+    if (testMode && !isResendTestRecipient(row.recipientEmail)) return finish(row, { status: 'failed', encryptedVariables: null, lastError: 'TEST_MODE_RECIPIENT_BLOCKED' });
+    if (row.expiresAt && new Date(row.expiresAt) <= now()) return finish(row, { status: 'expired', encryptedVariables: null, lastError: 'EXPIRED' });
+    if (outsideWindow(row)) return finish(row, { status: 'failed', lastError: 'IDEMPOTENCY_WINDOW_EXPIRED' });
+    if (row.cycleAttemptCount > MAX_ATTEMPTS) return finish(row, { status: 'failed', lastError: 'ATTEMPTS_EXHAUSTED' });
     try {
-      const current = now();
-      // Reclaim work left by a terminated process. Provider idempotency protects
-      // the ambiguous case where Resend accepted a send before termination.
-      await models.EmailOutbox.update({ status: 'pending' }, {
-        where: { status: 'processing', updatedAt: { [Op.lt]: new Date(current.getTime() - 120000) } },
-      });
-      const claimed = await sequelize.transaction(async (transaction) => {
-        const rows = await models.EmailOutbox.findAll({
-          where: { status: 'pending', nextAttemptAt: { [Op.lte]: current } },
-          order: [['createdAt', 'ASC']], limit: 10,
-          transaction, lock: transaction.LOCK.UPDATE, skipLocked: true,
-        });
-        for (const row of rows) await row.update({ status: 'processing' }, { transaction });
-        return rows;
-      });
-      for (const row of claimed) {
-        if (testMode && !isResendTestRecipient(row.recipientEmail)) {
-          await row.update({ status: 'failed', encryptedVariables: null, lastError: 'TEST_MODE_RECIPIENT_BLOCKED' });
-          continue;
-        }
-        if (row.expiresAt && row.expiresAt <= current) {
-          await row.update({ status: 'expired', encryptedVariables: null, lastError: 'EXPIRED' });
-          continue;
-        }
-        try {
-          const variables = decryptVariables(row.encryptedVariables, encryptionKey);
-          const providerMessageId = await sendTemplate({
-            apiKey, from, to: row.recipientEmail, templateAlias: row.templateAlias,
-            variables, dedupeKey: row.dedupeKey, fetchImpl,
-          });
-          await row.update({ status: 'sent', providerMessageId, encryptedVariables: null, lastError: null });
-        } catch (error) {
-          const attempts = row.attemptCount + 1;
-          const retryable = !error.status || error.status === 429 || error.status >= 500 || error.code === 'concurrent_idempotent_requests';
-          const pending = retryable && attempts < MAX_ATTEMPTS;
-          const delay = Math.min(15000 * (2 ** (attempts - 1)), 600000);
-          await row.update({
-            status: pending ? 'pending' : 'failed', attemptCount: attempts,
-            nextAttemptAt: new Date(now().getTime() + delay),
-            lastError: `${error.status || 'NETWORK'}:${sanitize(error.code || 'SEND_FAILED').slice(0, 100)}`,
-          });
-        }
+      const variables = decryptVariables(row.encryptedVariables, encryptionKey);
+      if (requestIntervalMs) {
+        // Account-wide pacing shared by all workers, without holding a DB
+        // connection/transaction during the wait or provider request.
+        const [slot] = await sequelize.query(`UPDATE email_worker_rate SET next_slot=GREATEST(next_slot,clock_timestamp()) + (:ms * INTERVAL '1 millisecond')
+          WHERE id=1 RETURNING GREATEST(0,EXTRACT(EPOCH FROM(next_slot-clock_timestamp())) * 1000 - :ms) AS wait`,
+        { replacements: { ms: requestIntervalMs }, type: QueryTypes.SELECT });
+        await new Promise(resolve => setTimeout(resolve, Number(slot.wait)));
+        // A saturated global limiter may wait past a lease/window. Never send
+        // on behalf of an expired/reassigned claim after that wait.
+        const owned = await models.EmailOutbox.findOne({ where: { id: row.id, status: 'processing',
+          leaseToken: row.leaseToken, leaseUntil: { [Op.gt]: now() } }, attributes: ['id'] });
+        if (!owned) return;
+        if (outsideWindow(row)) return finish(row, { status: 'failed', lastError: 'IDEMPOTENCY_WINDOW_EXPIRED' });
+        if (row.expiresAt && new Date(row.expiresAt) <= now()) return finish(row, { status: 'expired', encryptedVariables: null, lastError: 'EXPIRED' });
       }
-      return claimed.length;
-    } finally {
-      draining = false;
+      const providerMessageId = await sendTemplate({ apiKey, from: row.senderSnapshot, to: row.recipientEmail,
+        templateAlias: row.templateAlias, variables, dedupeKey: row.dedupeKey, fetchImpl });
+      await finish(row, { status: 'sent', providerMessageId, encryptedVariables: null, lastError: null });
+    } catch (error) {
+      const retryable = !error.status || error.status === 429 || error.status >= 500 || error.code === 'concurrent_idempotent_requests';
+      const pending = retryable && row.cycleAttemptCount < MAX_ATTEMPTS;
+      const delay = Math.max(Math.min(15000 * (2 ** (row.cycleAttemptCount - 1)), 600000), Math.min(error.retryAfterMs || 0, 3600000));
+      await finish(row, { status: pending ? 'pending' : 'failed', nextAttemptAt: new Date(now().getTime() + delay),
+        lastError: `${error.status || 'NETWORK'}:${sanitize(error.code || 'SEND_FAILED').slice(0, 100)}` });
     }
   }
-
-  return { enabled, queue, drain };
+  async function runBatch() {
+    let processed = 0;
+    while (!stopping && processed < batchSize) {
+      const current = now();
+      const rows = await sequelize.transaction(async transaction => {
+        const selected = await models.EmailOutbox.findAll({ where: { [Op.or]: [
+          { status: 'pending', nextAttemptAt: { [Op.lte]: current } },
+          { status: 'processing', leaseUntil: { [Op.lte]: current } },
+        ] }, order: [['createdAt', 'ASC'], ['id', 'ASC']], limit: Math.min(concurrency, batchSize - processed),
+        transaction, lock: transaction.LOCK.UPDATE, skipLocked: true });
+        for (const row of selected) await row.update({ status: 'processing', leaseToken: crypto.randomUUID(),
+          leaseUntil: new Date(current.getTime() + LEASE_MS), firstAttemptAt: row.firstAttemptAt || current,
+          senderSnapshot: row.senderSnapshot || from, attemptCount: row.attemptCount + 1,
+          cycleAttemptCount: (row.cycleAttemptCount || 0) + 1 }, { transaction });
+        return selected;
+      });
+      if (!rows.length) break;
+      // Settle every claimed send before releasing the active batch on errors.
+      const results = await Promise.allSettled(rows.map(deliver));
+      processed += rows.length;
+      const failed = results.find(result => result.status === 'rejected');
+      if (failed) throw failed.reason;
+    }
+    return processed;
+  }
+  function drain() {
+    if (!enabled || stopping) return Promise.resolve(0);
+    if (!active) active = runBatch().finally(() => { active = null; });
+    return active;
+  }
+  async function stop() { stopping = true; if (active) await active; }
+  async function list({ status = 'failed', page = 1, pageSize = 25 } = {}) {
+    return models.EmailOutbox.findAndCountAll({ where: status === 'all' ? {} : { status }, limit: pageSize, offset: (page - 1) * pageSize,
+      order: [['createdAt', 'DESC'], ['id', 'ASC']], attributes: ['id','templateAlias','status','attemptCount','cycleAttemptCount',
+        'replayCount','nextAttemptAt','firstAttemptAt','leaseUntil','providerMessageId','lastError','attemptHistory','createdAt','updatedAt'] });
+  }
+  async function replay(id, transaction) {
+    const row = await models.EmailOutbox.findByPk(id, { transaction, lock: transaction?.LOCK.UPDATE });
+    if (!row) throw notFound('Email job not found');
+    if (!enabled || row.status !== 'failed' || !row.encryptedVariables || outsideWindow(row) || (row.expiresAt && row.expiresAt <= now())) {
+      throw conflict('Email cannot be safely replayed; inspect its status, expiry and provider idempotency window');
+    }
+    await row.update({ status: 'pending', cycleAttemptCount: 0, replayCount: row.replayCount + 1,
+      leaseToken: null, leaseUntil: null, nextAttemptAt: now(), lastError: null }, { transaction });
+    return { id: row.id, status: row.status, replayCount: row.replayCount };
+  }
+  return { enabled, queue, drain, stop, list, replay };
 }
 
 module.exports = { createEmailService, sendTemplate, encryptVariables, decryptVariables };

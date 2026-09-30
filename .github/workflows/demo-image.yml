@@ -126,7 +126,7 @@ jobs:
           docker load --input nitewide-demo.tar
           test "$(docker image inspect nitewide-demo:test --format '{{.Os}}/{{.Architecture}}')" = 'linux/amd64'
           test "$(docker image inspect nitewide-demo:test --format '{{.Config.User}}')" = 'node'
-          docker run --rm --entrypoint node nitewide-demo:test -e "const fs=require('node:fs'); for(const p of ['apps/api/src/server.js','apps/customer/dist/index.html','apps/business/dist/index.html','apps/admin/dist/index.html','deploy/start.cjs']) fs.accessSync(p); if(fs.existsSync('.env')) throw Error('Unexpected environment file');"
+          docker run --rm --entrypoint node nitewide-demo:test -e "const fs=require('node:fs'); for(const p of ['apps/api/src/server.js','apps/api/src/worker.js','apps/api/src/background/runtime.js','apps/customer/dist/index.html','apps/business/dist/index.html','apps/admin/dist/index.html','deploy/start.cjs','deploy/supervise.cjs']) fs.accessSync(p); if(fs.existsSync('.env')) throw Error('Unexpected environment file');"
           sha256sum nitewide-demo.tar > nitewide-demo.tar.sha256
       - name: Retain the built image for publication without rebuilding
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (Node 24)

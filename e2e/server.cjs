@@ -7,7 +7,7 @@ const { assertManagedTestDatabase, assertGeneratedDatabaseName } = require('../a
 
 const root = path.resolve(__dirname, '..');
 const children = new Set();
-let closing = false, connection, database, sequelize, server;
+let closing = false, connection, database, sequelize, server, workerRuntime;
 function child(command, args, env, oneShot = false) {
   const processHandle = spawn(command, args, { cwd: root, env, stdio: 'inherit' });
   children.add(processHandle);
@@ -24,6 +24,7 @@ function completed(processHandle) {
 async function shutdown(code = 0) {
   if (closing) return; closing = true;
   try {
+    if (workerRuntime) await workerRuntime.stop();
     const stopped = [...children].map(handle => new Promise(resolve => {
       handle.once('close', resolve); handle.kill('SIGTERM');
       const timer = setTimeout(() => handle.kill('SIGKILL'), 3000); timer.unref();
@@ -71,7 +72,7 @@ async function start() {
     throw new Error('Previous application requests did not drain before fixture reset.');
   }
   // Mock only the external email boundary; all application/auth/database logic
-  // remains real. No Resend API key, worker or provider connection exists here.
+  // remains real. The dedicated worker has no Resend key/provider connection.
   const emails = [];
   const email = { enabled: true, queue: async message => { emails.push({ template: message.template, to: message.to }); return `mock-${emails.length}`; } };
   const harness = express(); harness.use(express.json());
@@ -79,7 +80,11 @@ async function start() {
   harness.post('/__e2e/reset', async (_req, res, next) => {
     if (resetting) return res.status(409).json({ error: 'Another fixture reset is running.' });
     resetting = true;
-    try { assertManagedTestDatabase(); await drainRequests(); fixture = await seed(models, config); emails.length = 0; res.json(fixture); }
+    try {
+      assertManagedTestDatabase(); await workerRuntime.stop(); await drainRequests();
+      fixture = await seed(models, config); emails.length = 0;
+      workerRuntime = makeWorker(); await workerRuntime.start(); res.json(fixture);
+    }
     catch (error) { console.error(`Playwright reset failed: ${error.name} (${error.original?.code || error.code || 'reset error'}).`); next(error); }
     finally { resetting = false; }
   });
@@ -92,7 +97,15 @@ async function start() {
     res.once('finish', finish); res.once('close', finish);
     next();
   });
-  harness.use(require('../apps/api/src/app').createApp({ sequelize, models, config, services: { email } }));
+  const application = require('../apps/api/src/app').createApp({ sequelize, models, config, services: { email } });
+  harness.use(application);
+  const { backgroundServices, createWorkerRuntime } = require('../apps/api/src/background/runtime');
+  // Same worker runtime as deployment, with independent service instances.
+  // Stop every lane before fixture reset to avoid cross-test work. The harness
+  // shares its disposable connection; production worker is a separate process.
+  function makeWorker() { return createWorkerRuntime({ sequelize,
+    services: backgroundServices({ sequelize, models, config }), pollIntervalMs: 50 }); }
+  workerRuntime = makeWorker(); await workerRuntime.start();
   server = harness.listen(Number(new URL(urls.api).port), '127.0.0.1');
   await new Promise((resolve, reject) => { server.once('listening', resolve); server.once('error', reject); });
   for (const app of ['customer', 'business', 'admin']) {

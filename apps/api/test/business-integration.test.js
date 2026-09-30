@@ -356,6 +356,7 @@ test(
       assert.equal(changedCart.status, 409, JSON.stringify(changedCart.body));
       assert.equal(changedCart.body.error.code, 'IDEMPOTENCY_CONFLICT');
       assert.deepEqual(await checkoutEffects(), effectsAfterPurchase, 'replay and conflicting key reuse create no commerce or notification effects');
+      await require('../src/services/notification-job-service').createNotificationJobService({ sequelize, models: m }).drain({ maxJobs: 100 });
       const buyerNotifications = (await req('/notifications', ids.outsider)).body.data.items;
       assert.ok(buyerNotifications.some((item) => item.kind === 'purchase_confirmed' && item.eventId === event.id));
       const referrerNotifications = (await req('/notifications', ids.promoter)).body.data.items;
@@ -969,6 +970,7 @@ test(
       const nextDetail = await req(`/business/events/${nextNight.body.data.id}/detail`, ids.manager);
       assert.equal(nextDetail.body.data.people.find((row) => row.userId === ids.eventPromoter).commissionCents, 250);
       assert.equal(nextDetail.body.data.people.find((row) => row.userId === ids.eventPromoter).guestlistPlaces, 2);
+      await require('../src/services/notification-job-service').createNotificationJobService({ sequelize, models: m }).drain({ maxJobs: 100 });
       assert.ok((await req('/notifications', ids.eventPromoter)).body.data.items.some((item) => item.kind === 'referral_purchase' && item.metadata.orderId === repeatSale.body.data.order.id));
       assert.equal((await req('/customer/connections/summary', ids.matrixCustomer)).body.data.people.find((person) => person.id === ids.eventPromoter).bookings, promoterHistory.bookings + 1);
       await m.EventAffiliate.update({ status: 'inactive' }, { where: { eventId: nextNight.body.data.id, userId: ids.eventPromoter } });
@@ -999,6 +1001,7 @@ test(
       const selloutTier = await m.Offering.findOne({ where: { eventId: selloutEvent.body.data.id } });
       const sold = await req('/orders', ids.outsider, 'POST', { eventId: selloutEvent.body.data.id, idempotencyKey: randomUUID(), items: [{ offeringId: selloutTier.id, quantity: 1 }], payment: { provider: 'test', reference: randomUUID(), status: 'succeeded' } });
       assert.equal(sold.status, 201, JSON.stringify(sold.body));
+      await require('../src/services/notification-job-service').createNotificationJobService({ sequelize, models: m }).drain({ maxJobs: 100 });
       assert.ok((await req('/notifications', ids.owner)).body.data.items.some((item) => item.kind === 'offering_sold_out' && item.eventId === selloutEvent.body.data.id));
     } finally {
       if (server) await new Promise((resolve) => server.close(resolve));
