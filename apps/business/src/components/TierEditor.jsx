@@ -35,7 +35,7 @@ export function TierEditor({ tier: t, index: i, offerings, newlyAdded, onChange,
     ? `After ${previous?.name || "earlier tier"}`
     : t.salesStartAt || t.salesEndAt ? "Custom sales schedule" : "No earlier tier required";
   return (
-    <details ref={cardRef} className="tier-editor-card" open={Boolean(newlyAdded)} onInvalidCapture={revealInvalidField}>
+    <details data-testid="offering-editor" data-offering-id={t.clientKey || t.id} ref={cardRef} className="tier-editor-card" open={Boolean(newlyAdded)} onInvalidCapture={revealInvalidField}>
       <summary className="tier-editor-summary">
         <span className="tier-editor-summary-copy">
           <span className="tier-editor-kicker">{t.kind} {i + 1}{t.quantitySold > 0 ? ` · ${t.quantitySold} sold` : ""}{!t.isActive ? " · Sales paused" : ""}</span>

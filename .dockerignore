@@ -17,3 +17,7 @@ output
 **/*.pem
 **/*.key
 **/*test*
+e2e/
+playwright.config.cjs
+playwright-report/
+test-results/

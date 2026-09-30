@@ -12,7 +12,7 @@ export function EventCard({ event, saved, onSave, onOpen, children, actionLabel 
     ? Math.min(...offerings.map((o) => o.priceCents))
     : null;
   return (
-    <article className={`event-card${isPremiumHost(event) ? ' premium-host-card' : ''}`} onClick={(click) => { if (!click.target.closest('button')) onOpen?.(); }}>
+    <article data-testid="customer-event-card" data-event-id={event.id} className={`event-card${isPremiumHost(event) ? ' premium-host-card' : ''}`} onClick={(click) => { if (!click.target.closest('button')) onOpen?.(); }}>
       <div className="card-image">
         <div className="image-link">
           <EventArtwork event={event} loading="lazy" />

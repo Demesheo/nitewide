@@ -15,6 +15,11 @@
     "deploy:demo": "node deploy/trigger-demo.cjs",
     "secrets:generate": "node scripts/generate-secrets.cjs",
     "test": "node scripts/run-default-tests.cjs",
+    "test:e2e": "node e2e/run.cjs",
+    "test:e2e:headed": "node e2e/run.cjs --headed",
+    "test:e2e:ui": "node e2e/run.cjs --ui",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:codegen": "node e2e/codegen.cjs",
     "test:demo": "npm run test:demo --workspace @nitewide/api",
     "test:email:customer:mocked": "npm run test:email:customer:mocked --workspace @nitewide/api",
     "test:email:customer:simulated": "node scripts/check-resend-workflows.cjs",
@@ -29,7 +34,11 @@
     "db:seed:orlando": "node apps/api/src/db/refresh-orlando-seed.js",
     "db:seed:clean-purchases": "node apps/api/src/db/clean-seed-purchases.js"
   },
-  "devDependencies": { "concurrently": "^9.1.2", "esbuild": "^0.28.2" },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "concurrently": "^9.1.2",
+    "esbuild": "^0.28.2"
+  },
   "allowScripts": { "esbuild@0.25.12": true, "esbuild@0.28.2": true, "fsevents": false },
   "engines": { "node": ">=24.15 <25", "npm": ">=12 <13" }
 }

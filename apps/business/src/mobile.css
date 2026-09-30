@@ -189,6 +189,11 @@
   [data-slot="dialog-title"] { line-height: 1.25; }
   [data-slot="dialog-close"] { top: 10px; right: 10px; min-height: 44px; display: grid; place-items: center; }
   [data-slot="dialog-footer"] { gap: 10px; }
+  /* Preserve the positioning override after CSS minification folds translate:
+     none into transform. Otherwise Tailwind's separate -50% translate remains. */
+  .business-nav-drawer[data-slot="dialog-content"],
+  .team-member-dialog[data-slot="dialog-content"],
+  .event-editor[data-slot="dialog-content"] { --tw-translate-x: 0px; --tw-translate-y: 0px; }
   .event-editor[data-slot="dialog-content"] { inset: 0; transform: none; translate: none; width: 100%; max-width: none; height: 100dvh; max-height: 100dvh; border-radius: 0; padding: max(22px, env(safe-area-inset-top)) 16px 0; gap: 14px; overflow: hidden; animation: none; }
   .event-editor form { flex: 1; overflow: hidden; }
   .event-editor .editor-body { flex: 1; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-right: 2px; }

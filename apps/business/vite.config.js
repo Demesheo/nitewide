@@ -18,5 +18,5 @@ export default defineConfig({
       },
     },
   },
-  server: { proxy: { "/api": "http://localhost:4000" } },
+  server: { proxy: { "/api": process.env.NITEWIDE_API_PROXY || "http://localhost:4000" } },
 });

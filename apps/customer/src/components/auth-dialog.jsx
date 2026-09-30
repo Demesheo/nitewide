@@ -113,7 +113,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
               : "Your next great night is waiting for you."}
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="auth-form">
+        <form id="customer-auth-form" aria-label="Customer authentication" onSubmit={submit} className="auth-form">
           {register && (
             <label>
               Your name

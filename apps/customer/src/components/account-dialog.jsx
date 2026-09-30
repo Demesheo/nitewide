@@ -83,7 +83,10 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSignOu
     const { ticket: incoming } = notificationBooking;
     const ticket = withPassKind(incoming, bookingRoute?.split(':')[0] || incoming.kind || 'purchase');
     ticketReturn.current = null; restoreTicketPosition.current = false;
-    setTab('plans'); setTicket(ticket); setTicketIndex(0); setCachedPass(false); savePassCache(session.user.id, ticket); setError(''); setPage(1);
+    // A notification/deep link can supersede an in-flight pass request. Its
+    // cleanup suppresses that request's finally handler, so clear its busy
+    // state when accepting the already-loaded pass as well.
+    setTab('plans'); setTicket(ticket); setTicketBusy(''); setTicketIndex(0); setCachedPass(false); savePassCache(session.user.id, ticket); setError(''); setPage(1);
     setPeriod(new Date(ticket.event.endsAt) <= new Date() ? 'past' : 'upcoming');
     onNotificationOpened?.();
   }, [open, notificationBooking, onNotificationOpened]);

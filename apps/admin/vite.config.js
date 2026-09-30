@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  server: { host: '127.0.0.1', proxy: { '/api': 'http://127.0.0.1:4000' } },
+  server: { host: '127.0.0.1', proxy: { '/api': process.env.NITEWIDE_API_PROXY || 'http://127.0.0.1:4000' } },
   build: {
     rolldownOptions: {
       output: {

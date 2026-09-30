@@ -17,7 +17,7 @@ export function Choice({
   title,
 }) {
   return (
-    <Select value={value} onValueChange={onChange} disabled={disabled}>
+    <Select name={id} value={value} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger id={id} aria-label={label} className={className} title={title}>
         <SelectValue />
       </SelectTrigger>
@@ -35,7 +35,7 @@ export function Field({ label, id, ...props }) {
   return (
     <label className="field" htmlFor={id}>
       <span>{label}</span>
-      <Input id={id} {...props} />
+      <Input id={id} name={id} {...props} />
     </label>
   );
 }

@@ -10,8 +10,8 @@ export function ServerPager({ result, page, onPageChange, disabled = false, labe
     onPageChange(next);
     requestAnimationFrame(() => targetRef?.current?.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
   };
-  return <div className="table-pagination"><span role="status">{first.toLocaleString()}–{last.toLocaleString()} of {result.total.toLocaleString()} {label}<span className="sr-only"> · Page {page} of {pages}</span></span>
-    {onPageSizeChange && <label>Rows per page<select aria-label="Rows per page" value={result.pageSize} disabled={disabled}
+  return <div className="table-pagination" role="group" aria-label={`Pagination for ${label}`}><span role="status">{first.toLocaleString()}–{last.toLocaleString()} of {result.total.toLocaleString()} {label}<span className="sr-only"> · Page {page} of {pages}</span></span>
+    {onPageSizeChange && <label>Rows per page<select name="pageSize" aria-label="Rows per page" value={result.pageSize} disabled={disabled}
       onChange={(event) => { onPageSizeChange(Number(event.target.value)); requestAnimationFrame(() => targetRef?.current?.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })); }}>
       {[10, 25, 50].map((size) => <option key={size} value={size}>{size}</option>)}
     </select></label>}

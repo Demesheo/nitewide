@@ -764,6 +764,7 @@ export default function App() {
         }}
       >
         <DialogContent
+          data-testid="customer-event-details"
           className={`event-modal${isPremiumHost(selected) ? ' premium-host-card' : ''}`}
           data-event-stage={stage}
           ref={eventDialogRef}

@@ -8,3 +8,6 @@ npm-debug.log*
 *.swp
 *.swo
 apps/api/uploads/
+test-results/
+playwright-report/
+playwright/.cache/
