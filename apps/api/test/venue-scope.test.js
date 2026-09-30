@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { venueKey, venueOptions, filterVenues } = require('../src/services/venue-scope');
+const { venueKey, venueOptions, filterVenues, venueFilter } = require('../src/services/venue-scope');
 const { aggregateHierarchy } = require('../src/services/analytics-service');
 const { reportQuery } = require('../src/http/business-schemas');
 const { analyticsQuery } = require('../src/http/analytics-schemas');
@@ -39,4 +39,17 @@ test('business venue drilldowns reconcile while admin organization grouping stay
   assert.equal(report.summary.salesCents, 3000);
   const admin = aggregateHierarchy([room, proper], orders, { admin: true });
   assert.equal(admin.hierarchy.filter(r => r.kind === 'organization').length, 1);
+});
+test('SQL venue selections retain organization or creator identity at shared physical locations', () => {
+  const other = { ...room, organizationId: 'other-org' };
+  const creator = { ...room, organizationId: null, creatorUserId: 'creator-a' };
+  const options = venueOptions([room, other, creator]);
+  const organization = venueFilter(options, [venueKey(room)]);
+  assert.match(organization.sql, /e.organization_id = :venueOwner0/);
+  assert.equal(organization.values.venueOwner0, 'proper');
+  assert.deepEqual(organization.values.venueLocations0, ['room']);
+  const independent = venueFilter(options, [venueKey(creator)]);
+  assert.match(independent.sql, /e.organization_id IS NULL AND e.creator_user_id/);
+  assert.equal(independent.values.venueOwner0, 'creator-a');
+  assert.equal(venueFilter(options, ['unknown']).sql, 'FALSE');
 });

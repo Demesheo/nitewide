@@ -40,6 +40,7 @@ import { reusableDraft } from '@/lib/event-reuse';
 import { useWorkspaceNavigation } from '@/hooks/useWorkspaceNavigation';
 import { useBusinessBootstrap } from '@/hooks/useBusinessBootstrap';
 import { downloadBusinessReport, reportQuery, browserReportTimezone } from '@/lib/report-client';
+import { PreparedExports } from '@/components/PreparedExports';
 
 const navigation = [
   ["overview", LayoutDashboard, "Overview"],
@@ -370,6 +371,7 @@ export default function App() {
               </Button>
             </div>
           )}
+          <PreparedExports session={session}/>
           {error && (
             <div className="error" role="alert">
               {error}

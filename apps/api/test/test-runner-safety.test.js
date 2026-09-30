@@ -42,7 +42,7 @@ test('maintenance DB URL is local-only and points to postgres rather than an app
 });
 
 test('standard runner classifies the mandatory integrations and five demo-only suites exactly', () => {
-  assert.deepEqual(INTEGRATION_TESTS, ['abuse-session-integration.test.js', 'admissions-integration.test.js', 'business-integration.test.js', 'business-reporting-integration.test.js', 'business-read-integration.test.js', 'admin-onboarding-lifecycle-integration.test.js', 'public-discovery-integration.test.js', 'customer-experience-integration.test.js', 'referral-reactivation-integration.test.js', 'mutation-concurrency-integration.test.js']);
+  assert.deepEqual(INTEGRATION_TESTS, ['abuse-session-integration.test.js', 'admissions-integration.test.js', 'business-integration.test.js', 'business-reporting-integration.test.js', 'business-read-integration.test.js', 'admin-onboarding-lifecycle-integration.test.js', 'public-discovery-integration.test.js', 'customer-experience-integration.test.js', 'referral-reactivation-integration.test.js', 'mutation-concurrency-integration.test.js', 'report-export-integration.test.js']);
   assert.deepEqual(DEMO_TESTS, ['orlando-seed-integration.test.js', 'posh-importer-integration.test.js', 'seed-cleanup-integration.test.js', 'seed-guestlists-integration.test.js', 'venue-selection-integration.test.js']);
   const discovered = discoverTests(path.resolve(__dirname));
   for (const filename of [...INTEGRATION_TESTS, ...DEMO_TESTS]) assert.ok(discovered.some((item) => path.basename(item) === filename), `${filename} must be classified`);

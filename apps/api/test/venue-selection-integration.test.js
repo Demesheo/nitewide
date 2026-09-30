@@ -9,11 +9,10 @@ test('authorized Proper staff can select either venue or both; unrelated manager
   assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(new URL(config.DATABASE_URL).hostname));
   const db = require('../src/db/sequelize').createSequelize(config);
   const models = require('../src/db/models').initModels(db);
-  const permissions = require('../src/services/permission-service').createPermissionService(models);
-  const business = require('../src/services/business-service').createBusinessService({ models, permissions });
-  const analytics = require('../src/services/analytics-service').createAnalyticsService({ models, permissions });
-  const { reportQuery } = require('../src/http/business-schemas');
-  const { analyticsQuery } = require('../src/http/analytics-schemas');
+  const business = require('../src/services/business-read-service').createBusinessReadService({ models });
+  const analytics = require('../src/services/business-report-service').createBusinessReportService({ models, businessRead: business });
+  const { reportDetailQuery: reportQuery, eventPageQuery } = require('../src/http/business-schemas');
+
   try {
     const org = await models.Organization.findOne({ where: { slug: 'proper' } });
     assert.ok(org, 'Run the Orlando seed refresh first');
@@ -22,40 +21,43 @@ test('authorized Proper staff can select either venue or both; unrelated manager
       const user = await models.User.findOne({ where: { email } });
       assert.ok(user, email);
       const query = { days: 30, organizationIds: [org.id] };
-      const all = await business.workspace(user.id, reportQuery.parse(query));
+      const all = await business.bootstrap(user.id);
       assert.deepEqual(all.venues.map(v => v.label).sort(), ['Proper', 'Room 22']);
       keys = all.venues.map(v => v.id);
       let sales = 0, orders = 0, eventCount = 0;
       for (const venue of all.venues) {
         const selected = { ...query, venueIds: [venue.id] };
-        const workspace = await business.workspace(user.id, reportQuery.parse(selected));
-        const report = await analytics.businessReport(user.id, analyticsQuery.parse(selected));
-        assert.ok(workspace.events.length > 0);
-        assert.ok(workspace.events.every(e => e.location.name === venue.label));
-        assert.equal(workspace.venues.length, 2, 'Selecting a venue must not hide the other option');
-        assert.equal(workspace.report.summary.salesCents, report.summary.salesCents);
-        assert.equal(workspace.report.summary.orders, report.summary.orders);
-        assert.equal(report.options.venues.length, 2);
-        assert.ok(report.hierarchy.filter(r => r.kind === 'venue').every(r => r.label === venue.label));
-        sales += workspace.report.summary.salesCents;
-        orders += workspace.report.summary.orders;
-        eventCount += workspace.events.length;
+        const workspace = await business.events(user.id, eventPageQuery.parse({ ...selected, pageSize: 100 }));
+        const report = await analytics.summary(user.id, reportQuery.parse(selected));
+        assert.ok(workspace.items.length > 0);
+        assert.ok(workspace.items.every(e => venue.locationIds.includes(e.locationId)));
+        assert.equal((await business.bootstrap(user.id)).venues.length, 2, 'Selecting a venue must not hide the other option');
+        const overview = await business.overview(user.id, reportQuery.parse(selected));
+        assert.equal(overview.summary.salesCents, report.summary.salesCents);
+        assert.equal(overview.summary.orders, report.summary.orders);
+        assert.equal(all.venues.length, 2);
+        const venueRows = await analytics.table(user.id, 'venues', reportQuery.parse(selected));
+        assert.ok(venueRows.items.every(r => r.label === venue.label));
+        sales += report.summary.salesCents;
+        orders += report.summary.orders;
+        eventCount += workspace.total;
       }
-      const both = await business.workspace(user.id, reportQuery.parse({ ...query, venueIds: keys }));
-      assert.equal(both.events.length, eventCount);
-      assert.equal(both.report.summary.salesCents, sales);
-      assert.equal(both.report.summary.orders, orders);
-      assert.equal(both.report.summary.salesCents, all.report.summary.salesCents);
+      const both = await analytics.summary(user.id, reportQuery.parse({ ...query, venueIds: keys }));
+      assert.equal(both.summary.events, eventCount);
+      assert.equal(both.summary.salesCents, sales);
+      assert.equal(both.summary.orders, orders);
+      assert.equal(both.summary.salesCents, (await analytics.summary(user.id, reportQuery.parse(query))).summary.salesCents);
     }
     const outsider = await models.User.findOne({ where: { email: 'sam.rivera.manager@nitewide.test' } });
     assert.ok(outsider);
     const query = { days: 30, organizationIds: [org.id], venueIds: keys };
-    const denied = await business.workspace(outsider.id, reportQuery.parse(query));
-    assert.equal(denied.events.length, 0);
+    const denied = await business.bootstrap(outsider.id);
+    const deniedEvents = await business.events(outsider.id, eventPageQuery.parse(query));
+    assert.equal(deniedEvents.items.length, 0);
     assert.equal(denied.venues.length, 0);
-    assert.equal(denied.report.summary.salesCents, 0);
-    const report = await analytics.businessReport(outsider.id, analyticsQuery.parse(query));
+
+    const report = await analytics.summary(outsider.id, reportQuery.parse(query));
     assert.equal(report.summary.salesCents, 0);
-    assert.equal(report.options.venues.length, 0);
+    assert.equal(denied.venues.length, 0);
   } finally { await db.close(); }
 });

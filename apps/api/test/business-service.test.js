@@ -8,6 +8,10 @@ const { eventEditor, reportQuery } = require("../src/http/business-schemas");
 const { forbidden } = require("../src/domain/errors");
 const org = "20000000-0000-4000-8000-000000000001";
 const tierId = "50000000-0000-4000-8000-000000000001";
+test('legacy workspace is retired without loading capped raw collections', async () => {
+  const service = createBusinessService({ models: new Proxy({}, { get() { throw new Error('No legacy reads allowed'); } }), permissions: {} });
+  await assert.rejects(service.workspace('manager', reportQuery.parse({})), { status: 410, code: 'LEGACY_REPORT_RETIRED' });
+});
 function input() {
   return {
     version: 2,

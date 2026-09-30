@@ -72,3 +72,10 @@ test('admin analytics rejects non-admin identity before reading report data', as
   await assert.rejects(() => service.adminReport('customer', analyticsQuery.parse({})), { code: 'FORBIDDEN' });
   assert.equal(accessed, false);
 });
+
+test('legacy analytics entrypoints retire without loading capped raw datasets', async () => {
+  const service = createAnalyticsService({ models: new Proxy({}, { get() { throw new Error('No legacy reads allowed'); } }),
+    permissions: { assertInternal: async () => {} } });
+  await assert.rejects(service.adminReport('admin', analyticsQuery.parse({})), { status: 410, code: 'LEGACY_REPORT_RETIRED' });
+  await assert.rejects(service.businessReport('manager', analyticsQuery.parse({})), { status: 410, code: 'LEGACY_REPORT_RETIRED' });
+});

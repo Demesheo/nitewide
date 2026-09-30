@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Search } from 'lucide-react';
-import { api } from '../lib/api';
-import { exportCsv, formatMoney } from '../lib/admin';
+import { api, readSession } from '../lib/api';
+import { formatMoney } from '../lib/admin';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card } from './ui/card';
 import DrillTable from './AnalyticsDrillTable';
+import { downloadBusinessReport } from '../../../business/src/lib/report-client';
+import { PreparedExports } from '../../../business/src/components/PreparedExports';
+
+const exportApi = (path, _session, options) => api(path, options);
 
 const colors = ['#b9a9ff', '#fe6ef0', '#0446ef', '#f10393', '#8b85c5'];
 const metrics = [
@@ -21,7 +25,7 @@ function MultiSelect({ label, options, values, onChange }) {
 }
 function ChartCard({ title, description, children }) { return <Card className="min-w-0 p-5"><h3 className="text-lg font-semibold">{title}</h3><p className="mb-5 text-xs text-muted-foreground">{description}</p>{children}</Card>; }
 function OverviewCharts({ data }) {
-  const regions = data.hierarchy.filter((row) => row.level === 'region').slice(0, 8);
+  const regions = data.regionalMix.slice(0, 8);
   return <div className="grid gap-4 xl:grid-cols-2">
     <ChartCard title="Sales & order pace" description="Paid orders by payment date · UTC"><div className="h-56"><ResponsiveContainer width="100%" height="100%"><AreaChart data={data.daily}><CartesianGrid vertical={false} stroke="#343044" strokeDasharray="3 5"/><XAxis dataKey="date" tick={{ fill: '#a5a5b8', fontSize: 10 }} tickFormatter={(v) => v.slice(5)}/><YAxis tick={{ fill: '#a5a5b8', fontSize: 10 }} tickFormatter={(v) => `$${Math.round(v / 100)}`}/><Tooltip formatter={(value, name) => [name === 'salesCents' ? formatMoney(value) : value, name === 'salesCents' ? 'Sales' : 'Orders']}/><Area dataKey="salesCents" stroke="#b9a9ff" fill="#b9a9ff33" strokeWidth={2} isAnimationActive={false}/></AreaChart></ResponsiveContainer></div></ChartCard>
     <ChartCard title="Top regions" description="Where selected sales are happening"><div className="h-56"><ResponsiveContainer width="100%" height="100%"><BarChart data={regions} layout="vertical" margin={{ left: 4, right: 18 }}><CartesianGrid horizontal={false} stroke="#343044"/><XAxis type="number" tick={{ fill: '#a5a5b8', fontSize: 10 }} tickFormatter={(v) => `$${Math.round(v / 100)}`}/><YAxis dataKey="label" type="category" width={120} tick={{ fill: '#c4b8d6', fontSize: 10 }}/><Tooltip formatter={(value) => formatMoney(value)}/><Bar dataKey="salesCents" fill="#fe6ef0" radius={[0, 4, 4, 0]} isAnimationActive={false}/></BarChart></ResponsiveContainer></div></ChartCard>
@@ -30,9 +34,14 @@ function OverviewCharts({ data }) {
   </div>;
 }
 export default function Analytics() {
+  return <><PreparedExports session={readSession()} request={exportApi}
+    className="mb-5 rounded-lg border border-border bg-card p-4"/><AnalyticsContent/></>;
+}
+function AnalyticsContent() {
   const [period, setPeriod] = useState('30'); const [startDate, setStartDate] = useState(''); const [endDate, setEndDate] = useState(''); const [regions, setRegions] = useState([]); const [organizations, setOrganizations] = useState([]); const [search, setSearch] = useState(''); const [result, setResult] = useState(null); const [requestError, setRequestError] = useState(null); const [availableOptions, setAvailableOptions] = useState(null); const [path, setPath] = useState([]);
+  const [exporting, setExporting] = useState(false);
   const invalidDateRange = period === 'custom' && startDate && endDate && startDate > endDate;
-  const request = useMemo(() => { if (period === 'custom' && (!startDate || !endDate || startDate > endDate)) return null; const params = new URLSearchParams(); if (period === 'custom') { params.set('startDate', startDate); params.set('endDate', endDate); } else params.set('days', period); regions.forEach((value) => params.append('regions', value)); organizations.forEach((value) => params.append('organizationIds', value)); if (search.trim()) params.set('search', search.trim()); return params.toString(); }, [period, startDate, endDate, regions, organizations, search]);
+  const request = useMemo(() => { if (period === 'custom' && (!startDate || !endDate || startDate > endDate)) return null; const params = new URLSearchParams(); params.set('timezone', 'UTC'); if (period === 'custom') { params.set('startDate', startDate); params.set('endDate', endDate); } else params.set('days', period); regions.forEach((value) => params.append('regions', value)); organizations.forEach((value) => params.append('organizationIds', value)); if (search.trim()) params.set('search', search.trim()); return params.toString(); }, [period, startDate, endDate, regions, organizations, search]);
   const latestRequest = useRef(request); latestRequest.current = request;
   const data = request && result?.request === request ? result.data : null;
   const error = request && requestError?.request === request ? requestError.message : '';
@@ -43,9 +52,9 @@ export default function Analytics() {
     const controller = new AbortController();
     setResult(null); setRequestError(null);
     const timer = setTimeout(() => {
-      api(`/admin/analytics?${request}`, { signal: controller.signal }).then((value) => {
+      Promise.all([api(`/admin/reports/summary?${request}`, { signal: controller.signal }), api('/admin/reports/bootstrap', { signal: controller.signal })]).then(([value, options]) => {
         if (!active || latestRequest.current !== request) return;
-        setResult({ request, data: value }); setAvailableOptions(value.options); setRequestError(null); setPath([]);
+        setResult({ request, data: value }); setAvailableOptions(options); setRequestError(null); setPath([]);
       }).catch((err) => {
         if (active && latestRequest.current === request && err.name !== 'AbortError') setRequestError({ request, message: err.message });
       });
@@ -57,5 +66,5 @@ export default function Analytics() {
     : !startDate || !endDate ? <p className="text-sm text-muted-foreground">Choose a start and end date to load a custom report.</p> : null;
   const syncStartDate = (event) => setStartDate(event.currentTarget.value);
   const syncEndDate = (event) => setEndDate(event.currentTarget.value);
-  return <div className="space-y-5"><Card className="p-4"><div className="analytics-toolbar flex flex-wrap items-end gap-3"><label className="text-xs text-muted-foreground">Sales period<select className="mt-1 block h-9 rounded-md border border-border bg-secondary px-3 text-sm text-foreground" value={period} onChange={(e) => setPeriod(e.target.value)}>{presets.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>{period === 'custom' && <><label className="text-xs text-muted-foreground">Start date<Input className="mt-1" type="date" value={startDate} onInput={syncStartDate} onChange={syncStartDate} onBlur={syncStartDate}/></label><label className="text-xs text-muted-foreground">End date<Input className="mt-1" type="date" value={endDate} onInput={syncEndDate} onChange={syncEndDate} onBlur={syncEndDate}/></label></>}<MultiSelect label="Regions" options={(options?.regions || []).map((item) => ({ id: item, label: item }))} values={regions} onChange={setRegions}/><MultiSelect label="Organizations" options={options?.organizations || []} values={organizations} onChange={setOrganizations}/><label className="analytics-search relative min-w-52 flex-1"><Search size={15} className="absolute left-3 top-3 text-muted-foreground"/><Input aria-label="Search all analytics" className="pl-9" placeholder="Search regions, venues, events, customers…" value={search} onChange={(e) => setSearch(e.target.value)}/></label><Button variant="outline" onClick={() => { setRegions([]); setOrganizations([]); setSearch(''); setPeriod('30'); setStartDate(''); setEndDate(''); }}>Reset</Button><Button variant="outline" disabled={!data} onClick={() => { if (data) exportCsv(`nitewide-admin-analytics-${data.range.startDate}-${data.range.endDate}.csv`, data.hierarchy); }}>Export CSV</Button></div><p className="mt-3 text-xs text-muted-foreground">Paid USD order subtotals, grouped by event location. Dates use UTC. Multiple selections are combined within each filter.</p></Card>{customDatePrompt}{error && <p className="error" role="alert">{error}</p>}{request && !data && !error && <p className="loading" role="status">Loading analytics…</p>}{data && <><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{metrics.map(([key,label,format]) => <Card className="p-5" key={key}><span className="text-xs text-muted-foreground">{label}</span><strong className="mt-2 block text-2xl">{format(data.summary[key])}</strong></Card>)}</div><OverviewCharts data={data}/><DrillTable data={data} path={path} setPath={setPath}/></>}</div>;
+  return <div className="space-y-5"><Card className="p-4"><div className="analytics-toolbar flex flex-wrap items-end gap-3"><label className="text-xs text-muted-foreground">Sales period<select className="mt-1 block h-9 rounded-md border border-border bg-secondary px-3 text-sm text-foreground" value={period} onChange={(e) => setPeriod(e.target.value)}>{presets.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>{period === 'custom' && <><label className="text-xs text-muted-foreground">Start date<Input className="mt-1" type="date" value={startDate} onInput={syncStartDate} onChange={syncStartDate} onBlur={syncStartDate}/></label><label className="text-xs text-muted-foreground">End date<Input className="mt-1" type="date" value={endDate} onInput={syncEndDate} onChange={syncEndDate} onBlur={syncEndDate}/></label></>}<MultiSelect label="Regions" options={(options?.regions || []).map((item) => ({ id: item, label: item }))} values={regions} onChange={setRegions}/><MultiSelect label="Organizations" options={options?.organizations || []} values={organizations} onChange={setOrganizations}/><label className="analytics-search relative min-w-52 flex-1"><Search size={15} className="absolute left-3 top-3 text-muted-foreground"/><Input aria-label="Search all analytics" className="pl-9" placeholder="Search regions, venues, events, customers…" value={search} onChange={(e) => setSearch(e.target.value)}/></label><Button variant="outline" onClick={() => { setRegions([]); setOrganizations([]); setSearch(''); setPeriod('30'); setStartDate(''); setEndDate(''); }}>Reset</Button><Button variant="outline" disabled={!data || exporting} onClick={async () => { if (!data || exporting) return; setExporting(true); try { await downloadBusinessReport(readSession(), request, { audience: 'admin' }); } catch (err) { if (latestRequest.current === request) setRequestError({ request, message: err.message }); } finally { setExporting(false); } }}>Export CSV</Button></div><p className="mt-3 text-xs text-muted-foreground">Paid USD order subtotals, grouped by event location. Dates use UTC. Multiple selections are combined within each filter.</p></Card>{customDatePrompt}{error && <p className="error" role="alert">{error}</p>}{request && !data && !error && <p className="loading" role="status">Loading analytics…</p>}{data && <><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{metrics.map(([key,label,format]) => <Card className="p-5" key={key}><span className="text-xs text-muted-foreground">{label}</span><strong className="mt-2 block text-2xl">{format(data.summary[key])}</strong></Card>)}</div><OverviewCharts data={data}/><DrillTable key={request} request={request} path={path} setPath={setPath}/></>}</div>;
 }

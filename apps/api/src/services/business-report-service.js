@@ -1,5 +1,5 @@
-const { QueryTypes } = require('sequelize');
-const { base, orderAccess, guestAccess, pageResult } = require('./business-read-service');
+const { QueryTypes, Transaction } = require('sequelize');
+const { base, manages, orderAccess, pageResult } = require('./business-read-service');
 const { venueKey } = require('./venue-scope');
 const { calendarPeriod: period, resolvePaidRange } = require('./business-report-period');
 
@@ -29,13 +29,13 @@ function csvRow(values) {
   }).join(',') + '\r\n';
 }
 
-function createBusinessReportService({ models, businessRead, now = () => new Date() }) {
-  const select = (sql, replacements) => models.Event.sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
+function createBusinessReportService({ models, businessRead, now = () => new Date(), includeHistorical = false }) {
+  const select = (sql, replacements, { transaction } = {}) => models.Event.sequelize.query(sql, { replacements, transaction, type: QueryTypes.SELECT });
 
-  async function source(userId, input) {
-    const actor = await businessRead.actor(userId);
-    const filter = await businessRead.filters(actor, input);
-    const range = await resolvePaidRange(select, input, now());
+  async function source(userId, input, { transaction } = {}) {
+    const actor = await businessRead.actor(userId, { transaction });
+    const filter = await businessRead.filters(actor, input, { transaction });
+    const range = await resolvePaidRange((sql, values) => select(sql, values, { transaction }), input, now());
     const conditions = [filter.sql];
     const values = { ...filter.values, since: range.since, until: range.until, timezone: range.timezone,
       search: `%${input.search.replace(/[\\%_]/g, '\\$&')}%`, regions: input.regions,
@@ -55,97 +55,127 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
           AND o.paid_at >= :since AND o.paid_at < :until AND ${orderAccess}
           AND (buyer.display_name ILIKE :search ESCAPE '\\' OR buyer.email ILIKE :search ESCAPE '\\'
             OR promoter.display_name ILIKE :search ESCAPE '\\'))) `);
-    const cte = `WITH scoped_events AS (
+    const cte = `WITH scoped_events AS MATERIALIZED (
       SELECT e.id, e.title, e.status, e.starts_at, e.organization_id, e.creator_user_id, e.location_id,
+        ${manages} AS can_manage,
         ${regionExpression} AS region, ${venueGroupExpression} AS venue_group,
         loc.name AS venue_name, loc.timezone AS venue_timezone, loc.address_line1 AS venue_address, loc.city AS venue_city,
         loc.region AS venue_region, loc.country_code AS venue_country
       FROM events e LEFT JOIN locations loc ON loc.id = e.location_id
       LEFT JOIN organizations org ON org.id = e.organization_id
-      WHERE ${base} ${conditions.join(' ')}),
-      eligible_orders AS (
-        SELECT o.* FROM orders o JOIN scoped_events se ON se.id = o.event_id JOIN events e ON e.id = o.event_id
+      WHERE ${includeHistorical && actor.isAdmin ? 'TRUE' : base} ${conditions.join(' ')}),
+      eligible_orders AS MATERIALIZED (
+        SELECT o.id, o.event_id, o.buyer_user_id, o.subtotal_cents, o.affiliate_commission_cents,
+          o.event_affiliate_id, o.org_affiliate_id, o.paid_at
+        FROM orders o JOIN scoped_events se ON se.id = o.event_id
         LEFT JOIN event_affiliates ea ON ea.id = o.event_affiliate_id
         LEFT JOIN org_affiliates oa ON oa.id = o.org_affiliate_id
-        WHERE o.status = 'paid' AND o.currency = 'USD' AND o.paid_at >= :since AND o.paid_at < :until AND ${orderAccess}
+        WHERE o.status = 'paid' AND o.currency = 'USD' AND o.paid_at >= :since AND o.paid_at < :until
+          AND (se.can_manage OR ea.user_id = :userId OR (o.event_affiliate_id IS NULL AND oa.user_id = :userId AND oa.status = 'active'))
           AND (NOT :hasPerson OR COALESCE(ea.user_id, oa.user_id) = :personId)),
-      visible_items AS (
-        SELECT oi.* FROM order_items oi JOIN eligible_orders eo ON eo.id = oi.order_id
+      visible_items AS MATERIALIZED (
+        SELECT oi.id, oi.order_id, oi.kind_snapshot, oi.name_snapshot, oi.quantity, oi.line_total_cents
+        FROM order_items oi JOIN eligible_orders eo ON eo.id = oi.order_id
         WHERE NOT :hasOffering OR (oi.kind_snapshot = :offeringKind AND oi.name_snapshot = :offeringName)),
-      visible_orders AS (
+      visible_orders AS MATERIALIZED (
         SELECT eo.*, CASE WHEN :hasOffering THEN COALESCE(item_totals.sales_cents,0) ELSE eo.subtotal_cents END AS report_sales_cents,
           CASE WHEN :hasOffering THEN NULL ELSE eo.affiliate_commission_cents END AS report_commission_cents
         FROM eligible_orders eo LEFT JOIN (SELECT order_id, SUM(line_total_cents)::bigint AS sales_cents
           FROM visible_items GROUP BY order_id) item_totals ON item_totals.order_id = eo.id
         WHERE NOT :hasOffering OR item_totals.order_id IS NOT NULL),
-      visible_guests AS (
-        SELECT g.* FROM guestlist_entries g JOIN scoped_events se ON se.id = g.event_id JOIN events e ON e.id = g.event_id
+      visible_guests AS MATERIALIZED (
+        SELECT g.id, g.event_id, g.user_id, g.event_affiliate_id, g.party_size, g.status
+        FROM guestlist_entries g JOIN scoped_events se ON se.id = g.event_id
         LEFT JOIN event_affiliates ea ON ea.id = g.event_affiliate_id
-        WHERE g.created_at >= :since AND g.created_at < :until AND ${guestAccess}
+        WHERE g.created_at >= :since AND g.created_at < :until AND (se.can_manage OR ea.user_id = :userId)
           AND NOT :hasOffering AND (NOT :hasPerson OR ea.user_id = :personId)),
-      report_events AS (
+      report_events AS MATERIALIZED (
         SELECT se.* FROM scoped_events se WHERE (NOT :hasPerson AND NOT :hasOffering)
           OR EXISTS (SELECT 1 FROM visible_orders vo WHERE vo.event_id = se.id)
           OR (:hasPerson AND EXISTS (SELECT 1 FROM visible_guests vg WHERE vg.event_id = se.id)))`;
     return { cte, values, range };
   }
 
-  async function summary(userId, input) {
-    const { cte, values, range } = await source(userId, input);
-    const [event] = input.eventId ? await select(`${cte} SELECT id, title AS label, starts_at AS "startsAt",
-      venue_timezone AS "venueTimezone" FROM scoped_events`, values) : [];
-    const [financial] = await select(`${cte} SELECT COALESCE(SUM(report_sales_cents),0)::bigint AS "salesCents",
+  async function summaryQuery(userId, input, { transaction } = {}) {
+    const { cte, values, range } = await source(userId, input, { transaction });
+    const sql = `${cte},
+      summary_financial AS (SELECT COALESCE(SUM(report_sales_cents),0)::bigint AS "salesCents",
       COALESCE(SUM(report_commission_cents),0)::bigint AS "commissionCents",
       COALESCE(SUM(report_sales_cents) FILTER (WHERE event_affiliate_id IS NULL AND org_affiliate_id IS NULL),0)::bigint AS "directSalesCents",
-      COUNT(*)::integer AS orders, COUNT(DISTINCT buyer_user_id)::integer AS customers FROM visible_orders`, values);
-    const [units] = await select(`${cte} SELECT COALESCE(SUM(oi.quantity),0)::bigint AS units
-      FROM visible_items oi JOIN visible_orders vo ON vo.id = oi.order_id`, values);
-    const [tickets] = await select(`${cte} SELECT COUNT(*) FILTER (WHERE t.status IN ('valid','checked_in'))::integer AS admissions,
+      COUNT(*)::integer AS orders, COUNT(DISTINCT buyer_user_id)::integer AS customers FROM visible_orders),
+      summary_units AS (SELECT COALESCE(SUM(oi.quantity),0)::bigint AS units
+      FROM visible_items oi JOIN visible_orders vo ON vo.id = oi.order_id),
+      summary_tickets AS (SELECT COUNT(*) FILTER (WHERE t.status IN ('valid','checked_in'))::integer AS admissions,
       COUNT(*) FILTER (WHERE t.status = 'checked_in')::integer AS "checkedIn"
-      FROM tickets t JOIN visible_items oi ON oi.id = t.order_item_id JOIN visible_orders vo ON vo.id = oi.order_id`, values);
-    const [guests] = await select(`${cte} SELECT COALESCE(SUM(party_size) FILTER (WHERE status IN ('confirmed','checked_in')),0)::integer AS "guestlistPlaces",
-      COALESCE(SUM(party_size) FILTER (WHERE status = 'checked_in'),0)::integer AS "checkedIn" FROM visible_guests`, values);
-    const [eventCount] = await select(`${cte} SELECT COUNT(*)::integer AS events FROM report_events`, values);
-    const [activeEventCount] = await select(`${cte} SELECT COUNT(*)::integer AS events FROM report_events se
-      JOIN events e ON e.id = se.id WHERE e.status = 'published' AND e.ends_at >= :currentTime`, { ...values, currentTime: now() });
-    const daily = await select(`${cte} SELECT to_char(paid_at AT TIME ZONE :timezone,'YYYY-MM-DD') AS date,
+      FROM tickets t JOIN visible_items oi ON oi.id = t.order_item_id JOIN visible_orders vo ON vo.id = oi.order_id),
+      summary_guests AS (SELECT COALESCE(SUM(party_size) FILTER (WHERE status IN ('confirmed','checked_in')),0)::integer AS "guestlistPlaces",
+      COALESCE(SUM(party_size) FILTER (WHERE status = 'checked_in'),0)::integer AS "checkedIn" FROM visible_guests),
+      summary_eventCount AS (SELECT COUNT(*)::integer AS events FROM report_events),
+      summary_activeEventCount AS (SELECT COUNT(*)::integer AS events FROM report_events se
+      JOIN events e ON e.id = se.id WHERE e.status = 'published' AND e.ends_at >= :currentTime),
+      summary_daily AS (SELECT to_char(paid_at AT TIME ZONE :timezone,'YYYY-MM-DD') AS date,
       SUM(report_sales_cents)::bigint AS "salesCents", COUNT(*)::integer AS orders
-      FROM visible_orders GROUP BY 1 ORDER BY 1`, values);
-    const channels = await select(`${cte} SELECT CASE WHEN event_affiliate_id IS NULL AND org_affiliate_id IS NULL THEN 'Direct' ELSE 'Referral' END AS label,
+      FROM visible_orders GROUP BY 1 ORDER BY 1),
+      summary_channels AS (SELECT CASE WHEN event_affiliate_id IS NULL AND org_affiliate_id IS NULL THEN 'Direct' ELSE 'Referral' END AS label,
       SUM(report_sales_cents)::bigint AS "salesCents", COUNT(*)::integer AS orders
-      FROM visible_orders GROUP BY 1 ORDER BY "salesCents" DESC, label ASC`, values);
-    const regionalMix = await select(`${cte}, region_sales AS (
+      FROM visible_orders GROUP BY 1 ORDER BY "salesCents" DESC, label ASC),
+      summary_regionalMix AS (WITH region_sales AS (
       SELECT se.region AS id, se.region AS label, SUM(vo.report_sales_cents)::bigint AS "salesCents"
       FROM visible_orders vo JOIN report_events se ON se.id = vo.event_id GROUP BY se.region),
       ranked AS (SELECT *, ROW_NUMBER() OVER (ORDER BY "salesCents" DESC, id) AS rank FROM region_sales)
       SELECT id, label, "salesCents" FROM ranked WHERE rank <= 6
-      UNION ALL SELECT 'other', 'Other regions', SUM("salesCents")::bigint FROM ranked WHERE rank > 6 HAVING COUNT(*) > 0`, values);
-    const category = await select(`${cte}, category_totals AS (
+      UNION ALL SELECT 'other', 'Other regions', SUM("salesCents")::bigint FROM ranked WHERE rank > 6 HAVING COUNT(*) > 0),
+      summary_category AS (WITH category_totals AS (
       SELECT COALESCE(NULLIF(e.category,''),'Other') AS label,
         SUM(vo.report_sales_cents)::bigint AS "salesCents", COUNT(*)::integer AS orders
       FROM visible_orders vo JOIN events e ON e.id = vo.event_id GROUP BY 1),
       ranked AS (SELECT *, ROW_NUMBER() OVER (ORDER BY "salesCents" DESC, label ASC) AS rank FROM category_totals)
       SELECT label, "salesCents", orders FROM ranked WHERE rank <= 12
       UNION ALL SELECT 'Other categories', SUM("salesCents")::bigint, SUM(orders)::integer
-      FROM ranked WHERE rank > 12 HAVING COUNT(*) > 0 ORDER BY "salesCents" DESC, label ASC`, values);
-    const offerings = await select(`${cte}, offering_totals AS (
+      FROM ranked WHERE rank > 12 HAVING COUNT(*) > 0 ORDER BY "salesCents" DESC, label ASC),
+      summary_offerings AS (WITH offering_totals AS (
       SELECT oi.kind_snapshot AS kind, oi.name_snapshot AS label,
         SUM(oi.line_total_cents)::bigint AS "salesCents", SUM(oi.quantity)::bigint AS units, COUNT(DISTINCT vo.id)::integer AS orders
       FROM visible_items oi JOIN visible_orders vo ON vo.id = oi.order_id GROUP BY oi.kind_snapshot, oi.name_snapshot),
       ranked AS (SELECT *, ROW_NUMBER() OVER (ORDER BY "salesCents" DESC, label ASC, kind ASC) AS rank FROM offering_totals)
       SELECT kind, label, "salesCents", units, orders FROM ranked WHERE rank <= 12
       UNION ALL SELECT 'other', 'Other', SUM("salesCents")::bigint, SUM(units)::bigint, SUM(orders)::integer
-      FROM ranked WHERE rank > 12 HAVING COUNT(*) > 0 ORDER BY "salesCents" DESC, label ASC`, values);
-    const eventMix = await select(`${cte}, event_totals AS (
+      FROM ranked WHERE rank > 12 HAVING COUNT(*) > 0 ORDER BY "salesCents" DESC, label ASC),
+      summary_eventMix AS (WITH event_totals AS (
       SELECT se.id, se.title AS label, se.starts_at AS "startsAt", se.venue_timezone AS "venueTimezone",
         SUM(vo.report_sales_cents)::bigint AS "salesCents", COUNT(*)::integer AS orders
       FROM visible_orders vo JOIN report_events se ON se.id = vo.event_id GROUP BY se.id, se.title, se.starts_at, se.venue_timezone),
       ranked AS (SELECT *, ROW_NUMBER() OVER (ORDER BY "salesCents" DESC, id ASC) AS rank FROM event_totals)
       SELECT id::text, label, "startsAt", "venueTimezone", "salesCents", orders FROM ranked WHERE rank <= 6
       UNION ALL SELECT 'other', 'Other events', NULL::timestamptz, NULL::text, SUM("salesCents")::bigint, SUM(orders)::integer
-      FROM ranked WHERE rank > 6 HAVING COUNT(*) > 0 ORDER BY "salesCents" DESC, label ASC`, values);
-    const [person] = input.personId ? (await table(userId, 'team', { ...input, sort: 'name_asc', page: 1, pageSize: 1,
-      roles: [], personSearch: '' })).items : [];
+      FROM ranked WHERE rank > 6 HAVING COUNT(*) > 0 ORDER BY "salesCents" DESC, label ASC)
+      SELECT (SELECT to_jsonb(row) FROM (SELECT id, title AS label, starts_at AS "startsAt", venue_timezone AS "venueTimezone" FROM scoped_events WHERE :hasReportEvent LIMIT 1) row) AS event,
+      ${input.personId ? `(SELECT to_jsonb(row) FROM (${tableSql.team.base}) row ORDER BY label ASC, id ASC LIMIT 1)` : 'NULL::jsonb'} AS person,
+      (SELECT to_jsonb(row) FROM summary_financial row) AS "financial",
+      (SELECT to_jsonb(row) FROM summary_units row) AS "units",
+      (SELECT to_jsonb(row) FROM summary_tickets row) AS "tickets",
+      (SELECT to_jsonb(row) FROM summary_guests row) AS "guests",
+      (SELECT to_jsonb(row) FROM summary_eventCount row) AS "eventCount",
+      (SELECT to_jsonb(row) FROM summary_activeEventCount row) AS "activeEventCount",
+      COALESCE((SELECT jsonb_agg(to_jsonb(row)) FROM summary_daily row), '[]'::jsonb) AS "daily",
+      COALESCE((SELECT jsonb_agg(to_jsonb(row)) FROM summary_channels row), '[]'::jsonb) AS "channels",
+      COALESCE((SELECT jsonb_agg(to_jsonb(row)) FROM summary_regionalMix row), '[]'::jsonb) AS "regionalMix",
+      COALESCE((SELECT jsonb_agg(to_jsonb(row)) FROM summary_category row), '[]'::jsonb) AS "category",
+      COALESCE((SELECT jsonb_agg(to_jsonb(row)) FROM summary_offerings row), '[]'::jsonb) AS "offerings",
+      COALESCE((SELECT jsonb_agg(to_jsonb(row)) FROM summary_eventMix row), '[]'::jsonb) AS "eventMix"`;
+    return { sql, values: { ...values, currentTime: now(), hasReportEvent: Boolean(input.eventId) }, range };
+  }
+
+  async function summary(userId, input, { transaction } = {}) {
+    if (!transaction) return models.Event.sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ }, async (snapshot) => {
+      await models.Event.sequelize.query('SET LOCAL jit=off', { transaction: snapshot });
+      return summary(userId, input, { transaction: snapshot });
+    });
+    const { sql, values, range } = await summaryQuery(userId, input, { transaction });
+    const [result] = await select(sql, values, { transaction });
+    const { financial, units, tickets, guests, eventCount, activeEventCount, daily, channels, regionalMix, category, offerings, eventMix } = result;
+    const event = result.event && { ...result.event, startsAt: result.event.startsAt ? new Date(result.event.startsAt) : null };
+    const person = result.person;
     const summaryRow = { salesCents: number(financial.salesCents),
       commissionCents: input.offeringKind ? null : number(financial.commissionCents),
       commissionBasis: input.offeringKind ? 'unavailable_at_offering_level' : 'recorded_order',
@@ -166,13 +196,13 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
       channels: channels.map((row) => ({ ...row, salesCents: number(row.salesCents) })),
       category: category.map((row) => ({ ...row, salesCents: number(row.salesCents) })),
       offerings: offerings.map((row) => ({ ...row, salesCents: number(row.salesCents), units: number(row.units) })),
-      eventMix: eventMix.map((row) => ({ ...row, salesCents: number(row.salesCents) })) };
+      eventMix: eventMix.map((row) => ({ ...row, startsAt: row.startsAt ? new Date(row.startsAt) : null, salesCents: number(row.salesCents) })) };
   }
 
   function groupTable(kind) {
     const key = kind === 'regions' ? 'region' : 'venue_group';
     const groupKey = (alias) => `${alias}.${key}`;
-    const eligible = kind === 'regions' ? '' : 'WHERE se.location_id IS NOT NULL';
+    const eligible = kind === 'regions' || includeHistorical ? '' : 'WHERE se.location_id IS NOT NULL';
     return `SELECT groups.id, groups.label, groups.region, groups."organizationId", groups."creatorUserId",
       groups."venueName", groups."venueAddress", groups."venueCity", groups."venueRegion", groups."venueCountry",
       groups.events, COALESCE(os.orders,0)::integer AS orders,
@@ -181,7 +211,7 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
       COALESCE(ts.admissions,0)::integer AS admissions,
       COALESCE(ts."checkedIn",0)::integer + COALESCE(gs."checkedIn",0)::integer AS "checkedIn",
       COALESCE(gs."guestlistPlaces",0)::integer AS "guestlistPlaces"
-      FROM (SELECT ${groupKey('se')} AS id, MIN(${kind === 'regions' ? 'se.region' : "COALESCE(NULLIF(se.venue_name,''), NULLIF(se.venue_address,''), NULLIF(se.venue_city,''), 'Event location')"}) AS label,
+      FROM (SELECT ${groupKey('se')} AS id, MIN(${kind === 'regions' ? 'se.region' : "CASE WHEN se.location_id IS NULL THEN 'No event location' ELSE COALESCE(NULLIF(se.venue_name,''), NULLIF(se.venue_address,''), NULLIF(se.venue_city,''), 'Event location') END"}) AS label,
         MIN(se.region) AS region, MIN(se.organization_id::text) AS "organizationId",
         MIN(se.creator_user_id::text) AS "creatorUserId", MIN(se.venue_name) AS "venueName",
         MIN(se.venue_address) AS "venueAddress", MIN(se.venue_city) AS "venueCity",
@@ -244,10 +274,7 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
     },
     team: {
       base: `WITH managed_events AS (
-          SELECT se.* FROM report_events se WHERE :isAdmin
-            OR (se.organization_id IS NULL AND se.creator_user_id = :userId)
-            OR EXISTS (SELECT 1 FROM organization_owners viewer WHERE viewer.organization_id = se.organization_id
-              AND viewer.user_id = :userId AND viewer.lifecycle_state = 'active')),
+          SELECT se.* FROM report_events se WHERE se.can_manage),
         participants AS (
           SELECT oo.user_id, 5 AS priority FROM organization_owners oo JOIN managed_events se ON se.organization_id = oo.organization_id
             WHERE oo.lifecycle_state = 'active' AND oo.role = 'owner'
@@ -301,22 +328,23 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
       base: `SELECT vo.buyer_user_id::text AS id,
         vo.buyer_user_id AS "buyerUserId", u.display_name AS label, u.email,
         COUNT(*)::integer AS orders, SUM(vo.report_sales_cents)::bigint AS "salesCents",
-        COALESCE(SUM((SELECT SUM(oi.quantity) FROM visible_items oi WHERE oi.order_id = vo.id)),0)::bigint AS units
+        COALESCE(SUM(item_totals.units),0)::bigint AS units
         FROM visible_orders vo JOIN users u ON u.id = vo.buyer_user_id
+        LEFT JOIN (SELECT order_id, SUM(quantity)::bigint AS units FROM visible_items GROUP BY order_id) item_totals ON item_totals.order_id = vo.id
         GROUP BY vo.buyer_user_id, u.display_name, u.email`,
       sorts: { sales_desc: '"salesCents" DESC, id ASC', sales_asc: '"salesCents" ASC, id ASC', name_asc: 'label ASC, id ASC', name_desc: 'label DESC, id ASC', orders_desc: 'orders DESC, id ASC', orders_asc: 'orders ASC, id ASC' },
     },
   };
 
-  async function table(userId, kind, input) {
-    const { cte, values, range } = await source(userId, input);
+  async function prepareTable(userId, kind, input, { transaction } = {}) {
+    const { cte, values, range } = await source(userId, input, { transaction });
     const definition = tableSql[kind];
     const field = input.sort.replace(/_(asc|desc)$/, '');
     const direction = input.sort.endsWith('_asc') ? 'ASC' : 'DESC';
-    const commonColumns = { customers: 'customers', units: 'units', checkins: '"checkedIn"', average: '("salesCents"::numeric / NULLIF(orders,0))', events: 'events' };
+    const commonColumns = { customers: 'customers', units: 'units', admissions: 'admissions', checkins: '"checkedIn"', average: '("salesCents"::numeric / NULLIF(orders,0))', events: 'events' };
     const allowed = {
-      regions: ['customers', 'units', 'checkins', 'average', 'events'], venues: ['customers', 'units', 'checkins', 'average', 'events'],
-      events: ['customers', 'units', 'checkins', 'average'], offerings: ['units'], customers: ['units'], team: ['guestlist', 'commission', 'contribution'],
+      regions: ['customers', 'units', 'admissions', 'checkins', 'average', 'events'], venues: ['customers', 'units', 'admissions', 'checkins', 'average', 'events'],
+      events: ['customers', 'units', 'admissions', 'checkins', 'average'], offerings: ['units'], customers: ['units'], team: ['guestlist', 'commission', 'contribution'],
     };
     const teamColumns = { guestlist: '"guestlistPlaces"', commission: '"commissionCents"', contribution: '"salesCents"' };
     const extraColumn = allowed[kind].includes(field) ? (commonColumns[field] || teamColumns[field]) : null;
@@ -327,10 +355,10 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
     const tableValues = { ...values, personSearch: input.personSearch || '',
       personPattern: `%${(input.personSearch || '').replace(/[\\%_]/g, '\\$&')}%`,
       allRoles: !input.roles?.length, roles: input.roles?.length ? input.roles : ['Owner'] };
-    const [count] = await select(`${cte} SELECT COUNT(*)::integer AS total FROM (${definition.base}) report_rows${predicate}`, tableValues);
-    const rows = await select(`${cte} SELECT * FROM (${definition.base}) report_rows${predicate} ORDER BY ${sort} LIMIT :pageSize OFFSET :offset`,
-      { ...tableValues, pageSize: input.pageSize, offset: (input.page - 1) * input.pageSize });
-    const items = rows.map((row) => {
+    const reportCte = `${cte}, report_rows AS (${definition.base})`;
+    const sql = `${reportCte} SELECT * FROM report_rows${predicate} ORDER BY ${sort}`;
+    const countSql = `${reportCte} SELECT COUNT(*)::integer AS total FROM report_rows${predicate}`;
+    const mapRow = (row) => {
       const result = { ...row, salesCents: number(row.salesCents),
         commissionCents: input.offeringKind ? null : number(row.commissionCents),
         commissionBasis: input.offeringKind ? 'unavailable_at_offering_level' : 'recorded_order', units: number(row.units) };
@@ -338,94 +366,26 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
         creatorUserId: row.creatorUserId, location: { name: row.venueName, addressLine1: row.venueAddress,
           city: row.venueCity, region: row.venueRegion, countryCode: row.venueCountry } });
       return result;
-    });
-    return { ...pageResult(items, count.total, input.page, input.pageSize), range };
-  }
-
-  async function exportCsv(userId, input, response) {
-    const selected = input.exportTable;
-    const query = { ...input, sort: selected ? input.sort : 'sales_desc', page: 1, pageSize: 100 };
-    // Resolve authorization, filters and a first bounded page before opening the stream.
-    const first = await table(userId, selected || 'events', query);
-    const report = !selected || selected === 'team' ? await summary(userId, input) : null;
-    response.set('Content-Type', 'text/csv; charset=utf-8');
-    response.set('Content-Disposition', `attachment; filename="nitewide-business-${selected ? `${selected}-` : ''}${first.range.startDate}-${first.range.endDate}.csv"`);
-    response.set('Cache-Control', 'no-store');
-    const write = async (values) => {
-      if (response.destroyed) return false;
-      if (!response.write(csvRow(values))) await new Promise((resolve) => {
-        const finish = () => { response.off('drain', finish); response.off('close', finish); resolve(); };
-        response.once('drain', finish);
-        response.once('close', finish);
-      });
-      return !response.destroyed;
     };
-    try {
-      if (selected) {
-        const usd = (value) => (number(value) / 100).toFixed(2);
-        const expected = (row) => number(row.admissions) + number(row.guestlistPlaces);
-        const average = (row) => usd(row.orders ? Math.round(row.salesCents / row.orders) : 0);
-        const localStart = (row) => row.startsAt ? new Intl.DateTimeFormat('en-US', {
-          timeZone: row.venueTimezone || 'UTC', year: 'numeric', month: 'short', day: 'numeric',
-          hour: 'numeric', minute: '2-digit',
-        }).format(new Date(row.startsAt)) : '';
-        const columns = {
-          regions: { header: ['Region', 'Events', 'Paid orders', 'Sales USD', 'Customers', 'Units', 'Check-ins', 'Expected', 'Avg. order USD'],
-            row: (row) => [row.label, row.events, row.orders, usd(row.salesCents), row.customers, row.units, row.checkedIn, expected(row), average(row)] },
-          venues: { header: ['Venue / creator', 'Events', 'Paid orders', 'Sales USD', 'Customers', 'Units', 'Check-ins', 'Expected', 'Avg. order USD'],
-            row: (row) => [row.label, row.events, row.orders, usd(row.salesCents), row.customers, row.units, row.checkedIn, expected(row), average(row)] },
-          events: { header: ['Event', 'Status', 'Starts at', 'Paid orders', 'Sales USD', 'Customers', 'Units', 'Check-ins', 'Expected', 'Avg. order USD'],
-            row: (row) => [row.label, row.status, localStart(row), row.orders, usd(row.salesCents), row.customers, row.units, row.checkedIn, expected(row), average(row)] },
-          offerings: { header: ['Offering', 'Kind', 'Units', 'Orders', 'Sales USD'],
-            row: (row) => [row.label, row.kind, row.units, row.orders, usd(row.salesCents)] },
-          team: { header: ['Name', 'Role', 'Attributed sales USD', 'Paid orders', 'Guestlist places', 'Approved guestlist places', 'Commission USD', 'Contribution %'],
-            row: (row) => [row.label, row.role, usd(row.salesCents), row.orders, row.guestlistPlaces, row.approvedGuestlistPlaces,
-              row.commissionCents == null ? '' : usd(row.commissionCents),
-              report.summary.salesCents ? (row.salesCents / report.summary.salesCents * 100).toFixed(1) : '0.0'] },
-          customers: { header: ['Customer', 'Email', 'Paid orders', 'Sales USD', 'Units'],
-            row: (row) => [row.label, row.email, row.orders, usd(row.salesCents), row.units] },
-        };
-        const definition = columns[selected];
-        if (!(await write(definition.header))) return;
-        let current = first;
-        let page = 1;
-        while (!response.destroyed) {
-          for (const row of current.items) if (!(await write(definition.row(row)))) return;
-          if (!current.hasMore) break;
-          page += 1;
-          current = await table(userId, selected, { ...query, page });
-        }
-        if (!response.destroyed) response.end();
-        return;
-      }
-      await write(['Nitewide business report', 'USD', report.range.timezone, `Paid ${report.range.startDate} through ${report.range.endDate}`]);
-      await write(['Section', 'Name / date', 'Role / kind', 'Event', 'Sales USD', 'Orders / units', 'Commission USD', 'Checked in', 'Expected']);
-      const tableRows = {
-        events: (row) => ['Event', row.label, row.region, row.eventId, (row.salesCents / 100).toFixed(2), row.orders,
-          row.commissionCents == null ? '' : (row.commissionCents / 100).toFixed(2), row.checkedIn, row.admissions + row.guestlistPlaces],
-        offerings: (row) => ['Offering', row.label, row.kind, '', (row.salesCents / 100).toFixed(2), row.units, '', '', ''],
-        team: (row) => ['Person', row.label, row.role, '', (row.salesCents / 100).toFixed(2), row.orders,
-          row.commissionCents == null ? '' : (row.commissionCents / 100).toFixed(2), '', ''],
-      };
-      for (const kind of Object.keys(tableRows)) {
-        let page = 1;
-        let current = kind === 'events' ? first : await table(userId, kind, { ...query, page });
-        while (!response.destroyed) {
-          for (const row of current.items) if (!(await write(tableRows[kind](row)))) return;
-          if (!current.hasMore) break;
-          page += 1;
-          current = await table(userId, kind, { ...query, page });
-        }
-      }
-      for (const day of report.daily) if (!(await write(['Daily', day.date, '', '', (day.salesCents / 100).toFixed(2), day.orders, '', '', '']))) return;
-      response.end();
-    } catch (error) {
-      if (response.headersSent) response.destroy(error);
-      else throw error;
-    }
+    return { sql, countSql, values: tableValues, range, mapRow, sort };
   }
 
-  return { summary, table, exportCsv, source, tableSql };
+  async function table(userId, kind, input, { transaction, count = true } = {}) {
+    if (!transaction) return models.Event.sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ }, async (snapshot) => {
+      await models.Event.sequelize.query('SET LOCAL jit=off', { transaction: snapshot });
+      return table(userId, kind, input, { transaction: snapshot, count });
+    });
+    const prepared = await prepareTable(userId, kind, input, { transaction });
+    const total = count ? (await select(prepared.countSql, prepared.values, { transaction }))[0].total : null;
+    const rows = await select(`${prepared.sql} LIMIT :pageSize OFFSET :offset`,
+      { ...prepared.values, pageSize: input.pageSize + (count ? 0 : 1), offset: (input.page - 1) * input.pageSize }, { transaction });
+    const items = rows.slice(0, input.pageSize).map(prepared.mapRow);
+    return { ...(count ? pageResult(items, total, input.page, input.pageSize)
+      : { items, total: null, page: input.page, pageSize: input.pageSize, hasMore: rows.length > input.pageSize }), range: prepared.range };
+  }
+
+
+  return { summary, summaryQuery, table, prepareTable, source, tableSql };
 }
 
 module.exports = { createBusinessReportService, period, topWithOther, csvRow };

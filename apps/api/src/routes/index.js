@@ -20,6 +20,8 @@ const { createBusinessReadService } = require('../services/business-read-service
 const { createBusinessEventReadService } = require('../services/business-event-read-service');
 const { createBusinessInstructionsReadService } = require('../services/business-instructions-read-service');
 const { createBusinessReportService } = require('../services/business-report-service');
+const { createReportExportService } = require('../services/report-export-service');
+const { createAdminReportService } = require('../services/admin-report-service');
 const { createBusinessTeamReadService } = require('../services/business-team-read-service');
 const { createBusinessEventReuseService } = require('../services/business-event-reuse-service');
 
@@ -33,6 +35,9 @@ function createRouter({ publicController, managementController, commerceControll
   const business = createBusinessService({ models, permissions, email, customerAppUrl, businessAppUrl });
   const businessRead = createBusinessReadService({ models, email, deliveryTrackingConfigured });
   const businessReports = createBusinessReportService({ models, businessRead });
+  const adminReports = createAdminReportService({ models, permissions, businessRead, reports: businessReports });
+  const reportExports = createReportExportService({ models, businessRead, reports: businessReports, historicalReports: adminReports.reports });
+  router.reportExports = reportExports;
   const businessTeamRead = createBusinessTeamReadService({ models, permissions });
   const businessEventReuse = createBusinessEventReuseService({ models, permissions });
   const businessEventRead = createBusinessEventReadService({ models });
@@ -133,6 +138,14 @@ function createRouter({ publicController, managementController, commerceControll
   router.get('/team/invitations/:token', asyncHandler(async (req, res) => res.json({ data: await team.invitation(req.params.token) })));
   router.post('/team/invitations/:token/accept', requireUser, asyncHandler(async (req, res) => res.json({ data: await team.accept(req.userId, req.params.token) })));
   router.get('/admin/analytics', requireUser, asyncHandler(async (req, res) => res.json({ data: await analytics.adminReport(req.userId, analyticsQuery.parse(req.query)) })));
+  router.get('/admin/reports/bootstrap', requireUser, asyncHandler(async (req, res) => res.json({ data: await adminReports.bootstrap(req.userId) })));
+  router.get('/admin/reports/summary', requireUser, asyncHandler(async (req, res) => res.json({ data: await adminReports.summary(req.userId, businessSchemas.reportDetailQuery.parse(req.query)) })));
+  router.get('/admin/reports/export.csv', requireUser, asyncHandler(async (req, res) => {
+    await permissions.assertInternal(req.userId);
+    return reportExports.request(req.userId, { ...businessSchemas.reportDetailQuery.parse(req.query), audience: 'admin' }, res);
+  }));
+  router.get('/admin/reports/:table', requireUser, asyncHandler(async (req, res) => res.json({ data: await adminReports.table(req.userId,
+    z.enum(['regions','venues','events','offerings','team','customers']).parse(req.params.table), businessSchemas.reportDetailQuery.parse(req.query)) })));
   router.get('/business/analytics', requireUser, asyncHandler(async (req, res) => res.json({ data: await analytics.businessReport(req.userId, analyticsQuery.parse(req.query)) })));
   router.get('/admin/workspace', requireUser, asyncHandler(async (req, res) => res.json({ data: await admin.workspace(req.userId, adminSchemas.reportQuery.parse(req.query)) })));
   require('./admin-management').registerAdminManagement({ router, models, permissions, email, customerAppUrl, businessAppUrl, requireUser, asyncHandler });
@@ -142,13 +155,17 @@ function createRouter({ publicController, managementController, commerceControll
     throw require('../domain/errors').conflict('Use the versioned Management editor or lifecycle actions.', 'LEGACY_ADMIN_EDIT_DISABLED');
   }));
   router.post('/admin/demo-users', requireUser, validate(adminSchemas.demoUser), asyncHandler(async (req, res) => res.status(201).json({ data: await admin.createDemoUser(req.userId, req.body) })));
-  router.get('/business/workspace', requireUser, asyncHandler(async (req, res) => res.json({ data: await business.workspace(req.userId, businessSchemas.reportQuery.parse(req.query)) })));
+  router.get('/business/workspace', requireUser, asyncHandler(async () => { throw new (require('../domain/errors').DomainError)('Use /business/bootstrap, /business/overview and paginated /business/reports endpoints.', { status: 410, code: 'LEGACY_REPORT_RETIRED' }); }));
   router.get('/business/bootstrap', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessRead.bootstrap(req.userId) })));
   router.get('/business/events', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessRead.events(req.userId, businessSchemas.eventListQuery.parse(req.query)) })));
   router.get('/business/overview', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessRead.overview(req.userId, businessSchemas.reportQuery.parse(req.query)) })));
   router.get('/business/overview/needs-attention', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessRead.needsAttention(req.userId, businessSchemas.reportQuery.parse(req.query)) })));
   router.get('/business/reports/summary', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessReports.summary(req.userId, businessSchemas.reportDetailQuery.parse(req.query)) })));
-  router.get('/business/reports/export.csv', requireUser, asyncHandler(async (req, res) => businessReports.exportCsv(req.userId, businessSchemas.reportDetailQuery.parse(req.query), res)));
+  router.get('/business/reports/export.csv', requireUser, asyncHandler(async (req, res) => reportExports.request(req.userId, businessSchemas.reportDetailQuery.parse(req.query), res)));
+  router.get('/business/reports/exports', requireUser, asyncHandler(async (req, res) => res.json({ data: await reportExports.list(req.userId) })));
+  router.get('/business/reports/exports/:id', requireUser, asyncHandler(async (req, res) => res.json({ data: await reportExports.status(req.userId, z.uuid().parse(req.params.id)) })));
+  router.get('/business/reports/exports/:id/download', requireUser, asyncHandler(async (req, res) => reportExports.download(req.userId, z.uuid().parse(req.params.id), res)));
+  router.post('/business/reports/exports/:id/retry', requireUser, asyncHandler(async (req, res) => res.json({ data: await reportExports.retry(req.userId, z.uuid().parse(req.params.id)) })));
   router.get('/business/reports/:table', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessReports.table(req.userId,
     z.enum(['regions', 'venues', 'events', 'offerings', 'team', 'customers']).parse(req.params.table), businessSchemas.reportDetailQuery.parse(req.query)) })));
   router.post('/business/events', requireUser, validate(businessSchemas.eventEditor), asyncHandler(async (req, res) => res.status(201).json({ data: await business.saveEvent(req.userId, null, req.body) })));

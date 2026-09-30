@@ -31,6 +31,7 @@ function routePolicy(method, path) {
   if (method === 'POST' && /\/(invitations|guestlist-invitations|guestlist_invitations|team_invitations|onboarding|instructions)(\/|$)/.test(path)) return 'invitation';
   if (method === 'POST' && /\/uploads\//.test(path)) return 'upload';
   if (method === 'GET' && /(?:export|\.csv)(?:\/|$)/.test(path)) return 'export';
+  if (method === 'POST' && /^\/business\/reports\/exports\/[^/]+\/retry$/.test(path)) return 'export';
   if (method === 'GET' && /^\/(business|admin)\//.test(path) && /\/(analytics|reports|overview|workspace|operations)(\/|$)/.test(path)) return 'report';
   return null;
 }

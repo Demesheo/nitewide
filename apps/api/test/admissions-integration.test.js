@@ -138,11 +138,12 @@ test('admissions HTTP: permissions, QR integrity, concurrent scans, manual entry
     const detail = await request(`/business/events/${ids.event}/detail`);
     assert.equal(detail.data.summary.checkedIn, 5);
     assert.equal(detail.data.summary.salesCents, 30000);
-    const workspace = await request(`/business/workspace?organizationId=${ids.org}&days=7`);
-    assert.equal(workspace.data.report.summary.checkedIn, 5);
-    const analytics = await request(`/business/analytics?organizationIds=${ids.org}&days=7`);
+    const workspace = await request(`/business/overview?organizationIds=${ids.org}&days=7`);
+    assert.equal(workspace.data.summary.checkedIn, 5);
+    const analytics = await request(`/business/reports/summary?organizationIds=${ids.org}&days=7`);
     assert.equal(analytics.data.summary.checkedIn, 5);
-    const customerRow = analytics.data.hierarchy.find((row) => row.level === 'customer' && row.buyerUserId === ids.guest);
+    const attendees = await request(`/business/events/${ids.event}/attendees`);
+    const customerRow = attendees.data.items.find((row) => row.id === ids.guest);
     assert.equal(customerRow.checkedIn, 5);
     assert.equal(customerRow.admissions + customerRow.guestlistPlaces, 5);
     const guestlist = await request(`/business/events/${ids.event}/guestlist?status=checked_in`);

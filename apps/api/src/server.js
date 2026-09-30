@@ -6,5 +6,11 @@ const emailTimer = app.locals.emailService.enabled
   ? setInterval(() => app.locals.emailService.drain().catch((error) => console.error('Email outbox drain failed:', error.code || error.name)), 15000)
   : null;
 if (emailTimer) app.locals.emailService.drain().catch((error) => console.error('Email outbox drain failed:', error.code || error.name));
-async function shutdown() { if (emailTimer) clearInterval(emailTimer); server.close(async () => { await sequelize.close(); process.exit(0); }); }
+const exportTimer = setInterval(() => app.locals.reportExports.drain().catch((error) => console.error('Report export worker failed:', error.code || error.name)), 2000);
+async function shutdown() {
+  clearInterval(exportTimer);
+  if (emailTimer) clearInterval(emailTimer);
+  await app.locals.reportExports.stop();
+  server.close(async () => { await sequelize.close(); process.exit(0); });
+}
 process.on('SIGINT', shutdown); process.on('SIGTERM', shutdown);

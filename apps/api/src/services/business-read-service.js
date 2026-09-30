@@ -1,7 +1,7 @@
 const { QueryTypes, Op } = require('sequelize');
 const { forbidden, notFound } = require('../domain/errors');
 const { activeUser } = require('./lifecycle-service');
-const { venueOptions } = require('./venue-scope');
+const { venueOptions, venueFilter } = require('./venue-scope');
 const { eventFinished } = require('../domain/event-policy');
 const { resolvePaidRange } = require('./business-report-period');
 const { accessScopeSql } = require('./event-affiliate-access');
@@ -38,15 +38,15 @@ const pageResult = (items, total, page, pageSize) => ({ items, total: Number(tot
 const cents = (value) => Number(value || 0);
 
 function createBusinessReadService({ models, email = null, deliveryTrackingConfigured = false, now = () => new Date() }) {
-  const select = (sql, replacements) => models.Event.sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
-  async function actor(userId) {
-    const user = await models.User.findByPk(userId, { attributes: ['id', 'isActive', 'lifecycleState', 'onboardingPending', 'isInternalAdmin', 'independentCreator'] });
+  const select = (sql, replacements, { transaction } = {}) => models.Event.sequelize.query(sql, { replacements, transaction, type: QueryTypes.SELECT });
+  async function actor(userId, { transaction } = {}) {
+    const user = await models.User.findByPk(userId, { transaction, attributes: ['id', 'isActive', 'lifecycleState', 'onboardingPending', 'isInternalAdmin', 'independentCreator'] });
     if (!activeUser(user)) throw forbidden('An active account is required');
-    const memberships = await models.OrganizationOwner.findAll({ where: { userId, lifecycleState: 'active' }, attributes: ['organizationId'] });
+    const memberships = await models.OrganizationOwner.findAll({ transaction, where: { userId, lifecycleState: 'active' }, attributes: ['organizationId'] });
     return { userId, isAdmin: Boolean(user.isInternalAdmin), user,
       managedOrgIds: new Set(memberships.map((row) => row.organizationId)) };
   }
-  async function organizations(scope) {
+  async function organizations(scope, { transaction } = {}) {
     const rows = await select(`SELECT org.id, org.name, org.plan_tier AS "planTier", org.location_id AS "locationId",
       (${scope.isAdmin ? 'true' : `EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organization_id = org.id AND oo.user_id = :userId AND oo.lifecycle_state = 'active')`}) AS "canManage"
       FROM organizations org WHERE org.lifecycle_state = 'active' AND org.status = 'active' AND
@@ -54,18 +54,18 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
       OR EXISTS (SELECT 1 FROM organization_employees oe WHERE oe.organization_id = org.id AND oe.user_id = :userId AND oe.status = 'active')
       OR EXISTS (SELECT 1 FROM org_affiliates oa WHERE oa.organization_id = org.id AND oa.user_id = :userId AND oa.status = 'active')
       OR EXISTS (SELECT 1 FROM event_affiliates ea JOIN events e ON e.id = ea.event_id WHERE e.organization_id = org.id AND ea.user_id = :userId AND ea.status = 'active'))
-      ORDER BY org.name ASC, org.id ASC`, scope);
-    const locations = await models.Location.findAll({ where: { id: rows.map((r) => r.locationId).filter(Boolean), lifecycleState: 'active' } });
+      ORDER BY org.name ASC, org.id ASC`, scope, { transaction });
+    const locations = await models.Location.findAll({ transaction, where: { id: rows.map((r) => r.locationId).filter(Boolean), lifecycleState: 'active' } });
     const byId = new Map(locations.map((r) => [r.id, r]));
     return rows.map((r) => ({ ...r, location: byId.get(r.locationId) || null, canInviteManager: r.canManage }));
   }
-  async function venues(scope, orgs) {
+  async function venues(scope, orgs, { transaction } = {}) {
     const locations = await select(`SELECT DISTINCT e.organization_id AS "organizationId", e.creator_user_id AS "creatorUserId", e.location_id AS "locationId"
       FROM events e WHERE ${base} AND e.location_id IS NOT NULL
       UNION SELECT DISTINCT ov.organization_id, NULL::uuid, ov.location_id
       FROM organization_venues ov JOIN locations loc ON loc.id = ov.location_id AND loc.lifecycle_state = 'active'
-      WHERE ov.organization_id IN (:organizationIds)`, { ...scope, organizationIds: orgs.map((o) => o.id).length ? orgs.map((o) => o.id) : ['00000000-0000-0000-0000-000000000000'] });
-    const placeRows = await models.Location.findAll({ where: { id: [...new Set(locations.map((r) => r.locationId))], lifecycleState: 'active' } });
+      WHERE ov.organization_id IN (:organizationIds)`, { ...scope, organizationIds: orgs.map((o) => o.id).length ? orgs.map((o) => o.id) : ['00000000-0000-0000-0000-000000000000'] }, { transaction });
+    const placeRows = await models.Location.findAll({ transaction, where: { id: [...new Set(locations.map((r) => r.locationId))], lifecycleState: 'active' } });
     const byId = new Map(placeRows.map((r) => [r.id, r]));
     return venueOptions(locations.filter((r) => byId.has(r.locationId)).map((r) => ({ ...r, location: byId.get(r.locationId) })));
   }
@@ -77,7 +77,7 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
         smsConfigured: false, instructions: Boolean(email?.enabled), notifications: true },
       scope: { canCreateIndependent: Boolean(scope.isAdmin || scope.user.independentCreator), isInternalAdmin: scope.isAdmin } };
   }
-  async function filters(scope, input = {}, { dates = false } = {}) {
+  async function filters(scope, input = {}, { dates = false, transaction } = {}) {
     const clauses = [];
     const values = { ...scope };
     const organizationIds = input.organizationIds?.length ? input.organizationIds : input.organizationId ? [input.organizationId] : [];
@@ -87,10 +87,10 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
       if (real.length) values.organizationIds = real;
     }
     if (input.venueIds?.length) {
-      const options = await venues(scope, await organizations(scope));
-      const ids = [...new Set(options.filter((v) => input.venueIds.includes(v.id)).flatMap((v) => v.locationIds))];
-      clauses.push(ids.length ? 'e.location_id IN (:locationIds)' : 'FALSE');
-      if (ids.length) values.locationIds = ids;
+      const options = await venues(scope, await organizations(scope, { transaction }), { transaction });
+      const selected = venueFilter(options, input.venueIds);
+      clauses.push(selected.sql);
+      Object.assign(values, selected.values);
     }
     if (dates) {
       if (input.from) { clauses.push('e.starts_at >= :from'); values.from = input.from; }

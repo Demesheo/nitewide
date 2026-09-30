@@ -19,7 +19,7 @@ export async function createTestServer(options, create = createServer) {
   server.close = () => {
     // Preserve Vite's idempotent close behavior and await cleanup, even if
     // closing the server fails. Only remove the directory we just created.
-    closing ??= Promise.resolve().then(close).finally(() => rm(cacheDir, { recursive: true, force: true }));
+    closing ??= Promise.resolve().then(close).finally(() => rm(cacheDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
     return closing;
   };
   return server;

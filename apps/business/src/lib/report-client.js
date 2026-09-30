@@ -1,3 +1,4 @@
+import { waitForExport } from './export-job-client.js';
 export const browserReportTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
 export function reportQuery({ days = '30', startDate = '', endDate = '', organizationIds = [], venueIds = [], regions = [], search = '', sort = 'sales_desc',
@@ -18,8 +19,8 @@ export function reportQuery({ days = '30', startDate = '', endDate = '', organiz
   return params.toString();
 }
 
-export async function downloadBusinessReport(session, query) {
-  const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}/business/reports/export.csv?${query}`, {
+async function exportRequest(session, path) {
+  const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}${path}`, {
     headers: { Authorization: `Bearer ${session.accessToken}` },
   });
   if (!response.ok) {
@@ -28,13 +29,38 @@ export async function downloadBusinessReport(session, query) {
     failure.status = response.status;
     throw failure;
   }
+  return response;
+}
+export async function downloadPreparedExport(session, id, filename = 'nitewide-business-report.csv') {
+  const response = await exportRequest(session, `/business/reports/exports/${encodeURIComponent(id)}/download`);
+  return saveCsv(response, filename);
+}
+export async function downloadBusinessReport(session, query, { audience = 'business' } = {}) {
+  let response = await exportRequest(session, `/${audience === 'admin' ? 'admin' : 'business'}/reports/export.csv?${query}`);
+  if (response.status === 202) {
+    const { data: job } = await response.json();
+    const ready = await waitForExport(job, {
+      getStatus: async (id) => (await (await exportRequest(session, `/business/reports/exports/${encodeURIComponent(id)}`)).json()).data,
+      onProgress: (value) => window.dispatchEvent(new CustomEvent('nitewide:export-progress', { detail: value })),
+    });
+    return downloadPreparedExport(session, ready.id, ready.filename);
+  }
   const table = new URLSearchParams(query).get('exportTable');
   const filename = `nitewide-business-${table ? `${table}-` : ''}${new Date().toISOString().slice(0, 10)}.csv`;
+  return saveCsv(response, filename);
+}
+export async function saveCsv(response, filename) {
   if (window.showSaveFilePicker && response.body) {
-    const file = await window.showSaveFilePicker({ suggestedName: filename,
-      types: [{ description: 'CSV report', accept: { 'text/csv': ['.csv'] } }] });
-    await response.body.pipeTo(await file.createWritable());
-    return;
+    let file;
+    try { file = await window.showSaveFilePicker({ suggestedName: filename,
+      types: [{ description: 'CSV report', accept: { 'text/csv': ['.csv'] } }] }); }
+    catch (error) {
+      if (error.name === 'AbortError') return;
+      // Background preparation can outlive browser user activation. The
+      // authenticated download still works with the standard link fallback.
+      if (!['SecurityError', 'NotAllowedError'].includes(error.name)) throw error;
+    }
+    if (file) { await response.body.pipeTo(await file.createWritable()); return; }
   }
   const url = URL.createObjectURL(await response.blob());
   try {

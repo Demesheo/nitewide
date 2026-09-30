@@ -1,7 +1,5 @@
-const { Op } = require('sequelize');
-const { DomainError, forbidden } = require('../domain/errors');
-const { activeEventAffiliates } = require('./event-affiliate-scope');
-const { venueKey, venueOptions, filterVenues } = require('./venue-scope');
+const { DomainError } = require('../domain/errors');
+const { venueKey } = require('./venue-scope');
 
 const json = (record) => record?.toJSON ? record.toJSON() : record;
 const amount = (value) => Number(value || 0);
@@ -164,88 +162,13 @@ function aggregateReferrals(ordersInput, affiliatesInput, membershipsInput = [],
   return { people: [...people.values()].map(({ _buyers, ...person }) => ({ ...person, customers: _buyers.size })).sort((a, b) => b.salesCents - a.salesCents), customers: [...customers.values()].sort((a, b) => b.salesCents - a.salesCents) };
 }
 
-function createAnalyticsService({ models, permissions, now = () => new Date() }) {
-  async function report(userId, query, admin = false) {
-    if (admin) await permissions.assertInternal(userId);
-    const range = resolveRange(query, now());
-    const [user, memberships, employees, orgAffiliates, eventAffiliates] = admin ? [null, [], [], [], []] : await Promise.all([
-      models.User.findByPk(userId), models.OrganizationOwner.findAll({ where: { userId } }), models.OrganizationEmployee.findAll({ where: { userId, status: 'active' } }), models.OrgAffiliate.findAll({ where: { userId, status: 'active' } }), models.EventAffiliate.findAll({ where: { userId, status: 'active' } }),
-    ]);
-    if (!admin && !user?.isActive) throw forbidden('An active account is required');
-    const currentEventAffiliates = admin ? [] : await activeEventAffiliates(models, eventAffiliates, memberships, employees, orgAffiliates);
-    const managedOrgIds = new Set(memberships.map((row) => row.organizationId));
-    const ownOrgAffiliateIds = new Set(orgAffiliates.map((row) => row.id));
-    const ownEventAffiliateIds = new Set(currentEventAffiliates.map((row) => row.id));
-    const accessWhere = admin || user.isInternalAdmin ? {} : { [Op.or]: [
-      { creatorUserId: userId, organizationId: null }, { organizationId: { [Op.in]: [...managedOrgIds, ...employees.map((row) => row.organizationId), ...orgAffiliates.map((row) => row.organizationId)] } }, { id: { [Op.in]: currentEventAffiliates.map((row) => row.eventId) } },
-    ] };
-    const rawEvents = await models.Event.findAll({ where: accessWhere, attributes: ['id', 'title', 'summary', 'category', 'status', 'startsAt', 'organizationId', 'creatorUserId', 'locationId'], include: [
-      { model: models.Location, as: 'location', attributes: ['id', 'name', 'addressLine1', 'city', 'region', 'countryCode'] },
-      { model: models.Organization, as: 'organization', attributes: ['id', 'name'], required: false },
-      { model: models.User, as: 'creator', attributes: ['id', 'displayName'], required: false },
-    ], limit: 5001 });
-    if (rawEvents.length > 5000) throw new DomainError('Narrow the report: more than 5,000 events are in scope', { status: 422 });
-    const allEvents = rawEvents.map(json).filter((event) => event.status !== 'draft' || admin || user.isInternalAdmin || managedOrgIds.has(event.organizationId) || (!event.organizationId && event.creatorUserId === userId) || currentEventAffiliates.some((affiliate) => affiliate.eventId === event.id));
-    const options = { regions: [...new Set(allEvents.map((event) => regionKey(event.location)))].sort(), organizations: [...new Map(allEvents.map((event) => { const entity = entityFor(event); return [entity.kind === 'creator' ? 'independent' : entity.id, { id: entity.kind === 'creator' ? 'independent' : entity.id, label: entity.kind === 'creator' ? 'Independent creators' : entity.label }]; })).values()].sort((a, b) => a.label.localeCompare(b.label)) };
-    const selectedEvents = allEvents.filter((event) => (!query.regions.length || query.regions.includes(regionKey(event.location))) && (!query.organizationIds.length || query.organizationIds.includes(event.organizationId || 'independent')));
-    options.venues = venueOptions(selectedEvents).map(({ id, label, organizationId }) => ({ id, label, organizationId }));
-    const events = filterVenues(selectedEvents, query.venueIds);
-    const eventIds = events.map((event) => event.id);
-    if (!admin) {
-      const historical = await models.EventAffiliate.findAll({ where: { userId, eventId: { [Op.in]: eventIds } }, attributes: ['id'] });
-      historical.forEach((row) => ownEventAffiliateIds.add(row.id));
-    }
-    const rawOrders = await models.Order.findAll({ where: { eventId: { [Op.in]: eventIds }, status: 'paid', currency: 'USD', paidAt: { [Op.gte]: range.since, [Op.lt]: range.until } }, attributes: ['id', 'eventId', 'buyerUserId', 'subtotalCents', ...(admin ? ['totalCents', 'platformFeeCents'] : []), 'affiliateCommissionCents', 'orgAffiliateId', 'eventAffiliateId', 'paidAt'], include: [
-      { model: models.OrderItem, as: 'items', attributes: ['nameSnapshot', 'kindSnapshot', 'quantity', 'entriesPerUnitSnapshot', 'lineTotalCents'], include: [{ model: models.Ticket, as: 'tickets', attributes: ['status'] }] },
-      { model: models.User, as: 'buyer', attributes: ['id', 'displayName', 'email'] },
-    ], limit: 20001 });
-    if (rawOrders.length > 20000) throw new DomainError('Narrow the date, region, or organization filters: report exceeds 20,000 orders', { status: 422 });
-    const rawGuests = await models.GuestlistEntry.findAll({ where: { eventId: { [Op.in]: eventIds }, createdAt: { [Op.gte]: range.since, [Op.lt]: range.until } }, attributes: ['id', 'eventId', 'userId', 'eventAffiliateId', 'partySize', 'status', 'createdAt'], include: [{ model: models.User, as: 'user', attributes: ['id', 'displayName', 'email'] }], limit: 20001 });
-    if (rawGuests.length > 20000) throw new DomainError('Narrow the date, region, or organization filters: report exceeds 20,000 guestlist requests', { status: 422 });
-    const eventById = new Map(events.map((event) => [event.id, event]));
-    const orders = rawOrders.map(json).filter((order) => admin || user.isInternalAdmin || (() => {
-      const event = eventById.get(order.eventId);
-      const creditedAffiliateId = order.eventAffiliateId || order.orgAffiliateId;
-      return event && ((!event.organizationId && event.creatorUserId === userId) || managedOrgIds.has(event.organizationId) || ownEventAffiliateIds.has(creditedAffiliateId) || ownOrgAffiliateIds.has(creditedAffiliateId));
-    })());
-    const orgIds = [...new Set(events.map((event) => event.organizationId).filter(Boolean))];
-    const [orgRefs, eventRefs, teamMemberships, teamEmployees] = admin ? [[], [], [], []] : await Promise.all([
-      models.OrgAffiliate.findAll({ where: { organizationId: { [Op.in]: orgIds } }, include: [{ model: models.User, as: 'user', attributes: ['id', 'displayName'] }] }),
-      models.EventAffiliate.findAll({ where: { eventId: { [Op.in]: eventIds } }, include: [{ model: models.User, as: 'user', attributes: ['id', 'displayName'] }] }),
-      models.OrganizationOwner.findAll({ where: { organizationId: { [Op.in]: orgIds.filter((id) => managedOrgIds.has(id)) } }, attributes: ['userId', 'organizationId', 'role'], include: [{ model: models.User, as: 'user', attributes: ['id', 'displayName'] }] }),
-      models.OrganizationEmployee.findAll({ where: { status: 'active', [Op.or]: [
-        { organizationId: { [Op.in]: orgIds.filter((id) => user.isInternalAdmin || managedOrgIds.has(id)) } },
-        { organizationId: { [Op.in]: orgIds.filter((id) => employees.some((row) => row.organizationId === id)) }, userId },
-      ] }, attributes: ['userId', 'organizationId', 'status'], include: [{ model: models.User, as: 'user', attributes: ['id', 'displayName'] }] }),
-    ]);
-    const scopedMemberships = teamMemberships.map(json);
-    const scopedEmployees = teamEmployees.map(json);
-    const refById = new Map([...orgRefs, ...eventRefs].map((raw) => { const ref = json(raw); return [ref.id, ref]; }));
-    const matchedEvents = query.search ? events.filter((event) => {
-      const term = query.search.toLowerCase();
-      return [regionKey(event.location), entityFor(event).label, event.location?.name, event.title, event.category, event.summary].join(' ').toLowerCase().includes(term) || orders.some((order) => {
-        if (order.eventId !== event.id) return false;
-        const ref = refById.get(order.eventAffiliateId || order.orgAffiliateId);
-        return [order.buyer?.displayName, order.buyer?.email, ref?.user?.displayName].filter(Boolean).join(' ').toLowerCase().includes(term);
-      });
-    }) : events;
-    const matchedEventIds = new Set(matchedEvents.map((event) => event.id));
-    const visibleOrders = orders.filter((order) => matchedEventIds.has(order.eventId));
-    const visibleGuests = rawGuests.map(json).filter((guest) => {
-      if (!matchedEventIds.has(guest.eventId)) return false;
-      if (admin || user.isInternalAdmin) return true;
-      const event = eventById.get(guest.eventId);
-      return Boolean(event && ((!event.organizationId && event.creatorUserId === userId) || managedOrgIds.has(event.organizationId) || ownEventAffiliateIds.has(guest.eventAffiliateId)));
+function createAnalyticsService({ permissions }) {
+  const retired = () => {
+    throw new DomainError('This bulk analytics endpoint has been retired. Use SQL-backed summary and paginated report tables.', {
+      status: 410, code: 'LEGACY_REPORT_RETIRED', details: { replacements: ['/admin/reports/summary', '/admin/reports/:table', '/business/reports/summary', '/business/reports/:table'] },
     });
-    const matchedOrganizationIds = new Set(matchedEvents.map((event) => event.organizationId).filter(Boolean));
-    const scopedRefs = admin ? [] : [...orgRefs, ...eventRefs].filter((raw) => {
-      const ref = json(raw);
-      const event = eventById.get(ref.eventId);
-      const inSelection = ref.eventId ? matchedEventIds.has(ref.eventId) : matchedOrganizationIds.has(ref.organizationId);
-      return inSelection && (user.isInternalAdmin || ref.userId === userId || managedOrgIds.has(ref.organizationId || event?.organizationId) || (!event?.organizationId && event?.creatorUserId === userId));
-    }).map((raw) => { const ref = json(raw); const event = eventById.get(ref.eventId); return { ...ref, role: event && !event.organizationId && event.creatorUserId === ref.userId ? 'Creator' : undefined }; });
-    return { range: { startDate: range.startDate, endDate: range.endDate, timezone: 'UTC', currency: 'USD' }, options, ...aggregateHierarchy(matchedEvents, visibleOrders, { admin, includeCustomers: true, venueEntities: !admin, guests: visibleGuests }), ...(admin ? {} : { referrals: aggregateReferrals(visibleOrders, scopedRefs, scopedMemberships.filter((row) => matchedOrganizationIds.has(row.organizationId)), scopedEmployees.filter((row) => matchedOrganizationIds.has(row.organizationId)), visibleGuests) }), scope: admin ? 'platform' : managedOrgIds.size || user.isInternalAdmin || allEvents.some((event) => !event.organizationId && event.creatorUserId === userId) ? 'managed_or_mixed' : 'own' };
-  }
-  return { adminReport: (userId, query) => report(userId, query, true), businessReport: (userId, query) => report(userId, query, false) };
+  };
+  return { adminReport: async (userId) => { await permissions.assertInternal(userId); return retired(); },
+    businessReport: async () => retired() };
 }
 module.exports = { regionKey, resolveRange, aggregateHierarchy, aggregateReferrals, createAnalyticsService };

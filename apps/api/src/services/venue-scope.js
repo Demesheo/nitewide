@@ -13,8 +13,9 @@ function venueOptions(events) {
   for (const event of events) {
     const id = venueKey(event);
     if (!id) continue;
-    if (!groups.has(id)) groups.set(id, { id, label: event.location.name || event.location.addressLine1 || 'Event location', organizationId: event.organizationId || null, location: event.location, locationIds: [] });
-    const group = groups.get(id), locationId = event.locationId || event.location.id;
+    const locationId = event.locationId || event.location.id;
+    if (!groups.has(id)) groups.set(id, { id, label: locationId ? event.location.name || event.location.addressLine1 || 'Event location' : 'No event location', organizationId: event.organizationId || null, creatorUserId: event.organizationId ? null : event.creatorUserId, location: event.location, locationIds: [] });
+    const group = groups.get(id);
     if (locationId && !group.locationIds.includes(locationId)) group.locationIds.push(locationId);
   }
   return [...groups.values()].sort((a,b)=>a.label.localeCompare(b.label)||a.id.localeCompare(b.id));
@@ -22,4 +23,17 @@ function venueOptions(events) {
 function filterVenues(events, selected = []) {
   return selected.length ? events.filter(event => selected.includes(venueKey(event))) : events;
 }
-module.exports = { venueKey, venueOptions, filterVenues };
+// A physical location can host multiple organizations or independent creators.
+// Preserve that owner dimension when translating a selected venue group to SQL.
+function venueFilter(options, selected) {
+  const values = {};
+  const clauses = options.filter((venue) => selected.includes(venue.id)).map((venue, index) => {
+    if (venue.locationIds.length) values[`venueLocations${index}`] = venue.locationIds;
+    values[`venueOwner${index}`] = venue.organizationId || venue.creatorUserId;
+    return `(${venue.locationIds.length ? `e.location_id IN (:venueLocations${index})` : 'e.location_id IS NULL'} AND ${venue.organizationId
+      ? `e.organization_id = :venueOwner${index}`
+      : `e.organization_id IS NULL AND e.creator_user_id = :venueOwner${index}`})`;
+  });
+  return { sql: clauses.length ? `(${clauses.join(' OR ')})` : 'FALSE', values };
+}
+module.exports = { venueKey, venueOptions, filterVenues, venueFilter };

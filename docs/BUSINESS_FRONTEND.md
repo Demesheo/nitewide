@@ -2,6 +2,8 @@
 
 ## Scope and local startup
 
+Current reporting uses SQL summaries and server-paginated tables. Small CSVs capture a stable dataset before download; exports above 1,000 rows prepare in a durable queue with progress, retry and later download. Apply `202609300005-report-export-jobs` with `npm run db:migrate`, then restart the API; no reseed is required. See [SQL reporting and snapshot exports](REPORTING_EXPORTS.md) for replacement APIs, retention, access controls and measurements.
+
 The business application is a real API-backed React/Vite application, not a static dashboard. It uses the existing single User identity, shadcn/ui components, Radix accessible primitives, Tailwind CSS v4, Lucide icons, and Recharts. Apply the additive `202609210001-event-images` migration; no reseed is needed and existing events/sales are preserved.
 
 From the repository root, after the initial setup in README:

@@ -143,6 +143,43 @@ test('analytics search is explicit, drills to purchases and customers, and expor
   expect(content.trim().split(/\r?\n/).length).toBeGreaterThan(10);
 });
 
+test('background exports show progress and remain downloadable after section navigation', async ({ page, fixture }) => {
+  await page.addInitScript(() => { delete window.showSaveFilePicker; });
+  let requested = false; let polls = 0;
+  const job = { id: 'browser-export-fixture', status: 'queued', progress: 0, totalRows: 1200,
+    processedRows: 0, filename: 'nitewide-customers.csv' };
+  const ready = { ...job, status: 'ready', progress: 100, processedRows: 1200 };
+  await page.route('**/api/business/reports/export.csv?**', async route => {
+    requested = true;
+    await route.fulfill({ status: 202, json: { data: job } });
+  });
+  await page.route('**/api/business/reports/exports', route => route.fulfill({ json: { data: requested ? [polls > 1 ? ready : job] : [] } }));
+  await page.route('**/api/business/reports/exports/browser-export-fixture', route => route.fulfill({ json: {
+    data: ++polls > 1 ? ready : { ...job, status: 'rendering', progress: 45, processedRows: 540 },
+  } }));
+  const csv = '"Customer","Sales USD"\r\n' + Array.from({ length: 1200 }, (_, i) => `"Buyer ${i}","25.00"\r\n`).join('');
+  await page.route('**/api/business/reports/exports/browser-export-fixture/download', route => route.fulfill({
+    contentType: 'text/csv', headers: { 'Content-Disposition': 'attachment; filename="nitewide-customers.csv"' }, body: csv,
+  }));
+  await login(page, fixture, 'business');
+  await businessSection(page, 'Analytics');
+  await expect(page.getByRole('table', { name: 'regions report' })).toBeVisible();
+  const firstDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
+  const prepared = page.getByTestId('prepared-exports');
+  await prepared.locator('summary').click();
+  await expect(prepared.getByRole('status')).toContainText('45%');
+  const downloaded = await firstDownload;
+  expect((await require('node:fs/promises').readFile(await downloaded.path(), 'utf8')).trim().split(/\r?\n/)).toHaveLength(1201);
+  await expect(prepared.getByRole('button', { name: 'Download', exact: true })).toBeVisible();
+  await businessSection(page, 'Events');
+  await expect(prepared).toBeVisible();
+  await expectNoOverflow(page);
+  const secondDownload = page.waitForEvent('download');
+  await prepared.getByRole('button', { name: 'Download', exact: true }).click();
+  expect((await secondDownload).suggestedFilename()).toBe('nitewide-customers.csv');
+});
+
 test('manual guestlist admission confirms once and updates customer entry', async ({ page, context, fixture }) => {
   await admissions(page, fixture);
   await page.getByRole('tab', { name: 'Manual check-in' }).click();

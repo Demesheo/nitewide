@@ -365,46 +365,42 @@ test(
       const purchaseDetail = await req(`/business/events/${event.id}/detail`, ids.owner);
       assert.equal(purchaseDetail.status, 200);
       assert.ok(purchaseDetail.body.data.purchases.some((purchase) => purchase.id === checkout.body.data.order.id && purchase.customer === 'QA outsider' && purchase.referredBy === 'QA promoter'));
-      const report = await req(
-        `/business/workspace?organizationId=${ids.org}&days=7`,
-        ids.owner,
-      );
+      const retiredWorkspace = await req('/business/workspace', ids.owner);
+      assert.equal(retiredWorkspace.status, 410);
+      assert.equal(retiredWorkspace.body.error.code, 'LEGACY_REPORT_RETIRED');
+      const retiredAnalytics = await req('/business/analytics', ids.owner);
+      assert.equal(retiredAnalytics.status, 410);
+      assert.equal(retiredAnalytics.body.error.code, 'LEGACY_REPORT_RETIRED');
+      const report = await req(`/business/reports/summary?organizationIds=${ids.org}&days=7`, ids.owner);
       assert.equal(report.status, 200, JSON.stringify(report.body));
-      assert.equal(report.body.data.report.summary.salesCents, 2000);
-      assert.equal(
-        report.body.data.report.people.find((p) => p.id === ids.promoter)
-          .salesCents,
-        2000,
-      );
-      assert.equal(report.body.data.events[0].canManage, true);
-      const promoterReport = await req(
-        `/business/workspace?organizationId=${ids.org}`,
-        ids.promoter,
-      );
-      assert.equal(promoterReport.body.data.events[0].canManage, false);
-      assert.equal(promoterReport.body.data.scope, 'own');
-      assert.equal(promoterReport.body.data.report.people.length, 1);
-      const employeeWorkspace = (await req(`/business/workspace?organizationId=${ids.org}`,ids.employee)).body.data;
-      assert.equal(employeeWorkspace.scope,'own');
-      assert.equal(employeeWorkspace.report.summary.salesCents,0,'another promoter’s sale is invisible to staff');
-      assert.deepEqual(employeeWorkspace.report.people.map((person)=>person.id),[ids.employee]);
-      const employeeAnalytics = (await req(`/business/analytics?days=30&organizationIds=${ids.org}`,ids.employee)).body.data;
-      assert.equal(employeeAnalytics.scope,'own');
-      assert.equal(employeeAnalytics.summary.salesCents,0);
-      assert.deepEqual(employeeAnalytics.referrals.people.map((person)=>person.id),[ids.employee]);
-      assert.equal(employeeAnalytics.referrals.customers.length,1);
-      assert.equal(employeeAnalytics.referrals.customers[0].guestlistPlaces,1);
-      assert.equal(employeeAnalytics.referrals.customers[0].salesCents,0,'guestlist-only customers do not invent sales');
-      const promoterAnalytics = (await req(`/business/analytics?days=30&organizationIds=${ids.org}`,ids.promoter)).body.data;
-      assert.equal(promoterAnalytics.scope,'own');
-      assert.equal(promoterAnalytics.summary.salesCents,2000);
-      assert.deepEqual(promoterAnalytics.referrals.people.map((person)=>person.id),[ids.promoter]);
-      const outsider = await req(
-        `/business/workspace?organizationId=${ids.org}`,
-        ids.outsider,
-      );
-      assert.equal(outsider.body.data.events.length, 0);
-      assert.equal(outsider.body.data.report.summary.salesCents, 0);
+      assert.equal(report.body.data.summary.salesCents, 2000);
+      const teamReport = (await req(`/business/reports/team?organizationIds=${ids.org}&days=7`, ids.owner)).body.data;
+      assert.equal(teamReport.items.find((person) => person.id === ids.promoter).salesCents, 2000);
+      const managedEvents = (await req(`/business/events?organizationIds=${ids.org}`, ids.owner)).body.data.items;
+      assert.equal(managedEvents[0].canManage, true);
+      const promoterEvents = (await req(`/business/events?organizationIds=${ids.org}`, ids.promoter)).body.data.items;
+      assert.equal(promoterEvents[0].canManage, false);
+      const promoterOverview = (await req(`/business/overview?organizationIds=${ids.org}`, ids.promoter)).body.data;
+      assert.equal(promoterOverview.scope, 'own');
+      const promoterTeam = (await req(`/business/reports/team?organizationIds=${ids.org}`, ids.promoter)).body.data;
+      assert.deepEqual(promoterTeam.items.map((person) => person.id), [ids.promoter]);
+      const employeeOverview = (await req(`/business/overview?organizationIds=${ids.org}`, ids.employee)).body.data;
+      assert.equal(employeeOverview.scope, 'own');
+      assert.equal(employeeOverview.summary.salesCents, 0, 'another promoter’s sale is invisible to staff');
+      const employeeTeam = (await req(`/business/reports/team?organizationIds=${ids.org}`, ids.employee)).body.data;
+      assert.deepEqual(employeeTeam.items.map((person) => person.id), [ids.employee]);
+      const employeeAnalytics = (await req(`/business/reports/summary?days=30&organizationIds=${ids.org}`, ids.employee)).body.data;
+      assert.equal(employeeAnalytics.summary.salesCents, 0);
+      const employeeCustomers = (await req(`/business/events/${guestInviteEventId}/attendees`, ids.employee)).body.data.items;
+      assert.equal(employeeCustomers.length, 1);
+      assert.equal(employeeCustomers[0].guestlistPlaces, 1);
+      assert.equal(employeeCustomers[0].salesCents, 0, 'guestlist-only customers do not invent sales');
+      const promoterAnalytics = (await req(`/business/reports/summary?days=30&organizationIds=${ids.org}`, ids.promoter)).body.data;
+      assert.equal(promoterAnalytics.summary.salesCents, 2000);
+      const outsiderEvents = (await req(`/business/events?organizationIds=${ids.org}`, ids.outsider)).body.data.items;
+      assert.equal(outsiderEvents.length, 0);
+      const outsider = await req(`/business/reports/summary?organizationIds=${ids.org}`, ids.outsider);
+      assert.equal(outsider.body.data.summary.salesCents, 0);
       const edit = {
         ...input,
         version: event.version,
@@ -683,11 +679,11 @@ test(
       events.push(independent.body.data.id);
       locations.add(independent.body.data.locationId);
       const independentScope = await req(
-        "/business/workspace?organizationId=independent",
+        "/business/events?organizationIds=independent",
         ids.outsider,
       );
       assert.equal(
-        independentScope.body.data.events.some(
+        independentScope.body.data.items.some(
           (e) => e.id === independent.body.data.id && e.canManage,
         ),
         true,
@@ -761,10 +757,10 @@ test(
       assert.equal(await m.EventAffiliate.count({where:{eventId:employeeEventId,userId:ids.employee}}),1);
       assert.equal((await req(`/business/events/${employeeEventId}/people`,ids.manager,'PUT',{userId:ids.employee,commissionBps:2000,status:'inactive'})).status,200);
       assert.equal((await employeeBuy()).body.error.code,'INVALID_AFFILIATE');
-      const historicalStaffWorkspace = (await req(`/business/workspace?organizationId=${ids.org}`,ids.employee)).body.data;
-      assert.equal(historicalStaffWorkspace.report.events.find((row)=>row.id===employeeEventId).salesCents,2000,'staff retain their own historical sales after an event override is removed');
-      const historicalStaffAnalytics = (await req(`/business/analytics?days=30&organizationIds=${ids.org}`,ids.employee)).body.data;
-      assert.equal(historicalStaffAnalytics.referrals.people.find((row)=>row.id===ids.employee).salesCents,2000);
+      const historicalStaffWorkspace = (await req(`/business/reports/events?organizationIds=${ids.org}`,ids.employee)).body.data;
+      assert.equal(historicalStaffWorkspace.items.find((row)=>row.id===employeeEventId).salesCents,2000,'staff retain their own historical sales after an event override is removed');
+      const historicalStaffAnalytics = (await req(`/business/reports/team?days=30&organizationIds=${ids.org}`,ids.employee)).body.data;
+      assert.equal(historicalStaffAnalytics.items.find((row)=>row.id===ids.employee).salesCents,2000);
       // A default employee can also be explicitly removed before their first referral.
       const unusedEvent = await req('/business/events',ids.owner,'POST',{...input,slug:`staff-unused-${randomUUID()}`});
       assert.equal(unusedEvent.status,201);
@@ -810,10 +806,10 @@ test(
       assert.equal(ownDetail.summary.salesCents,1000,'direct sales are excluded');
       assert.equal(ownDetail.summary.commissionCents,150);
       assert.deepEqual(ownDetail.people.map((p)=>p.userId),[ids.outsider]);
-      const ownReport = (await req(`/business/analytics?days=30&organizationIds=${ids.org}`,ids.outsider)).body.data;
+      const ownReport = (await req(`/business/reports/summary?days=30&organizationIds=${ids.org}`,ids.outsider)).body.data;
       assert.equal(ownReport.summary.salesCents,1000);
-      const ownWorkspace = (await req(`/business/workspace?organizationId=${ids.org}`,ids.outsider)).body.data;
-      assert.deepEqual(ownWorkspace.events.map((e)=>e.id),[inviteEventId]);
+      const ownWorkspace = (await req(`/business/events?organizationIds=${ids.org}`,ids.outsider)).body.data;
+      assert.deepEqual(ownWorkspace.items.map((e)=>e.id),[inviteEventId]);
       assert.equal((await req(`/business/events/${employeeEventId}/detail`,ids.outsider)).status,403);
       assert.equal((await req(`/business/organizations/${ids.org}/team`,ids.outsider)).status,403);
       assert.equal((await req(invitePath,ids.outsider)).status,403);
@@ -893,18 +889,18 @@ test(
       }
       assert.equal(matrixDetail.body.data.summary.salesCents, 5000);
       assert.equal(matrixDetail.body.data.summary.commissionCents, 775);
-      const matrixWorkspace = await req('/business/workspace?days=30', ids.owner);
-      const matrixOverviewRows = matrixWorkspace.body.data.report.people;
+      const matrixWorkspace = await req('/business/reports/team?days=30', ids.owner);
+      const matrixOverviewRows = matrixWorkspace.body.data.items;
       for (const actor of matrixActors) {
         const row = matrixOverviewRows.find((person) => person.id === actor.userId);
         assert.ok(row.salesCents >= 1000, `${actor.role} overview sale`);
         assert.ok(row.commissionCents >= actor.rate / 10, `${actor.role} overview commission`);
         assert.ok(row.guestlistPlaces >= 1, `${actor.role} overview guestlist`);
       }
-      const matrixAnalytics = await req(`/business/analytics?days=30&search=${encodeURIComponent(matrixEvent.title)}`, ids.owner);
+      const matrixAnalytics = await req(`/business/reports/team?days=30&search=${encodeURIComponent(matrixEvent.title)}`, ids.owner);
       assert.equal(matrixAnalytics.status, 200, JSON.stringify(matrixAnalytics.body));
       for (const actor of matrixActors) {
-        const row = matrixAnalytics.body.data.referrals.people.find((person) => person.id === actor.userId);
+        const row = matrixAnalytics.body.data.items.find((person) => person.id === actor.userId);
         assert.equal(row.salesCents, 1000, `${actor.role} analytics sale`);
         assert.equal(row.commissionCents, actor.rate / 10, `${actor.role} analytics commission`);
         assert.equal(row.guestlistPlaces, 1, `${actor.role} analytics guestlist`);

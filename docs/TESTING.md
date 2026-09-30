@@ -11,7 +11,7 @@ Run these commands from the repository root:
 | `npm test` | All workspace unit/component tests, mocked email tests, and required API/database regressions | Yes |
 | `npm run test:api` | API unit/mocked email tests and all required API/database regressions | Yes |
 | `npm run test:api:unit` | API unit tests, mock-backed HTTP contracts, hosted routes, and mocked emails | No |
-| `npm run test:api:integration` | All ten required isolated database suites | Yes |
+| `npm run test:api:integration` | All eleven required isolated database suites | Yes |
 | `npm run test:api:integration -- --suite admissions-integration.test.js` | One required database suite, with the same provisioning/cleanup protections | Yes |
 
 Workspace equivalents are `npm run test:unit --workspace @nitewide/api` and `npm run test:integration --workspace @nitewide/api`. A focused suite must be one of the required filenames below; unknown options, conflicting modes, arbitrary paths, and demo-only filenames fail before connecting to PostgreSQL. The default `npm test` still runs every required suite; focused commands do not weaken CI coverage.
@@ -52,12 +52,17 @@ Run `npm test` from the repository root, or `npm test --workspace @nitewide/api`
 - `business-read-integration.test.js`: scoped business workspace and paginated read contracts.
 - `referral-reactivation-integration.test.js`: restored roles, referral access, and outstanding invitation lifecycle checks.
 - `mutation-concurrency-integration.test.js`: actual PostgreSQL authorization lock waits, both write/removal orderings, concurrent shared writes, invitation/audit/outbox rollback, and checkout cart conflicts without duplicate inventory or credentials.
+- `report-export-integration.test.js`: 1,205 events, 24,001 paid orders and 12,001 buyers; reconciled SQL totals, EXPLAIN ANALYZE/BUFFERS diagnostics, immediate and background CSVs, concurrent purchases, access revocation, expiry, checkpoint retries and competing workers. It creates only test-owned data in its disposable database.
 
 There is no opt-in flag for these suites. Each receives its own generated `nitewide_test_<UUID>` database on a PostgreSQL/PostGIS server. The runner migrates only that database, executes its suite, then drops that exact generated database. It does not seed, migrate, or inspect development/demo application data. Integration files reject direct execution without the runner's managed database URL and marker. Interrupting the runner stops its child process group and performs the same generated-database cleanup.
 
 The local default uses the project's loopback PostgreSQL service on port 5433. If `.env` specifies that known local endpoint, only its server credentials are reused and the connection is changed to the `postgres` maintenance database. The caller's ambient `DATABASE_URL` is never used as the test target. Otherwise the local Docker default is `postgres`/`postgres` on port 5433. Start the project's PostGIS service before testing, or set `TEST_DATABASE_ADMIN_URL` explicitly to a loopback test PostgreSQL/PostGIS server's `postgres` maintenance database. The role needs `CREATE DATABASE` and permission to apply the PostGIS migrations. CI supplies its ephemeral PostgreSQL service on port 5432 through this variable. Remote server URLs are rejected. Missing prerequisites cause a failing test command with setup guidance, not skipped integration coverage.
 
 Every test subprocess runs with `NODE_ENV=test`, blank Resend credentials, `RESEND_TEST_MODE=false`, and business guestlist review emails disabled. These explicit values prevent dotenv from reloading local provider credentials. Mocked email tests remain included; the standard and demo-only commands do not consume Resend quota or send live email.
+
+### Reporting performance and snapshot regression
+
+Run `npm run test:api:integration -- --suite report-export-integration.test.js` for the representative SQL/export suite. Its `REPORT_PLAN` diagnostics include execution/planning times, buffers, temporary spill blocks, JIT time and expensive plan nodes. Timing is diagnostic, not a brittle CI pass/fail threshold. See [Reporting and exports](REPORTING_EXPORTS.md) for the measured baseline, migration, worker lifecycle and rollup decision.
 
 The following five suites validate demo imports, seed composition, and seeded venue fixtures. They are excluded from the standard unit batch and production CI coverage:
 

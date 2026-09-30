@@ -128,7 +128,7 @@ const reportDetailQuery = reportFilters.extend({
   roles: z.preprocess((value) => value === undefined ? [] : Array.isArray(value) ? value : [value],
     z.array(z.enum(['Owner', 'Manager', 'Employee', 'Promoter', 'Creator'])).max(5).default([])),
   ...page,
-  sort: z.enum(['sales_desc', 'sales_asc', 'name_asc', 'name_desc', 'role_asc', 'role_desc', 'orders_desc', 'orders_asc', 'starts_asc', 'starts_desc', 'customers_asc', 'customers_desc', 'units_asc', 'units_desc', 'checkins_asc', 'checkins_desc', 'average_asc', 'average_desc', 'events_asc', 'events_desc', 'guestlist_asc', 'guestlist_desc', 'commission_asc', 'commission_desc', 'contribution_asc', 'contribution_desc']).default('sales_desc'),
+  sort: z.enum(['sales_desc', 'sales_asc', 'name_asc', 'name_desc', 'role_asc', 'role_desc', 'orders_desc', 'orders_asc', 'starts_asc', 'starts_desc', 'customers_asc', 'customers_desc', 'units_asc', 'units_desc', 'admissions_asc', 'admissions_desc', 'checkins_asc', 'checkins_desc', 'average_asc', 'average_desc', 'events_asc', 'events_desc', 'guestlist_asc', 'guestlist_desc', 'commission_asc', 'commission_desc', 'contribution_asc', 'contribution_desc']).default('sales_desc'),
 }).refine((value) => !value.organizationId || !value.organizationIds.length, 'Choose either organizationId or organizationIds')
   .refine((value) => Boolean(value.startDate) === Boolean(value.endDate), 'Use both custom dates')
   .refine((value) => !value.startDate || value.startDate <= value.endDate, 'End date must be on or after start date')
