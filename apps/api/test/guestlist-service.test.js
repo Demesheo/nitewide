@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createGuestlistService } = require('../src/services/guestlist-service');
 
-function fixture() {
+function fixture(reviewScope = { canReviewAny: true, eventAffiliateIds: [] }) {
   const transaction = { LOCK: { UPDATE: 'UPDATE' } };
   const event = { id: 'event-1', organizationId: 'org-1', status: 'published', guestlistCapacity: 20 };
   let entry;
@@ -24,8 +24,25 @@ function fixture() {
     AuditLog: { create: async (data) => { auditActions.push(data.action); return data; } },
   };
   const sequelize = { transaction: async (_options, work) => work(transaction) };
-  return { service: createGuestlistService({ sequelize, models }), auditActions, event, affiliate, setSum: (implementation) => { sum = implementation; } };
+  const permissions = { guestlistReviewScope: async (userId, eventId, options) => {
+    assert.ok(userId);
+    assert.equal(eventId, event.id);
+    assert.equal(options, transaction, 'review authorization shares the mutation transaction');
+    return reviewScope;
+  } };
+  return { service: createGuestlistService({ sequelize, models, permissions }), auditActions, event, affiliate, setSum: (implementation) => { sum = implementation; } };
 }
+
+test('an unrelated referrer cannot approve or decline another guestlist pool', async () => {
+  const { service, auditActions } = fixture({ canReviewAny: false, eventAffiliateIds: ['unrelated-affiliate'] });
+  const { entry } = await service.request({ eventId: 'event-1', userId: 'customer-1', partySize: 2, affiliateCode: 'PROMOTER' });
+  for (const decision of ['approve', 'reject']) {
+    await assert.rejects(service.review({ eventId: 'event-1', entryId: entry.id, reviewedByUserId: 'unrelated-promoter', decision }), { code: 'FORBIDDEN' });
+    assert.equal(entry.status, 'pending');
+    assert.equal(entry.qrTokenHash, null);
+  }
+  assert.deepEqual(auditActions, ['guestlist.requested']);
+});
 
 test('a customer creates a pending guestlist request without receiving a QR token', async () => {
   const { service, auditActions } = fixture();
@@ -101,7 +118,7 @@ test('checked-in guestlist entries cannot be cancelled', async () => {
 });
 
 test('a referred guestlist request can be declined by its referrer', async () => {
-  const { service, event, affiliate, auditActions } = fixture();
+  const { service, event, affiliate, auditActions } = fixture({ canReviewAny: false, eventAffiliateIds: ['affiliate-1'] });
   const requested = await service.request({ eventId: event.id, userId: 'customer-1', partySize: 1, affiliateCode: affiliate.code });
   const denied = await service.review({ eventId: event.id, entryId: requested.entry.id, reviewedByUserId: affiliate.userId, decision: 'reject' });
   assert.equal(denied.entry.status, 'rejected');

@@ -4,6 +4,7 @@ const { randomUUID } = require('node:crypto');
 const path = require('node:path');
 const { createFixture, cleanupFixture } = require('./admissions-fixture.cjs');
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
+const { request: httpRequest } = require('./support/http-client.cjs');
 
 test('customer experience HTTP: account saved events, paged history, guestlist state and attendee-only venue details', async () => {
   assertManagedTestDatabase();
@@ -27,14 +28,13 @@ test('customer experience HTTP: account saved events, paged history, guestlist s
     const app = createApp({ sequelize, models: m, config, services: { email: emailMock } });
     server = app.listen(0, '127.0.0.1');
     await new Promise((resolve) => server.once('listening', resolve));
-    const base = `http://127.0.0.1:${server.address().port}/api`;
     async function request(pathname, role = 'guest', { method = 'GET', body } = {}) {
       const credential = role ? await m.UserCredential.findByPk(ids[role]) : null;
       const issuedAt = Math.floor(Date.now() / 1000);
       const session = role ? await m.AuthSession.create({ userId: ids[role], expiresAt: new Date((issuedAt + 300) * 1000) }) : null;
       const token = role ? signToken({ sub: ids[role], sid: session.id, iat: issuedAt, exp: issuedAt + 300, pwd: credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null }, config.AUTH_TOKEN_SECRET) : null;
-      const response = await fetch(base + pathname, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
-      return { status: response.status, ...await response.json() };
+      const response = await httpRequest(server, '/api' + pathname, { method, token, body });
+      return { status: response.status, ...response.body };
     }
 
     const changedEmail = `customer-${ids.guest}@new.nitewide.test`;

@@ -1,4 +1,3 @@
-const { Transaction } = require('sequelize');
 const { calculatePricing } = require('../domain/pricing');
 const { createQrToken } = require('../domain/qr');
 const { DomainError, notFound, conflict } = require('../domain/errors');
@@ -7,15 +6,42 @@ const { eventFinished, offeringSaleState } = require('../domain/event-policy');
 const { createNotificationService } = require('./notification-service');
 const { queuePurchaseEmail } = require('./email-events');
 const { assertActiveUser, assertActiveEvent } = require('./lifecycle-service');
+const { createHash } = require('node:crypto');
+const { QueryTypes } = require('sequelize');
+const { mutationTransaction } = require('./mutation-transaction');
+
+function canonicalCart(eventId, items) {
+  if (!Array.isArray(items) || !items.length) throw new DomainError('At least one item is required', { code: 'EMPTY_ORDER' });
+  const quantities = new Map();
+  for (const item of items) {
+    if (!item.offeringId || !Number.isSafeInteger(item.quantity) || item.quantity <= 0) throw new DomainError('Each item needs an offering and positive whole quantity', { code: 'INVALID_QUANTITY' });
+    const quantity = (quantities.get(item.offeringId) || 0) + item.quantity;
+    if (!Number.isSafeInteger(quantity)) throw new DomainError('Invalid quantity', { code: 'INVALID_QUANTITY' });
+    quantities.set(item.offeringId, quantity);
+  }
+  return JSON.stringify({ eventId, items: [...quantities].sort(([a], [b]) => a.localeCompare(b)) });
+}
+const fingerprint = (input) => createHash('sha256').update(JSON.stringify({ cart: canonicalCart(input.eventId, input.items), affiliateCode: input.affiliateCode || null })).digest('hex');
 
 function createCheckoutService({ sequelize, models, now = () => new Date(), environment = process.env.NODE_ENV || 'development', hostedDemo = false, email = null, customerAppUrl = 'http://localhost:5173' }) {
   const notifications = createNotificationService(models);
   return async function checkout(input) {
     if (hostedDemo && input.payment && input.payment.provider !== 'demo') throw new DomainError('Only mock payments are available in the hosted demo', { code: 'DEMO_ONLY' });
-    return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
-      assertActiveUser(await models.User.findByPk(input.buyerUserId, { transaction, lock: transaction.LOCK.UPDATE }));
+    const requestFingerprint = fingerprint(input);
+    return mutationTransaction(sequelize, async (transaction) => {
+      // Serialize only this buyer/key, not their other checkouts. Covers concurrent
+      // reuse against different events, where an event row lock alone cannot.
+      if (typeof sequelize.query === 'function') await sequelize.query('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))', {
+        replacements: { key: `checkout/${input.buyerUserId}/${input.idempotencyKey}` }, transaction, type: QueryTypes.SELECT,
+      });
+      assertActiveUser(await models.User.findByPk(input.buyerUserId, { transaction, lock: transaction.LOCK.SHARE || 'SHARE' }));
       const existing = await models.Order.findOne({ where: { buyerUserId: input.buyerUserId, idempotencyKey: input.idempotencyKey }, include: [{ model: models.OrderItem, as: 'items' }], transaction });
-      if (existing) return { order: existing, credentials: [], replayed: true };
+      if (existing) {
+        const matches = existing.requestFingerprint ? existing.requestFingerprint === requestFingerprint
+          : Boolean(existing.items?.length) && canonicalCart(existing.eventId, existing.items.map((item) => ({ offeringId: item.offeringId, quantity: item.quantity }))) === canonicalCart(input.eventId, input.items);
+        if (!matches) throw conflict('This checkout key was already used for a different cart or referral. Use a new key for a new purchase.', 'IDEMPOTENCY_CONFLICT');
+        return { order: existing, credentials: [], replayed: true };
+      }
       const event = await models.Event.findByPk(input.eventId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!event) throw notFound('Event');
       await assertActiveEvent(models, event, transaction);
@@ -27,9 +53,9 @@ function createCheckoutService({ sequelize, models, now = () => new Date(), envi
       const normalized = new Map();
       for (const item of input.items) normalized.set(item.offeringId, (normalized.get(item.offeringId) || 0) + item.quantity);
       const offeringIds = [...normalized.keys()];
-      const offerings = await models.Offering.findAll({ where: { id: offeringIds, eventId: event.id }, transaction, lock: transaction.LOCK.UPDATE });
+      const offerings = await models.Offering.findAll({ where: { id: offeringIds, eventId: event.id }, order: [['id', 'ASC']], transaction, lock: transaction.LOCK.UPDATE });
       const prerequisites = offerings.some((o) => o.releaseAfterOfferingId)
-        ? await models.Offering.findAll({ where: { eventId: event.id }, transaction, lock: transaction.LOCK.UPDATE }) : offerings;
+        ? await models.Offering.findAll({ where: { eventId: event.id }, order: [['id', 'ASC']], transaction, lock: transaction.LOCK.UPDATE }) : offerings;
       if (offerings.length !== offeringIds.length) throw notFound('Offering');
       if (new Set(offerings.map((offering) => offering.currency)).size !== 1) throw new DomainError('All order items must use the same currency', { code: 'MIXED_CURRENCY' });
       let subtotalCents = 0;
@@ -55,7 +81,7 @@ function createCheckoutService({ sequelize, models, now = () => new Date(), envi
       const order = await models.Order.create({
         buyerUserId: input.buyerUserId, eventId: event.id, status: 'paid', currency: offerings[0].currency,
         subtotalCents, ...pricing, pricingPlanSnapshot: { ...pricing.pricingPlanSnapshot, commissionBps: affiliate.commissionBps, demo }, orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id,
-        idempotencyKey: input.idempotencyKey, paidAt: current,
+        idempotencyKey: input.idempotencyKey, requestFingerprint, paidAt: current,
       }, { transaction });
       const soldOutOfferings = lines.filter(({ offering, quantity }) => offering.inventoryMode === 'finite' && offering.quantitySold + quantity === offering.quantityTotal).map(({ offering }) => offering.name);
       const credentials = [];
@@ -96,4 +122,4 @@ function createCheckoutService({ sequelize, models, now = () => new Date(), envi
     });
   };
 }
-module.exports = { createCheckoutService };
+module.exports = { createCheckoutService, canonicalCart, fingerprint };

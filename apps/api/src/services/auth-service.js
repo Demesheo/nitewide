@@ -1,3 +1,4 @@
+const { mutationTransaction } = require('./mutation-transaction');
 const crypto = require('node:crypto');
 const { promisify } = require('node:util');
 const { DomainError } = require('../domain/errors');
@@ -106,7 +107,7 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
   async function register(input) {
     const normalizedEmail = input.email.trim().toLowerCase();
     const password = await createPasswordRecord(input.password);
-    const { user, guestlistInvite, verificationEmailQueued } = await sequelize.transaction(async (transaction) => {
+    const { user, guestlistInvite, verificationEmailQueued } = await mutationTransaction(sequelize, async (transaction) => {
       const created = await models.User.create({ email: normalizedEmail, displayName: input.displayName.trim(), phone: input.phone, marketingConsentAt: input.marketingConsent ? now() : null, transactionalSmsConsentAt: input.transactionalSmsConsent ? now() : null, marketingSmsConsentAt: input.marketingSmsConsent ? now() : null }, { transaction });
       // Future Twilio integration: verify this user supplied number, set
       // phoneVerifiedAt, then enqueue only consented SMS categories. A phone

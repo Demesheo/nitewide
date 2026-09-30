@@ -18,8 +18,11 @@ test('draft events advertise no invite pools and reject invitations before writi
   const draft = { id: 'draft-event', status: 'draft', endsAt: future };
   let wrote = false;
   const service = createGuestlistInvitationService({
-    sequelize: { transaction: async () => { wrote = true; } },
-    models: { EventAffiliate: { findAll: async () => { throw new Error('Closed event should not load invite affiliates'); } } },
+    sequelize: { transaction: async (_options, run) => run({ LOCK: { UPDATE: 'UPDATE' } }) },
+    models: { Event: { findByPk: async () => draft },
+      GuestlistInvitation: { create: async () => { wrote = true; } },
+      GuestlistEntry: { create: async () => { wrote = true; } },
+      EventAffiliate: { findAll: async () => { throw new Error('Closed event should not load invite affiliates'); } } },
     permissions: { guestlistReviewScope: async () => ({ event: draft, canReviewAny: true, eventAffiliateIds: [] }) },
     now: () => now,
   });

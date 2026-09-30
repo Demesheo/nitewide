@@ -2,10 +2,27 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { assertManagedTestDatabase, assertGeneratedDatabaseName, maintenanceUrl, offlineEnvironment } = require('../scripts/test-database.cjs');
-const { INTEGRATION_TESTS, DEMO_TESTS, discoverTests, isolatedEnvironment } = require('../scripts/run-tests.cjs');
+const { INTEGRATION_TESTS, DEMO_TESTS, discoverTests, isolatedEnvironment, parseOptions, runIntegration } = require('../scripts/run-tests.cjs');
 
 const suffix = '0123456789abcdef0123456789abcdef';
 const dbUrl = `postgres://test:test@127.0.0.1:5433/nitewide_test_${suffix}`;
+
+test('focused Node runner modes preserve mandatory defaults and reject ambiguous options', () => {
+  assert.deepEqual(parseOptions(), { mode: 'all', suites: INTEGRATION_TESTS });
+  assert.equal(parseOptions(['--unit']).mode, 'unit');
+  assert.equal(parseOptions(['--integration']).mode, 'integration');
+  assert.equal(parseOptions(['--demo']).mode, 'demo');
+  const suite = INTEGRATION_TESTS[0];
+  assert.deepEqual(parseOptions(['--integration', '--suite', suite]), { mode: 'integration', suites: [suite] });
+  assert.deepEqual(parseOptions(['--suite', suite]), { mode: 'integration', suites: [suite] });
+  for (const args of [['--unit', '--integration'], ['--unit', '--suite', suite], ['--demo', '--suite', suite], ['--suite'], ['--suite', '../src/server.js'], ['--suite', DEMO_TESTS[0]], ['--suite', suite, '--suite', suite], ['--live']]) {
+    assert.throws(() => parseOptions(args), Error, JSON.stringify(args));
+  }
+});
+
+test('integration entry point rejects unknown files before connecting to PostgreSQL', async () => {
+  await assert.rejects(runIntegration('../src/server.js'), /Unknown required integration suite/);
+});
 
 test('managed integration DB guard requires test mode, exact generated DB URL and marker', () => {
   const valid = { NODE_ENV: 'test', TEST_DATABASE_MANAGED: '1', TEST_DATABASE_URL: dbUrl, DATABASE_URL: dbUrl };
@@ -24,8 +41,8 @@ test('maintenance DB URL is local-only and points to postgres rather than an app
   assert.throws(() => maintenanceUrl({ TEST_DATABASE_ADMIN_URL: 'postgres://test:test@127.0.0.1:5433/nitewide' }), /maintenance database/i);
 });
 
-test('standard runner classifies the nine mandatory integrations and five demo-only suites exactly', () => {
-  assert.deepEqual(INTEGRATION_TESTS, ['abuse-session-integration.test.js', 'admissions-integration.test.js', 'business-integration.test.js', 'business-reporting-integration.test.js', 'business-read-integration.test.js', 'admin-onboarding-lifecycle-integration.test.js', 'public-discovery-integration.test.js', 'customer-experience-integration.test.js', 'referral-reactivation-integration.test.js']);
+test('standard runner classifies the mandatory integrations and five demo-only suites exactly', () => {
+  assert.deepEqual(INTEGRATION_TESTS, ['abuse-session-integration.test.js', 'admissions-integration.test.js', 'business-integration.test.js', 'business-reporting-integration.test.js', 'business-read-integration.test.js', 'admin-onboarding-lifecycle-integration.test.js', 'public-discovery-integration.test.js', 'customer-experience-integration.test.js', 'referral-reactivation-integration.test.js', 'mutation-concurrency-integration.test.js']);
   assert.deepEqual(DEMO_TESTS, ['orlando-seed-integration.test.js', 'posh-importer-integration.test.js', 'seed-cleanup-integration.test.js', 'seed-guestlists-integration.test.js', 'venue-selection-integration.test.js']);
   const discovered = discoverTests(path.resolve(__dirname));
   for (const filename of [...INTEGRATION_TESTS, ...DEMO_TESTS]) assert.ok(discovered.some((item) => path.basename(item) === filename), `${filename} must be classified`);

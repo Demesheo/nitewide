@@ -1,9 +1,9 @@
 const { Op } = require('sequelize');
 const { guestlistQuery } = require('../http/schemas');
-const { forbidden } = require('../domain/errors');
 
 function customerOrder(order) {
   const data = order.toJSON ? order.toJSON() : { ...order };
+  delete data.requestFingerprint;
   const { tier, monthlyFeeCents, percentageBps, perPaidUnitCents, processingPaidBy, version, demo } = data.pricingPlanSnapshot || {};
   return { ...data, pricingPlanSnapshot: { tier, monthlyFeeCents, percentageBps, perPaidUnitCents, processingPaidBy, version, demo } };
 }
@@ -29,15 +29,10 @@ function createCommerceController({ checkout, requestGuestlist, reviewGuestlist,
       res.json({ data: entries });
     },
     reviewGuestlist: async (req, res) => {
-      const scope = await permissions.guestlistReviewScope(req.userId, req.params.eventId);
-      if (!scope.canReviewAny) {
-        const ownEntry = await models.GuestlistEntry.findOne({ where: { id: req.params.entryId, eventId: req.params.eventId, eventAffiliateId: { [Op.in]: scope.eventAffiliateIds } }, attributes: ['id'] });
-        if (!ownEntry) throw forbidden('You can only review guestlist requests referred by you');
-      }
       const result = await reviewGuestlist({ ...req.body, eventId: req.params.eventId, entryId: req.params.entryId, reviewedByUserId: req.userId });
       res.json({ data: result });
     },
-    checkIn: async (req, res) => { await permissions.assertAdmitEvent(req.userId, req.body.eventId); const result = await checkIn({ ...req.body, checkedInByUserId: req.userId }); res.set('Cache-Control', 'no-store').status(201).json({ data: result }); },
+    checkIn: async (req, res) => { const result = await checkIn({ ...req.body, checkedInByUserId: req.userId }); res.set('Cache-Control', 'no-store').status(201).json({ data: result }); },
   };
 }
 module.exports = { createCommerceController, customerOrder };

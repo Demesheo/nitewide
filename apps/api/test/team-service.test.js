@@ -7,7 +7,7 @@ test('managers can invite managers, employees, and promoters within their organi
   const writes = [];
   const models = {
     Organization: { findByPk: async () => ({ name: 'Venue', status: 'active' }) },
-    TeamInvitation: { create: async (input) => { writes.push(input); return { ...input, id: 'invite' }; } },
+    TeamInvitation: { sequelize: { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: 'UPDATE' } }) }, create: async (input) => { writes.push(input); return { ...input, id: 'invite' }; } },
     AuditLog: { create: async () => {} },
   };
   const permissions = { assertManageOrganization: async () => {}, assertOwnOrganization: async () => { throw forbidden('Owner only'); } };
@@ -30,7 +30,7 @@ test('accepting an employee invitation adds staff access, not manager access, to
   const models = {
     Organization: { findByPk: async () => ({ id: 'org', status: 'active' }) },
     Event: { findAll: async () => [] },
-    TeamInvitation: { sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: true } }) }, findOne: async () => row },
+    TeamInvitation: { sequelize: { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: true } }) }, findOne: async () => row },
     User: { findByPk: async () => ({ id: 'customer', email: 'customer@example.com' }) },
     OrganizationEmployee: { findOne: async () => null, create: async (values) => writes.push(['employee', values]) },
     OrganizationOwner: { findOne: async () => null, unscoped() { return this; }, create: async () => writes.push(['manager']) },
@@ -48,7 +48,7 @@ test('an invitation cannot be accepted from a different customer email', async (
   const row = { role: 'employee', email: 'invited@example.com', organizationId: 'org', expiresAt: new Date(Date.now() + 60000) };
   const models = {
     Organization: { findByPk: async () => ({ id: 'org', status: 'active' }) },
-    TeamInvitation: { sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: true } }) }, findOne: async () => row },
+    TeamInvitation: { sequelize: { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: true } }) }, findOne: async () => row },
     User: { findByPk: async () => ({ id: 'other', email: 'other@example.com' }) },
   };
   await assert.rejects(() => createTeamService({ models, permissions: {} }).accept('other', 'private-token'), { code: 'FORBIDDEN' });
@@ -61,7 +61,7 @@ test('event promoter invitations keep their optional contact phone on renewal', 
   const models = {
     Event: { findByPk: async () => event },
     TeamInvitation: {
-      sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: true } }) },
+      sequelize: { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: true } }) },
       findOne: async () => pending,
       create: async (values) => { pending = { id: 'invite-1', ...values, update: async (updates) => Object.assign(pending, updates) }; saved.push(values); return pending; },
     },

@@ -8,6 +8,7 @@ const { createApp } = require('../src/app');
 const { installDemoStatic } = require('../src/http/demo-static');
 const { getConfig } = require('../src/config');
 const { createRequireUser } = require('../src/http/middleware');
+const { request: httpRequest } = require('./support/http-client.cjs');
 const secret = 'test-signing-secret-only-not-for-deployment';
 const demoEnvironment = { NODE_ENV: 'production', HOSTED_DEMO: 'true',
   DATABASE_URL: 'postgres://test:test@localhost/nitewide_demo',
@@ -17,8 +18,7 @@ async function serve(t, app) {
   const server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
-  const origin = `http://127.0.0.1:${server.address().port}`;
-  return (url, options) => fetch(origin + url, { redirect: 'manual', ...options });
+  return (url, options) => httpRequest(server, url, options);
 }
 test('hosted config fails closed without production mode and dedicated secrets', () => {
   assert.throws(() => getConfig({ HOSTED_DEMO: 'true' }));
@@ -37,12 +37,12 @@ test('hosted demo public pages need no shared password while account endpoints r
   }
   const app = createApp({ sequelize: {}, models: {}, config, staticRoot, healthCheck: async () => {} });
   const request = await serve(t, app);
-  assert.equal((await request('/demo-access')).headers.get('location'), '/');
+  assert.equal((await request('/demo-access')).headers.location, '/');
   const home = await request('/');
   assert.equal(home.status, 200);
-  assert.equal(await home.text(), '<html><body>customer</body></html>');
-  assert.equal(home.headers.get('set-cookie'), null);
-  assert.match(home.headers.get('x-robots-tag'), /noindex/);
+  assert.equal(home.text, '<html><body>customer</body></html>');
+  assert.equal(home.headers['set-cookie'], undefined);
+  assert.match(home.headers['x-robots-tag'], /noindex/);
   assert.equal((await request('/api/auth/me')).status, 401);
   assert.equal((await request('/api/auth/me', { headers: { 'x-user-id': 'admin' } })).status, 401);
 });
@@ -67,7 +67,7 @@ test('single-origin demo maps each app and assets without swallowing unknown API
   const app = express(); installDemoStatic(app, root);
   const request = await serve(t, app);
   for (const [url, name] of [['/', 'customer'], ['/business', 'business'], ['/app', 'business'], ['/sign-in', 'business'], ['/admin', 'admin']]) {
-    const response = await request(url); const html = await response.text();
+    const response = await request(url); const html = response.text;
     assert.equal(response.status, 200); assert.match(html, new RegExp(`<main>${name}</main>`));
     assert.doesNotMatch(html, /Public demo|Shared sample data|No real charges|role="status"/);
     if (name === 'admin') {
@@ -77,8 +77,8 @@ test('single-origin demo maps each app and assets without swallowing unknown API
       assert.equal(html, `<html><body><main>${name}</main></body></html>`);
     }
   }
-  assert.match(await (await request('/business/assets/app.js')).text(), /business/);
-  assert.match(await (await request('/admin/assets/app.js')).text(), /admin/);
+  assert.match((await request('/business/assets/app.js')).text, /business/);
+  assert.match((await request('/admin/assets/app.js')).text, /admin/);
   assert.equal((await request('/api/not-real')).status, 404);
   assert.equal((await request('/.env')).status, 404);
 });

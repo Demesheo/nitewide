@@ -39,7 +39,7 @@ function fixture() {
   };
   const email = { enabled: true, queue: async (message) => { queued.push(message); } };
   const auth = createAuthService({
-    sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: 'UPDATE' } }) },
+    sequelize: { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: 'UPDATE' } }) },
     models, tokenSecret: 'test-secret-at-least-32-characters',
     email, customerAppUrl: 'https://nitewide.example', now: () => clock,
   });

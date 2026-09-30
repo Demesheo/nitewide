@@ -1,5 +1,6 @@
+const { mutationTransaction } = require('./mutation-transaction');
 const { z } = require('zod');
-const { Op, Transaction } = require('sequelize');
+const { Op } = require('sequelize');
 const { conflict, notFound } = require('../domain/errors');
 const { assertUserAccessChange } = require('./admin-access-guards');
 const { assertOrganizationVenue } = require('./lifecycle-service');
@@ -26,7 +27,7 @@ const schemas = {
 const modelsFor = { users: 'User', organizations: 'Organization', events: 'Event', locations: 'Location', owners: 'OrganizationOwner', employees: 'OrganizationEmployee', organization_affiliates: 'OrgAffiliate', event_affiliates: 'EventAffiliate' };
 function createAdminEditService({ models, permissions, email = null, customerAppUrl = 'http://localhost:5173' }) {
   async function update(actor, key, id, body) {
-    await permissions.assertInternal(actor);
+    await permissions.assertInternal(actor); // Preflight only; authoritative check is inside the fence below.
     if (!schemas[key]) throw conflict('This resource is edited through its domain workflow', 'UNSUPPORTED_EDIT');
     const parsed = schemas[key].parse(body); const { reason, version, ...changes } = parsed;
     if (key === 'users') {
@@ -35,7 +36,8 @@ function createAdminEditService({ models, permissions, email = null, customerApp
       delete changes.confirmEmail; delete changes.confirmPhone;
     }
     if (!Object.keys(changes).length) throw conflict('Choose a field to update', 'EMPTY_EDIT');
-    return models.User.sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
+    return mutationTransaction(models.User.sequelize, async (transaction) => {
+      await permissions.assertInternal(actor, transaction);
       const model = models[modelsFor[key]];
       const record = await (model.unscoped ? model.unscoped() : model).findByPk(uuid.parse(id), { transaction, lock: transaction.LOCK.UPDATE });
       if (!record) throw notFound('Record');
@@ -126,7 +128,7 @@ function createAdminEditService({ models, permissions, email = null, customerApp
         }
       }
       return emailVerificationDelivery ? { ...after, emailVerificationDelivery } : after;
-    });
+    }, { accessChange: true });
   }
   return { update };
 }

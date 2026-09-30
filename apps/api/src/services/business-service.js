@@ -1,4 +1,5 @@
-const { Op, Transaction, fn, col } = require("sequelize");
+const { mutationTransaction } = require('./mutation-transaction');
+const { Op, fn, col } = require("sequelize");
 const { randomUUID } = require('node:crypto');
 const { assertEventEditable, eventFinished } = require('../domain/event-policy');
 const { activeEventAffiliates } = require('./event-affiliate-scope');
@@ -406,16 +407,12 @@ function createBusinessService({
     };
   }
   async function saveEvent(userId, eventId, input) {
-    if (eventId) await permissions.assertManageEvent(userId, eventId);
-    else if (input.organizationId)
-      await permissions.assertManageOrganization(userId, input.organizationId);
-    else {
-      const user = await models.User.findByPk(userId);
-      if (!activeUser(user) || (!user.isInternalAdmin && !user.independentCreator)) throw forbidden('Independent event creation access is required');
-    }
-    return models.Event.sequelize.transaction(
-      { isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE },
+    return mutationTransaction(models.Event.sequelize,
       async (transaction) => {
+        // Lock every involved event in UUID order, including image reuse, before
+        // permission reads or child rows. Two events can reuse each other's art.
+        for (const id of [...new Set([eventId, input.reusedImageFromEventId].filter(Boolean))].sort())
+          await models.Event.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
         const event = eventId
           ? await models.Event.findByPk(eventId, {
               transaction,
@@ -423,7 +420,9 @@ function createBusinessService({
             })
           : null;
         if (eventId && !event) throw notFound("Event");
-        const actor = await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE });
+        if (eventId) await permissions.assertManageEvent(userId, eventId, transaction);
+        else if (input.organizationId) await permissions.assertManageOrganization(userId, input.organizationId, transaction);
+        const actor = await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.SHARE || 'SHARE' });
         if (!activeUser(actor)) throw forbidden('An active account is required');
         if (!actor.isInternalAdmin) {
           if (event) await assertActiveEvent(models, event, transaction);
@@ -443,6 +442,7 @@ function createBusinessService({
               where: { eventId },
               transaction,
               lock: transaction.LOCK.UPDATE,
+              order: [['id', 'ASC']],
             })
           : [];
         const byId = new Map(existing.map((o) => [o.id, o]));
@@ -513,7 +513,7 @@ function createBusinessService({
             });
             if (!colleague) {
               if (!input.reusedImageFromEventId) throw forbidden('Use an image uploaded by your organization or explicitly reuse one from an event you manage');
-              const source = await permissions.assertManageEvent(userId, input.reusedImageFromEventId);
+              const source = await permissions.assertManageEvent(userId, input.reusedImageFromEventId, transaction);
               if (source.imageAssetId !== asset.id || source.organizationId !== input.organizationId ||
                 (!source.organizationId && source.creatorUserId !== userId)) throw forbidden('This image cannot be reused for the new event');
             }

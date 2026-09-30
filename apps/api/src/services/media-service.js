@@ -1,3 +1,4 @@
+const { mutationTransaction } = require('./mutation-transaction');
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const { randomUUID } = require("node:crypto");
@@ -42,14 +43,6 @@ async function normalizeImage(buffer) {
 }
 function createMediaService({ models, uploadDir = defaultUploadDir }) {
   async function upload(userId, buffer) {
-    const count = await models.MediaAsset.count({
-      where: { uploadedByUserId: userId },
-    });
-    if (count >= 200)
-      throw new DomainError(
-        "Your upload allowance is reached. Contact support before uploading more artwork.",
-        { status: 429, code: "UPLOAD_LIMIT" },
-      );
     const { data, info } = await normalizeImage(buffer);
     const id = randomUUID();
     const storageKey = `${id}.webp`;
@@ -57,7 +50,12 @@ function createMediaService({ models, uploadDir = defaultUploadDir }) {
     const filePath = path.join(uploadDir, storageKey);
     await fs.writeFile(filePath, data, { flag: "wx" });
     try {
-      const asset = await models.MediaAsset.create({
+      const asset = await mutationTransaction(models.MediaAsset.sequelize, async (transaction) => {
+        // Serialize this uploader's quota; image processing stays outside locks.
+        require('./lifecycle-service').assertActiveUser(await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE }));
+        const count = await models.MediaAsset.count({ where: { uploadedByUserId: userId }, transaction });
+        if (count >= 200) throw new DomainError('Your upload allowance is reached. Contact support before uploading more artwork.', { status: 429, code: 'UPLOAD_LIMIT' });
+        return models.MediaAsset.create({
         id,
         uploadedByUserId: userId,
         storageKey,
@@ -65,6 +63,7 @@ function createMediaService({ models, uploadDir = defaultUploadDir }) {
         sizeBytes: data.length,
         width: info.width,
         height: info.height,
+        }, { transaction });
       });
       return {
         id: asset.id,

@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { request: httpRequest } = require('./support/http-client.cjs');
 const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const os = require('node:os');
@@ -55,7 +56,6 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     });
     server = app.listen(0, '127.0.0.1');
     await new Promise((resolve) => server.once('listening', resolve));
-    const base = `http://127.0.0.1:${server.address().port}/api`;
     async function tokenFor(userId) {
       const credential = await models.UserCredential.findByPk(userId);
       const nowSeconds = Math.floor(Date.now() / 1000);
@@ -64,12 +64,7 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     }
     async function request(route, userId = null, method = 'GET', body) {
       const token = userId ? await tokenFor(userId) : null;
-      const response = await fetch(`${base}${route}`, {
-        method,
-        headers: { ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-      });
-      return { status: response.status, body: await response.json() };
+      return httpRequest(server, `/api${route}`, { method, token, body });
     }
 
     assert.equal((await request('/admin/onboarding', null, 'POST', {})).status, 401);
@@ -234,7 +229,7 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     assert.equal(emailEdit.status, 200, JSON.stringify(emailEdit.body));
     assert.equal(emailEdit.body.data.emailVerifiedAt, null);
     assert.equal((await request('/auth/me', null, 'GET')).status, 401);
-    const staleSessionResponse = await fetch(`${base}/auth/me`, { headers: { authorization: `Bearer ${oldExistingToken}` } });
+    const staleSessionResponse = await httpRequest(server, '/api/auth/me', { token: oldExistingToken });
     assert.equal(staleSessionResponse.status, 401);
     const updatedCredential = await models.UserCredential.findByPk(ids.existing);
     assert.equal(updatedCredential.passwordHash, originalCredential.passwordHash);

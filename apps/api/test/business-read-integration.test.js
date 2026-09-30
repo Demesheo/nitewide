@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { request: httpRequest } = require('./support/http-client.cjs');
 const { randomUUID, createHash } = require('node:crypto');
 const { Webhook } = require('svix');
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
@@ -143,7 +144,6 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     const secretConfig = { ...config, RESEND_WEBHOOK_SECRET: hookSecret, NODE_ENV: 'production', MEDIA_UPLOAD_DIR: require('node:os').tmpdir() };
     server = createApp({ sequelize, models: m, config: secretConfig, services: { email: emailMock } }).listen(0, '127.0.0.1');
     await new Promise((resolve) => server.once('listening', resolve));
-    const base = `http://127.0.0.1:${server.address().port}/api`;
     const tokenFor = async (userId) => {
       const issuedAt = Math.floor(Date.now() / 1000);
       const session = await m.AuthSession.create({ userId, expiresAt: new Date((issuedAt + 300) * 1000) });
@@ -151,12 +151,7 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     };
     async function request(path, userId, { method = 'GET', body, headers = {} } = {}) {
       const token = userId ? await tokenFor(userId) : null;
-      const response = await fetch(`${base}${path}`, {
-        method,
-        headers: { ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-      return { status: response.status, body: response.status === 204 ? null : await response.json() };
+      return httpRequest(server, `/api${path}`, { method, token, headers, body });
     }
 
     await t.test('bootstrap returns role-scoped organizations and venues', async () => {
@@ -363,8 +358,8 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     const customRange = await request(`/business/reports/summary?startDate=${paidDate}&endDate=${paidDate}`, ids.owner);
     assert.equal(customRange.body.data.summary.salesCents, 21000, 'custom UTC paidAt range includes today’s fixture orders');
     const csvToken = await tokenFor(ids.owner);
-    const csvResponse = await fetch(`${base}/business/reports/export.csv?days=30`, { headers: { authorization: `Bearer ${csvToken}` } });
-    const csv = await csvResponse.text();
+    const csvResponse = await httpRequest(server, '/api/business/reports/export.csv?days=30', { token: csvToken });
+    const csv = csvResponse.text;
     assert.equal(csvResponse.status, 200);
     assert.match(csv, /'="?HYPERLINK/);
     assert.equal(csv.includes('@fixture.nitewide.test'), false, 'CSV does not expose customer emails');
@@ -442,30 +437,30 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     const unauthorizedPerson = await request(`/business/reports/customers?${eventScope}&personId=${ids.promoter}&offeringKind=ticket&offeringName=General%20Admission`, ids.independent);
     assert.deepEqual([unauthorizedPerson.status, unauthorizedPerson.body.data.total, unauthorizedPerson.body.data.items], [200, 0, []],
       'a user outside the selected event/person scope gets no fallback rows');
-    const selectedOfferingCsvResponse = await fetch(`${base}/business/reports/export.csv?exportTable=customers&${selectedOfferingScope}`, {
-      headers: { authorization: `Bearer ${scopedExportToken}` },
+    const selectedOfferingCsvResponse = await httpRequest(server, `/api/business/reports/export.csv?exportTable=customers&${selectedOfferingScope}`, {
+      token: scopedExportToken,
     });
-    const selectedOfferingCsv = await selectedOfferingCsvResponse.text();
+    const selectedOfferingCsv = selectedOfferingCsvResponse.text;
     assert.equal(selectedOfferingCsvResponse.status, 200);
     assert.match(selectedOfferingCsv, /Buyer A/);
     assert.match(selectedOfferingCsv, /20\.00/);
     assert.equal(selectedOfferingCsv.includes('Buyer B'), false,
       'the all-row CSV follows the same selected offering/person scope as the customer table');
 
-    const scopedExportResponse = await fetch(`${base}/business/reports/export.csv?eventId=${ids.mainEvent}&sort=role_desc&days=30`, {
-      headers: { authorization: `Bearer ${scopedExportToken}` },
+    const scopedExportResponse = await httpRequest(server, `/api/business/reports/export.csv?eventId=${ids.mainEvent}&sort=role_desc&days=30`, {
+      token: scopedExportToken,
     });
-    const scopedExport = await scopedExportResponse.text();
+    const scopedExport = scopedExportResponse.text;
     assert.equal(scopedExportResponse.status, 200, 'event-scoped export accepts a table-specific sort and normalizes it for each exported section');
     assert.ok(scopedExport.includes(ids.mainEvent) && scopedExport.includes('General Admission') && scopedExport.includes('VIP Package'),
       'event-scoped export includes the selected event and its offerings');
     assert.equal(scopedExport.includes('Peer event exclusive offering'), false,
       'event-scoped export excludes offerings from peer events');
 
-    const selectedEventsExportResponse = await fetch(`${base}/business/reports/export.csv?exportTable=events&days=30`, {
-      headers: { authorization: `Bearer ${scopedExportToken}` },
+    const selectedEventsExportResponse = await httpRequest(server, '/api/business/reports/export.csv?exportTable=events&days=30', {
+      token: scopedExportToken,
     });
-    const selectedEventsExport = await selectedEventsExportResponse.text();
+    const selectedEventsExport = selectedEventsExportResponse.text;
     const selectedEventsExportRows = selectedEventsExport.trim().split(/\r?\n/);
     assert.equal(selectedEventsExportResponse.status, 200);
     assert.equal(selectedEventsExportRows.length, 504,
@@ -474,10 +469,10 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     assert.match(selectedEventsExport, /'="?HYPERLINK/,
       'selected-table CSV neutralizes formula-leading event titles');
 
-    const selectedCustomersExportResponse = await fetch(`${base}/business/reports/export.csv?exportTable=customers&${eventScope}&days=30`, {
-      headers: { authorization: `Bearer ${scopedExportToken}` },
+    const selectedCustomersExportResponse = await httpRequest(server, `/api/business/reports/export.csv?exportTable=customers&${eventScope}&days=30`, {
+      token: scopedExportToken,
     });
-    const selectedCustomersExport = await selectedCustomersExportResponse.text();
+    const selectedCustomersExport = selectedCustomersExportResponse.text;
     assert.equal(selectedCustomersExportResponse.status, 200);
     assert.match(selectedCustomersExport.split(/\r?\n/, 1)[0], /^"Customer","Email","Paid orders","Sales USD","Units"$/);
     assert.match(selectedCustomersExport, /Buyer A/);
@@ -489,20 +484,20 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     assert.equal(selectedCustomersExport.includes('Peer event exclusive offering'), false,
       'customer CSV is scoped to the selected event rather than peer purchases');
 
-    const selectedTeamExportResponse = await fetch(`${base}/business/reports/export.csv?exportTable=team&roles=Promoter&personSearch=Fixture&days=30`, {
-      headers: { authorization: `Bearer ${scopedExportToken}` },
+    const selectedTeamExportResponse = await httpRequest(server, '/api/business/reports/export.csv?exportTable=team&roles=Promoter&personSearch=Fixture&days=30', {
+      token: scopedExportToken,
     });
-    const selectedTeamExport = await selectedTeamExportResponse.text();
+    const selectedTeamExport = selectedTeamExportResponse.text;
     assert.equal(selectedTeamExportResponse.status, 200);
     const selectedTeamTable = await request('/business/reports/team?roles=Promoter&personSearch=Fixture&days=30&pageSize=100', ids.owner);
     assert.equal(selectedTeamExport.trim().split(/\r?\n/).length, selectedTeamTable.body.data.total + 1,
       'selected Team CSV honors role and person filters and matches the table’s full result count');
     assert.match(selectedTeamExport, /Promoter/);
 
-    const unavailableExportResponse = await fetch(`${base}/business/reports/export.csv?exportTable=customers&${eventScope}&days=30`, {
-      headers: { authorization: `Bearer ${await tokenFor(ids.independent)}` },
+    const unavailableExportResponse = await httpRequest(server, `/api/business/reports/export.csv?exportTable=customers&${eventScope}&days=30`, {
+      token: await tokenFor(ids.independent),
     });
-    const unavailableExport = await unavailableExportResponse.text();
+    const unavailableExport = unavailableExportResponse.text;
     assert.equal(unavailableExportResponse.status, 200);
     assert.equal(unavailableExport.trim().split(/\r?\n/).length, 1,
       'an unauthorized selected-event export returns only its header and never falls back to broad data');
@@ -663,13 +658,13 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     async function webhookRequest(payload, { messageId = `msg_${randomUUID()}`, timestamp = new Date(), signatureBody } = {}) {
       const rawBody = Buffer.from(JSON.stringify(payload));
       const signed = signing.sign(messageId, timestamp, signatureBody === undefined ? rawBody : signatureBody);
-      return fetch(`${base}/webhooks/resend`, {
+      return httpRequest(server, '/api/webhooks/resend', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'svix-id': messageId, 'svix-timestamp': String(Math.floor(timestamp.getTime() / 1000)), 'svix-signature': signed },
-        body: rawBody,
+        body: rawBody.toString(),
       });
     }
-    assert.equal((await fetch(`${base}/webhooks/resend`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 400);
+    assert.equal((await httpRequest(server, '/api/webhooks/resend', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 400);
     assert.equal((await webhookRequest({ type: 'email.delivered', created_at: now.toISOString(), data: { email_id: 'provider-tampered' } }, { signatureBody: Buffer.from('different signed body') })).status, 400);
     assert.equal((await webhookRequest({ type: 'email.delivered', created_at: now.toISOString(), data: { email_id: 'provider-early' } }, { timestamp: new Date(Date.now() - 10 * 60_000) })).status, 400);
     assert.equal((await webhookRequest({ type: 'email.unknown', created_at: now.toISOString(), data: { email_id: 'provider-unknown' } })).status, 204);
@@ -690,7 +685,7 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
 
     disabledWebhookServer = createApp({ sequelize, models: m, config: { ...secretConfig, RESEND_WEBHOOK_SECRET: '' }, services: { email: emailMock } }).listen(0, '127.0.0.1');
     await new Promise((resolve) => disabledWebhookServer.once('listening', resolve));
-    const disabledResponse = await fetch(`http://127.0.0.1:${disabledWebhookServer.address().port}/api/webhooks/resend`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const disabledResponse = await httpRequest(disabledWebhookServer, '/api/webhooks/resend', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     assert.equal(disabledResponse.status, 503, 'a missing webhook secret is reported as unavailable');
     });
 

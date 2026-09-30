@@ -1,6 +1,7 @@
+const { mutationTransaction } = require('./mutation-transaction');
 const { z } = require('zod');
 const crypto = require('node:crypto');
-const { Op, Transaction } = require('sequelize');
+const { Op } = require('sequelize');
 const { DomainError, conflict, notFound } = require('../domain/errors');
 const { createPasswordRecord } = require('./auth-service');
 const { queueEventEmail, formatTime } = require('./email-events');
@@ -98,7 +99,7 @@ function createAdminManagementService({ models, permissions, email = null, custo
     orders: { statuses: { pending: { status: 'pending' }, paid: { status: 'paid' }, cancelled: { status: 'cancelled' }, refunded: { status: 'refunded' } }, sorts: ['createdAt', 'totalCents', 'status'] },
     audit: { statuses: {}, sorts: ['createdAt', 'action'] },
   };
-  async function authorize(actor) { await permissions.assertInternal(actor); }
+  async function authorize(actor, transaction) { await permissions.assertInternal(actor, transaction); }
   async function getRecord(config, id, transaction) { const record = await managedModel(config).findByPk(uuid.parse(id), { transaction, ...(transaction ? { lock: transaction.LOCK.UPDATE } : {}) }); if (!record) throw notFound(config.label); return record; }
   async function audit(actor, config, record, action, before, reason, transaction, extra = {}) { await models.AuditLog.create({ actorUserId: actor, organizationId: record.organizationId || (config.model === 'Organization' && action !== 'deleted' ? record.id : null), entityType: config.model, entityId: record.id, action: `admin.${config.model.toLowerCase()}.${action}`, before, after: { ...safe(config, record), adminReason: reason, ...extra } }, { transaction }); }
   async function metadata(actor) {
@@ -151,16 +152,16 @@ function createAdminManagementService({ models, permissions, email = null, custo
       await validateReferences(config, parsed.data);
       const affiliate = parsed.data.eventAffiliateId ? await getRecord(resource('event_affiliates'), parsed.data.eventAffiliateId) : null;
       if (affiliate && affiliate.eventId !== parsed.data.eventId) throw conflict('Affiliate must belong to the selected event', 'AFFILIATE_PARENT_MISMATCH');
-      const result = await guestlistWorkflow().request({ eventId: parsed.data.eventId, userId: parsed.data.userId, partySize: parsed.data.partySize, affiliateCode: affiliate?.code }, { onCreated: async (entry, event, transaction) => { if (new Date(event.endsAt) <= new Date()) throw conflict('Guestlist requests are closed for ended events', 'GUESTLIST_CLOSED'); await audit(actor, config, entry, 'created', null, reason, transaction); } });
+      const result = await guestlistWorkflow().request({ eventId: parsed.data.eventId, userId: parsed.data.userId, partySize: parsed.data.partySize, affiliateCode: affiliate?.code }, { onCreated: async (entry, event, transaction) => { await authorize(actor, transaction); if (new Date(event.endsAt) <= new Date()) throw conflict('Guestlist requests are closed for ended events', 'GUESTLIST_CLOSED'); await audit(actor, config, entry, 'created', null, reason, transaction); } });
       return safe(config, result.entry);
     }
     if (key === 'guestlist_invitations') {
       await validateReferences(config, parsed.data); let createdInvitation;
       const result = await invitationWorkflow().invite(actor, parsed.data.eventId, { ...parsed.data, pool: parsed.data.eventAffiliateId ? 'own' : 'direct' }, {
-        resolvePool: async (inviter, eventId, values) => {
-          await authorize(inviter);
+        resolvePool: async (inviter, eventId, values, transaction) => {
+          await authorize(inviter, transaction);
           if (!values.eventAffiliateId) return null;
-          const affiliate = await getRecord(resource('event_affiliates'), values.eventAffiliateId);
+          const affiliate = await getRecord(resource('event_affiliates'), values.eventAffiliateId, transaction);
           if (affiliate.eventId !== eventId || affiliate.status !== 'active' || (affiliate.startsAt && new Date(affiliate.startsAt) > new Date()) || (affiliate.endsAt && new Date(affiliate.endsAt) <= new Date())) throw conflict('Select an active affiliate pool belonging to this event', 'AFFILIATE_PARENT_MISMATCH');
           return affiliate.id;
         },
@@ -175,7 +176,8 @@ function createAdminManagementService({ models, permissions, email = null, custo
       const url = result.token ? new URL(customerAppUrl) : null; if (url) url.searchParams.set('guestlistInvite', result.token);
       return { ...(createdInvitation || result.invitation), handoff: { url: url?.toString() || null, message: result.entryId ? 'The existing recipient has been confirmed through the guestlist admission workflow.' : 'Share this claim link with the intended recipient. Capacity is checked when they claim it.' } };
     }
-    return models.User.sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
+    return mutationTransaction(models.User.sequelize, async (transaction) => {
+      await authorize(actor, transaction);
       const data = parsed.data; await validateReferences(config, data, transaction);
       let credentials;
       if (key === 'users') { credentials = await createPasswordRecord(data.password); delete data.password; }
@@ -225,14 +227,15 @@ function createAdminManagementService({ models, permissions, email = null, custo
       if (ownerUserId) await models.OrganizationOwner.create({ organizationId: record.id, userId: ownerUserId, role: 'owner' }, { transaction });
       await audit(actor, config, record, 'created', null, reason, transaction);
       return safe(config, record);
-    });
+    }, { accessChange: true });
   }
   async function action(actor, key, id, actionId, body) {
     await authorize(actor); const config = resource(key);
     const lifecycle = ['suspend', 'archive', 'restore'].includes(actionId);
     const input = (lifecycle ? z.object({ reason: reasonSchema, version: z.number().int().min(0) }).strict() : z.object({ reason: reasonSchema }).strict()).parse(body);
     if (!config.actions.some((action) => action.id === actionId)) throw conflict('This transition is unavailable', 'UNSUPPORTED_TRANSITION');
-    if (lifecycle) return models.User.sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
+    if (lifecycle) return mutationTransaction(models.User.sequelize, async (transaction) => {
+      await authorize(actor, transaction);
       const record = await getRecord(config, id, transaction);
       if ((record.version ?? 0) !== input.version) throw conflict('This record changed. Refresh first.', 'STALE_VERSION');
       const before = safe(config, record); const lifecycleState = actionId === 'restore' ? 'active' : actionId === 'archive' ? 'archived' : 'suspended';
@@ -249,14 +252,15 @@ function createAdminManagementService({ models, permissions, email = null, custo
       if (lifecycleState !== 'active' && ['users', 'owners'].includes(key)) await revokePendingGuestlistInvitations({ models, actorUserId: actor, transaction,
         ...(key === 'users' ? { userId: id } : { userId: record.userId, organizationId: record.organizationId }) });
       await audit(actor, config, record, actionId, before, input.reason, transaction); return safe(config, record);
-    });
+    }, { accessChange: true });
     if (key === 'guestlist') {
       const entry = await getRecord(config, id);
       if ((actionId === 'approve' && entry.status === 'confirmed') || (['reject', 'cancel'].includes(actionId) && entry.status === 'rejected')) return safe(config, entry);
-      const result = await guestlistWorkflow().review({ eventId: entry.eventId, entryId: entry.id, reviewedByUserId: actor, decision: actionId, note: input.reason }, { onReviewed: async (updated, event, transaction) => { if (actionId === 'approve' && (event.status !== 'published' || new Date(event.endsAt) <= new Date())) throw conflict('Only an open published event can receive guestlist approvals', 'GUESTLIST_CLOSED'); await audit(actor, config, updated, actionId, safe(config, entry), input.reason, transaction); } });
+      const result = await guestlistWorkflow().review({ eventId: entry.eventId, entryId: entry.id, reviewedByUserId: actor, decision: actionId, note: input.reason }, { onReviewed: async (updated, event, transaction) => { await authorize(actor, transaction); if (actionId === 'approve' && (event.status !== 'published' || new Date(event.endsAt) <= new Date())) throw conflict('Only an open published event can receive guestlist approvals', 'GUESTLIST_CLOSED'); await audit(actor, config, updated, actionId, safe(config, entry), input.reason, transaction); } });
       return safe(config, result.entry);
     }
-    return models.User.sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
+    return mutationTransaction(models.User.sequelize, async (transaction) => {
+      await authorize(actor, transaction);
       const record = await getRecord(config, id, transaction); const before = safe(config, record); let changes;
       if (key === 'users') {
         changes = { isActive: false };
@@ -300,7 +304,7 @@ function createAdminManagementService({ models, permissions, email = null, custo
       await audit(actor, config, record, actionId, before, input.reason, transaction);
       if (key === 'events' && before.status === 'published') await queueEventEmail({ email, models, event: record, kind: 'cancelled', variables: { EVENT_DATE: formatTime(before.startsAt) }, customerAppUrl, transaction, key: `admin-cancelled-${record.updatedAt.getTime()}` });
       return safe(config, record);
-    });
+    }, { accessChange: true });
   }
   async function remove(actor) { await authorize(actor); throw conflict('Permanent deletion is disabled. Suspend or archive to retain history.', 'HARD_DELETE_DISABLED'); }
   const mapConflict = (handler) => async (...args) => {

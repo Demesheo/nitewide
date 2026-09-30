@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { request: httpRequest } = require('./support/http-client.cjs');
 const { randomUUID } = require('node:crypto');
 const path = require('node:path');
 const { createFixture, cleanupFixture } = require('./admissions-fixture.cjs');
@@ -75,10 +76,9 @@ test('public discovery cursor pages preserve global listing order, filters, and 
     const app = createApp({ sequelize, models, config });
     server = app.listen(0, '127.0.0.1');
     await new Promise((resolve) => server.once('listening', resolve));
-    const base = `http://127.0.0.1:${server.address().port}/api`;
     async function request(pathname) {
-      const response = await fetch(base + pathname);
-      return { status: response.status, ...await response.json() };
+      const response = await httpRequest(server, `/api${pathname}`);
+      return { status: response.status, ...response.body };
     }
 
     const filters = new URLSearchParams({ pageSize: '9', startDate: '2031-11-02', endDate: '2031-11-09', timezone: 'America/New_York' });

@@ -1,4 +1,3 @@
-const { Transaction } = require('sequelize');
 const { createQrToken } = require('../domain/qr');
 const { DomainError, notFound, conflict } = require('../domain/errors');
 const { resolveAffiliate } = require('./affiliate-service');
@@ -7,15 +6,18 @@ const { createNotificationService } = require('./notification-service');
 const { queueGuestlistEmail } = require('./email-events');
 const { queueGuestlistReviewNeeded } = require('./business-email-events');
 const { assertActiveUser, assertActiveEvent } = require('./lifecycle-service');
+const { mutationTransaction } = require('./mutation-transaction');
+const { createPermissionService } = require('./permission-service');
+const { forbidden } = require('../domain/errors');
 
-function createGuestlistService({ sequelize, models, now = () => new Date(), email = null, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', reviewEmailsEnabled = false }) {
+function createGuestlistService({ sequelize, models, permissions = createPermissionService(models), now = () => new Date(), email = null, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', reviewEmailsEnabled = false }) {
   const notifications = createNotificationService(models);
   async function request(input, context = {}) {
-    return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
+    return mutationTransaction(sequelize, async (transaction) => {
       const event = await models.Event.findByPk(input.eventId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!event) throw notFound('Event');
       await assertActiveEvent(models, event, transaction);
-      assertActiveUser(await models.User.findByPk(input.userId, { transaction, lock: transaction.LOCK.UPDATE }));
+      assertActiveUser(await models.User.findByPk(input.userId, { transaction, lock: transaction.LOCK.SHARE || 'SHARE' }));
       if (event.status !== 'published' || +new Date(event.endsAt) < +now()) throw new DomainError('Guestlist is not open', { code: 'GUESTLIST_CLOSED' });
       if (await models.GuestlistEntry.findOne({ where: { eventId: event.id, userId: input.userId }, transaction, lock: transaction.LOCK.UPDATE })) {
         throw conflict('You already have a guestlist request for this event', 'GUESTLIST_ALREADY_REQUESTED');
@@ -49,11 +51,13 @@ function createGuestlistService({ sequelize, models, now = () => new Date(), ema
   }
 
   async function review(input, context = {}) {
-    return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
+    return mutationTransaction(sequelize, async (transaction) => {
       const event = await models.Event.findByPk(input.eventId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!event) throw notFound('Event');
+      const scope = await permissions.guestlistReviewScope(input.reviewedByUserId, input.eventId, transaction);
       const entry = await models.GuestlistEntry.findOne({ where: { id: input.entryId, eventId: event.id }, transaction, lock: transaction.LOCK.UPDATE });
       if (!entry) throw notFound('Guestlist request');
+      if (!scope.canReviewAny && !scope.eventAffiliateIds.includes(entry.eventAffiliateId)) throw forbidden('You can only review guestlist requests referred by you');
       if (input.decision === 'cancel') {
         if (entry.status !== 'confirmed' || entry.checkedInAt) throw conflict('Only an approved, unused guestlist entry can have its approval revoked', 'GUESTLIST_NOT_CANCELLABLE');
         await entry.update({ status: 'rejected', qrTokenHash: null, reviewedByUserId: input.reviewedByUserId, reviewedAt: now(), reviewNote: input.note || null }, { transaction });

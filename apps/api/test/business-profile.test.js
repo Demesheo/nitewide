@@ -7,7 +7,7 @@ function fixture(existingEmail = null) {
     async update(changes) { Object.assign(this, changes); } };
   const audits = [];
   const models = { User: {
-    sequelize: { transaction: async (callback) => callback({ LOCK: { UPDATE: 'UPDATE' } }) },
+    sequelize: { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: 'UPDATE' } }) },
     findByPk: async () => user,
     findOne: async ({ where }) => where.email === existingEmail ? { id: 'other-user' } : null,
   }, AuditLog: { create: async (row) => audits.push(row) } };

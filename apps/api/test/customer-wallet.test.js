@@ -28,7 +28,7 @@ test('approved guest list passes are customer-scoped and bind the approved party
 test('guest list wallet QR checks in the approved party once and revocation invalidates it', async () => {
   const entry = { id: ticket.id, userId: 'customer-a', eventId: 'event-a', partySize: 3, status: 'confirmed', qrTokenHash: 'approved-hash', update: async (values) => Object.assign(entry, values) };
   const token = guestlistWalletToken(entry, secret);
-  const service = createCheckInService({ tokenSecret: secret, now: () => new Date('2026-09-22T12:00:00Z'), sequelize: { transaction: async (_opts, callback) => callback({ LOCK: { UPDATE: 'UPDATE' } }) }, models: {
+  const service = createCheckInService({ permissions: { assertAdmitEvent: async () => {} }, tokenSecret: secret, now: () => new Date('2026-09-22T12:00:00Z'), sequelize: { transaction: async (_opts, callback) => callback({ LOCK: { UPDATE: 'UPDATE' } }) }, models: {
     User: { findByPk: async () => ({ displayName: 'Guest' }) },
     Ticket: { findOne: async () => null }, GuestlistEntry: { findOne: async ({ where }) => where.eventId === entry.eventId ? entry : null },
     Event: { findByPk: async () => ({ status: 'published', startsAt: '2026-09-22T00:00:00Z', endsAt: '2026-09-23T00:00:00Z' }) }, CheckIn: { create: async (input) => input },
@@ -63,7 +63,7 @@ test('unavailable tickets cannot generate wallet QR images', async () => {
 });
 function scanner({ status = 'paid', demo = false, environment = 'development', startsAt = '2026-09-22T00:00:00Z' } = {}) {
   const row = { ...ticket, update: async (patch) => Object.assign(row, patch) };
-  const service = createCheckInService({ tokenSecret: secret, environment, now: () => new Date('2026-09-22T12:00:00Z'),
+  const service = createCheckInService({ permissions: { assertAdmitEvent: async () => {} }, tokenSecret: secret, environment, now: () => new Date('2026-09-22T12:00:00Z'),
     sequelize: { transaction: async (_opts, callback) => callback({ LOCK: { UPDATE: 'UPDATE' } }) },
     models: { User: { findByPk: async () => ({ displayName: 'Guest' }) }, Ticket: { findOne: async ({ where }) => where.eventId === row.eventId ? row : null },
       GuestlistEntry: { findOne: async () => null }, Event: { findByPk: async () => ({ status: 'published', startsAt, endsAt: '2026-09-23T00:00:00Z' }) },

@@ -6,6 +6,7 @@ function fixture(eventStartsAt, now) {
   const updates = [];
   const entry = { id: 'entry-1', status: 'confirmed', update: async (values) => { updates.push(values); Object.assign(entry, values); } };
   const service = createCheckInService({
+    permissions: { assertAdmitEvent: async () => {} },
     now: () => new Date(now),
     sequelize: { transaction: async (_options, callback) => callback({ LOCK: { UPDATE: 'UPDATE' } }) },
     models: {

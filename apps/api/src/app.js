@@ -46,13 +46,13 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   app.use('/api', asyncHandler(async (req, res, next) => { res.set('Cache-Control', 'no-store'); await abuse.before(req); next(); }));
   const requireUser = createRequireUser({ authenticate: auth.authenticate, allowDevelopmentUserHeader: config.NODE_ENV !== 'production', abuse });
   app.use('/api', createMediaRouter({ models, requireUser, uploadDir: config.MEDIA_UPLOAD_DIR }));
-  const guestlistService = services.requestGuestlist && services.reviewGuestlist ? null : createGuestlistService({ sequelize, models, email, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, reviewEmailsEnabled: config.businessGuestlistReviewEmails });
+  const guestlistService = services.requestGuestlist && services.reviewGuestlist ? null : createGuestlistService({ sequelize, models, permissions, email, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, reviewEmailsEnabled: config.businessGuestlistReviewEmails });
   const dependencies = {
     models, permissions, auth, email,
     checkout: services.checkout || createCheckoutService({ sequelize, models, environment: config.NODE_ENV, hostedDemo: config.hostedDemo, email, customerAppUrl: config.CUSTOMER_APP_URL }),
     requestGuestlist: services.requestGuestlist || guestlistService.request,
     reviewGuestlist: services.reviewGuestlist || guestlistService.review,
-    checkIn: services.checkIn || createCheckInService({ sequelize, models, tokenSecret: config.QR_TOKEN_SECRET, environment: config.NODE_ENV, hostedDemo: config.hostedDemo }),
+    checkIn: services.checkIn || createCheckInService({ sequelize, models, permissions, tokenSecret: config.QR_TOKEN_SECRET, environment: config.NODE_ENV, hostedDemo: config.hostedDemo }),
   };
   app.use('/api', createRouter({ publicController: createPublicController(dependencies), managementController: createManagementController({ ...dependencies, businessAppUrl: config.businessAppUrl }), commerceController: createCommerceController(dependencies), authController: createAuthController(dependencies), auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, qrTokenSecret: config.QR_TOKEN_SECRET, deliveryTrackingConfigured: Boolean(config.RESEND_WEBHOOK_SECRET) }));
   if (config.hostedDemo) require('./http/demo-static').installDemoStatic(app, staticRoot);

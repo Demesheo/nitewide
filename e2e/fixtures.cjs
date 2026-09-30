@@ -28,9 +28,9 @@ const test = base.extend({
   }, { auto: true }],
 });
 
-async function login(page, fixture, app, role = app) {
+async function login(page, fixture, app, role = app, destination = app === 'business' ? '/app' : '/') {
   const account = fixture.accounts[role];
-  await page.goto(`${urls[app]}${app === 'business' ? '/app' : '/'}`);
+  await page.goto(`${urls[app]}${destination}`);
   if (app === 'customer') await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await page.getByLabel(app === 'customer' ? 'Email address' : app === 'business' ? 'Work email' : 'Email', { exact: true }).fill(account.email);
   await page.getByLabel('Password', { exact: true }).fill(fixture.password);

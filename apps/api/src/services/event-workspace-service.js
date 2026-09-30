@@ -1,3 +1,4 @@
+const { mutationTransaction } = require('./mutation-transaction');
 const { Op } = require('sequelize');
 const { randomUUID } = require('node:crypto');
 const { forbidden, notFound, conflict } = require('../domain/errors');
@@ -125,8 +126,8 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
     return { event: { ...serialized, canManage, canEdit: canManage && !eventFinished(event, now()) }, scope: canManage ? 'event' : 'own', candidates: canManage ? members : [], purchases, ...report };
   }
   async function savePerson(userId, eventId, input) {
-    await permissions.assertManageEvent(userId, eventId);
-    return m.Event.sequelize.transaction(async (transaction) => {
+    return mutationTransaction(m.Event.sequelize, async (transaction) => {
+      await permissions.assertManageEvent(userId, eventId, transaction);
       const event = await m.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
       assertEventEditable(event, now());
       const person = input.userId ? await m.User.findByPk(input.userId, { transaction }) : await m.User.findOne({ where: { email: input.email.toLowerCase() }, transaction });
@@ -183,7 +184,7 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
         term: 'Commission on future sales', oldValue: percent(previousCommissionBps), newValue: percent(input.commissionBps),
         actionId: audit.id, businessAppUrl, transaction });
       return assignment;
-    });
+    }, { accessChange: true });
   }
   return { detail, savePerson };
 }

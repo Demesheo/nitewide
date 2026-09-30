@@ -1,3 +1,4 @@
+const { mutationTransaction } = require('./mutation-transaction');
 const { QueryTypes } = require('sequelize');
 const { conflict, forbidden } = require('../domain/errors');
 const { assertEventEditable } = require('../domain/event-policy');
@@ -6,12 +7,12 @@ const { accessScopeSql } = require('./event-affiliate-access');
 function createBusinessEventReuseService({ models, permissions, now = () => new Date() }) {
   async function copyAccess(userId, targetEventId, { sourceEventId, copyTeam, copyAllocations }) {
     if (!copyTeam) throw conflict('Choose team copying explicitly');
-    const source = await permissions.assertManageEvent(userId, sourceEventId);
-    const target = await permissions.assertManageEvent(userId, targetEventId);
+    return mutationTransaction(models.Event.sequelize, async (transaction) => {
+    const source = await permissions.assertManageEvent(userId, sourceEventId, transaction);
+    const target = await permissions.assertManageEvent(userId, targetEventId, transaction);
     if (source.id === target.id) throw conflict('Choose a different source event');
     if (source.organizationId !== target.organizationId ||
       (!source.organizationId && source.creatorUserId !== target.creatorUserId)) throw forbidden('Only events in the same managed workspace can share team assignments');
-    return models.Event.sequelize.transaction(async (transaction) => {
       const current = await models.Event.findByPk(targetEventId, { transaction, lock: transaction.LOCK.UPDATE });
       assertEventEditable(current, now());
       if (current.status !== 'draft') throw conflict('Team copying is only available for a new draft');
@@ -49,7 +50,7 @@ function createBusinessEventReuseService({ models, permissions, now = () => new 
         entityType: 'Event', entityId: targetEventId, action: 'event.team_copied',
         after: { sourceEventId, copyTeam: true, copyAllocations, newAssignments: rows.length } }, { transaction });
       return { eventId: targetEventId, copied: rows.length, copyAllocations };
-    });
+    }, { accessChange: true });
   }
   return { copyAccess };
 }

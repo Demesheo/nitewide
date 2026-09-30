@@ -140,7 +140,8 @@ async function collectWorkflowMessages(runLabel) {
       AffiliateAttribution: { create: async () => ({}) },
       AuditLog: { create: async () => ({}) },
     };
-    const guestlist = createGuestlistService({ sequelize, models, email, customerAppUrl: APP_URL });
+    const guestlist = createGuestlistService({ sequelize, models, email, customerAppUrl: APP_URL,
+      permissions: { guestlistReviewScope: async () => ({ canReviewAny: true, eventAffiliateIds: [] }) } });
     await action('guestlist request', TEMPLATES.guestlistReceived, () => guestlist.request({ eventId: event.id, userId: guest.id, partySize: 2 }));
     await action('guestlist decline', TEMPLATES.guestlistDeclined, () => guestlist.review({ eventId: event.id, entryId: entry.id, reviewedByUserId: 'manager', decision: 'reject' }));
     await action('guestlist approval after decline', TEMPLATES.guestlistApproved, () => guestlist.review({ eventId: event.id, entryId: entry.id, reviewedByUserId: 'manager', decision: 'approve' }));

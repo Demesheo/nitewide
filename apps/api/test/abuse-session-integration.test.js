@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { request: httpRequest } = require('./support/http-client.cjs');
 const { randomUUID } = require('node:crypto');
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 const { createAbuseService, POLICIES } = require('../src/services/abuse-service');
@@ -22,8 +23,8 @@ test('shared PostgreSQL limits and session revocation across API instances', asy
       await new Promise((resolve) => server.once('listening', resolve)); servers.push(server);
     }
     async function request(instance, path, { token, method = 'GET', body, headers = {} } = {}) {
-      const response = await fetch(`http://127.0.0.1:${servers[instance].address().port}/api${path}`, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...headers }, ...(body ? { body: JSON.stringify(body) } : {}) });
-      return { status: response.status, headers: response.headers, ...await response.json() };
+      const response = await httpRequest(servers[instance], `/api${path}`, { method, token, headers, body });
+      return { status: response.status, headers: response.headers, ...response.body };
     }
     const login = () => request(0, '/auth/sign-in', { method: 'POST', body: { email: user.email, password: 'SafePassword123' } });
     const first = (await login()).data.accessToken; const second = (await login()).data.accessToken;
@@ -62,7 +63,7 @@ test('shared PostgreSQL limits and session revocation across API instances', asy
     const attempts = await Promise.all(Array.from({ length: 14 }, (_, i) => request(i % 2, '/auth/sign-in', { method: 'POST', body: { email: 'missing@example.test', password: 'WrongPassword123' }, headers: { 'X-Forwarded-For': `192.0.2.${i}` } })));
     assert.equal(attempts.filter((r) => r.status === 401).length, 10);
     assert.equal(attempts.filter((r) => r.status === 429).length, 4);
-    assert.ok(attempts.find((r) => r.status === 429).headers.get('retry-after'));
+    assert.ok(attempts.find((r) => r.status === 429).headers['retry-after']);
     await models.AbuseBucket.update({ expiresAt: new Date(Date.now() - 1000) }, { where: {} });
     assert.equal((await request(1, '/auth/sign-in', { method: 'POST', body: { email: 'missing@example.test', password: 'WrongPassword123' } })).status, 401);
     // An account remains limited when an attacker rotates their IP and process.

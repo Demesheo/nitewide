@@ -1,5 +1,5 @@
 const crypto = require('node:crypto');
-const { Op, Transaction } = require('sequelize');
+const { Op } = require('sequelize');
 const { createQrToken } = require('../domain/qr');
 const { conflict, forbidden, notFound, DomainError } = require('../domain/errors');
 const { assertGuestlistCapacity } = require('./guestlist-capacity');
@@ -7,15 +7,16 @@ const { createNotificationService } = require('./notification-service');
 const { queueGuestlistEmail } = require('./email-events');
 const { assertActiveEvent, activeUser } = require('./lifecycle-service');
 const { canClaimInvitation } = require('./guestlist-invitation-policy');
+const { mutationTransaction, authorizationFence } = require('./mutation-transaction');
 
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 const invitationsOpen = (event, at) => event?.status === 'published' && new Date(event.endsAt) > at;
 function createGuestlistInvitationService({ sequelize, models, permissions, email = null, customerAppUrl = 'http://localhost:5173', now = () => new Date() }) {
   const notifications = createNotificationService(models);
-  async function pools(userId, eventId) {
-    const scope = await permissions.guestlistReviewScope(userId, eventId);
+  async function pools(userId, eventId, transaction) {
+    const scope = await permissions.guestlistReviewScope(userId, eventId, transaction);
     if (!invitationsOpen(scope.event, now())) return { direct: false, own: [], open: false };
-    const affiliates = await models.EventAffiliate.findAll({ where: { eventId, userId, status: 'active' }, attributes: ['id', 'code', 'guestlistAllocation', 'startsAt', 'endsAt'], include: [{ model: models.OrgAffiliate, as: 'orgAffiliate', attributes: ['defaultGuestlistAllocation', 'status', 'startsAt', 'endsAt'], required: false }] });
+    const affiliates = await models.EventAffiliate.findAll({ where: { eventId, userId, status: 'active' }, transaction, attributes: ['id', 'code', 'guestlistAllocation', 'startsAt', 'endsAt'], include: [{ model: models.OrgAffiliate, as: 'orgAffiliate', attributes: ['defaultGuestlistAllocation', 'status', 'startsAt', 'endsAt'], required: false }] });
     const current = now();
     return { direct: scope.canReviewAny, open: true, own: affiliates.filter((a) =>
       (scope.canReviewAny || scope.eventAffiliateIds.includes(a.id)) &&
@@ -24,8 +25,8 @@ function createGuestlistInvitationService({ sequelize, models, permissions, emai
       (a.guestlistAllocation ?? a.orgAffiliate?.defaultGuestlistAllocation ?? 0) > 0
     ).map((a) => ({ id: a.id, guestlistAllocation: a.guestlistAllocation ?? a.orgAffiliate?.defaultGuestlistAllocation ?? 0 })) };
   }
-  async function assertPool(userId, eventId, pool, eventAffiliateId) {
-    const options = await pools(userId, eventId);
+  async function assertPool(userId, eventId, pool, eventAffiliateId, transaction) {
+    const options = await pools(userId, eventId, transaction);
     if (!options.open) throw conflict('Guestlist invitations are closed for this event', 'GUESTLIST_CLOSED');
     if (pool === 'direct') {
       if (!options.direct || eventAffiliateId) throw forbidden('Direct guestlist access required');
@@ -47,10 +48,10 @@ function createGuestlistInvitationService({ sequelize, models, permissions, emai
     return entry;
   }
   async function invite(userId, eventId, input, context = {}) {
-    const eventAffiliateId = context.resolvePool ? await context.resolvePool(userId, eventId, input) : await assertPool(userId, eventId, input.pool, input.eventAffiliateId);
-    return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
+    return mutationTransaction(sequelize, async (transaction) => {
       const event = await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!event) throw notFound('Event');
+      const eventAffiliateId = context.resolvePool ? await context.resolvePool(userId, eventId, input, transaction) : await assertPool(userId, eventId, input.pool, input.eventAffiliateId, transaction);
       await assertActiveEvent(models, event, transaction);
       if (!invitationsOpen(event, now())) throw conflict('Guestlist invitations are closed for this event', 'GUESTLIST_CLOSED');
       if (!await canClaimInvitation(models, { invitedByUserId: userId, eventAffiliateId }, event, transaction, now())) throw forbidden('Current guestlist invitation access is required');
@@ -72,6 +73,7 @@ function createGuestlistInvitationService({ sequelize, models, permissions, emai
   }
   async function claim(token, userId, outerTransaction = null) {
     const run = async (transaction) => {
+      await authorizationFence(sequelize, transaction);
       // Event → invitation matches issuance and prevents inverse-order deadlocks.
       const scope = await models.GuestlistInvitation.findOne({ where: { tokenHash: hash(token) }, transaction });
       if (!scope) throw new DomainError('Guestlist invitation is invalid or expired', { status: 404, code: 'INVITE_INVALID' });
@@ -99,7 +101,7 @@ function createGuestlistInvitationService({ sequelize, models, permissions, emai
         throw error;
       }
     };
-    return outerTransaction ? run(outerTransaction) : sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, run);
+    return outerTransaction ? run(outerTransaction) : mutationTransaction(sequelize, run);
   }
   return { pools, invite, claim };
 }

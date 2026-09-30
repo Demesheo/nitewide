@@ -43,7 +43,7 @@ test('admin edit is permission checked before lookup or write', async () => {
 test('an admin cannot remove their own admin role', async () => {
   const record = { id: 'admin', toJSON: () => ({ id: 'admin' }) };
   const service = createAdminService({
-    models: { User: { findByPk: async () => record } },
+    models: { User: { sequelize: { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: 'UPDATE' } }) }, findByPk: async () => record } },
     permissions: { assertInternal: async () => ({ id: 'admin' }) },
   });
   await assert.rejects(() => service.updateUser('admin', 'admin', { isInternalAdmin: false, reason: 'test' }), { code: 'SELF_ADMIN_LOCKOUT' });

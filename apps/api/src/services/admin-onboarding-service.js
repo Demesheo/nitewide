@@ -1,6 +1,7 @@
+const { mutationTransaction } = require('./mutation-transaction');
 const crypto = require('node:crypto');
 const { z } = require('zod');
-const { Op, Transaction } = require('sequelize');
+const { Op } = require('sequelize');
 const { conflict, forbidden, notFound } = require('../domain/errors');
 const { createPasswordRecord } = require('./auth-service');
 const { active, activeUser } = require('./lifecycle-service');
@@ -25,7 +26,7 @@ const onboardingSchema = z.object({
 
 function createAdminOnboardingService({ models, permissions, email = null, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', now = () => new Date() }) {
   const transaction = async (handler) => {
-    try { return await models.User.sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, handler); }
+    try { return await mutationTransaction(models.User.sequelize, handler, { accessChange: true }); }
     catch (error) { if (['40001', '40P01'].includes(error.original?.code || error.parent?.code) || error.name === 'SequelizeOptimisticLockError') throw conflict('This record changed concurrently. Refresh and try again.', 'CONCURRENT_CHANGE'); if (error.name === 'SequelizeUniqueConstraintError') throw conflict('An account, business, or pending invitation with these details already exists.', 'DUPLICATE_RECORD'); throw error; }
   };
   const safe = (row, delivery) => ({ id: row.id, userId: row.userId, accountMode: row.accountMode, expiresAt: row.expiresAt, acceptedAt: row.acceptedAt || null, revokedAt: row.revokedAt || null, version: row.version, ...(delivery ? { delivery } : {}) });
@@ -39,6 +40,7 @@ function createAdminOnboardingService({ models, permissions, email = null, custo
   async function create(actor, body) {
     await permissions.assertInternal(actor); const input = onboardingSchema.parse(body);
     return transaction(async (tx) => {
+      await permissions.assertInternal(actor, tx);
       let user = await models.User.findOne({ where: { email: input.recipient.email }, transaction: tx, lock: tx.LOCK.UPDATE });
       const accountMode = user?.onboardingPending ? 'new' : user ? 'existing' : 'new';
       if (user && await models.OnboardingInvitation.findOne({ where: { userId: user.id, acceptedAt: null, revokedAt: null, expiresAt: { [Op.gt]: now() } }, transaction: tx, lock: tx.LOCK.UPDATE })) throw conflict('Revoke or resend the existing active invitation first.', 'ONBOARDING_ALREADY_PENDING');
@@ -109,6 +111,7 @@ function createAdminOnboardingService({ models, permissions, email = null, custo
   async function change(actor, id, body, resending) {
     await permissions.assertInternal(actor); const input = z.object({ reason, version: z.number().int().min(0) }).strict().parse(body);
     return transaction(async (tx) => {
+      await permissions.assertInternal(actor, tx);
       const row = await models.OnboardingInvitation.findByPk(z.string().uuid().parse(id), { transaction: tx, lock: tx.LOCK.UPDATE });
       if (!row) throw notFound('Onboarding invitation');
       if (row.version !== input.version) throw conflict('This invitation changed. Refresh it first.', 'STALE_VERSION');

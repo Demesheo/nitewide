@@ -30,7 +30,7 @@ test('registration normalizes an optional phone and keeps SMS choices separate',
   let saved;
   const now = new Date('2026-09-22T12:00:00Z');
   const service = createAuthService({
-    sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: 'UPDATE' } }) },
+    sequelize: { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: 'UPDATE' } }) },
     models: {
       User: { create: async (values) => { saved = values; return { id: 'user-1', ...values }; }, findByPk: async () => ({ id: 'user-1', ...saved }) },
       AuthSession: { create: async (values) => ({ id: 'session-1', ...values }) },

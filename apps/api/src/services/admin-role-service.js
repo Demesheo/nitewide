@@ -1,5 +1,6 @@
+const { mutationTransaction } = require('./mutation-transaction');
 const { z } = require('zod');
-const { Transaction, Op, literal } = require('sequelize');
+const { Op, literal } = require('sequelize');
 const { conflict, notFound } = require('../domain/errors');
 const { activeUser, assertActiveOrganization } = require('./lifecycle-service');
 const { detachOrgAffiliateForStaffRole, setOrganizationAssignmentsActive } = require('./event-affiliate-transition');
@@ -9,8 +10,10 @@ const scopedRoleSchema = z.object({ organizationId: z.string().uuid(), role: z.e
 const unscoped = (model) => model.unscoped ? model.unscoped() : model;
 function createAdminRoleService({ models, permissions }) {
   async function change(actor, userId, body) {
-    await permissions.assertInternal(actor); const input = scopedRoleSchema.parse(body);
-    return models.User.sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
+    await permissions.assertInternal(actor); // Preserve access-first errors, then recheck within the write transaction.
+    const input = scopedRoleSchema.parse(body);
+    return mutationTransaction(models.User.sequelize, async (transaction) => {
+      await permissions.assertInternal(actor, transaction);
       const user = await models.User.findByPk(z.string().uuid().parse(userId), { transaction, lock: transaction.LOCK.UPDATE });
       if (!user) throw notFound('User');
       if ((user.version ?? 0) !== input.version) throw conflict('The user changed. Refresh before changing access.', 'STALE_VERSION');
@@ -50,7 +53,7 @@ function createAdminRoleService({ models, permissions }) {
       if (changed !== 1) throw conflict('The user changed. Refresh before changing access.', 'STALE_VERSION');
       await models.AuditLog.create({ actorUserId: actor, organizationId: input.organizationId, entityType: 'User', entityId: userId, action: 'admin.user.scoped_role_changed', before, after: { role: input.role, adminReason: input.reason } }, { transaction });
       return { userId, organizationId: input.organizationId, role: input.role, version: updatedUsers[0].version };
-    });
+    }, { accessChange: true });
   }
   return { change };
 }

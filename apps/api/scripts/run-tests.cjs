@@ -7,7 +7,7 @@ const { Client } = require('pg');
 const { offlineEnvironment, maintenanceUrl, postgresUrl, assertLoopbackUrl, assertGeneratedDatabaseName } = require('./test-database.cjs');
 
 const apiRoot = path.resolve(__dirname, '..');
-const INTEGRATION_TESTS = ['abuse-session-integration.test.js', 'admissions-integration.test.js', 'business-integration.test.js', 'business-reporting-integration.test.js', 'business-read-integration.test.js', 'admin-onboarding-lifecycle-integration.test.js', 'public-discovery-integration.test.js', 'customer-experience-integration.test.js', 'referral-reactivation-integration.test.js'];
+const INTEGRATION_TESTS = ['abuse-session-integration.test.js', 'admissions-integration.test.js', 'business-integration.test.js', 'business-reporting-integration.test.js', 'business-read-integration.test.js', 'admin-onboarding-lifecycle-integration.test.js', 'public-discovery-integration.test.js', 'customer-experience-integration.test.js', 'referral-reactivation-integration.test.js', 'mutation-concurrency-integration.test.js'];
 const DEMO_TESTS = ['orlando-seed-integration.test.js', 'posh-importer-integration.test.js', 'seed-cleanup-integration.test.js', 'seed-guestlists-integration.test.js', 'venue-selection-integration.test.js'];
 let activeChild = null; let interrupted = null;
 
@@ -46,6 +46,7 @@ function isolatedEnvironment(databaseUrl) {
 }
 
 async function runIntegration(filename) {
+  if (!INTEGRATION_TESTS.includes(filename)) throw new Error(`Unknown required integration suite: ${filename}`);
   const name = assertGeneratedDatabaseName(`nitewide_test_${crypto.randomUUID().replaceAll('-', '')}`);
   const adminUrl = maintenanceUrl();
   const databaseUrl = postgresUrl(adminUrl); databaseUrl.pathname = `/${name}`;
@@ -84,13 +85,31 @@ async function runDemoTests() {
   await child(process.execPath, ['--test', '--test-concurrency=1', ...DEMO_TESTS.map((filename) => path.join(apiRoot, 'test', filename))], { ...offlineEnvironment(), DATABASE_URL: url.toString(), TEST_DATABASE_URL: '', TEST_DATABASE_MANAGED: '', RUN_DB_TESTS: '1', RUN_ORLANDO_SEED_TESTS: '1' });
 }
 
-async function main() {
-  if (process.argv.includes('--demo')) return runDemoTests();
+function parseOptions(args = []) {
+  let mode = 'all'; let suite = null;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (['--unit', '--integration', '--demo'].includes(argument)) {
+      if (mode !== 'all') throw new Error('Choose only one test mode: --unit, --integration, or --demo.');
+      mode = argument.slice(2);
+    } else if (argument === '--suite') {
+      if (suite !== null) throw new Error('Choose only one integration suite.');
+      suite = args[++index];
+      if (!INTEGRATION_TESTS.includes(suite)) throw new Error('Pass --suite followed by a required integration test filename.');
+    } else throw new Error(`Unknown test option: ${argument}`);
+  }
+  if (suite && !['all', 'integration'].includes(mode)) throw new Error('--suite can only select an integration test.');
+  return { mode: suite ? 'integration' : mode, suites: suite ? [suite] : [...INTEGRATION_TESTS] };
+}
+
+async function main(args = process.argv.slice(2)) {
+  const { mode, suites } = parseOptions(args);
+  if (mode === 'demo') return runDemoTests();
   for (const filename of INTEGRATION_TESTS) if (!fs.existsSync(path.join(apiRoot, 'test', filename))) throw new Error(`Required standard integration test is missing: ${filename}`);
   const excluded = new Set([...INTEGRATION_TESTS, ...DEMO_TESTS].map((filename) => path.join(apiRoot, 'test', filename)));
   const unitTests = [...discoverTests(path.join(apiRoot, 'test')), ...discoverTests(path.join(apiRoot, 'email-tests'))].filter((filename) => !excluded.has(filename));
-  await child(process.execPath, ['--test', ...unitTests], { ...offlineEnvironment(), DATABASE_URL: 'postgres://test:test@127.0.0.1:1/nitewide_unit_no_database', TEST_DATABASE_URL: '', TEST_DATABASE_MANAGED: '', RUN_DB_TESTS: '', RUN_ORLANDO_SEED_TESTS: '' });
-  for (const filename of INTEGRATION_TESTS) await runIntegration(filename);
+  if (mode !== 'integration') await child(process.execPath, ['--test', ...unitTests], { ...offlineEnvironment(), DATABASE_URL: 'postgres://test:test@127.0.0.1:1/nitewide_unit_no_database', TEST_DATABASE_URL: '', TEST_DATABASE_MANAGED: '', RUN_DB_TESTS: '', RUN_ORLANDO_SEED_TESTS: '' });
+  if (mode !== 'unit') for (const filename of suites) await runIntegration(filename);
 }
 
 if (require.main === module) {
@@ -105,4 +124,4 @@ if (require.main === module) {
   main().catch((error) => { console.error(error.message); process.exitCode = interrupted === 'SIGINT' ? 130 : interrupted === 'SIGTERM' ? 143 : 1; });
 }
 
-module.exports = { INTEGRATION_TESTS, DEMO_TESTS, discoverTests, isolatedEnvironment, runIntegration, runDemoTests, main };
+module.exports = { INTEGRATION_TESTS, DEMO_TESTS, discoverTests, isolatedEnvironment, parseOptions, runIntegration, runDemoTests, main };

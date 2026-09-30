@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { request: httpRequest } = require('./support/http-client.cjs');
 const { randomUUID } = require('node:crypto');
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 
@@ -88,15 +89,13 @@ test('authorized event save reactivates a manager referral while preserving snap
 
     server = createApp({ sequelize, models: m, config, services: { email: { enabled: true, queue: async (message) => { queuedEmails.push(message); return { id: randomUUID() }; } } } }).listen(0, '127.0.0.1');
     await new Promise((resolve) => server.once('listening', resolve));
-    const base = `http://127.0.0.1:${server.address().port}/api`;
     async function request(path, role = 'owner', method = 'GET', body) {
       const userId = role === null || role === undefined ? ids.owner : (ids[role] || role);
       const issuedAt = Math.floor(Date.now() / 1000);
       const session = await m.AuthSession.create({ userId, expiresAt: new Date((issuedAt + 300) * 1000) });
       const token = signToken({ sub: userId, sid: session.id, iat: issuedAt, exp: issuedAt + 300, pwd: null }, config.AUTH_TOKEN_SECRET);
-      const response = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, ...(body ? { body: JSON.stringify(body) } : {}) });
-      const payload = await response.json();
-      return { status: response.status, ...payload };
+      const response = await httpRequest(server, `/api${path}`, { method, token, body });
+      return { status: response.status, ...response.body };
     }
 
     const referralPath = `/business/events/${ids.event}/referral-link`;

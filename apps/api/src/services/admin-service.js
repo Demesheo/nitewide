@@ -1,3 +1,4 @@
+const { mutationTransaction } = require('./mutation-transaction');
 const { Op, QueryTypes, Transaction } = require('sequelize');
 const { notFound, conflict, forbidden } = require('../domain/errors');
 const { createPasswordRecord } = require('./auth-service');
@@ -157,27 +158,27 @@ function createAdminService({ models, permissions, email = null, customerAppUrl 
       event: { model: models.Event, audit: 'Event', protected: ['creatorUserId', 'organizationId', 'locationId', 'slug'] },
     };
     const config = configs[entityType];
-    const record = await config.model.findByPk(entityId);
-    if (!record) throw notFound(config.audit);
-    if (entityType === 'user' && entityId === userId && (input.isInternalAdmin === false || input.isActive === false)) throw conflict('You cannot disable your own administrator access', 'SELF_ADMIN_LOCKOUT');
-    if (entityType === 'user' && record.isInternalAdmin && record.isActive && (input.isInternalAdmin === false || input.isActive === false) && await models.User.count({ where: { isInternalAdmin: true, isActive: true } }) <= 1) throw conflict('At least one active administrator is required', 'LAST_ADMIN');
-    const { reason, ...changes } = input;
-    if (entityType === 'event') {
-      const startsAt = changes.startsAt || record.startsAt;
-      const endsAt = changes.endsAt || record.endsAt;
-      if (new Date(endsAt) <= new Date(startsAt)) throw conflict('Event end must be after its start', 'INVALID_EVENT_TIME');
-      if (changes.guestlistCapacity !== undefined && changes.guestlistCapacity < record.guestlistCapacity) {
-        const approved = await models.GuestlistEntry.sum('partySize', { where: { eventId: entityId, source: 'event', status: { [Op.in]: ['confirmed', 'checked_in'] } } }) || 0;
-        if (changes.guestlistCapacity < approved) throw conflict('Guestlist capacity cannot fall below approved guests', 'GUESTLIST_CAPACITY');
+    return mutationTransaction(models.User.sequelize, async (transaction) => {
+      await permissions.assertInternal(userId, transaction);
+      const record = await config.model.findByPk(entityId, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!record) throw notFound(config.audit);
+      if (entityType === 'user' && entityId === userId && (input.isInternalAdmin === false || input.isActive === false)) throw conflict('You cannot disable your own administrator access', 'SELF_ADMIN_LOCKOUT');
+      if (entityType === 'user' && record.isInternalAdmin && record.isActive && (input.isInternalAdmin === false || input.isActive === false) && await models.User.count({ where: { isInternalAdmin: true, isActive: true }, transaction }) <= 1) throw conflict('At least one active administrator is required', 'LAST_ADMIN');
+      const { reason, ...changes } = input;
+      if (entityType === 'event') {
+        const startsAt = changes.startsAt || record.startsAt;
+        const endsAt = changes.endsAt || record.endsAt;
+        if (new Date(endsAt) <= new Date(startsAt)) throw conflict('Event end must be after its start', 'INVALID_EVENT_TIME');
+        if (changes.guestlistCapacity !== undefined && changes.guestlistCapacity < record.guestlistCapacity) {
+          const approved = await models.GuestlistEntry.sum('partySize', { where: { eventId: entityId, source: 'event', status: { [Op.in]: ['confirmed', 'checked_in'] } }, transaction }) || 0;
+          if (changes.guestlistCapacity < approved) throw conflict('Guestlist capacity cannot fall below approved guests', 'GUESTLIST_CAPACITY');
+        }
+        if (changes.capacity !== undefined && changes.capacity !== null && (record.capacity === null || changes.capacity < record.capacity)) {
+          const soldAdmissions = await models.Ticket.count({ where: { eventId: entityId, status: { [Op.in]: ['valid', 'checked_in', 'transferred'] } }, transaction });
+          if (changes.capacity < soldAdmissions) throw conflict('Event capacity cannot fall below issued tickets', 'EVENT_CAPACITY');
+        }
       }
-      if (changes.capacity !== undefined && changes.capacity !== null && (record.capacity === null || changes.capacity < record.capacity)) {
-        const soldAdmissions = await models.Ticket.count({ where: { eventId: entityId, status: { [Op.in]: ['valid', 'checked_in', 'transferred'] } } });
-        if (changes.capacity < soldAdmissions) throw conflict('Event capacity cannot fall below issued tickets', 'EVENT_CAPACITY');
-      }
-    }
-    const before = plain(record);
-    await models.User.sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
-      if (typeof record.reload === 'function') await record.reload({ transaction, lock: transaction.LOCK.UPDATE });
+      const before = plain(record);
       if (entityType === 'user') await assertUserAccessChange({ models, actorUserId: userId, user: record, changes, transaction });
       await record.update(changes, { transaction });
       await models.AuditLog.create({
@@ -197,14 +198,15 @@ function createAdminService({ models, permissions, email = null, customerAppUrl 
             }, customerAppUrl, transaction, key: `admin-time-${record.updatedAt.getTime()}` });
         }
       }
-    });
-    return plain(record);
+      return plain(record);
+    }, { accessChange: true });
   }
   async function createDemoUser(userId, input) {
     await permissions.assertInternal(userId);
     if (process.env.NODE_ENV === 'production') throw forbidden('Demo user creation is disabled in production');
     const password = await createPasswordRecord(input.password);
-    return models.User.sequelize.transaction(async (transaction) => {
+    return mutationTransaction(models.User.sequelize, async (transaction) => {
+      await permissions.assertInternal(userId, transaction);
       const user = await models.User.create({ email: input.email, displayName: input.displayName, isInternalAdmin: input.role === 'internal_admin' }, { transaction });
       await models.UserCredential.create({ userId: user.id, ...password }, { transaction });
       if (['organization_owner', 'venue_manager'].includes(input.role)) {
@@ -229,7 +231,7 @@ function createAdminService({ models, permissions, email = null, customerAppUrl 
       }
       await models.AuditLog.create({ actorUserId: userId, organizationId: input.organizationId || null, entityType: 'User', entityId: user.id, action: 'admin.demo_user.created', after: { email: input.email, displayName: input.displayName, role: input.role, organizationId: input.organizationId || null, eventId: input.eventId || null } }, { transaction });
       return { id: user.id, email: user.email, displayName: user.displayName, role: input.role };
-    });
+    }, { accessChange: true });
   }
   return { workspace, operations, createDemoUser, updateUser: (u, id, v) => update(u, 'user', id, v), updateOrganization: (u, id, v) => update(u, 'organization', id, v), updateEvent: (u, id, v) => update(u, 'event', id, v) };
 }

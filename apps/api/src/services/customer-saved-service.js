@@ -1,6 +1,7 @@
 const { Op, QueryTypes } = require('sequelize');
 const { notFound } = require('../domain/errors');
-const { assertActiveEvent } = require('./lifecycle-service');
+const { assertActiveEvent, assertActiveUser } = require('./lifecycle-service');
+const { mutationTransaction } = require('./mutation-transaction');
 const { publicEvent } = require('../controllers/public-controller');
 
 function createCustomerSavedService({ models, now = () => new Date() }) {
@@ -31,23 +32,30 @@ function createCustomerSavedService({ models, now = () => new Date() }) {
   }
 
   async function save(userId, eventId) {
-    const event = await models.Event.findByPk(eventId);
-    if (!event || event.status !== 'published' || +new Date(event.endsAt) < +now()) throw notFound('Event');
-    await assertActiveEvent(models, event);
-    await models.SavedEvent.bulkCreate([{ userId, eventId }], { ignoreDuplicates: true });
-    return { saved: true };
+    return mutationTransaction(models.SavedEvent.sequelize, async (transaction) => {
+      assertActiveUser(await models.User.findByPk(userId, { transaction }));
+      const event = await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.SHARE });
+      if (!event || event.status !== 'published' || +new Date(event.endsAt) < +now()) throw notFound('Event');
+      await assertActiveEvent(models, event, transaction);
+      await models.SavedEvent.bulkCreate([{ userId, eventId }], { ignoreDuplicates: true, transaction });
+      return { saved: true };
+    });
   }
 
   async function remove(userId, eventId) {
-    await models.SavedEvent.destroy({ where: { userId, eventId } });
-    return { saved: false };
+    return mutationTransaction(models.SavedEvent.sequelize, async (transaction) => {
+      assertActiveUser(await models.User.findByPk(userId, { transaction }));
+      await models.SavedEvent.destroy({ where: { userId, eventId }, transaction });
+      return { saved: false };
+    });
   }
 
   async function merge(userId, eventIds) {
     const unique = [...new Set(eventIds)];
     if (!unique.length) return { added: 0, skipped: 0 };
-    return models.SavedEvent.sequelize.transaction(async (transaction) => {
-      const events = await models.Event.findAll({ where: { id: { [Op.in]: unique }, status: 'published', lifecycleState: 'active', endsAt: { [Op.gte]: now() } }, transaction });
+    return mutationTransaction(models.SavedEvent.sequelize, async (transaction) => {
+      assertActiveUser(await models.User.findByPk(userId, { transaction }));
+      const events = await models.Event.findAll({ where: { id: { [Op.in]: unique }, status: 'published', lifecycleState: 'active', endsAt: { [Op.gte]: now() } }, order: [['id', 'ASC']], lock: transaction.LOCK.SHARE, transaction });
       const valid = [];
       for (const event of events) {
         try { await assertActiveEvent(models, event, transaction); valid.push(event.id); }

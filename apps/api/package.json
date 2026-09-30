@@ -7,6 +7,8 @@
     "dev": "node src/server.js",
     "start": "node src/server.js",
     "test": "node scripts/run-tests.cjs",
+    "test:unit": "node scripts/run-tests.cjs --unit",
+    "test:integration": "node scripts/run-tests.cjs --integration",
     "test:demo": "node scripts/run-tests.cjs --demo",
     "test:email:customer:mocked": "node --test email-tests/delivery-check.test.js email-tests/email-auth.test.js email-tests/email-events.test.js email-tests/email-service.test.js",
     "test:email:business:mocked": "node --test email-tests/business-workflows.test.js",
@@ -33,5 +35,8 @@
     "sharp": "^0.35.4",
     "svix": "2.6.0",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "supertest": "7.3.0"
   }
 }

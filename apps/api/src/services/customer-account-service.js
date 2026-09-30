@@ -1,3 +1,4 @@
+const { mutationTransaction } = require('./mutation-transaction');
 const { Op, QueryTypes } = require('sequelize');
 const QRCode = require('qrcode');
 const { notFound, conflict } = require('../domain/errors');
@@ -5,7 +6,7 @@ const { walletToken, guestlistWalletToken } = require('../domain/wallet-qr');
 const { createReferralLinkService } = require('./referral-link-service');
 const { redactLocation } = require('../controllers/public-controller');
 const { ADMISSION_WINDOW_MS } = require('../domain/admission-policy');
-const { assertActiveEvent } = require('./lifecycle-service');
+const { assertActiveEvent, assertActiveUser } = require('./lifecycle-service');
 const { connectionHistorySql, pagedConnections } = require('./customer-connections-page-service');
 
 function profile(user) {
@@ -55,7 +56,8 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     return { entry: guestlistSummary(entry), maxPartySize: 20, requestsOpen };
   }
   async function updatePendingGuestlist(userId, entryId, partySize) {
-    return models.GuestlistEntry.sequelize.transaction(async (transaction) => {
+    return mutationTransaction(models.GuestlistEntry.sequelize, async (transaction) => {
+      require('./lifecycle-service').assertActiveUser(await models.User.findByPk(userId, { transaction }));
       const existing = await models.GuestlistEntry.findOne({ where: { id: entryId, userId }, attributes: ['eventId'], transaction });
       if (!existing) throw notFound('Guestlist request');
       const event = await models.Event.findByPk(existing.eventId, { transaction, lock: transaction.LOCK.UPDATE });
@@ -74,7 +76,8 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     });
   }
   async function withdrawPendingGuestlist(userId, entryId) {
-    return models.GuestlistEntry.sequelize.transaction(async (transaction) => {
+    return mutationTransaction(models.GuestlistEntry.sequelize, async (transaction) => {
+      require('./lifecycle-service').assertActiveUser(await models.User.findByPk(userId, { transaction }));
       const existing = await models.GuestlistEntry.findOne({ where: { id: entryId, userId }, attributes: ['eventId'], transaction });
       if (!existing) throw notFound('Guestlist request');
       const event = await models.Event.findByPk(existing.eventId, { transaction, lock: transaction.LOCK.UPDATE });
@@ -151,9 +154,9 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
       subtotalCents: order.subtotalCents, totalCents: order.totalCents, currency: order.currency, tickets };
   }
   async function updateProfile(userId, input) {
-    return models.User.sequelize.transaction(async (transaction) => {
+    return mutationTransaction(models.User.sequelize, async (transaction) => {
       const user = await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE });
-      if (!user?.isActive) throw notFound('User');
+      assertActiveUser(user);
       if (input.phone !== user.phone && input.confirmPhone !== input.phone) {
         throw conflict('Phone confirmation does not match', 'PROFILE_CONFIRMATION_MISMATCH');
       }
@@ -167,12 +170,12 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
       await user.update(updates, { transaction });
       await models.AuditLog.create({ actorUserId: userId, entityType: 'User', entityId: userId, action: 'user.profile_updated', before, after: profile(user) }, { transaction });
       return profile(user);
-    });
+    }, { accessChange: true });
   }
   async function updateIdentity(userId, input) {
-    return models.User.sequelize.transaction(async (transaction) => {
+    return mutationTransaction(models.User.sequelize, async (transaction) => {
       const user = await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE });
-      if (!user?.isActive) throw notFound('User');
+      assertActiveUser(user);
       const email = input.email.trim().toLowerCase();
       if (email !== user.email && input.confirmEmail?.trim().toLowerCase() !== email) {
         throw conflict('Email confirmation does not match', 'PROFILE_CONFIRMATION_MISMATCH');
@@ -194,7 +197,7 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
       }
       await models.AuditLog.create({ actorUserId: userId, entityType: 'User', entityId: userId, action: 'user.identity_updated', before, after: profile(user) }, { transaction });
       return profile(user);
-    });
+    }, { accessChange: true });
   }
   async function connectionHistory(userId, options = {}) {
     if (models.Order.sequelize?.query) return connectionHistorySql(models, userId, options);

@@ -246,7 +246,8 @@ export function BusinessAnalytics({ session, ownOnly = false, organizations = []
       <label className="text-xs text-muted-foreground">End date<Input className="mt-1" type="date" value={endDate} min={startDate || undefined} onChange={(event) => updateDate('reportEnd', event.target.value, setEndDate)}/></label>
       <form className="analytics-search-form flex min-w-0 flex-1 items-center gap-2" onSubmit={submitSearch} role="search">
         <label className="analytics-search relative min-w-0 flex-1"><Search size={15} className="absolute left-3 top-3 text-muted-foreground"/><Input className="pl-9" aria-label="Search business analytics" value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} placeholder="Search"/></label>
-        <Button type="submit">Search</Button>
+        {/* The initial charts move this toolbar; wait before accepting a touch submission. */}
+        <Button type="submit" disabled={Boolean(query && !summary && !error)}>Search</Button>
       </form>
       {!ready && <p role="status" className="hint basis-full">Choose both dates in order to load a custom paid-order report.</p>}
     </div>;

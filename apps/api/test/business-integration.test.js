@@ -2,6 +2,7 @@
 // fixtures are removed; no seed, truncate, or existing-record updates occur.
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { request: httpRequest } = require('./support/http-client.cjs');
 const { randomUUID } = require("node:crypto");
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 test(
@@ -133,9 +134,8 @@ test(
           MEDIA_UPLOAD_DIR: mediaDir,
         },
       }); // Disables the development identity header.
-      server = app.listen(0);
+      server = app.listen(0, '127.0.0.1');
       await new Promise((resolve) => server.once("listening", resolve));
-      const base = `http://127.0.0.1:${server.address().port}/api`;
       async function tokenFor(user) {
         if (!user) return null;
         const credential = await m.UserCredential.findByPk(user);
@@ -148,27 +148,13 @@ test(
       }
       async function req(path, user, method = "GET", body) {
         const token = await tokenFor(user);
-        const res = await fetch(base + path, {
-          method,
-          headers: {
-            "content-type": "application/json",
-            ...(token ? { authorization: `Bearer ${token}` } : {}),
-          },
-          body: body ? JSON.stringify(body) : undefined,
-        });
-        return { status: res.status, body: await res.json() };
+        return httpRequest(server, `/api${path}`, { method, token, body });
       }
       assert.equal((await req("/business/workspace", null)).status, 401);
       async function upload(user, bytes, name = "flyer.png") {
-        const body = new FormData();
-        body.append("image", new Blob([bytes], { type: "image/png" }), name);
         const token = await tokenFor(user);
-        const res = await fetch(base + "/business/uploads/image", {
-          method: "POST",
-          body,
-          headers: token ? { authorization: `Bearer ${token}` } : {},
-        });
-        return { status: res.status, body: await res.json() };
+        return httpRequest(server, '/api/business/uploads/image', { method: 'POST', token })
+          .attach('image', bytes, { filename: name, contentType: 'image/png' });
       }
       const png = await require("sharp")({
         create: { width: 200, height: 300, channels: 3, background: "#F10393" },
@@ -187,11 +173,9 @@ test(
       const artwork = await upload(ids.manager, png);
       assert.equal(artwork.status, 201, JSON.stringify(artwork.body));
       input.imageAssetId = artwork.body.data.id;
-      const imageResponse = await fetch(
-        base.replace(/\/api$/, "") + artwork.body.data.url,
-      );
+      const imageResponse = await httpRequest(server, artwork.body.data.url);
       assert.equal(imageResponse.status, 200);
-      assert.equal(imageResponse.headers.get("content-type"), "image/webp");
+      assert.equal(imageResponse.headers['content-type'], "image/webp");
       assert.equal(
         (
           await req("/business/events", ids.owner, "POST", {
@@ -339,7 +323,7 @@ test(
       assert.equal(fullRegistered.body.data.guestlistInvite.status, 'full');
       users.push(fullRegistered.body.data.user.id);
       assert.equal(await m.GuestlistEntry.count({ where: { eventId: guestInviteEventId, eventAffiliateId: null, status: 'confirmed' } }), 3);
-      const checkout = await req("/orders", ids.outsider, "POST", {
+      const checkoutInput = {
         eventId: event.id,
         idempotencyKey: randomUUID(),
         affiliateCode: eventAffiliate.code,
@@ -349,12 +333,29 @@ test(
           reference: randomUUID(),
           status: "succeeded",
         },
-      });
+      };
+      const checkout = await req("/orders", ids.outsider, "POST", checkoutInput);
       assert.equal(checkout.status, 201, JSON.stringify(checkout.body));
       assert.equal(checkout.body.data.order.subtotalCents, 2000);
       assert.equal(checkout.body.data.order.platformFeeCents, 320);
       assert.equal(checkout.body.data.order.totalCents, 2320);
       assert.equal(checkout.body.data.order.pricingPlanSnapshot.processingPaidBy, 'platform');
+      const checkoutEffects = async () => ({
+        orders: await m.Order.count(), tickets: await m.Ticket.count(), payments: await m.Payment.count(),
+        attributions: await m.AffiliateAttribution.count(), notifications: await m.Notification.count(),
+        audits: await m.AuditLog.count(), sold: (await m.Offering.findByPk(tiers[0].id)).quantitySold,
+      });
+      const effectsAfterPurchase = await checkoutEffects();
+      const replay = await req('/orders', ids.outsider, 'POST', checkoutInput);
+      assert.equal(replay.status, 200, JSON.stringify(replay.body));
+      assert.equal(replay.body.data.order.id, checkout.body.data.order.id);
+      assert.equal(replay.body.data.replayed, true);
+      const changedCart = await req('/orders', ids.outsider, 'POST', {
+        ...checkoutInput, items: [{ offeringId: tiers[0].id, quantity: 1 }],
+      });
+      assert.equal(changedCart.status, 409, JSON.stringify(changedCart.body));
+      assert.equal(changedCart.body.error.code, 'IDEMPOTENCY_CONFLICT');
+      assert.deepEqual(await checkoutEffects(), effectsAfterPurchase, 'replay and conflicting key reuse create no commerce or notification effects');
       const buyerNotifications = (await req('/notifications', ids.outsider)).body.data.items;
       assert.ok(buyerNotifications.some((item) => item.kind === 'purchase_confirmed' && item.eventId === event.id));
       const referrerNotifications = (await req('/notifications', ids.promoter)).body.data.items;

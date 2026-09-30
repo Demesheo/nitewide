@@ -1,3 +1,4 @@
+const { mutationTransaction } = require('./mutation-transaction');
 const { DomainError } = require('../domain/errors');
 const { conflict } = require('../domain/errors');
 const { createHash } = require('node:crypto');
@@ -5,12 +6,12 @@ const { queueEventEmail } = require('./email-events');
 const { queueInstructionsSent } = require('./business-email-events');
 
 async function sendAttendeeInstructions({ models, permissions, email, customerAppUrl, businessAppUrl = 'http://localhost:5174/app', userId, eventId, instructions, idempotencyKey = null }) {
-  await permissions.assertManageEvent(userId, eventId);
   if (!email?.enabled) throw new DomainError('Transactional email is not configured', { code: 'EMAIL_UNAVAILABLE', status: 503 });
-  const event = await models.Event.findByPk(eventId);
-  if (!event || event.status !== 'published') throw new DomainError('Instructions require a published event', { code: 'EVENT_NOT_PUBLISHED', status: 409 });
   const digest = createHash('sha256').update(instructions).digest('hex');
-  const count = await models.Event.sequelize.transaction(async (transaction) => {
+  const count = await mutationTransaction(models.Event.sequelize, async (transaction) => {
+    const event = await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
+    await permissions.assertManageEvent(userId, eventId, transaction);
+    if (!event || event.status !== 'published') throw new DomainError('Instructions require a published event', { code: 'EVENT_NOT_PUBLISHED', status: 409 });
     if (idempotencyKey) {
       await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
       const prior = await models.AuditLog.findOne({ where: { actorUserId: userId, entityType: 'Event', entityId: eventId,

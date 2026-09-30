@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { request: httpRequest } = require('./support/http-client.cjs');
 const { createFixture, cleanupFixture } = require('./admissions-fixture.cjs');
 const { walletToken, guestlistWalletToken } = require('../src/domain/wallet-qr');
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
@@ -17,16 +18,15 @@ test('admissions HTTP: permissions, QR integrity, concurrent scans, manual entry
   try {
     fixture = await createFixture(m, config);
     const { ids } = fixture;
-    server = createApp({ sequelize, models: m, config }).listen(0);
+    server = createApp({ sequelize, models: m, config }).listen(0, '127.0.0.1');
     await new Promise((resolve) => server.once('listening', resolve));
-    const base = `http://127.0.0.1:${server.address().port}/api`;
     async function request(path, role = 'manager', body) {
       const credential = role ? await m.UserCredential.findByPk(ids[role]) : null;
       const issuedAt = Math.floor(Date.now() / 1000);
       const session = role ? await m.AuthSession.create({ userId: ids[role], expiresAt: new Date((issuedAt + 300) * 1000) }) : null;
       const token = role ? signToken({ sub: ids[role], sid: session.id, iat: issuedAt, exp: issuedAt + 300, pwd: credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null }, config.AUTH_TOKEN_SECRET) : null;
-      const response = await fetch(base + path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
-      return { status: response.status, ...await response.json() };
+      const response = await httpRequest(server, `/api${path}`, { method: body ? 'POST' : 'GET', token, body });
+      return { status: response.status, ...response.body };
     }
     const listPath = '/business/admissions/events';
     const initialAdminWorkspace = await request('/admin/workspace?days=7', 'admin');

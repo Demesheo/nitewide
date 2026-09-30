@@ -1,3 +1,4 @@
+const { mutationTransaction } = require('./mutation-transaction');
 const { randomUUID } = require('node:crypto');
 const { conflict, forbidden, notFound } = require('../domain/errors');
 const { eventFinished } = require('../domain/event-policy');
@@ -7,13 +8,13 @@ const { activeUser, assertActiveEvent } = require('./lifecycle-service');
 
 function createReferralLinkService({ models, now = () => new Date() }) {
   async function ownLink(userId, eventId) {
-    const [event, user] = await Promise.all([models.Event.findByPk(eventId), models.User.findByPk(userId)]);
-    if (!event) throw notFound('Event');
-    if (!activeUser(user)) throw forbidden('An active account is required');
-    await assertActiveEvent(models, event);
-    if (event.status !== 'published' || eventFinished(event, now())) throw conflict('This event is not accepting referrals', 'REFERRALS_CLOSED');
-    return models.Event.sequelize.transaction(async (transaction) => {
-      await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
+    return mutationTransaction(models.Event.sequelize, async (transaction) => {
+      const event = await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
+      const user = await models.User.findByPk(userId, { transaction });
+      if (!event) throw notFound('Event');
+      if (!activeUser(user)) throw forbidden('An active account is required');
+      await assertActiveEvent(models, event, transaction);
+      if (event.status !== 'published' || eventFinished(event, now())) throw conflict('This event is not accepting referrals', 'REFERRALS_CLOSED');
       const assignment = await models.EventAffiliate.findOne({ where: { eventId, userId }, transaction, lock: transaction.LOCK.UPDATE });
       if (assignment?.status === 'inactive') throw forbidden('You were removed from this event');
       const membership = await currentOrganizationMembership(models, event.organizationId, userId, transaction, now());
@@ -37,19 +38,21 @@ function createReferralLinkService({ models, now = () => new Date() }) {
     });
   }
   async function visit(eventId, code, sessionKey) {
-    const event = await models.Event.findByPk(eventId);
-    if (!event || event.status !== 'published' || eventFinished(event, now())) throw notFound('Active event');
-    await assertActiveEvent(models, event);
-    const affiliate = await resolveAffiliate(models, { event, code, now: now() });
-    if (!affiliate.eventAffiliate) throw notFound('Active referral link');
-    const referrer = await models.User.findByPk(affiliate.eventAffiliate.userId);
-    if (!activeUser(referrer)) throw notFound('Active referral link');
-    if (sessionKey) {
-      const where = { eventId, eventAffiliateId: affiliate.eventAffiliate.id, action: 'visit', sessionKey };
-      const prior = await models.AffiliateAttribution.findOne({ where });
-      if (!prior) await models.AffiliateAttribution.create({ ...where, occurredAt: now() });
-    }
-    return { eventId, referrerName: referrer.displayName, code };
+    return mutationTransaction(models.Event.sequelize, async (transaction) => {
+      const event = await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!event || event.status !== 'published' || eventFinished(event, now())) throw notFound('Active event');
+      await assertActiveEvent(models, event, transaction);
+      const affiliate = await resolveAffiliate(models, { event, code, now: now(), transaction });
+      if (!affiliate.eventAffiliate) throw notFound('Active referral link');
+      const referrer = await models.User.findByPk(affiliate.eventAffiliate.userId, { transaction });
+      if (!activeUser(referrer)) throw notFound('Active referral link');
+      if (sessionKey) {
+        const where = { eventId, eventAffiliateId: affiliate.eventAffiliate.id, action: 'visit', sessionKey };
+        const prior = await models.AffiliateAttribution.findOne({ where, transaction });
+        if (!prior) await models.AffiliateAttribution.create({ ...where, occurredAt: now() }, { transaction });
+      }
+      return { eventId, referrerName: referrer.displayName, code };
+    });
   }
   return { ownLink, visit };
 }

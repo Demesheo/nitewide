@@ -22,7 +22,7 @@ function activeEventScope(models, { locationAttributes = [] } = {}) {
 }
 function assertActiveUser(user) { if (!activeUser(user)) throw forbidden('An active, completed account is required'); return user; }
 async function assertActiveOrganization(models, id, transaction) {
-  const organization = await models.Organization.findByPk(id, { transaction, ...(transaction ? { lock: transaction.LOCK.UPDATE } : {}) });
+  const organization = await models.Organization.findByPk(id, { transaction, ...(transaction ? { lock: transaction.LOCK.SHARE || 'SHARE' } : {}) });
   if (!organization) throw notFound('Organization');
   if (!active(organization) || organization.status !== 'active') throw forbidden('This organization is suspended or archived');
   return organization;
@@ -32,10 +32,10 @@ async function assertActiveEvent(models, event, transaction) {
   if (!active(event)) throw forbidden('This event is suspended or archived');
   if (event.organizationId) await assertActiveOrganization(models, event.organizationId, transaction);
   if (event.locationId) {
-    const location = await models.Location.findByPk(event.locationId, { transaction, ...(transaction ? { lock: transaction.LOCK.UPDATE } : {}) });
+    const location = await models.Location.findByPk(event.locationId, { transaction, ...(transaction ? { lock: transaction.LOCK.SHARE || 'SHARE' } : {}) });
     if (!active(location)) throw forbidden('This venue is suspended or archived');
   }
-  const creator = !event.organizationId && event.creatorUserId ? await models.User.findByPk(event.creatorUserId, { transaction, ...(transaction ? { lock: transaction.LOCK.UPDATE } : {}) }) : null;
+  const creator = !event.organizationId && event.creatorUserId ? await models.User.findByPk(event.creatorUserId, { transaction, ...(transaction ? { lock: transaction.LOCK.SHARE || 'SHARE' } : {}) }) : null;
   if (creator && !activeUser(creator)) throw forbidden('The event creator is unavailable');
   return event;
 }

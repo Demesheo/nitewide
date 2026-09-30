@@ -30,6 +30,9 @@ test('analytics table controls stay with the active table and preserve URL scope
   dom.window.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 
   const requests = [];
+  let failInitialSummary;
+  const initialSummary = new Promise((_, reject) => { failInitialSummary = reject; });
+  let firstSummary = true;
   let finishExport;
   const exportGate = new Promise((resolve) => { finishExport = resolve; });
   const priorFetch = globalThis.fetch;
@@ -39,6 +42,7 @@ test('analytics table controls stay with the active table and preserve URL scope
     if (url.pathname === '/api/business/reports/export.csv') return exportGate;
     let data = {};
     if (url.pathname === '/api/business/reports/summary') {
+      if (firstSummary) { firstSummary = false; await initialSummary; }
       const matchesRewind = url.searchParams.get('search')?.toLowerCase() === 'rew1nd';
       const eventId = url.searchParams.get('eventId');
       const personId = url.searchParams.get('personId');
@@ -100,6 +104,22 @@ test('analytics table controls stay with the active table and preserve URL scope
 
     await screen.findByRole('heading', { name: 'Regions' });
     await waitFor(() => assert.ok(requests.some((url) => url.pathname === '/api/business/reports/summary')));
+    const initialSearchButton = () => screen.getByRole('button', { name: 'Search', exact: true });
+    const initialSearchInput = screen.getByRole('textbox', { name: 'Search business analytics' });
+    assert.equal(initialSearchButton().disabled, true, 'submission waits for the initial charts to stop moving the toolbar');
+    await user.clear(initialSearchInput);
+    await user.type(initialSearchInput, 'seed draft');
+    await user.click(initialSearchButton());
+    assert.equal(new URLSearchParams(dom.window.location.search).get('reportSearch'), 'seed');
+    await act(async () => { failInitialSummary(new Error('Summary unavailable')); });
+    await screen.findByRole('alert');
+    assert.equal(initialSearchButton().disabled, false, 'a failed initial summary does not lock search');
+    assert.equal(initialSearchInput.value, 'seed draft', 'loading and failure retain the editable draft');
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => assert.equal(initialSearchButton().disabled, false));
+    assert.equal(initialSearchInput.value, 'seed draft', 'ready summary retains the draft');
+    await user.clear(initialSearchInput);
+    await user.type(initialSearchInput, 'seed');
     const toolbar = () => [...dom.window.document.querySelectorAll('.analytics-table-controls')];
     assert.equal(toolbar().length, 1);
     assert.ok(toolbar()[0].closest('.report-table-panel'), 'date/search controls belong to the active report table card');

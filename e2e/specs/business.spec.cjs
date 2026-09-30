@@ -41,8 +41,9 @@ test('failed business logout keeps the profile open with a retryable error', asy
   expect(await page.evaluate(() => Boolean(sessionStorage.getItem('nitewide.business.session')))).toBe(true);
 });
 async function eventDetails(page, fixture) {
-  await login(page, fixture, 'business');
-  await page.goto(`/app?section=events&event=${fixture.ids.event}`);
+  // Authenticate on the deep link itself, as a guest opening an event would.
+  // This also avoids unloading a just-mounted overview with requests in flight.
+  await login(page, fixture, 'business', 'business', `/app?section=events&event=${fixture.ids.event}`);
   await expect(page.getByRole('heading', { name: 'Playwright Friday Night', exact: true })).toBeVisible();
 }
 async function admissions(page, fixture, role = 'business') {
@@ -51,6 +52,20 @@ async function admissions(page, fixture, role = 'business') {
   await page.getByRole('button', { name: 'Start admissions for Playwright Friday Night', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Ready at the door' })).toBeVisible();
 }
+
+test('business sections can change while overview reports are loading', async ({ page, fixture }) => {
+  await eventDetails(page, fixture);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const reportStarted = page.waitForRequest(request => request.url().includes('/api/business/reports/summary?'));
+    await businessSection(page, 'Overview');
+    await reportStarted;
+    await businessSection(page, 'Events');
+    await expect(page).toHaveURL(/section=events/);
+  }
+  await businessSection(page, 'Overview');
+  await expect(page.locator('.business-overview')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('.business-overview').getByRole('alert')).toHaveCount(0);
+});
 test('business sign in and section navigation retain clean URLs', async ({ page, fixture }) => {
   await login(page, fixture, 'business');
   const menu = page.getByRole('button', { name: 'Open navigation', exact: true });

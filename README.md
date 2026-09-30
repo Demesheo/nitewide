@@ -139,6 +139,12 @@ npm run dev:admin
 # Automated API, domain, and mocked email tests (0 email sends)
 npm test
 
+# Focused Node test runner + Supertest API checks (0 email sends)
+npm run test:api
+npm run test:api:unit
+npm run test:api:integration
+npm run test:api:integration -- --suite admissions-integration.test.js
+
 # Run either mocked email suite on its own (0 email sends)
 npm run test:email:customer:mocked
 npm run test:email:business:mocked
@@ -158,7 +164,7 @@ The API development process uses a normal Node process for compatibility with ma
 
 The assumptions, outputs, valuation sensitivities, and evidence gates behind the Florida model are documented in [docs/FLORIDA_50M_MODEL.md](docs/FLORIDA_50M_MODEL.md).
 
-`npm test` runs the unit/frontend tests and five required real-PostgreSQL suites: admissions, the Business HTTP workflow, Team/Overview/Analytics consistency, admin onboarding/lifecycle, and public discovery pagination. Each integration suite receives a fresh generated database, migrations, and deterministic fixtures; the runner removes that database afterward. No development/demo seed is required or modified, and email delivery is disabled. Missing PostgreSQL/PostGIS prerequisites fail with setup guidance rather than skipping coverage. See [Testing](docs/TESTING.md) for local/CI setup and the separate demo-only command.
+`npm test` runs the unit/frontend tests and ten required real-PostgreSQL suites using Node's built-in test runner. Supertest exercises the Express HTTP boundary for authentication, permissions, customer/business/admin workflows, checkout replay/conflicts, admissions, uploads, CSV exports, and signed webhooks. Database suites also verify reporting, pagination, lifecycle protections, and concurrent authorization/write behavior. Each receives a fresh generated database, migrations, and deterministic fixtures; the runner removes that database afterward. No development/demo seed is required or modified, and email delivery is disabled. Missing PostgreSQL/PostGIS prerequisites fail with setup guidance rather than skipping coverage. `test:api:unit` needs no database; `test:api:integration` runs all required database suites or a single named suite. GitHub's existing `npm test` verification includes this coverage automatically. See [Testing](docs/TESTING.md) for commands, conventions, local/CI setup, and the separate demo-only command.
 
 The customer and business mocked email suites run automatically in `npm test`, including GitHub's build/deploy verification. They use isolated fixtures and mocked provider requests, so they consume **0 Resend sends**. The two simulated commands are separate manual actions; neither is invoked by `npm test`, `npm run build`, Docker, or deployment. See [docs/TRANSACTIONAL_EMAIL.md](docs/TRANSACTIONAL_EMAIL.md).
 
@@ -299,9 +305,25 @@ The raw QR token is returned only at credential issuance. The database retains o
 - The event's `guestlistCapacity` applies only to direct venue guestlist entries. Each selected promoter has a separate `guestlistAllocation`, so promoter allocations are additional pools and neither consume nor conflict with the venue pool or another promoter's pool.
 - `Offering` describes repeatable inventory, `OrderItem` records the purchase snapshot, and `Ticket` represents each admission credential.
 - A package can generate several tickets through `entriesPerUnit`.
-- Checkout and allocation use serializable transactions with locked inventory rows. Check-in uses a row-locked transaction and unique credential constraints to prevent duplicate admission, including simultaneous scans.
+- Protected mutations use READ COMMITTED transactions with transaction-aware authorization, a shared/exclusive database authorization fence, and locked inventory/capacity/credential rows. Access and lifecycle changes take the exclusive fence before reading permissions; normal writes share the fence and remain concurrent. See the implementation rules below.
 - Currency uses integer cents; commissions use basis points.
 - Buyers pay the same **standard 8% + $0.80 (automatic discounts and minimum-cost exceptions apply) service fee per paid ticket/package** for Free and Premium organizations. **Nitewide pays Stripe processing from its service-fee revenue**, not the organizer or an extra customer surcharge. Free orders have no service fee. Free core platform use has no organizer listing or platform transaction fee; optional Premium remains $249/month with planned advanced tools and no transaction-fee discount. Advanced offering configuration is available on both tiers. Order pricing snapshots record the policy version and processing payer; old orders are not repriced. Actual Stripe fees/settlement await the live Connect integration and must use provider records, not an estimated 2.9% + $0.30 deduction. See [fee policy and examples](docs/FEE_POLICY.md).
+
+## Transactional authorization and checkout replay
+
+Use `mutationTransaction` from `apps/api/src/services/mutation-transaction.js` for protected writes. Acquire the authorization fence before permission queries or domain row locks. Pass the resulting transaction into permission checks, every state-dependent validation, writes, audits, notifications, and email-outbox enqueueing. A preflight permission check is only a convenience; it cannot authorize the eventual write.
+
+Membership grants/removals, role changes, lifecycle/admin changes, and account contact edits use `{ accessChange: true }`. Contact changes affect invitation-recipient matching. These transactions take the exclusive fence; ordinary business edits, invitations, guestlist claims/reviews, admissions, and checkout take the shared fence. PostgreSQL transaction advisory locks coordinate across API replicas and release on commit or rollback. If removal gets the fence first, the later writer sees committed removal and fails; if the authorized writer gets it first, its short transaction can finish before removal. This is not retroactive cancellation of already committed work. Request-session authentication remains at the HTTP boundary; this fence rechecks account and domain permissions, not a request's session token.
+
+After the fence, lock involved events in ascending ID order, then their child inventory/entry/credential records in a deterministic order. Avoid SHARE-to-UPDATE upgrades on domain rows that the operation will mutate: lock those rows for UPDATE initially. Checkout first takes a buyer/idempotency-key advisory lock, then reads the buyer with SHARE and locks the event/offerings. Do not upgrade a shared authorization fence to exclusive; start an access-change transaction instead. Never perform network delivery while holding database locks—enqueue email atomically and let the worker deliver it later.
+
+The exclusive fence intentionally coordinates authorization changes database-wide. Ordinary shared writers are concurrent, but a long mutation can delay access changes. Keep transactions short and monitor lock waits before adding long-running operations. Direct SQL, seeds, migrations, and maintenance scripts do not automatically participate; use this protocol for any concurrent runtime authorization writer, and run offline maintenance with application writes stopped when necessary.
+
+Checkout keys are scoped to the buyer. New orders store a SHA-256 fingerprint of event, offering IDs, merged quantities, and referral code. Item ordering and splitting the same offering into multiple lines do not change the cart. An identical retry returns the original order without repricing, issuing credentials again, sending email again, or incrementing inventory. A different event/cart/referral returns HTTP 409 `IDEMPOTENCY_CONFLICT`; start a new purchase with a new key. Transport payment references and expected-total fields are not cart identity.
+
+Apply migration `202609300004-checkout-request-fingerprint.cjs` before running the updated API. Existing orders remain unchanged: their saved event/items validate cart-only replay because their original referral-code input was not stored. Missing historical items fail closed with a conflict; no historical fees are recalculated. No reseeding is required. The fingerprint is internal and is excluded from customer order responses.
+
+`npm test` includes mandatory isolated PostgreSQL tests for write/removal ordering, concurrent shared writers, rollback of invitations/audits/outbox, and conflicting checkout retries. It does not send live email.
 
 ## Production boundaries
 
