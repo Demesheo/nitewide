@@ -11,6 +11,7 @@ function setup(onGuestlistQuery, guestlistScope = { canReviewAny: true, eventAff
   };
   const authSession = { accessToken: 'test-token', user: { id: 'user-1', email: 'customer@example.com', displayName: 'Test Customer' }, roles: ['customer'] };
   const services = { auth: { register: async () => authSession, signIn: async () => authSession, authenticate: async () => ({ id: 'user-1' }), me: async () => ({ user: authSession.user, roles: authSession.roles }) }, permissions: { assertManageEvent: async () => event, guestlistReviewScope: async () => guestlistScope, assertInternal: async () => ({}) }, checkout: async (input) => ({ order: { id: 'o1', buyerUserId: input.buyerUserId }, credentials: [], replayed: false }), requestGuestlist: async () => ({ entry: { status: 'pending' }, requiresApproval: true }), reviewGuestlist: async (input) => ({ entry: { status: input.decision === 'cancel' ? 'rejected' : 'confirmed' }, qrToken: input.decision === 'cancel' ? null : 'approved-token' }), checkIn: async () => ({}) };
+  services.abuse = { before: async () => {}, authenticated: async () => {} }; // Store behavior has real PostgreSQL coverage.
   return createApp({ sequelize: {}, models, services, config: { NODE_ENV: 'test', corsOrigins: [], AUTH_TOKEN_SECRET: 'test-secret-at-least-32-characters' }, healthCheck: async () => {} });
 }
 test('health endpoint reports the API is ready', async () => { const response = await request(setup(), '/health'); assert.equal(response.status, 200); assert.equal(response.body.service, 'nitewide-api'); });

@@ -527,10 +527,17 @@ export default function App() {
       token={onboardingToken}
       session={session}
       onSignIn={() => setAuthOpen(true)}
-      onSwitchAccount={(signIn) => { if (session?.user?.id) clearPassCache(session.user.id); writeStorage('nitewide.session', null); setSession(null); setAuthOpen(signIn); }}
+      onSwitchAccount={async (signIn) => {
+        if (session?.accessToken) {
+          try { await api('/auth/logout', { token: session.accessToken, method: 'POST' }); }
+          catch (error) { if (error.status !== 401) { setNotice(error.message); return; } }
+        }
+        if (session?.user?.id) clearPassCache(session.user.id); writeStorage('nitewide.session', null); setSession(null); setAuthOpen(signIn);
+      }}
       onContinue={() => { setOnboardingToken(null); if (!session) setAuthOpen(true); }}
     />
     <AuthDialog open={authOpen} onOpenChange={setAuthOpen} onSuccess={authSuccess} />
+    {notice && <p role="alert">{notice}</p>}
   </>;
   return (
     <>
@@ -1013,7 +1020,11 @@ export default function App() {
       />
       <AccountDialog open={walletOpen} onOpenChange={setWalletOpen} session={session}
         onProfile={(user) => { const updated = { ...session, user }; setSession(updated); writeStorage('nitewide.session', updated); }}
-        onSignOut={() => { clearPassCache(session.user.id); setWalletOpen(false); setSession(null); setReferral(null); writeStorage('nitewide.session', null); setNotice('You’re signed out.'); }} />
+        onSignOut={async (everywhere = false) => {
+          try { await api(everywhere ? '/auth/sessions/revoke-all' : '/auth/logout', { token: session.accessToken, method: 'POST' }); }
+          catch (error) { if (error.status !== 401) return error.message; }
+          clearPassCache(session.user.id); setWalletOpen(false); setSession(null); setReferral(null); writeStorage('nitewide.session', null); setNotice('You’re signed out.');
+        }} />
       {notice && (
         <div className="toast-message" role="status">
           <Check size={17} />

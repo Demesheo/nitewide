@@ -31,7 +31,8 @@ test('customer experience HTTP: account saved events, paged history, guestlist s
     async function request(pathname, role = 'guest', { method = 'GET', body } = {}) {
       const credential = role ? await m.UserCredential.findByPk(ids[role]) : null;
       const issuedAt = Math.floor(Date.now() / 1000);
-      const token = role ? signToken({ sub: ids[role], iat: issuedAt, exp: issuedAt + 300, pwd: credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null }, config.AUTH_TOKEN_SECRET) : null;
+      const session = role ? await m.AuthSession.create({ userId: ids[role], expiresAt: new Date((issuedAt + 300) * 1000) }) : null;
+      const token = role ? signToken({ sub: ids[role], sid: session.id, iat: issuedAt, exp: issuedAt + 300, pwd: credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null }, config.AUTH_TOKEN_SECRET) : null;
       const response = await fetch(base + pathname, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
       return { status: response.status, ...await response.json() };
     }

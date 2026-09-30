@@ -1,4 +1,21 @@
 const { test, expect, login, adminSection, expectNoOverflow } = require('../fixtures.cjs');
+const { urls } = require('../environment.cjs');
+test('admin sign out everywhere revokes its active sessions', async ({ page, request, fixture }) => {
+  await login(page, fixture, 'admin');
+  const token = await page.evaluate(() => JSON.parse(sessionStorage.getItem('nitewide.admin.session')).accessToken);
+  if (!await page.getByRole('button', { name: 'Sign out everywhere', exact: true }).isVisible()) await page.getByRole('button', { name: 'Toggle navigation' }).click();
+  await page.getByRole('button', { name: 'Sign out everywhere', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Sign in securely', exact: true })).toBeVisible();
+  expect((await request.get(`${urls.api}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })).status()).toBe(401);
+});
+test('failed admin logout displays a recoverable error without clearing storage', async ({ page, fixture }) => {
+  await login(page, fixture, 'admin');
+  if (!await page.getByRole('button', { name: 'Sign out', exact: true }).isVisible()) await page.getByRole('button', { name: 'Toggle navigation' }).click();
+  await page.route('**/api/auth/logout', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { message: 'Security controls are temporarily unavailable. Please try again.' } }) }));
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Security controls are temporarily unavailable');
+  expect(await page.evaluate(() => Boolean(sessionStorage.getItem('nitewide.admin.session')))).toBe(true);
+});
 test('admin can sign in and navigate mobile and desktop management', async ({ page, fixture }) => {
   await login(page, fixture, 'admin');
   for (const section of ['Users', 'Events', 'Organizations']) {

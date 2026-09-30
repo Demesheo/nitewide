@@ -5,7 +5,7 @@ const asyncHandler = (handler) => (req, res, next) => Promise.resolve(handler(re
 const validate = (schema, source = 'body') => (req, _res, next) => {
   try { req[source] = schema.parse(req[source]); next(); } catch (error) { next(error); }
 };
-function createRequireUser({ authenticate, allowDevelopmentUserHeader = false }) {
+function createRequireUser({ authenticate, allowDevelopmentUserHeader = false, abuse }) {
   return async (req, _res, next) => {
     try {
       const authorization = req.get('authorization');
@@ -13,15 +13,18 @@ function createRequireUser({ authenticate, allowDevelopmentUserHeader = false })
         const user = await authenticate(authorization.slice(7));
         req.userId = user.id;
         req.user = user;
+        req.authSessionId = user.authSessionId;
+        await abuse?.authenticated(req);
         return next();
       }
       const developmentUserId = req.get('x-user-id');
-      if (allowDevelopmentUserHeader && developmentUserId) { req.userId = developmentUserId; return next(); }
+      if (allowDevelopmentUserHeader && developmentUserId) { req.userId = developmentUserId; await abuse?.authenticated(req); return next(); }
       return next(new DomainError('Sign in is required', { code: 'UNAUTHENTICATED', status: 401 }));
     } catch (error) { return next(error); }
   };
 }
 function errorHandler(error, _req, res, _next) {
+  if (error.code === 'RATE_LIMITED') res.set('Retry-After', String(error.details.retryAfterSeconds));
   if (error instanceof ZodError) return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'Request validation failed', details: error.flatten() } });
   if (error instanceof DomainError) return res.status(error.status).json({ error: { code: error.code, message: error.message, details: error.details } });
   if (error.name === 'SequelizeUniqueConstraintError') return res.status(409).json({ error: { code: 'DUPLICATE', message: 'A unique value is already in use' } });

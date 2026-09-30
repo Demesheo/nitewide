@@ -59,7 +59,8 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     async function tokenFor(userId) {
       const credential = await models.UserCredential.findByPk(userId);
       const nowSeconds = Math.floor(Date.now() / 1000);
-      return signToken({ sub: userId, iat: nowSeconds, exp: nowSeconds + 600, pwd: credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null }, config.AUTH_TOKEN_SECRET);
+      const session = await models.AuthSession.create({ userId, expiresAt: new Date((nowSeconds + 600) * 1000) });
+      return signToken({ sub: userId, sid: session.id, iat: nowSeconds, exp: nowSeconds + 600, pwd: credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null }, config.AUTH_TOKEN_SECRET);
     }
     async function request(route, userId = null, method = 'GET', body) {
       const token = userId ? await tokenFor(userId) : null;

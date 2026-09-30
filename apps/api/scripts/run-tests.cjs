@@ -7,7 +7,7 @@ const { Client } = require('pg');
 const { offlineEnvironment, maintenanceUrl, postgresUrl, assertLoopbackUrl, assertGeneratedDatabaseName } = require('./test-database.cjs');
 
 const apiRoot = path.resolve(__dirname, '..');
-const INTEGRATION_TESTS = ['admissions-integration.test.js', 'business-integration.test.js', 'business-reporting-integration.test.js', 'business-read-integration.test.js', 'admin-onboarding-lifecycle-integration.test.js', 'public-discovery-integration.test.js', 'customer-experience-integration.test.js', 'referral-reactivation-integration.test.js'];
+const INTEGRATION_TESTS = ['abuse-session-integration.test.js', 'admissions-integration.test.js', 'business-integration.test.js', 'business-reporting-integration.test.js', 'business-read-integration.test.js', 'admin-onboarding-lifecycle-integration.test.js', 'public-discovery-integration.test.js', 'customer-experience-integration.test.js', 'referral-reactivation-integration.test.js'];
 const DEMO_TESTS = ['orlando-seed-integration.test.js', 'posh-importer-integration.test.js', 'seed-cleanup-integration.test.js', 'seed-guestlists-integration.test.js', 'venue-selection-integration.test.js'];
 let activeChild = null; let interrupted = null;
 

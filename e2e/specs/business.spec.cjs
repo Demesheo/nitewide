@@ -1,6 +1,22 @@
 const { test, expect, login, businessSection, expectNoOverflow } = require('../fixtures.cjs');
 const QRCode = require('qrcode');
 const { urls } = require('../environment.cjs');
+test('business profile logout revokes the token server-side', async ({ page, request, fixture }) => {
+  await login(page, fixture, 'business');
+  const token = await page.evaluate(() => JSON.parse(sessionStorage.getItem('nitewide.business.session')).accessToken);
+  await page.getByRole('button', { name: 'Your profile', exact: true }).click();
+  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Sign in to Nitewide', exact: true })).toBeVisible();
+  expect((await request.get(`${urls.api}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })).status()).toBe(401);
+});
+test('failed business logout keeps the profile open with a retryable error', async ({ page, fixture }) => {
+  await login(page, fixture, 'business');
+  await page.getByRole('button', { name: 'Your profile', exact: true }).click();
+  await page.route('**/api/auth/logout', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { message: 'Security controls are temporarily unavailable. Please try again.' } }) }));
+  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('alert')).toContainText('Security controls are temporarily unavailable');
+  expect(await page.evaluate(() => Boolean(sessionStorage.getItem('nitewide.business.session')))).toBe(true);
+});
 async function eventDetails(page, fixture) {
   await login(page, fixture, 'business');
   await page.goto(`/app?section=events&event=${fixture.ids.event}`);

@@ -25,6 +25,11 @@ const { createBusinessEventReuseService } = require('../services/business-event-
 
 function createRouter({ publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', qrTokenSecret, deliveryTrackingConfigured = false }) {
   const router = express.Router();
+  const requireSession = (req, _res, next) => req.authSessionId ? next() : next(new (require('../domain/errors').DomainError)('A signed-in session is required', { code: 'UNAUTHENTICATED', status: 401 }));
+  router.post('/auth/logout', requireUser, requireSession, asyncHandler(async (req, res) => res.json({ data: await auth.revoke(req.userId, req.authSessionId) })));
+  router.get('/auth/sessions', requireUser, requireSession, asyncHandler(async (req, res) => res.json({ data: await auth.sessions(req.userId, req.authSessionId) })));
+  router.post('/auth/sessions/revoke-all', requireUser, requireSession, asyncHandler(async (req, res) => res.json({ data: await auth.revoke(req.userId) })));
+  router.delete('/auth/sessions/:sessionId', requireUser, requireSession, asyncHandler(async (req, res) => res.json({ data: await auth.revoke(req.userId, z.uuid().parse(req.params.sessionId)) })));
   const business = createBusinessService({ models, permissions, email, customerAppUrl, businessAppUrl });
   const businessRead = createBusinessReadService({ models, email, deliveryTrackingConfigured });
   const businessReports = createBusinessReportService({ models, businessRead });

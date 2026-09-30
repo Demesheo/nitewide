@@ -15,6 +15,15 @@ const { generateSecrets, main: generate } = require('../../../scripts/generate-s
 const production = { NODE_ENV: 'production', DATABASE_URL: 'postgres://app:password@database.example/nitewide', DATABASE_SSL: 'true',
   ...Object.fromEntries(SECRET_NAMES.map(name => [name, randomBytes(32).toString('hex')])) };
 
+test('proxy headers are not trusted by default and only bounded explicit hop counts are accepted', () => {
+  assert.equal(getConfig({}).trustProxy, false);
+  assert.equal(getConfig(production).trustProxy, false);
+  assert.equal(getConfig({ ...production, HOSTED_DEMO: 'true' }).trustProxy, 1);
+  assert.equal(getConfig({ TRUST_PROXY_HOPS: '0' }).trustProxy, 0);
+  assert.equal(getConfig({ TRUST_PROXY_HOPS: '1' }).trustProxy, 1);
+  for (const value of ['true', '-1', '6', '1.5']) assert.throws(() => getConfig({ TRUST_PROXY_HOPS: value }));
+});
+
 test('every production mode requires explicit distinct secrets and rejects development/example defaults', () => {
   for (const HOSTED_DEMO of ['false', 'true']) {
     for (const name of SECRET_NAMES) {

@@ -1,4 +1,5 @@
 const initializers = [
+  require('./AuthSession').initAuthSession, require('./AuthSession').initAbuseBucket,
   require('./OrganizationVenue').initOrganizationVenue,
   require('./OnboardingInvitation').initOnboardingInvitation,
   require('./MediaAsset').initMediaAsset,

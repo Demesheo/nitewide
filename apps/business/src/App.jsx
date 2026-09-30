@@ -82,7 +82,11 @@ export default function App() {
     screen.addEventListener("change", closeOnDesktop);
     return () => screen.removeEventListener("change", closeOnDesktop);
   }, []);
-  const signOut = useCallback((expired = false) => {
+  const signOut = useCallback(async (expired = false, everywhere = false) => {
+    if (!expired && session?.accessToken) {
+      try { await api(everywhere ? '/auth/sessions/revoke-all' : '/auth/logout', session, { method: 'POST' }); }
+      catch (error) { if (error.status !== 401) { setNotice(error.message); return error.message; } }
+    }
     if (!onboardingToken && !inviteToken) window.history.replaceState(null, '', '/sign-in');
     sessionStorage.removeItem(SESSION_KEY);
     setSession(null);
@@ -96,7 +100,7 @@ export default function App() {
     setLoginNotice(
       expired ? "Your session has expired. Please sign in again." : "",
     );
-  }, [onboardingToken, inviteToken]);
+  }, [onboardingToken, inviteToken, session]);
   const expire = useCallback(() => signOut(true), [signOut]);
   const { data, loading, error, revision, setRevision } = useBusinessBootstrap(session, onboardingToken, expire);
   const refreshAdmissions = useCallback(() => setRevision((value) => value + 1), []);
@@ -149,7 +153,7 @@ export default function App() {
     navigateRoute(value, eventId, entryId, eventTab); setMobileNav(false);
   }
   if (onboardingToken && onboardingSignIn) return <BusinessSignIn onSession={login} notice={loginNotice || 'Sign in with the email address on your invitation. You will return to the invitation to accept access.'} />;
-  if (onboardingToken) return <OnboardingSetup token={onboardingToken} session={session} onSignIn={() => setOnboardingSignIn(true)} onSwitchAccount={(signIn) => { signOut(); setOnboardingSignIn(signIn); }} onContinue={() => { setOnboardingToken(null); writeWorkspaceLocation({ onboarding: null }, { replace: true }); setRevision((value) => value + 1); }} />;
+  if (onboardingToken) return <><OnboardingSetup token={onboardingToken} session={session} onSignIn={() => setOnboardingSignIn(true)} onSwitchAccount={async (signIn) => { if (!await signOut()) setOnboardingSignIn(signIn); }} onContinue={() => { setOnboardingToken(null); writeWorkspaceLocation({ onboarding: null }, { replace: true }); setRevision((value) => value + 1); }} />{notice && <p role="alert">{notice}</p>}</>;
   if (inviteToken) return <TeamInviteLanding token={inviteToken} session={session} onSession={login} onAccepted={(updated, accepted) => { login(updated); setInviteToken(null); writeWorkspaceLocation({ invite: null }, { replace: true }); setNotice('Invitation accepted. Your access is ready.'); navigate(accepted?.eventId ? 'events' : 'team', accepted?.eventId || null); setRevision((value) => value + 1); }} />;
   if (!session || new URLSearchParams(window.location.search).has('resetPassword')) return <BusinessSignIn onSession={login} notice={loginNotice} />;
   const title =
@@ -246,7 +250,7 @@ export default function App() {
         <DialogContent className="business-profile-dialog">
           <DialogTitle className="sr-only">Your profile</DialogTitle>
           <DialogDescription className="sr-only">View and edit your Nitewide account details.</DialogDescription>
-          <BusinessProfile session={session} capabilities={data?.capabilities} onLogout={() => signOut()} onUpdated={(user) => { const updated = { ...session, user: { ...session.user, ...user } }; sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated)); setSession(updated); }} />
+          <BusinessProfile session={session} capabilities={data?.capabilities} onLogout={(everywhere) => signOut(false, everywhere)} onUpdated={(user) => { const updated = { ...session, user: { ...session.user, ...user } }; sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated)); setSession(updated); }} />
         </DialogContent>
       </Dialog>
       <nav className="mobile-bottom-nav" aria-label="Business navigation">

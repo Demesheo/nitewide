@@ -14,6 +14,7 @@ function fixture() {
   const tokens = [];
   const queued = [];
   const models = {
+    AuthSession: { create: async (values) => ({ id: 'e70aafec-c0e2-45b0-aeb9-15618352089e', ...values }), findByPk: async () => ({ id: 'e70aafec-c0e2-45b0-aeb9-15618352089e', userId: user.id, expiresAt: new Date(clock.getTime() + 3600000) }) },
     User: {
       findOne: async ({ where }) => where.email === user.email && user.isActive ? user : null,
       findByPk: async (id) => id === user.id ? user : null,

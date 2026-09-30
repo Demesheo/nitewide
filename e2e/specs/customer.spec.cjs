@@ -1,4 +1,25 @@
 const { test, expect, login, expectNoOverflow } = require('../fixtures.cjs');
+const { urls } = require('../environment.cjs');
+test('customer sign out everywhere revokes both sessions at the API', async ({ page, request, fixture }) => {
+  await login(page, fixture, 'customer');
+  const token = await page.evaluate(() => JSON.parse(localStorage.getItem('nitewide.session')).accessToken);
+  const second = await request.post(`${urls.api}/api/auth/sign-in`, { data: { email: fixture.accounts.customer.email, password: fixture.password } });
+  const other = (await second.json()).data.accessToken;
+  await page.getByRole('button', { name: "Open Jordan Customer's profile" }).click();
+  await page.getByRole('button', { name: 'Sign out everywhere', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Log in', exact: true })).toBeVisible();
+  for (const revoked of [token, other]) expect((await request.get(`${urls.api}/api/auth/me`, { headers: { Authorization: `Bearer ${revoked}` } })).status()).toBe(401);
+});
+test('failed customer logout retains the session and displays an error in the profile', async ({ page, request, fixture }) => {
+  await login(page, fixture, 'customer');
+  const token = await page.evaluate(() => JSON.parse(localStorage.getItem('nitewide.session')).accessToken);
+  await page.getByRole('button', { name: "Open Jordan Customer's profile" }).click();
+  await page.route('**/api/auth/logout', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { message: 'Security controls are temporarily unavailable. Please try again.' } }) }));
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Security controls are temporarily unavailable');
+  expect((await request.get(`${urls.api}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })).status()).toBe(200);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('nitewide.session')).accessToken)).toBe(token);
+});
 test('customer sign in persists across reload without horizontal overflow', async ({ page, fixture }) => {
   await login(page, fixture, 'customer');
   await page.reload();

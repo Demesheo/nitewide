@@ -92,7 +92,8 @@ test('authorized event save reactivates a manager referral while preserving snap
     async function request(path, role = 'owner', method = 'GET', body) {
       const userId = role === null || role === undefined ? ids.owner : (ids[role] || role);
       const issuedAt = Math.floor(Date.now() / 1000);
-      const token = signToken({ sub: userId, iat: issuedAt, exp: issuedAt + 300, pwd: null }, config.AUTH_TOKEN_SECRET);
+      const session = await m.AuthSession.create({ userId, expiresAt: new Date((issuedAt + 300) * 1000) });
+      const token = signToken({ sub: userId, sid: session.id, iat: issuedAt, exp: issuedAt + 300, pwd: null }, config.AUTH_TOKEN_SECRET);
       const response = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, ...(body ? { body: JSON.stringify(body) } : {}) });
       const payload = await response.json();
       return { status: response.status, ...payload };

@@ -1,8 +1,11 @@
 const { createPasswordRecord } = require('../apps/api/src/services/auth-service');
-const { createQrToken } = require('../apps/api/src/domain/qr');
+const { createHash } = require('node:crypto');
 const { walletToken, guestlistWalletToken } = require('../apps/api/src/domain/wallet-qr');
 
 const uuid = number => `00000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
+// Fixed disposable credentials keep the rendered QR matrices reproducible.
+// The managed-database guard below prevents these hashes reaching real data.
+const qrHash = id => createHash('sha256').update(`nitewide-playwright-pass:${id}`).digest('hex');
 const password = 'NitewideDemo!2026';
 const accounts = {
   customer: { id: uuid(1), email: 'jordan@playwright.nitewide.test', name: 'Jordan Customer' },
@@ -52,7 +55,7 @@ async function seed(models, config) {
         await models.Order.create({ id: uuid(400 + index), eventId, buyerUserId: accounts.customer.id, status: 'paid', subtotalCents: 2500, totalCents: 2800, platformFeeCents: 300,
           paidAt: new Date(), idempotencyKey: `playwright-order-${index}`, pricingPlanSnapshot: { demo: true } }, options);
         await models.OrderItem.create({ id: uuid(500 + index), orderId: uuid(400 + index), offeringId: uuid(200 + index), nameSnapshot: 'General Admission', kindSnapshot: 'ticket', quantity: 1, entriesPerUnitSnapshot: 1, unitPriceCents: 2500, lineTotalCents: 2500 }, options);
-        await models.Ticket.create({ id: uuid(600 + index), eventId, orderItemId: uuid(500 + index), holderUserId: accounts.customer.id, status: 'valid', qrTokenHash: createQrToken().hash }, options);
+        await models.Ticket.create({ id: uuid(600 + index), eventId, orderItemId: uuid(500 + index), holderUserId: accounts.customer.id, status: 'valid', qrTokenHash: qrHash(uuid(600 + index)) }, options);
       }
     }
     await models.Event.create({ id: ids.draft, organizationId: ids.org, creatorUserId: accounts.business.id, locationId: ids.location, title: 'Playwright Draft', slug: 'playwright-draft', status: 'draft', startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 90000000), guestlistCapacity: 10 }, options);
@@ -60,7 +63,7 @@ async function seed(models, config) {
     await models.EventAffiliate.create({ id: ids.affiliate, eventId: ids.event, userId: accounts.promoter.id, code: 'PW-EVENT-LEO', status: 'active', guestlistAllocation: 10, commissionBps: 500, accessScope: 'event' }, options);
     const managerAffiliate = await models.OrgAffiliate.findOne({ where: { organizationId: ids.org, userId: accounts.business.id }, transaction });
     await models.EventAffiliate.create({ id: uuid(901), eventId: ids.event, userId: accounts.business.id, orgAffiliateId: managerAffiliate.id, code: 'PW-EVENT-SAM', status: 'active', guestlistAllocation: 10, commissionBps: 0, accessScope: 'organization' }, options);
-    await models.GuestlistEntry.bulkCreate([{ id: ids.entry, eventId: ids.event, userId: accounts.customer.id, status: 'confirmed', partySize: 3, source: 'event', qrTokenHash: createQrToken().hash },
+    await models.GuestlistEntry.bulkCreate([{ id: ids.entry, eventId: ids.event, userId: accounts.customer.id, status: 'confirmed', partySize: 3, source: 'event', qrTokenHash: qrHash(ids.entry) },
       { id: ids.pending, eventId: ids.event, userId: accounts.pending.id, status: 'pending', partySize: 2, source: 'event' }], options);
     await models.Notification.bulkCreate([{ userId: accounts.customer.id, eventId: ids.event, kind: 'guestlist_approved', title: 'Your guestlist is approved', message: 'Your three places are approved.', metadata: { guestlistEntryId: ids.entry } },
       { userId: accounts.customer.id, eventId: ids.event, kind: 'purchase_confirmed', title: 'Your tickets are confirmed', message: 'General Admission is booked.', metadata: { orderId: ids.order } }], options);

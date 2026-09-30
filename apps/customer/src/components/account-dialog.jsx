@@ -221,7 +221,7 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSignOu
           </form>
           <div className="profile-security"><h3>Password</h3><p>If you need a new password, request a reset link from the sign-in screen.</p><Button variant="outline" onClick={async () => { try { await api('/auth/password-reset/request', { body: { email: session.user.email } }); setMessage('If email delivery is available, a reset link will arrive shortly.'); } catch (error) { setError(error.message); } }}>Request password reset</Button></div>
           {message && <p className="profile-message" role="status">{message}</p>}
-          <div className="profile-signout"><Button variant="ghost" onClick={onSignOut}><LogOut size={16} /> Sign out</Button></div>
+          <div className="profile-signout"><Button variant="ghost" disabled={busy} onClick={async () => { setBusy(true); try { setError(await onSignOut(false) || ''); } finally { setBusy(false); } }}><LogOut size={16} /> Sign out</Button><Button variant="ghost" disabled={busy} onClick={async () => { setBusy(true); try { setError(await onSignOut(true) || ''); } finally { setBusy(false); } }}>Sign out everywhere</Button></div>
         </TabsContent>
       </Tabs>
     </Content>

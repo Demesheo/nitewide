@@ -26,14 +26,15 @@ function signToken(payload, secret) {
 
 function verifyToken(token, secret, now = () => new Date()) {
   try {
-    const [encoded, providedSignature] = token.split('.');
+    const [encoded, providedSignature, extra] = token.split('.');
+    if (extra !== undefined) throw new Error('Malformed token');
     if (!encoded || !providedSignature) throw new Error('Malformed token');
     const expectedSignature = crypto.createHmac('sha256', secret).update(encoded).digest('base64url');
     const provided = Buffer.from(providedSignature);
     const expected = Buffer.from(expectedSignature);
     if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) throw new Error('Invalid signature');
     const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
-    if (!payload.sub || !payload.exp || payload.exp <= Math.floor(now().getTime() / 1000)) throw new Error('Expired token');
+    if (typeof payload.sub !== 'string' || !Number.isSafeInteger(payload.exp) || payload.exp <= Math.floor(now().getTime() / 1000)) throw new Error('Expired token');
     return payload;
   } catch (_error) {
     throw new DomainError('Session is invalid or expired', { code: 'UNAUTHENTICATED', status: 401 });
@@ -89,11 +90,17 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
     return roles;
   }
 
-  async function sessionFor(user) {
-    const issuedAt = Math.floor(now().getTime() / 1000);
-    const expiresAt = issuedAt + TOKEN_TTL_SECONDS;
-    const credential = await models.UserCredential.findByPk(user.id);
-    return { accessToken: signToken({ sub: user.id, iat: issuedAt, exp: expiresAt, pwd: credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null }, tokenSecret), expiresAt: new Date(expiresAt * 1000).toISOString(), user: publicUser(user), roles: await rolesFor(user) };
+  async function sessionFor(user, expectedCredential) {
+    return sequelize.transaction(async (transaction) => {
+      const current = await models.User.findByPk(user.id, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!activeUser(current)) throw new DomainError('Session is invalid or expired', { code: 'UNAUTHENTICATED', status: 401 });
+      const issuedAt = Math.floor(now().getTime() / 1000);
+      const expiresAt = issuedAt + TOKEN_TTL_SECONDS;
+      const credential = await models.UserCredential.findByPk(user.id, { transaction, lock: transaction.LOCK.UPDATE });
+      if (expectedCredential && credential?.passwordHash !== expectedCredential.passwordHash) throw new DomainError('Please sign in again', { code: 'UNAUTHENTICATED', status: 401 });
+      const session = await models.AuthSession.create({ userId: user.id, expiresAt: new Date(expiresAt * 1000) }, { transaction });
+      return { accessToken: signToken({ sub: user.id, sid: session.id, iat: issuedAt, exp: expiresAt, pwd: credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null }, tokenSecret), expiresAt: new Date(expiresAt * 1000).toISOString(), user: publicUser(current), roles: await rolesFor(current) };
+    });
   }
 
   async function register(input) {
@@ -123,24 +130,43 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
   async function signIn(input) {
     const user = await models.User.findOne({ where: { email: input.email.trim().toLowerCase() } });
     const credential = user ? await models.UserCredential.findByPk(user.id) : null;
-    if (!activeUser(user) || !credential || !(await passwordMatches(input.password, credential))) {
+    // Unknown and inactive accounts still incur password work, avoiding a cheap
+    // account-existence timing signal. API limits run before this expensive work.
+    const matches = credential ? await passwordMatches(input.password, credential) : (await createPasswordRecord(input.password, 'nitewide-login-dummy'), false);
+    if (!activeUser(user) || !credential || !matches) {
       throw new DomainError('Email or password is incorrect', { code: 'INVALID_CREDENTIALS', status: 401 });
     }
-    return sessionFor(user);
+    return sessionFor(user, credential);
   }
 
   async function authenticate(accessToken) {
     const payload = verifyToken(accessToken, tokenSecret, now);
+    if (typeof payload.sid !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.sid)) throw new DomainError('Please sign in again', { code: 'UNAUTHENTICATED', status: 401 });
+    const session = await models.AuthSession.findByPk(payload.sid);
+    if (!session || session.userId !== payload.sub || session.revokedAt || new Date(session.expiresAt) <= now()) throw new DomainError('Session is invalid or expired', { code: 'UNAUTHENTICATED', status: 401 });
     const user = await models.User.findByPk(payload.sub);
     if (!activeUser(user)) throw new DomainError('Session is invalid or expired', { code: 'UNAUTHENTICATED', status: 401 });
     const credential = await models.UserCredential.findByPk(user.id);
     const changedAt = credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null;
-    // Sessions issued before the password-version claim was introduced remain
-    // valid until expiry, unless the password has since been reset.
-    if (changedAt && (payload.pwd == null ? (payload.iat || 0) * 1000 + 1000 < changedAt : payload.pwd !== changedAt)) {
+    if (payload.pwd !== changedAt) {
       throw new DomainError('Session is invalid or expired', { code: 'UNAUTHENTICATED', status: 401 });
     }
+    // Request-local metadata; do not persist it or expose it in publicUser.
+    user.authSessionId = session.id;
     return user;
+  }
+
+  async function sessions(userId, currentId) {
+    const records = await models.AuthSession.findAll({ where: { userId, revokedAt: null, expiresAt: { [Op.gt]: now() } }, order: [['createdAt', 'DESC']], limit: 100 });
+    return records.map((record) => ({ id: record.id, current: record.id === currentId, createdAt: record.createdAt, expiresAt: record.expiresAt }));
+  }
+  async function revoke(userId, sessionId = null) {
+    await sequelize.transaction(async (transaction) => {
+      // Serialize against issuance, so logout-all cannot miss an in-flight login.
+      await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE });
+      await models.AuthSession.update({ revokedAt: now() }, { where: { userId, revokedAt: null, ...(sessionId ? { id: sessionId } : {}) }, transaction });
+    });
+    return { revoked: true };
   }
 
   async function requestPasswordReset(emailAddress) {
@@ -204,7 +230,7 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
     return { user: publicUser(user), roles: await rolesFor(user) };
   }
 
-  return { register, signIn, authenticate, me, requestPasswordReset, requestEmailVerification, verifyEmail, resetPassword };
+  return { register, signIn, authenticate, me, sessions, revoke, requestPasswordReset, requestEmailVerification, verifyEmail, resetPassword };
 }
 
 module.exports = { createAuthService, createPasswordRecord, passwordMatches, signToken, verifyToken };

@@ -146,7 +146,8 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     const base = `http://127.0.0.1:${server.address().port}/api`;
     const tokenFor = async (userId) => {
       const issuedAt = Math.floor(Date.now() / 1000);
-      return signToken({ sub: userId, iat: issuedAt, exp: issuedAt + 300, pwd: null }, config.AUTH_TOKEN_SECRET);
+      const session = await m.AuthSession.create({ userId, expiresAt: new Date((issuedAt + 300) * 1000) });
+      return signToken({ sub: userId, sid: session.id, iat: issuedAt, exp: issuedAt + 300, pwd: null }, config.AUTH_TOKEN_SECRET);
     };
     async function request(path, userId, { method = 'GET', body, headers = {} } = {}) {
       const token = userId ? await tokenFor(userId) : null;

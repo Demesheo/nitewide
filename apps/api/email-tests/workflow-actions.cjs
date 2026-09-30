@@ -46,6 +46,7 @@ async function collectWorkflowMessages(runLabel) {
     const credentials = new Map();
     const tokens = [];
     const models = {
+      AuthSession: { create: async (values) => ({ id: `session-${runLabel}`, ...values }) },
       User: {
         create: async (values) => {
           const user = { id: `account-${runLabel}`, isActive: true, emailVerifiedAt: null, ...values,

@@ -140,8 +140,9 @@ test(
         if (!user) return null;
         const credential = await m.UserCredential.findByPk(user);
         const issuedAt = Math.floor(Date.now() / 1000);
+        const session = await m.AuthSession.create({ userId: user, expiresAt: new Date((issuedAt + 300) * 1000) });
         return signToken(
-          { sub: user, iat: issuedAt, exp: issuedAt + 300, pwd: credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null },
+          { sub: user, sid: session.id, iat: issuedAt, exp: issuedAt + 300, pwd: credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null },
           config.AUTH_TOKEN_SECRET,
         );
       }

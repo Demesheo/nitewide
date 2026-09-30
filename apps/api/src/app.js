@@ -14,12 +14,14 @@ const { createRouter } = require('./routes'); const { createRequireUser, errorHa
 const { createMediaRouter } = require('./routes/media');
 const { createEmailService } = require('./services/email-service');
 const { createResendWebhookService } = require('./services/resend-webhook-service');
+const { createAbuseService } = require('./services/abuse-service');
+const { asyncHandler } = require('./http/middleware');
 
 function createApp({ sequelize, models, config, healthCheck = () => sequelize.authenticate(), services = {}, staticRoot }) {
   const app = express(); app.disable('x-powered-by'); app.use(helmet());
+  app.set('trust proxy', config.trustProxy ?? (config.hostedDemo ? 1 : false));
   app.get('/health', async (_req, res) => { try { await healthCheck(); res.json({ status: 'ok', service: 'nitewide-api' }); } catch (_error) { res.status(503).json({ status: 'degraded', service: 'nitewide-api' }); } });
   if (config.hostedDemo) {
-    app.set('trust proxy', 1);
     app.use((_req, res, next) => { res.set('X-Robots-Tag', 'noindex, nofollow, noarchive'); res.set('Cache-Control', 'no-store'); next(); });
     // The shared demo is public; normal account authentication and role checks remain.
     app.get('/demo-access', (_req, res) => res.redirect(302, '/'));
@@ -40,7 +42,9 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   app.locals.emailService = email;
   const invitations = createGuestlistInvitationService({ sequelize, models, permissions, email, customerAppUrl: config.CUSTOMER_APP_URL });
   const auth = services.auth || createAuthService({ sequelize, models, tokenSecret: config.AUTH_TOKEN_SECRET, invitations, email, customerAppUrl: config.CUSTOMER_APP_URL });
-  const requireUser = createRequireUser({ authenticate: auth.authenticate, allowDevelopmentUserHeader: config.NODE_ENV !== 'production' });
+  const abuse = services.abuse || createAbuseService({ sequelize, secret: config.AUTH_TOKEN_SECRET });
+  app.use('/api', asyncHandler(async (req, res, next) => { res.set('Cache-Control', 'no-store'); await abuse.before(req); next(); }));
+  const requireUser = createRequireUser({ authenticate: auth.authenticate, allowDevelopmentUserHeader: config.NODE_ENV !== 'production', abuse });
   app.use('/api', createMediaRouter({ models, requireUser, uploadDir: config.MEDIA_UPLOAD_DIR }));
   const guestlistService = services.requestGuestlist && services.reviewGuestlist ? null : createGuestlistService({ sequelize, models, email, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, reviewEmailsEnabled: config.businessGuestlistReviewEmails });
   const dependencies = {

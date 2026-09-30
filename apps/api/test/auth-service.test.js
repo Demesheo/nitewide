@@ -15,6 +15,8 @@ test('signed access tokens reject tampering and expiration', () => {
   const token = signToken({ sub: 'user-1', exp: 2_000_000_000 }, secret);
   assert.equal(verifyToken(token, secret, () => new Date(1_900_000_000 * 1000)).sub, 'user-1');
   assert.throws(() => verifyToken(`${token}x`, secret), (error) => error.code === 'UNAUTHENTICATED');
+  assert.throws(() => verifyToken(`${token}.extra`, secret), (error) => error.code === 'UNAUTHENTICATED');
+  assert.throws(() => verifyToken(signToken({ sub: 'user-1', exp: 'not-a-date' }, secret), secret), (error) => error.code === 'UNAUTHENTICATED');
   assert.throws(() => verifyToken(token, secret, () => new Date(2_100_000_000 * 1000)), (error) => error.code === 'UNAUTHENTICATED');
 });
 
@@ -28,9 +30,10 @@ test('registration normalizes an optional phone and keeps SMS choices separate',
   let saved;
   const now = new Date('2026-09-22T12:00:00Z');
   const service = createAuthService({
-    sequelize: { transaction: async (fn) => fn({}) },
+    sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: 'UPDATE' } }) },
     models: {
-      User: { create: async (values) => { saved = values; return { id: 'user-1', ...values }; } },
+      User: { create: async (values) => { saved = values; return { id: 'user-1', ...values }; }, findByPk: async () => ({ id: 'user-1', ...saved }) },
+      AuthSession: { create: async (values) => ({ id: 'session-1', ...values }) },
       UserCredential: { create: async () => {}, findByPk: async () => ({ passwordChangedAt: now }) }, AuditLog: { create: async () => {} },
       OrganizationOwner: { findAll: async () => [] }, OrganizationEmployee: { count: async () => 0 },
       OrgAffiliate: { count: async () => 0 }, EventAffiliate: { count: async () => 0 }, Event: { count: async () => 0 },

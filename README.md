@@ -141,6 +141,8 @@ Business-action delivery has its own opt-in command: `npm run test:email:busines
 
 ## Demo users and authentication
 
+Shared API throttling, server-side sessions, normal logout, and **Sign out everywhere** are described in [API abuse protection and session controls](docs/ABUSE_AND_SESSIONS.md). Apply pending migrations before running the updated API; existing stateless sessions require one fresh login. No MFA is enabled.
+
 The seed creates working demo credentials for every current application persona. All demo accounts use the password `NitewideDemo!2026`.
 
 | App | Persona and capabilities | Email |
