@@ -17,13 +17,14 @@ function accessScopeSql(alias) {
 async function currentOrganizationMembership(models, organizationId, userId, transaction, now = new Date()) {
   if (!organizationId) return null;
   const common = { transaction };
-  const [user, organization, leader, employee, affiliate] = await Promise.all([
-    models.User.findByPk(userId, common),
-    models.Organization.findByPk(organizationId, common),
-    models.OrganizationOwner.findOne({ where: { organizationId, userId, lifecycleState: 'active' }, ...common }),
-    models.OrganizationEmployee.findOne({ where: { organizationId, userId, status: 'active' }, ...common }),
-    models.OrgAffiliate.findOne({ where: { organizationId, userId, status: 'active' }, ...common }),
-  ]);
+  // Sequelize transactions use one PostgreSQL connection. Running these reads
+  // concurrently on it triggers pg's concurrent-query warning and can make
+  // membership checks nondeterministic under load.
+  const user = await models.User.findByPk(userId, common);
+  const organization = await models.Organization.findByPk(organizationId, common);
+  const leader = await models.OrganizationOwner.findOne({ where: { organizationId, userId, lifecycleState: 'active' }, ...common });
+  const employee = await models.OrganizationEmployee.findOne({ where: { organizationId, userId, status: 'active' }, ...common });
+  const affiliate = await models.OrgAffiliate.findOne({ where: { organizationId, userId, status: 'active' }, ...common });
   if (!activeUser(user) || !active(organization) || organization.status !== 'active') return null;
   const affiliateCurrent = affiliate && (!affiliate.startsAt || affiliate.startsAt <= now) && (!affiliate.endsAt || affiliate.endsAt >= now);
   return leader ? { kind: 'leader', record: leader } : employee ? { kind: 'employee', record: employee }

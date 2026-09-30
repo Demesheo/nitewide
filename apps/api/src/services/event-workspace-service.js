@@ -177,6 +177,7 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
       if (eventRegrant) values.sourceOrgAffiliateId = null;
       if (assignment) await assignment.update(values, { transaction });
       else assignment = await m.EventAffiliate.create({ ...values, eventId, userId: person.id, orgAffiliateId: member?.orgAffiliateId || null, code: `NW-${randomUUID()}`, guestlistAllocation: 0 }, { transaction });
+      if (input.status === 'inactive') await require('./guestlist-invitation-policy').revokePendingGuestlistInvitations({ models: m, eventAffiliateId: assignment.id, actorUserId: userId, transaction });
       const audit = await m.AuditLog.create({ actorUserId: userId, organizationId: event.organizationId, entityType: 'EventAffiliate', entityId: assignment.id, action: input.status === 'inactive' ? 'event.referrer.removed' : 'event.referrer.updated', before, after: assignment.toJSON() }, { transaction });
       if (before && input.status === 'active' && previousCommissionBps !== input.commissionBps) await queueEventTermsChanged({ email, models: m, userId: person.id, event,
         term: 'Commission on future sales', oldValue: percent(previousCommissionBps), newValue: percent(input.commissionBps),

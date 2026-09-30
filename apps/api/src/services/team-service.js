@@ -5,6 +5,7 @@ const { assertEventEditable } = require('../domain/event-policy');
 const { queueTeamInvitation, queuePromoterInvitation, queueAccessAccepted, queueAccessChanged } = require('./business-email-events');
 const { activeUser, assertActiveEvent, assertActiveOrganization } = require('./lifecycle-service');
 const { detachOrgAffiliateForStaffRole, setOrganizationAssignmentsActive } = require('./event-affiliate-transition');
+const { revokePendingGuestlistInvitations } = require('./guestlist-invitation-policy');
 
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 function rosterPeople(leaders, employees, promoters) {
@@ -83,6 +84,7 @@ function createTeamService({ models, permissions, email: emailService = null, bu
       }
       await setOrganizationAssignmentsActive({ models, organizationId, userId: memberUserId, actorUserId, active: true,
         staffRole: nextRole !== 'affiliate', transaction });
+      if (before === 'manager' && nextRole !== 'manager') await revokePendingGuestlistInvitations({ models, organizationId, userId: memberUserId, directOnly: true, actorUserId, transaction });
       const audit = await models.AuditLog.create({ actorUserId, organizationId, entityType: 'OrganizationTeamMember', entityId: memberUserId, action: 'team.member.role_changed', before: { role: before }, after: { role: nextRole } }, { transaction });
       await queueAccessChanged({ email: emailService, models, userId: memberUserId, organization,
         oldRole: before, newRole: nextRole, actionId: audit.id, businessAppUrl, transaction });
@@ -109,6 +111,7 @@ function createTeamService({ models, permissions, email: emailService = null, bu
       if (employee?.status === 'active') await employee.update({ status: 'inactive' }, { transaction });
       if (affiliate?.status === 'active') await affiliate.update({ status: 'inactive' }, { transaction });
       await setOrganizationAssignmentsActive({ models, organizationId, userId: memberUserId, actorUserId, active: false, transaction });
+      await revokePendingGuestlistInvitations({ models, organizationId, userId: memberUserId, actorUserId, transaction });
       const audit = await models.AuditLog.create({ actorUserId, organizationId, entityType: 'OrganizationTeamMember', entityId: memberUserId, action: 'team.member.removed', before, after: { status: 'inactive' } }, { transaction });
       await queueAccessChanged({ email: emailService, models, userId: memberUserId, organization,
         oldRole: before.role, newRole: 'removed', actionId: audit.id, businessAppUrl, transaction });

@@ -7,6 +7,7 @@ const { queueEventEmail, formatTime, venueName } = require('./email-events');
 const crypto = require('node:crypto');
 const { TEMPLATES } = require('./email-templates');
 const { venueSchema } = require('./admin-onboarding-service');
+const { revokePendingGuestlistInvitations } = require('./guestlist-invitation-policy');
 
 const text = (max) => z.string().trim().min(1).max(max);
 const optionalText = (max) => z.string().trim().max(max).nullable().optional();
@@ -108,6 +109,11 @@ function createAdminEditService({ models, permissions, email = null, customerApp
       if (!fieldChanged && !relationshipChanged) return before;
       if (fieldChanged) await record.update(changes, { transaction });
       else { await record.increment('version', { transaction }); await record.reload({ transaction }); }
+      if (changes.status === 'inactive' && ['employees', 'organization_affiliates', 'event_affiliates'].includes(key)) {
+        await revokePendingGuestlistInvitations({ models, actorUserId: actor, transaction,
+          ...(key === 'event_affiliates' ? { eventAffiliateId: record.id } : { organizationId: record.organizationId, userId: record.userId }) });
+      }
+      if (key === 'users' && changes.independentCreator === false) await revokePendingGuestlistInvitations({ models, userId: id, actorUserId: actor, transaction });
       const after = record.toJSON ? record.toJSON() : { ...record };
       await models.AuditLog.create({ actorUserId: actor, organizationId: key === 'organizations' ? id : record.organizationId || null, entityType: modelsFor[key], entityId: id, action: `admin.${modelsFor[key].toLowerCase()}.updated`, before, after: { ...after, adminReason: reason } }, { transaction });
       if (key === 'events' && before.status === 'published') {

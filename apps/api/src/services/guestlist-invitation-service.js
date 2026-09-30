@@ -5,6 +5,8 @@ const { conflict, forbidden, notFound, DomainError } = require('../domain/errors
 const { assertGuestlistCapacity } = require('./guestlist-capacity');
 const { createNotificationService } = require('./notification-service');
 const { queueGuestlistEmail } = require('./email-events');
+const { assertActiveEvent, activeUser } = require('./lifecycle-service');
+const { canClaimInvitation } = require('./guestlist-invitation-policy');
 
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 const invitationsOpen = (event, at) => event?.status === 'published' && new Date(event.endsAt) > at;
@@ -49,7 +51,9 @@ function createGuestlistInvitationService({ sequelize, models, permissions, emai
     return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (transaction) => {
       const event = await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!event) throw notFound('Event');
+      await assertActiveEvent(models, event, transaction);
       if (!invitationsOpen(event, now())) throw conflict('Guestlist invitations are closed for this event', 'GUESTLIST_CLOSED');
+      if (!await canClaimInvitation(models, { invitedByUserId: userId, eventAffiliateId }, event, transaction, now())) throw forbidden('Current guestlist invitation access is required');
       const normalizedEmail = input.email?.toLowerCase() || null;
       const pending = await models.GuestlistInvitation.findOne({ where: { eventId, status: 'pending', ...(normalizedEmail ? { email: normalizedEmail } : { phone: input.phone }) }, transaction });
       if (pending && pending.expiresAt > now()) throw conflict('This guest already has a pending invitation for the event', 'INVITE_EXISTS');
@@ -68,17 +72,23 @@ function createGuestlistInvitationService({ sequelize, models, permissions, emai
   }
   async function claim(token, userId, outerTransaction = null) {
     const run = async (transaction) => {
-      const invitation = await models.GuestlistInvitation.findOne({ where: { tokenHash: hash(token) }, transaction, lock: transaction.LOCK.UPDATE });
+      // Event → invitation matches issuance and prevents inverse-order deadlocks.
+      const scope = await models.GuestlistInvitation.findOne({ where: { tokenHash: hash(token) }, transaction });
+      if (!scope) throw new DomainError('Guestlist invitation is invalid or expired', { status: 404, code: 'INVITE_INVALID' });
+      const event = await models.Event.findByPk(scope.eventId, { transaction, lock: transaction.LOCK.UPDATE });
+      const invitation = await models.GuestlistInvitation.findOne({ where: { id: scope.id, tokenHash: hash(token) }, transaction, lock: transaction.LOCK.UPDATE });
       if (!invitation) throw new DomainError('Guestlist invitation is invalid or expired', { status: 404, code: 'INVITE_INVALID' });
       const user = await models.User.findByPk(userId, { transaction });
-      if (!user || (invitation.email && user.email.toLowerCase() !== invitation.email) || (invitation.phone && user.phone !== invitation.phone)) throw forbidden('Sign in or register with the invited email or phone');
+      if (!activeUser(user) || (invitation.email && user.email.toLowerCase() !== invitation.email) || (invitation.phone && user.phone !== invitation.phone)) throw forbidden('Sign in or register with the active invited email or phone');
       if (invitation.status === 'accepted' && invitation.acceptedByUserId === userId) {
         const entry = await models.GuestlistEntry.findOne({ where: { eventId: invitation.eventId, userId }, transaction });
         return { status: ['confirmed', 'checked_in'].includes(entry?.status) ? 'confirmed' : 'unavailable', entryId: entry?.id || null, eventId: invitation.eventId };
       }
       if (invitation.status !== 'pending' || invitation.expiresAt <= now()) throw new DomainError('Guestlist invitation is invalid or expired', { status: 404, code: 'INVITE_INVALID' });
-      const event = await models.Event.findByPk(invitation.eventId, { transaction, lock: transaction.LOCK.UPDATE });
+      try { await assertActiveEvent(models, event, transaction); }
+      catch (error) { if ([403, 404].includes(error.status)) return { status: 'event_closed', eventId: invitation.eventId }; throw error; }
       if (!invitationsOpen(event, now())) return { status: 'event_closed' };
+      if (!await canClaimInvitation(models, invitation, event, transaction, now())) return { status: 'unavailable', eventId: event.id };
       try {
         const entry = await confirm(event, user, invitation.eventAffiliateId, invitation.partySize, invitation.invitedByUserId, transaction);
         await invitation.update({ status: 'accepted', acceptedAt: now(), acceptedByUserId: user.id }, { transaction });

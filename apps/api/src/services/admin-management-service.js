@@ -11,6 +11,7 @@ const { queueTeamInvitation, queuePromoterInvitation } = require('./business-ema
 const { createAdminEditService, schemas: editSchemas } = require('./admin-edit-service');
 const { createAdminOnboardingService, venueSchema } = require('./admin-onboarding-service');
 const { active, assertActiveEvent, assertOrganizationVenue } = require('./lifecycle-service');
+const { revokePendingGuestlistInvitations } = require('./guestlist-invitation-policy');
 
 const text = (max = 160) => z.string().trim().min(1).max(max);
 const uuid = z.string().uuid();
@@ -244,7 +245,10 @@ function createAdminManagementService({ models, permissions, email = null, custo
         else { const creator = await getRecord(resource('users'), record.creatorUserId, transaction); if (!active(creator) || !creator.isActive || creator.onboardingPending) throw conflict('Restore the independent creator before their event', 'ANCESTOR_INACTIVE'); }
         if (record.locationId && !active(await getRecord(resource('locations'), record.locationId, transaction))) throw conflict('Restore the venue before its event', 'ANCESTOR_INACTIVE');
       }
-      await record.update(changes, { transaction }); await audit(actor, config, record, actionId, before, input.reason, transaction); return safe(config, record);
+      await record.update(changes, { transaction });
+      if (lifecycleState !== 'active' && ['users', 'owners'].includes(key)) await revokePendingGuestlistInvitations({ models, actorUserId: actor, transaction,
+        ...(key === 'users' ? { userId: id } : { userId: record.userId, organizationId: record.organizationId }) });
+      await audit(actor, config, record, actionId, before, input.reason, transaction); return safe(config, record);
     });
     if (key === 'guestlist') {
       const entry = await getRecord(config, id);
@@ -291,6 +295,8 @@ function createAdminManagementService({ models, permissions, email = null, custo
       if (!changes) throw conflict('Transition requires its parent workflow', 'MANAGED_WORKFLOW_REQUIRED');
       if (Object.entries(changes).every(([name, value]) => record[name] === value) || (key === 'notifications' && record.dismissedAt)) return safe(config, record);
       await record.update(changes, { transaction });
+      if (['users', 'employees', 'organization_affiliates', 'event_affiliates'].includes(key)) await revokePendingGuestlistInvitations({ models, actorUserId: actor, transaction,
+        ...(key === 'users' ? { userId: id } : key === 'event_affiliates' ? { eventAffiliateId: id } : { userId: record.userId, organizationId: record.organizationId }) });
       await audit(actor, config, record, actionId, before, input.reason, transaction);
       if (key === 'events' && before.status === 'published') await queueEventEmail({ email, models, event: record, kind: 'cancelled', variables: { EVENT_DATE: formatTime(before.startsAt) }, customerAppUrl, transaction, key: `admin-cancelled-${record.updatedAt.getTime()}` });
       return safe(config, record);

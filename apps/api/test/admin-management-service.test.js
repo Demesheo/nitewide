@@ -400,7 +400,11 @@ test('guestlist invitation uses capacity workflow and exposes the claim token on
 
 test('guestlist invitation capability metadata reflects its schema and the default domain workflow creates a handoff', async () => {
   const event = record(EVENT, { organizationId: ORG, status: 'published', endsAt: '2030-01-01T04:00:00Z' });
-  const context = fixture({ rows: { Event: [event] } });
+  const context = fixture({ rows: {
+    Event: [event],
+    Organization: [record(ORG, { lifecycleState: 'active', status: 'active' })],
+    User: [record(ADMIN, { isInternalAdmin: true, isActive: true, lifecycleState: 'active' })],
+  } });
   context.models.GuestlistInvitation.findOne = async () => null;
   context.models.User.findOne = async () => null;
 
