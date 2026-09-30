@@ -59,7 +59,7 @@ test('operational tables share phone sorting and labeled cells without dropping 
     assert.match(source, /<MobileTableSort/);
     assert.match(source, /responsive-event-table/);
     assert.match(source, /data-label=/);
-    assert.match(source, /<TablePagination/);
+    assert.match(source, file === 'Guestlists' ? /<(?:TablePagination|ServerPager)/ : /<TablePagination/);
   }
 });
 

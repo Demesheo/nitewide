@@ -2,18 +2,20 @@ const { Op, QueryTypes } = require('sequelize');
 const { forbidden } = require('../domain/errors');
 const { ADMISSION_WINDOW_MS, assertAdmissionOpen } = require('../domain/admission-policy');
 const { activeEventScope } = require('./lifecycle-service');
+const { activeEventAffiliates } = require('./event-affiliate-scope');
 
 function createAdmissionsService({ models: m, permissions, now = () => new Date() }) {
   async function events(userId, { page = 1, pageSize = 20, search = '' } = {}) {
     const user = await m.User.findByPk(userId);
     if (!user?.isActive) throw forbidden('An active account is required');
-    const [leaders, employees, affiliates] = await Promise.all([
-      m.OrganizationOwner.findAll({ where: { userId }, attributes: ['organizationId'] }),
+    const [leaders, employees, promoters, affiliates] = await Promise.all([
+      m.OrganizationOwner.findAll({ where: { userId, lifecycleState: 'active' }, attributes: ['organizationId'] }),
       m.OrganizationEmployee.findAll({ where: { userId, status: 'active' }, attributes: ['organizationId'] }),
-      m.EventAffiliate.findAll({ where: { userId, status: 'active' }, attributes: ['eventId', 'code'] }),
+      m.OrgAffiliate.findAll({ where: { userId, status: 'active' }, attributes: ['organizationId', 'startsAt', 'endsAt'] }),
+      m.EventAffiliate.findAll({ where: { userId, status: 'active' }, attributes: ['eventId', 'code', 'accessScope', 'orgAffiliateId', 'sourceOrgAffiliateId'] }),
     ]);
     const orgIds = [...new Set([...leaders, ...employees].map((row) => row.organizationId))];
-    const assignedIds = affiliates.filter((a) => !a.code?.startsWith('STAFFEV-') && !a.code?.startsWith('LEADEV-')).map((a) => a.eventId);
+    const assignedIds = (await activeEventAffiliates(m, affiliates, leaders, employees, promoters)).map((a) => a.eventId);
     const time = now();
     const scope = activeEventScope(m, { locationAttributes: ['name', 'timezone', 'city'] });
     const where = { ...scope.where,
@@ -27,7 +29,14 @@ function createAdmissionsService({ models: m, permissions, now = () => new Date(
     ] }];
     const result = await m.Event.findAndCountAll({ where, attributes: ['id', 'title', 'startsAt', 'endsAt', 'imageUrl'], include: scope.include, distinct: true, subQuery: false,
       order: [['startsAt', 'ASC'], ['id', 'ASC']], limit: pageSize, offset: (page - 1) * pageSize });
-    return { items: result.rows, events: result.rows, page, pageSize, total: result.count, hasMore: page * pageSize < result.count, serverTime: time };
+    const next = await m.Event.findOne({ where: { ...scope.where, status: 'published',
+      startsAt: { [Op.gt]: new Date(+time + ADMISSION_WINDOW_MS) },
+      ...(!user.isInternalAdmin ? { [Op.or]: [{ organizationId: orgIds }, { organizationId: null, creatorUserId: userId }, { id: assignedIds }] } : {}) },
+      attributes: ['id', 'title', 'startsAt', 'endsAt'], include: scope.include,
+      order: [['startsAt', 'ASC'], ['id', 'ASC']] });
+    const nextEvent = next ? { ...next.toJSON(), unlockAt: new Date(+new Date(next.startsAt) - ADMISSION_WINDOW_MS) } : null;
+    return { items: result.rows, events: result.rows, page, pageSize, total: result.count,
+      hasMore: page * pageSize < result.count, serverTime: time, nextEvent };
   }
   async function roster(userId, eventId, { search = '', page = 1, status = 'all' } = {}) {
     const event = await permissions.assertAdmitEvent(userId, eventId);

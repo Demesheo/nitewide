@@ -106,7 +106,7 @@ test('event details invite guests in place without navigating to Guestlists', ()
   const guestlists = readFileSync(new URL('../src/components/Guestlists.jsx', import.meta.url), 'utf8');
   assert.match(eventDetail, /<ShareEventCard referralUrl=\{url\?\.toString\(\) \|\| ''\} canInviteGuest=\{Boolean\(canInviteGuest\)\}/);
   assert.match(eventDetail, /guestlist-invite-pools/);
-  assert.match(eventDetail, /onInviteGuest=\{\(\) => setInviteOpen\(true\)\}/);
+  assert.match(eventDetail, /onInviteGuest=\{\(\) => \{ setInvitePools\(null\); setInvitePoolRevision\(\(value\) => value \+ 1\); setInviteOpen\(true\); \}\}/);
   assert.match(eventDetail, /<GuestlistInviteDialog open=\{inviteOpen\}/);
   assert.match(eventDetail, /<GuestlistInviteDialog open=\{inviteOpen\}/);
   assert.match(inviteDialog, /guestlist-invitations/);
@@ -126,7 +126,7 @@ test('standalone Guestlists navigation is removed while notifications deep-link 
   assert.match(app, /key=\{eventNavigationRevision\}/);
   assert.match(events, /initialGuestlistEntryId=\{selectedId === initialEventId \? initialGuestlistEntryId : null\}/);
   assert.match(events, /selectedId !== initialEventId && !data.events.some/);
-  assert.match(notifications, /onNavigate\('events', item.eventId, item.metadata\?\.entryId, item.kind === 'guestlist_request' \? 'guestlist' : null\)/);
+  assert.match(notifications, /onNavigate\('events', item.eventId, item.metadata\?\.entryId,\s*item.kind === 'guestlist_request' \? 'guestlist' : null\)/);
   assert.match(eventDetail, /defaultValue=\{initialTab \|\| 'sales'\}/);
   assert.match(guestlists, /!initialEntryHandledRef.current && initialEntryId && entries.some\(\(entry\) => entry.id === initialEntryId\)/);
   assert.match(guestlists, /initialEntryHandledRef.current = true;/);

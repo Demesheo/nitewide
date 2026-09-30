@@ -13,6 +13,7 @@ const { createNotificationService } = require('./services/notification-service')
 const { createRouter } = require('./routes'); const { createRequireUser, errorHandler } = require('./http/middleware');
 const { createMediaRouter } = require('./routes/media');
 const { createEmailService } = require('./services/email-service');
+const { createResendWebhookService } = require('./services/resend-webhook-service');
 
 function createApp({ sequelize, models, config, healthCheck = () => sequelize.authenticate(), services = {}, staticRoot }) {
   const app = express(); app.disable('x-powered-by'); app.use(helmet());
@@ -24,6 +25,14 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
     app.get('/demo-access', (_req, res) => res.redirect(302, '/'));
   }
   app.use(cors({ origin: (origin, callback) => callback(null, !origin || config.corsOrigins.includes(origin)) }));
+  const webhook = createResendWebhookService({ models, secret: config.RESEND_WEBHOOK_SECRET });
+  app.post('/api/webhooks/resend', express.raw({ type: 'application/json', limit: '256kb' }), async (req, res, next) => {
+    try {
+      const result = await webhook.receive(req.body, req.headers);
+      if (result.body) res.status(result.status).json(result.body);
+      else res.status(result.status).end();
+    } catch (error) { next(error); }
+  });
   app.use(express.json({ limit: '1mb' }));
   const permissions = services.permissions || createPermissionService(models);
   const notifications = createNotificationService(models);
@@ -41,7 +50,7 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
     reviewGuestlist: services.reviewGuestlist || guestlistService.review,
     checkIn: services.checkIn || createCheckInService({ sequelize, models, tokenSecret: config.AUTH_TOKEN_SECRET, environment: config.NODE_ENV, hostedDemo: config.hostedDemo }),
   };
-  app.use('/api', createRouter({ publicController: createPublicController(dependencies), managementController: createManagementController({ ...dependencies, businessAppUrl: config.businessAppUrl }), commerceController: createCommerceController(dependencies), authController: createAuthController(dependencies), auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, tokenSecret: config.AUTH_TOKEN_SECRET }));
+  app.use('/api', createRouter({ publicController: createPublicController(dependencies), managementController: createManagementController({ ...dependencies, businessAppUrl: config.businessAppUrl }), commerceController: createCommerceController(dependencies), authController: createAuthController(dependencies), auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, tokenSecret: config.AUTH_TOKEN_SECRET, deliveryTrackingConfigured: Boolean(config.RESEND_WEBHOOK_SECRET) }));
   if (config.hostedDemo) require('./http/demo-static').installDemoStatic(app, staticRoot);
   app.use((_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } })); app.use(errorHandler); return app;
 }

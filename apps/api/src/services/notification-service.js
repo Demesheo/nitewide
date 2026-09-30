@@ -4,6 +4,12 @@ const { notFound } = require('../domain/errors');
 function createNotificationService(models) {
   async function emit({ userId, eventId = null, kind, title, message, metadata = {} }, transaction) {
     if (!userId) return null;
+    const optionalSetting = { guestlist_request: 'reviewRequests', referral_purchase: 'salesActivity',
+      event_purchase: 'salesActivity', offering_sold_out: 'inventoryAlerts' }[kind];
+    if (optionalSetting) {
+      const recipient = await models.User.findByPk(userId, { attributes: ['notificationPreferences'], transaction });
+      if (recipient?.notificationPreferences?.[optionalSetting] === false) return null;
+    }
     // Delivery adapters belong behind an outbox worker. Do not email or text
     // until addresses/numbers, consent, idempotency and retries are verified.
     return models.Notification.create({ userId, eventId, kind, title, message, metadata }, { transaction });
@@ -48,7 +54,8 @@ function createNotificationService(models) {
     return { dismissed: true };
   }
   async function clearAll(userId) {
-    const [count] = await models.Notification.update({ dismissedAt: new Date() }, { where: { userId, dismissedAt: { [Op.is]: null } } });
+    const timestamp = new Date();
+    const [count] = await models.Notification.update({ dismissedAt: timestamp, readAt: timestamp }, { where: { userId, dismissedAt: { [Op.is]: null } } });
     return { dismissed: count };
   }
   return { emit, list, page, unreadCount, markRead, dismiss, clearAll };

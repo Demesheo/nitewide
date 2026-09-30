@@ -113,6 +113,7 @@ test(
       await m.OrganizationOwner.bulkCreate([
         { organizationId: ids.org, userId: ids.owner, role: "owner" },
         { organizationId: ids.org, userId: ids.manager, role: "admin" },
+        { organizationId: ids.org, userId: ids.promoter, role: "owner", lifecycleState: "suspended" },
       ]);
       await m.OrganizationEmployee.create({ organizationId: ids.org, userId: ids.employee, status: 'active' });
       await m.OrgAffiliate.create({
@@ -199,6 +200,19 @@ test(
         ).status,
         201,
       );
+      const ownerArtwork = await upload(ids.owner, png, "owner-flyer.png");
+      assert.equal(ownerArtwork.status, 201);
+      assert.equal((await req("/business/events", ids.manager, "POST", {
+        ...input, imageAssetId: ownerArtwork.body.data.id, slug: `owner-shared-artwork-${randomUUID()}`,
+      })).status, 201, "an active same-organization manager may use an owner's uploaded artwork");
+      for (const uploader of [ids.promoter, ids.outsider, ids.employee]) {
+        const untrustedArtwork = await upload(uploader, png, "untrusted-flyer.png");
+        assert.equal(untrustedArtwork.status, 201, "the account can upload its own image without receiving organization access");
+        const denied = await req("/business/events", ids.owner, "POST", {
+          ...input, imageAssetId: untrustedArtwork.body.data.id, slug: `untrusted-artwork-${randomUUID()}`,
+        });
+        assert.equal(denied.status, 403, `${uploader} cannot attach its artwork to an organization event`);
+      }
       assert.equal((await req('/business/events', ids.owner, 'POST', { ...input, imageAssetId: randomUUID(), slug: `missing-artwork-${randomUUID()}` })).status, 404);
       assert.equal(
         (await req("/business/events", ids.promoter, "POST", input)).status,

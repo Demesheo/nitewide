@@ -12,6 +12,7 @@ const schema = z.object({
   HOSTED_DEMO: z.enum(['true', 'false']).default('false'),
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().optional(),
+  RESEND_WEBHOOK_SECRET: z.string().optional(),
   RESEND_TEST_MODE: z.enum(['true', 'false']).default('false'),
   CUSTOMER_APP_URL: z.string().url().default('http://localhost:5173'),
   BUSINESS_APP_URL: z.string().url().optional(),

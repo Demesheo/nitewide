@@ -18,18 +18,22 @@ import { money, eventDateLabel } from '@/lib/business';
 import { eventPhase, saleLabels, eventTeamRoles, filterEventTeam, eventTeamSalesSlices } from '@/lib/events';
 import { customerLink } from '@/lib/customer-link';
 
-function ReferralLink({ event, session, revision, onUnauthorized, onInvited }) {
+export function ReferralLink({ event, session, revision, onUnauthorized, onInvited }) {
   const [link, setLink] = useState(null);
+  const [linkError, setLinkError] = useState('');
+  const [linkRetry, setLinkRetry] = useState(0);
   const [invitePools, setInvitePools] = useState(null);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [invitePoolRevision, setInvitePoolRevision] = useState(0);
   useEffect(() => {
     let active = true;
     setLink(null);
+    setLinkError('');
     api(`/business/events/${event.id}/referral-link`, session)
       .then((value) => { if (active) setLink(value); })
-      .catch(() => { if (active) setLink(null); });
+      .catch((error) => { if (active) { if (error.status === 401) onUnauthorized(); else setLinkError(error.message); } });
     return () => { active = false; };
-  }, [event.id, session]);
+  }, [event.id, session, revision, linkRetry]);
   useEffect(() => {
     let active = true;
     setInvitePools(null);
@@ -37,29 +41,29 @@ function ReferralLink({ event, session, revision, onUnauthorized, onInvited }) {
       .then((value) => { if (active) setInvitePools(value); })
       .catch(() => { if (active) setInvitePools(null); });
     return () => { active = false; };
-  }, [event.id, session, revision]);
+  }, [event.id, session, revision, linkRetry, invitePoolRevision]);
   const url = link ? new URL(customerLink(import.meta.env.VITE_CUSTOMER_URL, window.location), window.location.href) : null;
   if (url) { url.searchParams.set('event', event.id); url.searchParams.set('ref', link.code); }
   const canInviteGuest = event.status === 'published' && invitePools?.open && (invitePools.direct || invitePools.own.length > 0);
-  return <><ShareEventCard referralUrl={url?.toString() || ''} canInviteGuest={Boolean(canInviteGuest)} onInviteGuest={() => setInviteOpen(true)}/><GuestlistInviteDialog open={inviteOpen} onOpenChange={setInviteOpen} eventId={event.id} invitePools={invitePools} session={session} onUnauthorized={onUnauthorized} onSuccess={onInvited}/></>;
+  return <><ShareEventCard referralUrl={url?.toString() || ''} canInviteGuest={Boolean(canInviteGuest)} onInviteGuest={() => { setInvitePools(null); setInvitePoolRevision((value) => value + 1); setInviteOpen(true); }} referralError={linkError} onRetryReferral={() => setLinkRetry((value) => value + 1)}/><GuestlistInviteDialog open={inviteOpen} onOpenChange={setInviteOpen} eventId={event.id} invitePools={invitePools} session={session} onUnauthorized={onUnauthorized} onSuccess={onInvited}/></>;
 }
 
 function Metric({ label, value, detail, icon: Icon }) {
   return <div className="event-metric"><div><span>{label}</span><Icon size={18}/></div><strong>{value}</strong>{detail && <small>{detail}</small>}</div>;
 }
 
-function EventAttendees({ customers, onSelect }) {
-  return <section className="panel"><div className="section-heading"><div><h3>Attendees</h3><p>Total spend is ticket and package purchases before fees. Unrecorded purchases at the venue are excluded.</p></div></div><div className="event-attendees-table"><EventTable rows={customers} onSelect={onSelect} defaultSort="salesCents" defaultDescending columns={[
+export function EventAttendees({ customers, onSelect, remote, footer }) {
+  return <section className="panel"><div className="section-heading"><div><h3>Attendees</h3><p>Total spend is ticket and package purchases before fees. Unrecorded purchases at the venue are excluded.</p></div></div><div className="event-attendees-table"><EventTable remote={remote} rows={customers} onSelect={onSelect} defaultSort="salesCents" defaultDescending columns={[
     {key:'name',label:'Customer',render:(c) => <span className="attendee-card-heading"><span className="sr-only">View attendee details for </span><span>{c.name}</span><Info className="attendee-info-icon" size={18} aria-hidden="true"/></span>},
     {key:'orders',label:'Orders',numeric:true,render:(c) => <span className="attendee-metric-value">{c.orders}</span>},
     {key:'salesCents',label:'Total spend',numeric:true,render:(c) => <span className="attendee-metric-value">{money(c.salesCents)}</span>},
     {key:'admissions',label:'Tickets',numeric:true,render:(c) => <span className="attendee-metric-value">{c.admissions}</span>},
     {key:'guestlistPlaces',label:'Guestlist spots',numeric:true,render:(c) => <span className="attendee-metric-value">{c.guestlistPlaces}</span>},
     {key:'checkedIn',label:'Checked in',numeric:true,render:(c) => <span className="attendee-metric-value">{c.checkedIn}</span>},
-  ]}/></div></section>;
+  ]}/></div>{footer}</section>;
 }
 
-function EventPeople({ data, session, onSaved, onUnauthorized }) {
+export function EventPeople({ data, session, onSaved, onUnauthorized, remote }) {
   const teamHeadingRef = useRef(null);
   const [editing, setEditing] = useState(null);
   const [personId, setPersonId] = useState('');
@@ -71,7 +75,7 @@ function EventPeople({ data, session, onSaved, onUnauthorized }) {
   const [error, setError] = useState('');
   const { event, people, candidates } = data;
   const editablePeople = people.filter((p) => p.status === 'active' || candidates.some((c) => c.userId === p.userId));
-  const roleOptions = eventTeamRoles(people);
+  const roleOptions = remote?.roleOptions || eventTeamRoles(people);
   const canEditPerson = event.canEdit && editablePeople.some((p) => p.userId === editing?.userId);
   const open = (person) => { setEditing(person); setPersonId(person.userId); setRate(Math.min(40, (person.commissionBps || 0) / 100)); setEditingMode(false); setRemoving(false); setError(''); };
   const cancelEdit = () => { setRate(Math.min(40, (editing?.commissionBps || 0) / 100)); setEditingMode(false); setRemoving(false); setError(''); };
@@ -84,8 +88,8 @@ function EventPeople({ data, session, onSaved, onUnauthorized }) {
   }
   const scrollToTeam = () => requestAnimationFrame(() => teamHeadingRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }));
   return <><div ref={teamHeadingRef} className="section-heading event-people-heading"><div className="event-people-title-row"><h3>{data.scope === 'own' ? 'Your referral' : 'Team'}</h3>{event.canEdit && <EventPromoterInvite event={event} session={session} onUnauthorized={onUnauthorized}/>}</div><p>{event.canEdit ? 'Click a person to view performance or manage their event commission.' : event.canManage ? 'This event has ended. Commission rates and earned amounts are read-only.' : 'Your sales, performance, referral code and commission earnings for this event.'}</p></div>
-    {data.scope !== 'own' && <div className="event-team-controls"><div className="event-team-filter-row"><MultiSelect label="Roles" selected={roles.filter((r)=>roleOptions.some((option)=>option.id===r))} onChange={setRoles} options={roleOptions}/></div></div>}
-    <div className="event-team-table"><EventTable rows={filterEventTeam(people,roles)} onSelect={(p) => open(p)} onPageChange={scrollToTeam} selectRow defaultSort="salesCents" defaultDescending columns={[
+    {data.scope !== 'own' && <div className="event-team-controls"><div className="event-team-filter-row"><MultiSelect label="Roles" selected={(remote?.roles || roles).filter((r)=>roleOptions.some((option)=>option.id===r))} onChange={remote?.onRoles || setRoles} options={roleOptions}/></div></div>}
+    <div className="event-team-table"><EventTable remote={remote} rows={remote ? people : filterEventTeam(people,roles)} onSelect={(p) => open(p)} onPageChange={scrollToTeam} selectRow defaultSort="salesCents" defaultDescending columns={[
       {key:'name',label:'Person',render:(p) => <><strong>{p.name}</strong>{p.status === 'inactive' && <small>Removed · history retained</small>}</>},
       {key:'role',label:'Role'},
       {key:'commissionBps',label:'Commission',numeric:true,render:(p) => `${(p.commissionBps ?? 0) / 100}%`},
@@ -148,7 +152,7 @@ export function EventDetail({ eventId, session, refreshToken, initialTab = null,
   const tiers = data.tiers.map((t) => ({...t, ...{saleState:event.offerings.find((o) => o.id === t.id)?.saleState}}));
   return <div className="event-detail" aria-busy={loading}>
     <div className="event-detail-nav"><Button variant="ghost" onClick={onBack}><ArrowLeft/> {ownOnly ? 'My events' : 'All events'}</Button><span>{ownOnly ? 'Your referrals and customers only' : 'Full event history · All sales channels'}</span></div>
-    <section className="event-detail-hero"><span className={`event-detail-status status-pill ${phase}`}>{phase === 'past' ? 'Past · read only' : phase}</span>{event.imageUrl ? <img className="event-detail-flyer" src={mediaSrc(event.imageUrl)} alt={`${event.title} flyer`}/> : <div className="event-detail-flyer event-art-placeholder"><CalendarDays size={35}/></div>}<div className="event-detail-heading"><h2>{event.title}</h2><p><CalendarDays size={16}/>{eventDateLabel(event)} · {new Date(event.startsAt).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:event.location?.timezone || 'UTC',timeZoneName:'short'})}</p>{event.location?.name && <p className="event-detail-venue"><MapPin size={16}/>{event.location.name}</p>}{(event.location?.addressLine1 || event.location?.city) && <p className="event-detail-address">{[event.location?.addressLine1, [event.location?.city, event.location?.region, event.location?.postalCode].filter(Boolean).join(', ')].filter(Boolean).join(', ')}</p>}</div>{event.canEdit ? <Button variant="outline" onClick={() => onEdit(event)}><Pencil/> Edit event</Button> : phase === 'past' && <span className="event-readonly"><LockKeyhole size={16}/> Event closed</span>}{event.summary && <p className="event-detail-summary">{event.summary}</p>}</section>
+    <section className="event-detail-hero"><span className={`event-detail-status status-pill ${phase}`}>{phase === 'past' ? 'Past · read only' : phase}</span>{event.imageUrl ? <img className="event-detail-flyer" src={mediaSrc(event.imageUrl)} alt={`${event.title} flyer`}/> : <div className="event-detail-flyer event-art-placeholder"><CalendarDays size={35}/></div>}<div className="event-detail-heading"><h2>{event.title}</h2><p><CalendarDays size={16}/>{eventDateLabel(event)} · {new Date(event.startsAt).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:event.location?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'})}</p>{event.location?.name && <p className="event-detail-venue"><MapPin size={16}/>{event.location.name}</p>}{(event.location?.addressLine1 || event.location?.city) && <p className="event-detail-address">{[event.location?.addressLine1, [event.location?.city, event.location?.region, event.location?.postalCode].filter(Boolean).join(', ')].filter(Boolean).join(', ')}</p>}</div>{event.canEdit ? <Button variant="outline" onClick={() => onEdit(event)}><Pencil/> Edit event</Button> : phase === 'past' && <span className="event-readonly"><LockKeyhole size={16}/> Event closed</span>}{event.summary && <p className="event-detail-summary">{event.summary}</p>}</section>
     {notice && <p className="notice" role="status">{notice}</p>}
     {event.canEdit && event.status === 'published' && <div className="event-update-action"><Button variant="outline" onClick={() => setInstructionsOpen(true)}><Mail size={16}/> Send attendee instructions</Button></div>}
     {phase !== 'past' && <ReferralLink event={event} session={session} revision={revision} onUnauthorized={onUnauthorized} onInvited={() => saved('Guestlist invitation created.')}/>}

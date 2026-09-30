@@ -2,8 +2,10 @@ const { Op } = require('sequelize');
 const { randomUUID } = require('node:crypto');
 const { forbidden, notFound, conflict } = require('../domain/errors');
 const { assertEventEditable, eventFinished, offeringSaleState } = require('../domain/event-policy');
+const { activeUser } = require('./lifecycle-service');
 const { employeeReferralCode, leaderReferralCode } = require('./affiliate-service');
 const { queueEventTermsChanged, percent } = require('./business-email-events');
+const { accessScope, currentOrganizationMembership } = require('./event-affiliate-access');
 
 function summarizeEvent({ orders, offerings, people, guests }) {
   const tiers = new Map(offerings.map((o) => [o.id, { id: o.id, name: o.name, kind: o.kind, units: 0, salesCents: 0, admissions: 0 }]));
@@ -99,7 +101,7 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
     const members = await roster(event);
     const assignments = await m.EventAffiliate.findAll({ where: { eventId }, include: [{ model: m.User, as: 'user', attributes: ['id', 'displayName', 'email'] }, { model: m.OrgAffiliate, as: 'orgAffiliate' }] });
     const ownAssignments = assignments.filter((a) => a.userId === userId).map((a) => a.id);
-    const activeAssignment = assignments.some((a) => a.userId === userId && a.status === 'active' && !a.code?.startsWith('STAFFEV-') && !a.code?.startsWith('LEADEV-'));
+    const activeAssignment = assignments.some((a) => a.userId === userId && a.status === 'active' && accessScope(a) === 'event');
     const ownOrg = event.organizationId ? await m.OrgAffiliate.findOne({ where: { organizationId: event.organizationId, userId, status: 'active' } }) : null;
     if (!canManage && !members.some((p) => p.userId === userId) && !activeAssignment) throw forbidden('Event access required');
     const allPeople = assignments.map((a) => ({ id: a.id, userId: a.userId, name: a.user.displayName, email: a.user.email, role: members.find((p) => p.userId === a.userId)?.role || (a.userId === event.creatorUserId && !event.organizationId ? 'Creator' : 'Promoter'), orgAffiliateId: a.orgAffiliateId, status: a.status, code: a.code, commissionBps: a.commissionBps ?? a.orgAffiliate?.defaultCommissionBps ?? 0 }));
@@ -128,19 +130,56 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
       const event = await m.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
       assertEventEditable(event, now());
       const person = input.userId ? await m.User.findByPk(input.userId, { transaction }) : await m.User.findOne({ where: { email: input.email.toLowerCase() }, transaction });
-      if (!person?.isActive) throw notFound('Active user');
+      if (!activeUser(person)) throw notFound('Active user');
       let assignment = await m.EventAffiliate.findOne({ where: { eventId, userId: person.id }, transaction, lock: transaction.LOCK.UPDATE });
+      const membership = event.organizationId
+        ? await currentOrganizationMembership(m, event.organizationId, person.id, transaction, now())
+        : null;
       const members = await roster(event);
-      const member = members.find((p) => p.userId === person.id);
+      const member = membership ? members.find((p) => p.userId === person.id) : null;
       if (event.organizationId && !member && !assignment) throw forbidden('Invite this promoter to the event first.');
       if (!assignment && input.status === 'inactive' && !member?.defaultReferralCode) throw notFound('Event referrer');
       const before = assignment?.toJSON() || null;
-      const values = { commissionBps: input.commissionBps, status: input.status };
+      let scope = assignment ? accessScope(assignment) : event.organizationId && member ? 'organization' : 'event';
+      const eventRegrant = assignment?.status === 'inactive' && input.status === 'active' && scope === 'organization' && !member;
+      if (assignment?.status === 'active' && input.status === 'active' && scope === 'organization' && !member) {
+        throw forbidden('Invite this promoter to the event first.');
+      }
+      if (eventRegrant) scope = 'event';
+      const values = { commissionBps: input.commissionBps, status: input.status, accessScope: scope };
+      let previousCommissionBps = before?.commissionBps ?? 0;
+      if (assignment?.orgAffiliateId && input.status === 'active' && event.organizationId) {
+        const linkedAffiliate = await m.OrgAffiliate.findByPk(assignment.orgAffiliateId, { transaction, lock: transaction.LOCK.UPDATE });
+        if (linkedAffiliate && (linkedAffiliate.organizationId !== event.organizationId || linkedAffiliate.userId !== person.id)) {
+          throw conflict('Event referral organization scope does not match this person');
+        }
+        previousCommissionBps = before.commissionBps ?? linkedAffiliate?.defaultCommissionBps ?? 0;
+        if (eventRegrant) {
+          values.orgAffiliateId = null;
+          values.sourceOrgAffiliateId = null;
+          if (assignment.guestlistAllocation === null) values.guestlistAllocation = linkedAffiliate?.defaultGuestlistAllocation ?? 0;
+          if (linkedAffiliate?.startsAt && (!assignment.startsAt || linkedAffiliate.startsAt > assignment.startsAt)) values.startsAt = linkedAffiliate.startsAt;
+          if (linkedAffiliate?.endsAt && (!assignment.endsAt || linkedAffiliate.endsAt < assignment.endsAt)) values.endsAt = linkedAffiliate.endsAt;
+        } else if (linkedAffiliate?.status === 'inactive' && linkedAffiliate.organizationId === event.organizationId && linkedAffiliate.userId === person.id) {
+          const [leader, employee] = await Promise.all([
+            m.OrganizationOwner.findOne({ where: { organizationId: event.organizationId, userId: person.id, lifecycleState: 'active' }, transaction }),
+            m.OrganizationEmployee.findOne({ where: { organizationId: event.organizationId, userId: person.id, status: 'active' }, transaction }),
+          ]);
+          if (leader || employee) {
+            values.orgAffiliateId = null;
+            values.sourceOrgAffiliateId = scope === 'organization' ? linkedAffiliate.id : null;
+            if (assignment.guestlistAllocation === null) values.guestlistAllocation = linkedAffiliate.defaultGuestlistAllocation;
+            if (linkedAffiliate.startsAt && (!assignment.startsAt || linkedAffiliate.startsAt > assignment.startsAt)) values.startsAt = linkedAffiliate.startsAt;
+            if (linkedAffiliate.endsAt && (!assignment.endsAt || linkedAffiliate.endsAt < assignment.endsAt)) values.endsAt = linkedAffiliate.endsAt;
+          }
+        }
+      }
+      if (eventRegrant) values.sourceOrgAffiliateId = null;
       if (assignment) await assignment.update(values, { transaction });
       else assignment = await m.EventAffiliate.create({ ...values, eventId, userId: person.id, orgAffiliateId: member?.orgAffiliateId || null, code: `NW-${randomUUID()}`, guestlistAllocation: 0 }, { transaction });
       const audit = await m.AuditLog.create({ actorUserId: userId, organizationId: event.organizationId, entityType: 'EventAffiliate', entityId: assignment.id, action: input.status === 'inactive' ? 'event.referrer.removed' : 'event.referrer.updated', before, after: assignment.toJSON() }, { transaction });
-      if (before && input.status === 'active') await queueEventTermsChanged({ email, models: m, userId: person.id, event,
-        term: 'Commission on future sales', oldValue: percent(before.commissionBps), newValue: percent(input.commissionBps),
+      if (before && input.status === 'active' && previousCommissionBps !== input.commissionBps) await queueEventTermsChanged({ email, models: m, userId: person.id, event,
+        term: 'Commission on future sales', oldValue: percent(previousCommissionBps), newValue: percent(input.commissionBps),
         actionId: audit.id, businessAppUrl, transaction });
       return assignment;
     });

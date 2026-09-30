@@ -69,9 +69,11 @@ test('opening one allocation editor cancels and resets any other active editor',
 });
 
 test('request status filter belongs to the Guest Experience controls, not the event toolbar', () => {
-  const guestExperience = guestlistsSource.slice(guestlistsSource.indexOf('<section className="panel guest-experience-panel">'), guestlistsSource.indexOf('{loading ? ('));
+  const panelStart = guestlistsSource.search(/<section(?: ref=\{panelRef\})? className="panel guest-experience-panel">/);
+  const guestExperience = guestlistsSource.slice(panelStart, guestlistsSource.indexOf('{loading ? (', panelStart));
   assert.doesNotMatch(guestlistsSource, /<div className="toolbar">/);
   assert.match(guestExperience, /guest-experience-filters[\s\S]*MultiSelect label="Request status"/);
+  assert.match(guestlistsSource, /statuses\.forEach\(\(status\) => params\.append\('statuses', status\)\)/);
 });
 
 test('guest invitation stays in event details Share this event card without showing the URL', () => {
@@ -96,7 +98,8 @@ test('saving an event allocation refreshes the invite pools without a page reloa
   assert.match(guestlistsSource, /setRevision\(\(v\) => v \+ 1\);\s*onChanged\?\.\(\);/);
   assert.match(eventDetailSource, /onChanged=\{\(\) => setRevision\(\(value\) => value \+ 1\)\}/);
   assert.match(eventDetailSource, /<ReferralLink event=\{event\} session=\{session\} revision=\{revision\}/);
-  assert.match(eventDetailSource, /guestlist-invite-pools[\s\S]*?\}, \[event\.id, session, revision\]\)/);
+  assert.match(eventDetailSource, /guestlist-invite-pools[\s\S]*?\}, \[event\.id, session, revision, linkRetry, invitePoolRevision\]\)/);
+  assert.match(eventDetailSource, /setInvitePoolRevision\(\(value\) => value \+ 1\); setInviteOpen\(true\);/);
 });
 
 test('guestlist invitations default to phone and reset to phone when reopened', () => {

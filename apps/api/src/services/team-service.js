@@ -4,6 +4,7 @@ const { forbidden, notFound, conflict } = require('../domain/errors');
 const { assertEventEditable } = require('../domain/event-policy');
 const { queueTeamInvitation, queuePromoterInvitation, queueAccessAccepted, queueAccessChanged } = require('./business-email-events');
 const { activeUser, assertActiveEvent, assertActiveOrganization } = require('./lifecycle-service');
+const { detachOrgAffiliateForStaffRole, setOrganizationAssignmentsActive } = require('./event-affiliate-transition');
 
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 function rosterPeople(leaders, employees, promoters) {
@@ -55,20 +56,18 @@ function createTeamService({ models, permissions, email: emailService = null, bu
     const validRoles = ['manager', 'employee', 'affiliate'];
     if (!validRoles.includes(nextRole)) throw conflict('Unsupported team role');
     return models.Organization.sequelize.transaction(async (transaction) => {
-      const existingOwner = await models.OrganizationOwner.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE });
-      if (existingOwner?.role === 'owner') throw conflict('Organization owners cannot be reassigned from the team page');
+      const existingOwner = await models.OrganizationOwner.unscoped().findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE });
+      if (existingOwner?.role === 'owner' && existingOwner.lifecycleState === 'active') throw conflict('Organization owners cannot be reassigned from the team page');
       const [employee, affiliate] = await Promise.all([
         models.OrganizationEmployee.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE }),
         models.OrgAffiliate.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE }),
       ]);
       if (!existingOwner && !employee && !affiliate) throw notFound('Organization team member');
-      const before = existingOwner ? 'manager' : employee?.status === 'active' ? 'employee' : affiliate?.status === 'active' ? 'affiliate' : null;
-      if (!before) throw conflict('This member has no active organization role');
-      if (existingOwner && nextRole !== 'manager') await existingOwner.destroy({ transaction });
+      const before = existingOwner?.lifecycleState === 'active' ? 'manager' : employee?.status === 'active' ? 'employee' : affiliate?.status === 'active' ? 'affiliate' : 'removed';
+      if (existingOwner && nextRole !== 'manager') await existingOwner.update({ lifecycleState: 'archived' }, { transaction });
       if (employee?.status === 'active') await employee.update({ status: 'inactive' }, { transaction });
-      if (affiliate?.status === 'active') await affiliate.update({ status: 'inactive' }, { transaction });
       if (nextRole === 'manager') {
-        if (existingOwner) await existingOwner.update({ role: 'admin' }, { transaction });
+        if (existingOwner) await existingOwner.update({ role: 'admin', lifecycleState: 'active' }, { transaction });
         else await models.OrganizationOwner.create({ organizationId, userId: memberUserId, role: 'admin' }, { transaction });
       } else if (nextRole === 'employee') {
         if (employee) await employee.update({ status: 'active' }, { transaction });
@@ -78,6 +77,12 @@ function createTeamService({ models, permissions, email: emailService = null, bu
       } else {
         await models.OrgAffiliate.create({ organizationId, userId: memberUserId, code: `org-${crypto.randomUUID()}`, defaultCommissionBps: 0, defaultGuestlistAllocation: 0, status: 'active' }, { transaction });
       }
+      if (affiliate && nextRole !== 'affiliate') {
+        await detachOrgAffiliateForStaffRole({ models, orgAffiliate: affiliate, organizationId, userId: memberUserId, actorUserId, transaction });
+        if (affiliate.status === 'active') await affiliate.update({ status: 'inactive' }, { transaction });
+      }
+      await setOrganizationAssignmentsActive({ models, organizationId, userId: memberUserId, actorUserId, active: true,
+        staffRole: nextRole !== 'affiliate', transaction });
       const audit = await models.AuditLog.create({ actorUserId, organizationId, entityType: 'OrganizationTeamMember', entityId: memberUserId, action: 'team.member.role_changed', before: { role: before }, after: { role: nextRole } }, { transaction });
       await queueAccessChanged({ email: emailService, models, userId: memberUserId, organization,
         oldRole: before, newRole: nextRole, actionId: audit.id, businessAppUrl, transaction });
@@ -88,30 +93,22 @@ function createTeamService({ models, permissions, email: emailService = null, bu
     const organization = await assertManager(actorUserId, organizationId);
     if (actorUserId === memberUserId) throw conflict('You cannot remove your own organization role');
     return models.Organization.sequelize.transaction(async (transaction) => {
-      const owner = await models.OrganizationOwner.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE });
-      if (owner?.role === 'owner') throw conflict('Organization owners cannot be removed from the team page');
+      const owner = await models.OrganizationOwner.unscoped().findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE });
+      if (owner?.role === 'owner' && owner.lifecycleState === 'active') throw conflict('Organization owners cannot be removed from the team page');
       const [employee, affiliate] = await Promise.all([
         models.OrganizationEmployee.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE }),
         models.OrgAffiliate.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE }),
       ]);
       if (!owner && !employee && !affiliate) throw notFound('Organization team member');
       const before = {
-        role: owner ? 'manager' : employee?.status === 'active' ? 'employee' : affiliate?.status === 'active' ? 'affiliate' : 'inactive',
+        role: owner?.lifecycleState === 'active' ? 'manager' : employee?.status === 'active' ? 'employee' : affiliate?.status === 'active' ? 'affiliate' : 'inactive',
         employeeStatus: employee?.status || null,
         promoterStatus: affiliate?.status || null,
       };
-      if (owner && owner.role !== 'owner') await owner.destroy({ transaction });
+      if (owner && owner.lifecycleState === 'active') await owner.update({ lifecycleState: 'archived' }, { transaction });
       if (employee?.status === 'active') await employee.update({ status: 'inactive' }, { transaction });
       if (affiliate?.status === 'active') await affiliate.update({ status: 'inactive' }, { transaction });
-      const events = await models.Event.findAll({ where: { organizationId }, attributes: ['id'], transaction });
-      const eventIds = events.map((event) => event.id);
-      if (eventIds.length) {
-        const assignments = await models.EventAffiliate.findAll({ where: { eventId: eventIds, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE });
-        for (const assignment of assignments) {
-          const organizationScoped = assignment.code?.startsWith('LEADEV-') || assignment.code?.startsWith('STAFFEV-') || Boolean(affiliate && assignment.orgAffiliateId === affiliate.id);
-          if (organizationScoped && assignment.status === 'active') await assignment.update({ status: 'inactive' }, { transaction });
-        }
-      }
+      await setOrganizationAssignmentsActive({ models, organizationId, userId: memberUserId, actorUserId, active: false, transaction });
       const audit = await models.AuditLog.create({ actorUserId, organizationId, entityType: 'OrganizationTeamMember', entityId: memberUserId, action: 'team.member.removed', before, after: { status: 'inactive' } }, { transaction });
       await queueAccessChanged({ email: emailService, models, userId: memberUserId, organization,
         oldRole: before.role, newRole: 'removed', actionId: audit.id, businessAppUrl, transaction });
@@ -190,31 +187,45 @@ function createTeamService({ models, permissions, email: emailService = null, bu
         await assertActiveEvent(models, event, transaction);
         assertEventEditable(event);
         await permissions.assertManageEvent(row.invitedByUserId,row.eventId);
-        const [assignment,created] = await models.EventAffiliate.findOrCreate({where:{eventId:row.eventId,userId},defaults:{code:`NW-${crypto.randomUUID()}`,commissionBps:row.commissionBps,guestlistAllocation:0,status:'active'},transaction});
+        const [assignment,created] = await models.EventAffiliate.findOrCreate({where:{eventId:row.eventId,userId},defaults:{code:`NW-${crypto.randomUUID()}`,commissionBps:row.commissionBps,guestlistAllocation:0,status:'active',accessScope:'event'},transaction});
         const before = created ? null : assignment.toJSON();
-        if (!created) await assignment.update({status:'active',commissionBps:row.commissionBps},{transaction});
+        if (!created) {
+          const linked = assignment.orgAffiliateId ? await models.OrgAffiliate.findByPk(assignment.orgAffiliateId, { transaction }) : null;
+          const values = { status: 'active', commissionBps: row.commissionBps, accessScope: 'event', orgAffiliateId: null, sourceOrgAffiliateId: null };
+          if (linked) {
+            if (assignment.guestlistAllocation === null) values.guestlistAllocation = linked.defaultGuestlistAllocation;
+            if (linked.startsAt && (!assignment.startsAt || linked.startsAt > assignment.startsAt)) values.startsAt = linked.startsAt;
+            if (linked.endsAt && (!assignment.endsAt || linked.endsAt < assignment.endsAt)) values.endsAt = linked.endsAt;
+          }
+          await assignment.update(values, { transaction });
+        }
         await models.AuditLog.create({actorUserId:userId,organizationId:event.organizationId,entityType:'EventAffiliate',entityId:assignment.id,action:'event.promoter.invitation_terms_accepted',before,after:assignment.toJSON()},{transaction});
         await row.update({acceptedAt:new Date(),acceptedByUserId:userId},{transaction});
         await models.AuditLog.create({actorUserId:userId,organizationId:event.organizationId,entityType:'TeamInvitation',entityId:row.id,action:'event.promoter.accepted',after:{eventId:row.eventId,userId}},{transaction});
         await queueAccessAccepted({ email: emailService, models, invitation: row, invitee: user, context: event.title, transaction });
         return {eventId:row.eventId,role:'affiliate'};
-      } else if (row.role === 'employee') {
+      } else if (['employee', 'manager', 'affiliate'].includes(row.role)) {
         await assertActiveOrganization(models, row.organizationId, transaction);
         await permissions.assertManageOrganization(row.invitedByUserId, row.organizationId);
-        const membership = await models.OrganizationEmployee.findOne({ where: { organizationId: row.organizationId, userId }, transaction });
-        if (membership) await membership.update({ status: 'active' }, { transaction });
-        else await models.OrganizationEmployee.create({ organizationId: row.organizationId, userId, status: 'active' }, { transaction });
-      } else if (row.role === 'manager') {
-        await assertActiveOrganization(models, row.organizationId, transaction);
-        await permissions.assertManageOrganization(row.invitedByUserId, row.organizationId);
-        const membership = await models.OrganizationOwner.findOne({ where: { organizationId: row.organizationId, userId }, transaction });
-        if (!membership) await models.OrganizationOwner.create({ organizationId: row.organizationId, userId, role: 'admin' }, { transaction });
-      } else if (row.role === 'affiliate') {
-        await assertActiveOrganization(models, row.organizationId, transaction);
-        await permissions.assertManageOrganization(row.invitedByUserId, row.organizationId);
-        const affiliate = await models.OrgAffiliate.findOne({ where: { organizationId: row.organizationId, userId }, transaction });
-        if (affiliate) await affiliate.update({ status: 'active' }, { transaction });
-        else await models.OrgAffiliate.create({ organizationId: row.organizationId, userId, code: `org-${crypto.randomUUID()}`, defaultCommissionBps: 0, defaultGuestlistAllocation: 0 }, { transaction });
+        const where = { organizationId: row.organizationId, userId };
+        const [owner, employee, affiliate] = await Promise.all([
+          models.OrganizationOwner.unscoped().findOne({ where, transaction, lock: transaction.LOCK.UPDATE }),
+          models.OrganizationEmployee.findOne({ where, transaction, lock: transaction.LOCK.UPDATE }),
+          models.OrgAffiliate.findOne({ where, transaction, lock: transaction.LOCK.UPDATE }),
+        ]);
+        if (owner?.role === 'owner' && owner.lifecycleState === 'active' && row.role !== 'manager') throw conflict('Organization owners cannot be reassigned through an invitation');
+        const staffRole = row.role !== 'affiliate';
+        if (staffRole && affiliate) await detachOrgAffiliateForStaffRole({ models, orgAffiliate: affiliate,
+          organizationId: row.organizationId, userId, actorUserId: row.invitedByUserId, transaction });
+        if (owner) await owner.update({ lifecycleState: row.role === 'manager' ? 'active' : 'archived',
+          ...(row.role === 'manager' && !(owner.role === 'owner' && owner.lifecycleState === 'active') ? { role: 'admin' } : {}) }, { transaction });
+        else if (row.role === 'manager') await models.OrganizationOwner.create({ ...where, role: 'admin' }, { transaction });
+        if (employee) await employee.update({ status: row.role === 'employee' ? 'active' : 'inactive' }, { transaction });
+        else if (row.role === 'employee') await models.OrganizationEmployee.create({ ...where, status: 'active' }, { transaction });
+        if (affiliate) await affiliate.update({ status: row.role === 'affiliate' ? 'active' : 'inactive' }, { transaction });
+        else if (row.role === 'affiliate') await models.OrgAffiliate.create({ ...where, code: `org-${crypto.randomUUID()}`, defaultCommissionBps: 0, defaultGuestlistAllocation: 0 }, { transaction });
+        await setOrganizationAssignmentsActive({ models, organizationId: row.organizationId, userId,
+          actorUserId: row.invitedByUserId, active: true, staffRole, transaction });
       } else throw conflict('Invalid invitation role');
       await row.update({ acceptedAt: new Date(), acceptedByUserId: userId }, { transaction });
       await models.AuditLog.create({ actorUserId: userId, organizationId: row.organizationId, entityType: 'TeamInvitation', entityId: row.id, action: 'team.invitation.accepted', after: { role: row.role, userId } }, { transaction });

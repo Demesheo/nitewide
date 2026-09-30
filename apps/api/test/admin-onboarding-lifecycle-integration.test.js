@@ -326,7 +326,9 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     const retainedOwner = await models.OrganizationOwner.unscoped().findOne({ where: { organizationId: ids.org, userId: owner.id } });
     assert.equal(retainedOwner.lifecycleState, 'archived', 'revoked scoped access is retained instead of deleted');
     assert.equal(await models.OrganizationEmployee.count({ where: { organizationId: ids.org, userId: owner.id, status: 'active' } }), 1);
-    assert.equal((await models.EventAffiliate.findByPk(leaderAssignment.id)).status, 'inactive', 'scoped owner leadership affiliate is retained but deactivated');
+    const retainedLeaderAssignment = await models.EventAffiliate.findByPk(leaderAssignment.id);
+    assert.equal(retainedLeaderAssignment.status, 'active', 'same-org employee restoration preserves the organization-scoped leadership referral');
+    assert.equal(retainedLeaderAssignment.accessScope, 'organization');
     const staleRole = await request(`/admin/management/users/${owner.id}/scoped-role`, ids.admin, 'POST', { organizationId: ids.org, role: 'customer', reason: 'Reject stale role change', version: roleStartVersion });
     assert.equal(staleRole.status, 409, JSON.stringify({ roleStartVersion, responseVersion: toEmployee.body.data.version, persistedVersion: (await models.User.findByPk(owner.id)).version, staleRole: staleRole.body }));
     assert.equal(staleRole.body.error.code, 'STALE_VERSION');
@@ -335,6 +337,7 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     assert.equal(await models.OrganizationEmployee.count({ where: { organizationId: ids.org, userId: owner.id, status: 'active' } }), 0);
     assert.equal(await models.OrgAffiliate.count({ where: { organizationId: ids.org, userId: owner.id, status: 'active' } }), 1);
     const orgAffiliate = await models.OrgAffiliate.findOne({ where: { organizationId: ids.org, userId: owner.id } });
+    await leaderAssignment.reload();
     // Reuse the former LEADEV assignment on this event as the org-linked promoter row;
     // the independent assignment lives on a second event to respect the unique event/user key.
     await leaderAssignment.update({ orgAffiliateId: orgAffiliate.id, code: `LINKED-${crypto.randomUUID()}`, status: 'active' });

@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Empty, Field } from "./controls";
 import { api } from "@/lib/api";
-import { TablePagination, useTablePagination } from '@/components/TablePagination';
+import { usePagedResource } from '@/hooks/usePagedResource';
+import { ServerPager } from './ServerPager';
 import { sortTableRows } from '@/lib/table-sort';
 import { eventDateLabel } from '@/lib/business';
 import { MultiSelect } from './MultiSelect';
@@ -43,7 +44,8 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
   const canEditAllocations = selected?.canEdit !== false;
   const availableStatuses = guestlistStatusesForEvent(selected, currentTime);
   const pendingOnly = statuses.length === 1 && statuses[0] === 'pending';
-  const activeEntry = entries.find((entry) => entry.id === activeEntryId);
+  const [linkedEntry, setLinkedEntry] = useState(null);
+  const activeEntry = entries.find((entry) => entry.id === activeEntryId) || (linkedEntry?.id === activeEntryId ? linkedEntry : null);
   useEffect(() => {
     if (!initialEntryHandledRef.current && initialEntryId && entries.some((entry) => entry.id === initialEntryId)) {
       initialEntryHandledRef.current = true;
@@ -51,9 +53,20 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
     }
   }, [initialEntryId, entries]);
   const searchableEntries = entries.map((entry) => ({ ...entry, guestName: entry.user?.displayName || 'Guest', guestEmail: entry.user?.email || entry.email || '', guestPhone: entry.user?.phone || '', partyValue: entry.partySize, sourceValue: entry.source === 'affiliate' ? entry.eventAffiliate?.user?.displayName || 'Unknown referrer' : 'Direct', requestedValue: Date.parse(entry.createdAt) }));
-  const visibleEntries = searchRows(searchableEntries, search, ['guestName', 'guestEmail', 'guestPhone', 'sourceValue', 'status']);
-  const sortedEntries = sortTableRows(visibleEntries, sortKey, descending);
-  const pager = useTablePagination(sortedEntries, entries, `${eventId}:${statuses.join(',')}:${sortKey}:${descending}:${search}`);
+  const visibleEntries = searchableEntries;
+  const pager = { rows: searchableEntries };
+  const panelRef = useRef(null);
+  const params = new URLSearchParams({ search, sortKey, descending: String(descending) });
+  statuses.forEach((status) => params.append('statuses', status));
+  const list = usePagedResource('/business/events/' + eventId + '/guestlist-page?' + params, session, { onUnauthorized: expire, refreshToken: revision + ':' + refreshToken, pageSize: 10 });
+  const pools = usePagedResource(selected.canManage ? '/business/events/' + eventId + '/guestlist-settings-page' : null, session, { onUnauthorized: expire, refreshToken: revision + ':' + refreshToken, pageSize: 10 });
+  const adapt = (row) => ({ ...row, user: { displayName: row.guestName, email: row.guestEmail, phone: row.guestPhone }, reviewer: row.reviewerName ? { displayName: row.reviewerName } : null, eventAffiliate: row.eventAffiliateId ? { user: { displayName: row.referrerName } } : null });
+  useEffect(() => { setLoading(list.loading); if (list.result) { setEntries(list.result.items.map(adapt)); setLoadedEventId(eventId); } if (list.error) setError(list.error); }, [list.result, list.loading, list.error, eventId]);
+  useEffect(() => { if (pools.result) setSettings({ ...pools.result, promoters: pools.result.promoters.items.map((row) => ({ ...row, user: { displayName: row.name } })) }); if (pools.error) setError(pools.error); }, [pools.result, pools.error]);
+  useEffect(() => { if (!initialEntryId) return; const controller = new AbortController();
+    api('/business/events/' + eventId + '/guestlist-page/' + initialEntryId, session, { signal: controller.signal }).then((row) => { setLinkedEntry(adapt(row)); setActiveEntryId(row.id); }).catch((err) => { if (err.name !== 'AbortError') setError(err.message); });
+    return () => controller.abort();
+  }, [eventId, initialEntryId, session]);
   const head = (label, key) => <th scope="col"><button type="button" className="analytics-sort" onClick={() => { if (sortKey === key) setDescending(!descending); else { setSortKey(key); setDescending(key === 'partyValue' || key === 'requestedValue'); } }}>{label}<span aria-hidden="true">{sortKey === key ? (descending ? ' ↓' : ' ↑') : ' ↕'}</span></button></th>;
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(Date.now()), 60_000);
@@ -63,43 +76,6 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
     const allowed = new Set(availableStatuses.map((item) => item.id));
     setStatuses((current) => current.every((status) => allowed.has(status)) ? current : current.filter((status) => allowed.has(status)));
   }, [selected?.startsAt, currentTime]);
-  useEffect(() => {
-    let active = true;
-    setError("");
-    if (entriesEventRef.current !== eventId) {
-      entriesEventRef.current = eventId;
-      setEntries([]);
-      setLoadedEventId(null);
-      setSettings(null);
-    }
-    if (!eventId || !selected) return;
-    setLoading(true);
-    Promise.all([
-      api(`/business/events/${eventId}/guestlist?${guestlistStatusQuery(statuses)}`, session),
-      selected.canManage
-        ? api(`/business/events/${eventId}/guestlist-settings`, session)
-        : null,
-    ])
-      .then(([list, limits]) => {
-        if (active) {
-          setEntries(list);
-          setLoadedEventId(eventId);
-          setSettings(limits);
-        }
-      })
-      .catch((e) => {
-        if (active) {
-          if (e.status === 401) expire();
-          else setError(e.message);
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [eventId, statuses, revision, refreshToken, session, selected?.canManage]);
   async function decide(id, decision) {
     setBusy(true);
     setError("");
@@ -220,7 +196,7 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
           {notice}
         </p>
       )}
-      <section className="panel guest-experience-panel">
+      <section ref={panelRef} className="panel guest-experience-panel">
         <div className="section-heading">
           <div>
             <span className="eyebrow">GUEST EXPERIENCE</span>
@@ -279,7 +255,7 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
               </tbody>
             </table>
           </div></div> : <div className="guest-experience-state"><Empty title="No matching guests">Try a different name, contact, source, or status.</Empty></div>}
-          <TablePagination pager={pager}/></>
+          <ServerPager result={list.result} page={list.page} onPageChange={list.setPage} disabled={list.loading} label="requests" targetRef={panelRef}/></>
           )}
         </div>
       </section>
@@ -352,6 +328,7 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
               </form>
             ))}
           </div>
+          <ServerPager result={pools.result?.promoters} page={pools.page} onPageChange={pools.setPage} disabled={pools.loading} label="promoters"/>
         </section>
       )}
     </>

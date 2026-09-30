@@ -15,7 +15,7 @@ test('the header opens an in-place, dismissible profile modal instead of refresh
 });
 
 test('profile edit action stays below fields and profile updates use the authenticated API', () => {
-  const profile = read('src/components/BusinessProfile.jsx');
+  const profile = read('src/components/profile/ProfileDetails.jsx');
   assert.match(profile, /api\('\/auth\/profile', session, \{ method: 'PATCH'/);
   assert.match(profile, /business-profile-actions[^]*?Pencil size=\{16\} \/> Edit/);
   assert.match(read('src/mobile.css'), /\.business-profile-actions > button \{ min-width: 96px; \}/);
@@ -30,8 +30,13 @@ test('contact edits require a second matching value before Save is enabled', () 
   assert.equal(profileConfirmation(original, { email: original.email, phone: original.phone }, { email: '', phone: '', phoneTouched: false }).canSave, true);
   assert.equal(profileConfirmation(original, { email: original.email, phone: '' }, { email: '', phone: '', phoneTouched: false }).canSave, false);
   assert.equal(profileConfirmation(original, { email: original.email, phone: '' }, { email: '', phone: '', phoneTouched: true }).canSave, true);
-  const profile = read('src/components/BusinessProfile.jsx');
+  const profile = read('src/components/profile/ProfileDetails.jsx');
   assert.match(profile, /Confirm email/);
   assert.match(profile, /Confirm phone/);
   assert.match(profile, /disabled=\{busy \|\| !checks.canSave\}/);
+});
+
+test('verification resend action is right-aligned in the profile row', () => {
+  const styles = read('src/styles.css');
+  assert.match(styles, /\.profile-verification\s*>\s*button\s*\{\s*margin-left:\s*auto;\s*\}/);
 });

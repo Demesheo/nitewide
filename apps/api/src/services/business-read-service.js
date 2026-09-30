@@ -1,0 +1,257 @@
+const { QueryTypes, Op } = require('sequelize');
+const { forbidden, notFound } = require('../domain/errors');
+const { activeUser } = require('./lifecycle-service');
+const { venueOptions } = require('./venue-scope');
+const { eventFinished } = require('../domain/event-policy');
+const { resolvePaidRange } = require('./business-report-period');
+const { accessScopeSql } = require('./event-affiliate-access');
+
+// Every collection and aggregate starts from this SQL scope. In particular, a
+// revoked automatic assignment cannot keep a former staff member in an event.
+const organizationMember = `(
+  EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organization_id = e.organization_id AND oo.user_id = :userId AND oo.lifecycle_state = 'active')
+  OR EXISTS (SELECT 1 FROM organization_employees oe WHERE oe.organization_id = e.organization_id AND oe.user_id = :userId AND oe.status = 'active')
+  OR EXISTS (SELECT 1 FROM org_affiliates oa WHERE oa.organization_id = e.organization_id AND oa.user_id = :userId AND oa.status = 'active'
+    AND (oa.starts_at IS NULL OR oa.starts_at <= NOW()) AND (oa.ends_at IS NULL OR oa.ends_at >= NOW()))
+)`;
+const access = `(
+  :isAdmin OR (e.organization_id IS NULL AND e.creator_user_id = :userId)
+  OR ${organizationMember}
+  OR EXISTS (SELECT 1 FROM event_affiliates ea WHERE ea.event_id = e.id AND ea.user_id = :userId AND ea.status = 'active'
+    AND (${accessScopeSql('ea')} = 'event' OR ${organizationMember}))
+)`;
+const manages = `(:isAdmin OR (e.organization_id IS NULL AND e.creator_user_id = :userId)
+  OR EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organization_id = e.organization_id AND oo.user_id = :userId AND oo.lifecycle_state = 'active'))`;
+const base = `e.lifecycle_state = 'active'
+  AND (e.organization_id IS NULL OR EXISTS (SELECT 1 FROM organizations org WHERE org.id = e.organization_id AND org.lifecycle_state = 'active' AND org.status = 'active'))
+  AND (e.location_id IS NULL OR EXISTS (SELECT 1 FROM locations loc WHERE loc.id = e.location_id AND loc.lifecycle_state = 'active'))
+  AND (e.organization_id IS NOT NULL OR EXISTS (SELECT 1 FROM users creator WHERE creator.id = e.creator_user_id AND creator.lifecycle_state = 'active' AND creator.is_active = true AND creator.onboarding_pending = false))
+  AND ${access}
+  AND (e.status <> 'draft' OR ${manages} OR EXISTS (SELECT 1 FROM event_affiliates draft_ea WHERE draft_ea.event_id = e.id AND draft_ea.user_id = :userId AND draft_ea.status = 'active'
+    AND (${accessScopeSql('draft_ea')} = 'event' OR ${organizationMember})))`;
+const orderAccess = `(${manages}
+  OR EXISTS (SELECT 1 FROM event_affiliates own_ea WHERE own_ea.id = o.event_affiliate_id AND own_ea.user_id = :userId)
+  OR (o.event_affiliate_id IS NULL AND EXISTS (SELECT 1 FROM org_affiliates own_oa WHERE own_oa.id = o.org_affiliate_id AND own_oa.user_id = :userId AND own_oa.status = 'active')))`;
+const guestAccess = `(${manages} OR EXISTS (SELECT 1 FROM event_affiliates own_ea WHERE own_ea.id = g.event_affiliate_id AND own_ea.user_id = :userId))`;
+
+const pageResult = (items, total, page, pageSize) => ({ items, total: Number(total || 0), page, pageSize, hasMore: page * pageSize < Number(total || 0) });
+const cents = (value) => Number(value || 0);
+
+function createBusinessReadService({ models, email = null, deliveryTrackingConfigured = false, now = () => new Date() }) {
+  const select = (sql, replacements) => models.Event.sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
+  async function actor(userId) {
+    const user = await models.User.findByPk(userId, { attributes: ['id', 'isActive', 'lifecycleState', 'onboardingPending', 'isInternalAdmin', 'independentCreator'] });
+    if (!activeUser(user)) throw forbidden('An active account is required');
+    const memberships = await models.OrganizationOwner.findAll({ where: { userId, lifecycleState: 'active' }, attributes: ['organizationId'] });
+    return { userId, isAdmin: Boolean(user.isInternalAdmin), user,
+      managedOrgIds: new Set(memberships.map((row) => row.organizationId)) };
+  }
+  async function organizations(scope) {
+    const rows = await select(`SELECT org.id, org.name, org.plan_tier AS "planTier", org.location_id AS "locationId",
+      (${scope.isAdmin ? 'true' : `EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organization_id = org.id AND oo.user_id = :userId AND oo.lifecycle_state = 'active')`}) AS "canManage"
+      FROM organizations org WHERE org.lifecycle_state = 'active' AND org.status = 'active' AND
+      (:isAdmin OR EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organization_id = org.id AND oo.user_id = :userId AND oo.lifecycle_state = 'active')
+      OR EXISTS (SELECT 1 FROM organization_employees oe WHERE oe.organization_id = org.id AND oe.user_id = :userId AND oe.status = 'active')
+      OR EXISTS (SELECT 1 FROM org_affiliates oa WHERE oa.organization_id = org.id AND oa.user_id = :userId AND oa.status = 'active')
+      OR EXISTS (SELECT 1 FROM event_affiliates ea JOIN events e ON e.id = ea.event_id WHERE e.organization_id = org.id AND ea.user_id = :userId AND ea.status = 'active'))
+      ORDER BY org.name ASC, org.id ASC`, scope);
+    const locations = await models.Location.findAll({ where: { id: rows.map((r) => r.locationId).filter(Boolean), lifecycleState: 'active' } });
+    const byId = new Map(locations.map((r) => [r.id, r]));
+    return rows.map((r) => ({ ...r, location: byId.get(r.locationId) || null, canInviteManager: r.canManage }));
+  }
+  async function venues(scope, orgs) {
+    const locations = await select(`SELECT DISTINCT e.organization_id AS "organizationId", e.creator_user_id AS "creatorUserId", e.location_id AS "locationId"
+      FROM events e WHERE ${base} AND e.location_id IS NOT NULL
+      UNION SELECT DISTINCT ov.organization_id, NULL::uuid, ov.location_id
+      FROM organization_venues ov JOIN locations loc ON loc.id = ov.location_id AND loc.lifecycle_state = 'active'
+      WHERE ov.organization_id IN (:organizationIds)`, { ...scope, organizationIds: orgs.map((o) => o.id).length ? orgs.map((o) => o.id) : ['00000000-0000-0000-0000-000000000000'] });
+    const placeRows = await models.Location.findAll({ where: { id: [...new Set(locations.map((r) => r.locationId))], lifecycleState: 'active' } });
+    const byId = new Map(placeRows.map((r) => [r.id, r]));
+    return venueOptions(locations.filter((r) => byId.has(r.locationId)).map((r) => ({ ...r, location: byId.get(r.locationId) })));
+  }
+  async function bootstrap(userId) {
+    const scope = await actor(userId);
+    const orgs = await organizations(scope);
+    return { organizations: orgs, venues: await venues(scope, orgs),
+      capabilities: { emailConfigured: Boolean(email?.enabled), deliveryTrackingConfigured,
+        smsConfigured: false, instructions: Boolean(email?.enabled), notifications: true },
+      scope: { canCreateIndependent: Boolean(scope.isAdmin || scope.user.independentCreator), isInternalAdmin: scope.isAdmin } };
+  }
+  async function filters(scope, input = {}, { dates = false } = {}) {
+    const clauses = [];
+    const values = { ...scope };
+    const organizationIds = input.organizationIds?.length ? input.organizationIds : input.organizationId ? [input.organizationId] : [];
+    if (organizationIds.length) {
+      const real = organizationIds.filter((id) => id !== 'independent');
+      clauses.push(`(e.organization_id ${real.length ? 'IN (:organizationIds)' : 'IS NULL AND FALSE'} ${organizationIds.includes('independent') ? 'OR e.organization_id IS NULL' : ''})`);
+      if (real.length) values.organizationIds = real;
+    }
+    if (input.venueIds?.length) {
+      const options = await venues(scope, await organizations(scope));
+      const ids = [...new Set(options.filter((v) => input.venueIds.includes(v.id)).flatMap((v) => v.locationIds))];
+      clauses.push(ids.length ? 'e.location_id IN (:locationIds)' : 'FALSE');
+      if (ids.length) values.locationIds = ids;
+    }
+    if (dates) {
+      if (input.from) { clauses.push('e.starts_at >= :from'); values.from = input.from; }
+      if (input.to) { clauses.push('e.starts_at < :to'); values.to = input.to; }
+    }
+    return { sql: clauses.length ? ` AND ${clauses.join(' AND ')}` : '', values };
+  }
+  async function events(userId, input) {
+    const scope = await actor(userId);
+    const filter = await filters(scope, input, { dates: true });
+    const countFilter = await filters(scope, input);
+    const values = { ...filter.values, pageSize: input.pageSize, offset: (input.page - 1) * input.pageSize, search: `%${input.search.replace(/[\\%_]/g, '\\$&')}%`, currentTime: now() };
+    let conditions = filter.sql;
+    if (input.search) conditions += ` AND (e.title ILIKE :search ESCAPE '\\' OR e.summary ILIKE :search ESCAPE '\\'
+      OR EXISTS (SELECT 1 FROM locations search_location WHERE search_location.id = e.location_id
+        AND (search_location.name ILIKE :search ESCAPE '\\' OR search_location.city ILIKE :search ESCAPE '\\')))`;
+    if (input.status === 'upcoming') conditions += ` AND e.ends_at > :currentTime AND e.status = 'published'`;
+    else if (input.status === 'past') conditions += ` AND (e.status = 'completed' OR e.ends_at <= :currentTime)`;
+    else if (input.status === 'draft') conditions += ` AND e.status = 'draft' AND e.ends_at > :currentTime`;
+    else if (input.status !== 'all') { conditions += ' AND e.status = :status'; values.status = input.status; }
+    const phase = `CASE WHEN e.status = 'completed' OR e.ends_at <= :currentTime THEN 'past' WHEN e.status = 'cancelled' THEN 'cancelled' WHEN e.status = 'draft' THEN 'draft' WHEN e.starts_at <= :currentTime THEN 'live' ELSE 'upcoming' END`;
+    const sort = {
+      starts_desc: 'e.starts_at DESC, e.id DESC', starts_asc: 'e.starts_at ASC, e.id ASC',
+      title_asc: 'e.title ASC, e.id ASC', title_desc: 'e.title DESC, e.id DESC',
+      phase_asc: `${phase} ASC, e.starts_at ASC, e.id ASC`, phase_desc: `${phase} DESC, e.starts_at DESC, e.id DESC`,
+      sales_asc: 'COALESCE(sales."salesCents", 0) ASC, e.id ASC', sales_desc: 'COALESCE(sales."salesCents", 0) DESC, e.id DESC',
+      orders_asc: 'COALESCE(sales."paidOrders", 0) ASC, e.id ASC', orders_desc: 'COALESCE(sales."paidOrders", 0) DESC, e.id DESC',
+      access_asc: `${manages} ASC, e.id ASC`, access_desc: `${manages} DESC, e.id DESC`,
+    }[input.sort] || 'e.starts_at ASC, e.id ASC';
+    const salesSort = /^(sales|orders)_/.test(input.sort);
+    const salesJoin = salesSort ? `LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(o.subtotal_cents),0)::bigint AS "salesCents", COUNT(*)::integer AS "paidOrders"
+      FROM orders o WHERE o.event_id = e.id AND o.status = 'paid' AND o.currency = 'USD' AND ${orderAccess}
+    ) sales ON true` : '';
+    const [counts] = await select(`SELECT
+      COUNT(*) FILTER (WHERE e.status = 'published' AND e.ends_at > :currentTime)::integer AS upcoming,
+      COUNT(*) FILTER (WHERE e.status = 'completed' OR e.ends_at <= :currentTime)::integer AS past,
+      COUNT(*) FILTER (WHERE e.status = 'draft' AND e.ends_at > :currentTime)::integer AS draft
+      FROM events e WHERE ${base}${countFilter.sql}`, { ...countFilter.values, currentTime: values.currentTime });
+    const [count] = await select(`SELECT COUNT(*)::integer AS total FROM events e WHERE ${base}${conditions}`, values);
+    const ids = await select(`SELECT e.id FROM events e ${salesJoin} WHERE ${base}${conditions} ORDER BY ${sort} LIMIT :pageSize OFFSET :offset`, values);
+    if (!ids.length) return { ...pageResult([], count.total, input.page, input.pageSize), counts };
+    const rows = await models.Event.findAll({ where: { id: ids.map((r) => r.id) }, include: [
+      { model: models.Location, as: 'location' }, { model: models.Offering, as: 'offerings' } ] });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const sales = await select(`SELECT o.event_id AS id, COALESCE(SUM(o.subtotal_cents),0)::bigint AS "salesCents", COUNT(*)::integer AS "paidOrders"
+      FROM orders o JOIN events e ON e.id = o.event_id WHERE o.event_id IN (:ids) AND o.status = 'paid' AND o.currency = 'USD' AND ${orderAccess}
+      GROUP BY o.event_id`, { ...scope, ids: ids.map((r) => r.id) });
+    const bySales = new Map(sales.map((r) => [r.id, r]));
+    const reviewable = await select(`SELECT DISTINCT ea.event_id AS id FROM event_affiliates ea JOIN events e ON e.id = ea.event_id
+      WHERE ea.event_id IN (:ids) AND ea.user_id = :userId AND ea.status = 'active'
+      AND (${accessScopeSql('ea')} = 'event' OR ${organizationMember})`,
+    { ...scope, ids: ids.map((r) => r.id) });
+    const reviewIds = new Set(reviewable.map((row) => row.id));
+    const items = ids.map(({ id }) => {
+      const event = byId.get(id);
+      const editable = Boolean(scope.isAdmin || (!event.organizationId && event.creatorUserId === userId) || scope.managedOrgIds.has(event.organizationId));
+      const result = event.toJSON();
+      const canManage = editable;
+      result.offerings = result.offerings.sort((a, b) => a.sortOrder - b.sortOrder).map(({ accessCodeHash, ...tier }) => {
+        if (!canManage) delete tier.quantitySold;
+        return tier;
+      });
+      const sale = bySales.get(id);
+      return { ...result, canManage, canEdit: canManage && !eventFinished(event, now()),
+        lifetimeSales: sale ? { salesCents: Number(sale.salesCents), paidOrders: sale.paidOrders } : { salesCents: 0, paidOrders: 0 },
+        canReviewGuestlist: canManage || reviewIds.has(id) };
+    });
+    return { ...pageResult(items, count.total, input.page, input.pageSize), counts };
+  }
+  async function overview(userId, input) {
+    const scope = await actor(userId);
+    const filter = await filters(scope, input);
+    const range = await resolvePaidRange(select, input, now());
+    const values = { ...filter.values, since: range.since, until: range.until, timezone: range.timezone };
+    const cte = `WITH scoped_events AS (SELECT e.id FROM events e WHERE ${base}${filter.sql}),
+      visible_orders AS (
+        SELECT o.id, o.event_id, o.buyer_user_id, o.subtotal_cents, o.affiliate_commission_cents,
+          o.event_affiliate_id, o.org_affiliate_id, o.paid_at
+        FROM orders o JOIN events e ON e.id = o.event_id JOIN scoped_events se ON se.id = e.id
+        WHERE o.status = 'paid' AND o.currency = 'USD' AND o.paid_at >= :since AND o.paid_at < :until AND ${orderAccess}),
+      visible_guests AS (
+        SELECT g.id, g.event_id, g.user_id, g.party_size, g.status
+        FROM guestlist_entries g JOIN events e ON e.id = g.event_id JOIN scoped_events se ON se.id = e.id
+        WHERE g.created_at >= :since AND g.created_at < :until AND ${guestAccess})`;
+    const [financial] = await select(`${cte}
+      SELECT COALESCE(SUM(subtotal_cents),0)::bigint AS "salesCents", COUNT(*)::integer AS orders,
+      COALESCE(SUM(affiliate_commission_cents),0)::bigint AS "commissionCents",
+      COALESCE(SUM(subtotal_cents) FILTER (WHERE event_affiliate_id IS NULL AND org_affiliate_id IS NULL),0)::bigint AS "directSalesCents",
+      COUNT(DISTINCT buyer_user_id)::integer AS customers FROM visible_orders`, values);
+    const [items] = await select(`${cte} SELECT COALESCE(SUM(oi.quantity),0)::bigint AS units
+      FROM order_items oi JOIN visible_orders vo ON vo.id = oi.order_id`, values);
+    const [tickets] = await select(`${cte} SELECT COUNT(*) FILTER (WHERE t.status IN ('valid','checked_in'))::integer AS admissions,
+      COUNT(*) FILTER (WHERE t.status = 'checked_in')::integer AS "checkedIn"
+      FROM tickets t JOIN order_items oi ON oi.id = t.order_item_id JOIN visible_orders vo ON vo.id = oi.order_id`, values);
+    const [guests] = await select(`${cte} SELECT COALESCE(SUM(party_size) FILTER (WHERE status IN ('confirmed','checked_in')),0)::integer AS "guestlistPlaces",
+      COALESCE(SUM(party_size) FILTER (WHERE status = 'checked_in'),0)::integer AS "checkedIn" FROM visible_guests`, values);
+    const days = await select(`${cte} SELECT to_char(paid_at AT TIME ZONE :timezone, 'YYYY-MM-DD') AS date,
+      SUM(subtotal_cents)::bigint AS "salesCents" FROM visible_orders GROUP BY 1 ORDER BY 1`, values);
+    const daily = new Map(days.map((row) => [row.date, cents(row.salesCents)]));
+    const series = Array.from({ length: input.days }, (_, i) => {
+      const day = new Date(`${range.startDate}T00:00:00.000Z`); day.setUTCDate(day.getUTCDate() + i);
+      const date = day.toISOString().slice(0, 10);
+      return { date, salesCents: daily.get(date) || 0 };
+    });
+    const summary = { salesCents: cents(financial.salesCents), orders: financial.orders,
+      commissionCents: cents(financial.commissionCents), directSalesCents: cents(financial.directSalesCents),
+      customers: financial.customers, units: cents(items.units), admissions: tickets.admissions,
+      checkedIn: tickets.checkedIn + guests.checkedIn, guestlistPlaces: guests.guestlistPlaces };
+    return { summary, daily: series, range: { ...range, days: input.days }, scope: scope.isAdmin || scope.managedOrgIds.size ? 'mixed' : 'own' };
+  }
+  async function needsAttention(userId, input) {
+    const scope = await actor(userId);
+    const filter = await filters(scope, input);
+    const currentTime = now();
+    const guestlistAttentionCutoff = new Date(currentTime.getTime() - 60 * 60 * 1000);
+    const values = { ...filter.values, currentTime, guestlistAttentionCutoff };
+    const scoped = `WITH scoped_events AS (SELECT e.id, e.organization_id FROM events e WHERE ${base}${filter.sql})`;
+    const pending = await select(`${scoped} SELECT g.id, g.event_id AS "eventId", e.title, g.party_size AS "partySize",
+      g.created_at AS "createdAt", u.display_name AS "personName"
+      FROM guestlist_entries g JOIN scoped_events se ON se.id = g.event_id JOIN events e ON e.id = g.event_id
+      JOIN users u ON u.id = g.user_id WHERE g.status = 'pending' AND e.ends_at >= :guestlistAttentionCutoff AND ${guestAccess}
+      ORDER BY g.created_at ASC, g.id ASC LIMIT 4`, values);
+    const [pendingCount] = await select(`${scoped} SELECT COUNT(*)::integer AS count FROM guestlist_entries g
+      JOIN scoped_events se ON se.id = g.event_id JOIN events e ON e.id = g.event_id
+      WHERE g.status = 'pending' AND e.ends_at >= :guestlistAttentionCutoff AND ${guestAccess}`, values);
+    const upcoming = await select(`SELECT e.id AS "eventId", e.title, e.starts_at AS "startsAt"
+      FROM events e WHERE ${base}${filter.sql} AND e.status = 'published' AND e.starts_at >= :currentTime
+      ORDER BY e.starts_at ASC, e.id ASC LIMIT 4`, values);
+    const [upcomingCount] = await select(`SELECT COUNT(*)::integer AS count FROM events e WHERE ${base}${filter.sql}
+      AND e.status = 'published' AND e.starts_at >= :currentTime`, values);
+    const low = await select(`SELECT ofr.id, e.id AS "eventId", e.title, ofr.name, ofr.quantity_total - ofr.quantity_sold AS remaining
+      FROM offerings ofr JOIN events e ON e.id = ofr.event_id WHERE ${base}${filter.sql} AND ${manages}
+      AND e.status = 'published' AND e.ends_at >= :currentTime AND ofr.is_active = true AND ofr.inventory_mode = 'finite'
+      AND ofr.quantity_total - ofr.quantity_sold <= GREATEST(5, CEIL(ofr.quantity_total * 0.1))
+      ORDER BY remaining ASC, ofr.id ASC LIMIT 4`, values);
+    const [lowCount] = await select(`SELECT COUNT(*)::integer AS count FROM offerings ofr JOIN events e ON e.id = ofr.event_id
+      WHERE ${base}${filter.sql} AND ${manages} AND e.status = 'published' AND e.ends_at >= :currentTime
+      AND ofr.is_active = true AND ofr.inventory_mode = 'finite'
+      AND ofr.quantity_total - ofr.quantity_sold <= GREATEST(5, CEIL(ofr.quantity_total * 0.1))`, values);
+    const invites = await select(`SELECT ti.id, ti.organization_id AS "organizationId", ti.event_id AS "eventId", ti.email,
+      ti.role, ti.created_at AS "createdAt", COALESCE(e.title, org.name) AS title
+      FROM team_invitations ti LEFT JOIN events e ON e.id = ti.event_id LEFT JOIN organizations org ON org.id = ti.organization_id
+      WHERE ti.accepted_at IS NULL AND ti.expires_at > :currentTime
+      AND (:isAdmin OR (ti.organization_id IS NOT NULL AND EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organization_id = ti.organization_id AND oo.user_id = :userId AND oo.lifecycle_state = 'active'))
+      OR (ti.event_id IS NOT NULL AND e.organization_id IS NULL AND e.creator_user_id = :userId))
+      ORDER BY ti.created_at DESC, ti.id DESC LIMIT 4`, values);
+    const [inviteCount] = await select(`SELECT COUNT(*)::integer AS count FROM team_invitations ti LEFT JOIN events e ON e.id = ti.event_id
+      WHERE ti.accepted_at IS NULL AND ti.expires_at > :currentTime
+      AND (:isAdmin OR (ti.organization_id IS NOT NULL AND EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organization_id = ti.organization_id AND oo.user_id = :userId AND oo.lifecycle_state = 'active'))
+      OR (ti.event_id IS NOT NULL AND e.organization_id IS NULL AND e.creator_user_id = :userId))`, values);
+    return { counts: { pendingGuestlist: pendingCount.count, pendingInvitations: inviteCount.count,
+      upcomingEvents: upcomingCount.count, lowInventory: lowCount.count },
+      items: [
+        ...pending.map((row) => ({ kind: 'pending_guestlist', ...row })),
+        ...invites.map((row) => ({ kind: 'pending_invitation', ...row })),
+        ...upcoming.map((row) => ({ kind: 'upcoming_event', ...row })),
+        ...low.map((row) => ({ kind: 'low_inventory', ...row })),
+      ] };
+  }
+  return { bootstrap, events, overview, needsAttention, actor, filters };
+}
+
+module.exports = { createBusinessReadService, access, manages, base, orderAccess, guestAccess, pageResult };

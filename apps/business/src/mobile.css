@@ -172,11 +172,13 @@
   .guestlist-referral-card { gap: 12px; padding: 16px; }
   .guestlist-referral-card > button, .guestlist-share-invite .guestlist-invite-button { width: 100%; }
   .guestlist-referral-status { margin: 0; }
-  .analytics-filters { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .analytics-filters > * { min-width: 0; max-width: 100%; }
+  .analytics-filters, .analytics-table-controls { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .analytics-filters > *, .analytics-table-controls > * { min-width: 0; max-width: 100%; }
   .analytics-filters > label:first-child { grid-column: 1 / -1; }
   .analytics-filters > label:last-of-type { grid-column: 1 / -1; }
-  .analytics-filters select, .analytics-filters .multi-select-control button { width: 100%; min-width: 0; }
+  .analytics-table-controls > .analytics-search-form { grid-column: 1 / -1; width: 100%; }
+  .analytics-search-form > .analytics-search { min-width: 0; }
+  .analytics-filters select, .analytics-filters .multi-select-control button, .analytics-table-controls select { width: 100%; min-width: 0; }
   .analytics-filters > button { grid-column: 1 / -1; }
   .analytics-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .analytics-metrics > div { padding: 16px 13px; min-width: 0; }

@@ -151,7 +151,7 @@ function createBusinessService({
     let [user, memberships, employees, orgAffiliates, eventAffiliates] =
       await Promise.all([
         models.User.findByPk(userId),
-        models.OrganizationOwner.findAll({ where: { userId } }),
+        models.OrganizationOwner.findAll({ where: { userId, lifecycleState: 'active' } }),
         models.OrganizationEmployee.findAll({ where: { userId, status: 'active' } }),
         models.OrgAffiliate.findAll({ where: { userId, status: "active" } }),
         models.EventAffiliate.findAll({ where: { userId, status: "active" } }),
@@ -162,7 +162,7 @@ function createBusinessService({
       const activeIds = new Set(activeOrganizations.map((organization) => organization.id));
       memberships = memberships.filter((row) => activeIds.has(row.organizationId)); employees = employees.filter((row) => activeIds.has(row.organizationId)); orgAffiliates = orgAffiliates.filter((row) => activeIds.has(row.organizationId));
     }
-    eventAffiliates = await activeEventAffiliates(models, eventAffiliates, memberships, employees);
+    eventAffiliates = await activeEventAffiliates(models, eventAffiliates, memberships, employees, orgAffiliates);
     const managedOrgIds = memberships.map((m) => m.organizationId);
     const ownedOrgIds = memberships.filter((m) => m.role === 'owner').map((m) => m.organizationId);
     const orgIds = [
@@ -503,6 +503,21 @@ function createBusinessService({
             transaction,
           });
           if (!asset) throw notFound('Image');
+          if (asset.uploadedByUserId !== userId) {
+            // A newly uploaded image can be shared among the active managers of
+            // the same organization. Unrelated uploaders still need a managed
+            // source event explicitly named for reuse.
+            const colleague = input.organizationId && await models.OrganizationOwner.findOne({
+              where: { organizationId: input.organizationId, userId: asset.uploadedByUserId, lifecycleState: 'active' },
+              transaction,
+            });
+            if (!colleague) {
+              if (!input.reusedImageFromEventId) throw forbidden('Use an image uploaded by your organization or explicitly reuse one from an event you manage');
+              const source = await permissions.assertManageEvent(userId, input.reusedImageFromEventId);
+              if (source.imageAssetId !== asset.id || source.organizationId !== input.organizationId ||
+                (!source.organizationId && source.creatorUserId !== userId)) throw forbidden('This image cannot be reused for the new event');
+            }
+          }
         }
         const before = event
           ? { ...event.toJSON(), offerings: existing.map((o) => o.toJSON()) }
@@ -527,6 +542,7 @@ function createBusinessService({
           offerings,
           location: _location,
           version: _version,
+          reusedImageFromEventId: _reusedImageFromEventId,
           ...fields
         } = input;
         fields.slug = event?.slug || `${input.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 150) || 'event'}-${randomUUID().slice(0, 8)}`;

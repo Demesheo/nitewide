@@ -1,5 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const { DomainError } = require('../domain/errors');
+const { accessScope, currentOrganizationMembership } = require('./event-affiliate-access');
+const { activeUser } = require('./lifecycle-service');
 
 const employeeReferralCode = (membershipId) => `STAFF-${membershipId}`;
 const leaderReferralCode = (membershipId) => `LEAD-${membershipId}`;
@@ -9,15 +11,27 @@ async function resolveVenueMember(models, { event, code, now, transaction, lock 
   const leader = code.startsWith('LEAD-');
   if (!event.organizationId || !/^(STAFF|LEAD)-[0-9a-f-]{36}$/i.test(code)) throw invalidCode();
   const common = { transaction, ...(lock ? { lock } : {}) };
-  const membership = await (leader ? models.OrganizationOwner : models.OrganizationEmployee).findOne({ where: { id: code.slice(leader ? 5 : 6), organizationId: event.organizationId, ...(!leader ? {status:'active'} : {}) }, ...common });
-  if (!membership || !(await models.User.findByPk(membership.userId, common))?.isActive) throw invalidCode();
+  const model = leader ? models.OrganizationOwner.unscoped() : models.OrganizationEmployee;
+  const membership = await model.findOne({ where: { id: code.slice(leader ? 5 : 6), organizationId: event.organizationId }, ...common });
+  const current = membership && await currentOrganizationMembership(models, event.organizationId, membership.userId, transaction, now);
+  if (!current) throw invalidCode();
   let eventAffiliate = await models.EventAffiliate.findOne({ where: { eventId: event.id, userId: membership.userId }, ...common });
   if (!eventAffiliate) {
     // Persist attribution only when used, not for every team member × event.
-    [eventAffiliate] = await models.EventAffiliate.findOrCreate({ where: { eventId: event.id, userId: membership.userId }, defaults: { code: `${leader ? 'LEADEV' : 'STAFFEV'}-${randomUUID()}`, commissionBps: 0, guestlistAllocation: 0, status: 'active' }, transaction });
+    [eventAffiliate] = await models.EventAffiliate.findOrCreate({ where: { eventId: event.id, userId: membership.userId }, defaults: {
+      code: `${leader ? 'LEADEV' : 'STAFFEV'}-${randomUUID()}`,
+      orgAffiliateId: current.kind === 'affiliate' ? current.record.id : null,
+      commissionBps: current.kind === 'affiliate' ? null : 0,
+      guestlistAllocation: current.kind === 'affiliate' ? null : 0,
+      status: 'active', accessScope: 'organization',
+    }, transaction });
   }
+  if (accessScope(eventAffiliate) !== 'organization') throw invalidCode();
   if (!isActiveWindow(eventAffiliate, now)) throw invalidCode();
-  return { eventAffiliate, orgAffiliate: null, commissionBps: eventAffiliate.commissionBps ?? 0, guestlistAllocation: eventAffiliate.guestlistAllocation ?? 0 };
+  const linked = eventAffiliate.orgAffiliateId ? await models.OrgAffiliate.findByPk(eventAffiliate.orgAffiliateId, common) : null;
+  if (linked && !isActiveWindow(linked, now)) throw invalidCode();
+  return { eventAffiliate, orgAffiliate: linked, commissionBps: eventAffiliate.commissionBps ?? linked?.defaultCommissionBps ?? 0,
+    guestlistAllocation: eventAffiliate.guestlistAllocation ?? linked?.defaultGuestlistAllocation ?? 0 };
 }
 
 function isActiveWindow(record, now) {
@@ -32,19 +46,26 @@ async function resolveAffiliate(models, { event, code, now = new Date(), transac
   let orgAffiliate = eventAffiliate?.orgAffiliateId ? await models.OrgAffiliate.findByPk(eventAffiliate.orgAffiliateId, common) : null;
   if (!eventAffiliate && event.organizationId) {
     orgAffiliate = await models.OrgAffiliate.findOne({ where: { organizationId: event.organizationId, code }, ...common });
-    if (orgAffiliate) eventAffiliate = await models.EventAffiliate.findOne({ where: { eventId: event.id, userId: orgAffiliate.userId }, ...common });
+    if (orgAffiliate) {
+      const membership = await currentOrganizationMembership(models, event.organizationId, orgAffiliate.userId, transaction, now);
+      if (!membership) throw invalidCode();
+      [eventAffiliate] = await models.EventAffiliate.findOrCreate({ where: { eventId: event.id, userId: orgAffiliate.userId },
+        defaults: { code: `NW-${randomUUID()}`, orgAffiliateId: membership.kind === 'affiliate' ? membership.record.id : null,
+          sourceOrgAffiliateId: membership.kind === 'affiliate' ? null : orgAffiliate.id,
+          commissionBps: membership.kind === 'affiliate' ? null : 0,
+          guestlistAllocation: membership.kind === 'affiliate' ? null : 0,
+          status: 'active', accessScope: 'organization' }, transaction });
+      if (accessScope(eventAffiliate) !== 'organization') throw invalidCode();
+      orgAffiliate = eventAffiliate.orgAffiliateId ? await models.OrgAffiliate.findByPk(eventAffiliate.orgAffiliateId, common) : null;
+    }
   }
   if ((!eventAffiliate && !orgAffiliate) || (eventAffiliate && !isActiveWindow(eventAffiliate, now)) || (orgAffiliate && !isActiveWindow(orgAffiliate, now))) {
     throw new DomainError('Promoter code is invalid or inactive', { code: 'INVALID_AFFILIATE' });
   }
   const referrerId = eventAffiliate?.userId || orgAffiliate?.userId;
-  if (!referrerId || !(await models.User.findByPk(referrerId, common))?.isActive) throw invalidCode();
-  // Auto-created team event codes stop working when membership/account ends.
-  if (eventAffiliate?.code?.startsWith('STAFFEV-') || eventAffiliate?.code?.startsWith('LEADEV-')) {
-    const leader = eventAffiliate.code.startsWith('LEADEV-');
-    const membership = await (leader ? models.OrganizationOwner : models.OrganizationEmployee).findOne({ where: { organizationId: event.organizationId, userId: eventAffiliate.userId, ...(!leader ? {status:'active'} : {}) }, ...common });
-    if (!membership || !(await models.User.findByPk(eventAffiliate.userId, common))?.isActive) throw invalidCode();
-  }
+  if (!referrerId || !activeUser(await models.User.findByPk(referrerId, common))) throw invalidCode();
+  if (eventAffiliate && accessScope(eventAffiliate) === 'organization' &&
+      !await currentOrganizationMembership(models, event.organizationId, eventAffiliate.userId, transaction, now)) throw invalidCode();
   return {
     eventAffiliate,
     orgAffiliate,

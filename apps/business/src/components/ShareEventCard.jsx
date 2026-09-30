@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { Share, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-export function ShareEventCard({ referralUrl, canInviteGuest = false, onInviteGuest }) {
+export function ShareEventCard({ referralUrl, canInviteGuest = false, onInviteGuest, referralError = '', onRetryReferral }) {
   const [copyMessage, setCopyMessage] = useState('');
   useEffect(() => setCopyMessage(''), [referralUrl]);
-  if (!referralUrl && !canInviteGuest) return null;
+  if (!referralUrl && !canInviteGuest && !referralError) return null;
 
   async function copyLink() {
     try {
@@ -22,6 +22,7 @@ export function ShareEventCard({ referralUrl, canInviteGuest = false, onInviteGu
       {referralUrl && <><h3>Your referral link</h3><p>Purchases and guestlist requests made through your link are attributed to you for this event.</p></>}
     </div>
     {referralUrl && <Button type="button" variant="outline" onClick={copyLink}><Share size={16} aria-hidden="true"/>{copyMessage === 'Referral link copied.' ? 'Copied' : 'Copy link'}</Button>}
+    {referralError && <div><p className="error" role="alert">Your referral link could not be loaded: {referralError}</p><Button type="button" variant="outline" onClick={onRetryReferral}>Retry</Button></div>}
     {copyMessage && <p className="guestlist-referral-status" role="status">{copyMessage}</p>}
     {canInviteGuest && <div className="guestlist-share-invite">
       <h3>Invite to guestlist</h3>

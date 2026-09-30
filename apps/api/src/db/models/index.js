@@ -14,6 +14,7 @@ const initializers = [
   require('./Notification').initNotification,
   require('./UserActionToken').initUserActionToken,
   require('./EmailOutbox').initEmailOutbox,
+  require('./EmailDeliveryEvent').initEmailDeliveryEvent,
   require('./SavedEvent').initSavedEvent,
 ];
 

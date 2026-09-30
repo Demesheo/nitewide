@@ -1,63 +1,45 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
-  ArrowDownToLine,
-  ArrowRight,
-  ArrowUpRight,
   BarChart3,
+  ArrowDownToLine,
   CalendarDays,
   Check,
   ChevronRight,
-  CircleDollarSign,
   CircleUserRound,
   Command,
   LayoutDashboard,
-  LoaderCircle,
   LogOut,
   Menu,
   Plus,
   QrCode,
-  Search,
   ShieldCheck,
   Sparkles,
-  Ticket,
   Users,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Choice, Empty } from "@/components/controls";
+import { Choice } from "@/components/controls";
 import { EventEditor } from "@/components/EventEditor";
-import { Events } from '@/components/Events';
-import { Analytics } from "@/components/Analytics";
+import { PagedEvents } from '@/components/PagedEvents';
+import { BusinessOverview } from '@/components/BusinessOverview';
+import { BusinessAnalytics } from "@/components/BusinessAnalytics";
 import { MultiSelect } from "@/components/MultiSelect";
-import { SalesMixPie } from "@/components/SalesMixPie";
-import { TeamPerformanceTable } from "@/components/TeamPerformanceTable";
-import { PersonalOverview } from "@/components/PersonalOverview";
 import { Notifications } from "@/components/Notifications";
-import { Team, TeamInviteLanding } from "@/components/Team";
+import { TeamInviteLanding } from "@/components/Team";
+import { BusinessTeam } from "@/components/BusinessTeam";
 import { OnboardingSetup } from "@/components/OnboardingSetup";
 import { BusinessProfile } from "@/components/BusinessProfile";
+import { BusinessSignIn } from "@/components/BusinessSignIn";
 import { LoadingState } from "@/components/LoadingState";
 import { Admissions } from "@/components/Admissions";
-import { TablePagination, useTablePagination } from "@/components/TablePagination";
 import { api, readSession, SESSION_KEY } from "@/lib/api";
-import { csv, eventDateLabel, money } from "@/lib/business";
-import { salesMixSlices } from "@/lib/sales-mix";
-import { sortTableRows } from "@/lib/table-sort";
 import { workspaceAccess } from "@/lib/workspace-access";
-import { reviewableGuestlistEvents } from "@/lib/guestlists";
+import { writeWorkspaceLocation } from '@/lib/workspace-navigation';
+import { reusableDraft } from '@/lib/event-reuse';
+import { useWorkspaceNavigation } from '@/hooks/useWorkspaceNavigation';
+import { useBusinessBootstrap } from '@/hooks/useBusinessBootstrap';
+import { downloadBusinessReport, reportQuery, browserReportTimezone } from '@/lib/report-client';
 
 const navigation = [
   ["overview", LayoutDashboard, "Overview"],
@@ -78,365 +60,22 @@ function Brand() {
     </div>
   );
 }
-function SignIn({ onSession, notice }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  async function submit(e) {
-    e.preventDefault();
-    const data = new FormData(e.currentTarget);
-    setBusy(true);
-    setError("");
-    try {
-      onSession(
-        await api("/auth/sign-in", null, {
-          method: "POST",
-          body: JSON.stringify({
-            email: data.get("email"),
-            password: data.get("password"),
-          }),
-        }),
-      );
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <main className="signin">
-      <section className="signin-story">
-        <Brand />
-        <div className="story-content">
-          <span className="eyebrow">THE BUSINESS BEHIND THE NIGHT</span>
-          <h1>
-            Great nights.
-            <br />
-            <em>
-              Even better
-              <br />
-              business.
-            </em>
-          </h1>
-          <p>
-            Your events, your people, your performance.
-            <br />
-            One clear view of everything that matters.
-          </p>
-          <div className="story-pills">
-            <span>
-              <BarChart3 size={16} />
-              Real-time insights
-            </span>
-            <span>
-              <Ticket size={16} />
-              Built for experiences
-            </span>
-          </div>
-        </div>
-        <div className="story-footer">
-          A new standard for going out.
-          <span>Made for the people who make it happen.</span>
-        </div>
-        <div className="orb orb-one" />
-        <div className="orb orb-two" />
-      </section>
-      <section className="signin-form">
-        <div className="signin-box">
-          <a className="signin-back" href={import.meta.env.VITE_BUSINESS_HOME || '/'}>← About Nitewide Business</a>
-          <span className="login-mark">
-            <ShieldCheck />
-          </span>
-          <span className="eyebrow">YOUR BUSINESS, CONNECTED</span>
-          <h2>Welcome back.</h2>
-          <p>Sign in to make your next experience exceptional.</p>
-          <form onSubmit={submit}>
-            <label className="field">
-              <span>Work email</span>
-              <Input
-                type="email"
-                name="email"
-                autoComplete="username"
-                required
-                placeholder="you@yourbusiness.com"
-              />
-            </label>
-            <label className="field">
-              <span>Password</span>
-              <Input
-                type="password"
-                name="password"
-                autoComplete="current-password"
-                required
-                placeholder="Enter your password"
-              />
-            </label>
-            {(error || notice) && (
-              <p role="alert" className="error">
-                {error || notice}
-              </p>
-            )}
-            <Button disabled={busy} type="submit" size="lg">
-              {busy && <LoaderCircle className="nw-loading-icon" aria-hidden="true" />}
-              {busy ? "Signing in…" : "Sign in to Nitewide"}
-              {!busy && <ArrowRight />}
-            </Button>
-          </form>
-          <div className="signin-note">
-            <ShieldCheck size={16} />
-            <span>
-              One Nitewide identity. Access is based on your organization and
-              event permissions.
-            </span>
-          </div>
-          <p className="support-note">
-            New organizer? Use your existing Nitewide customer account to create
-            an independent event. Venue access requires an owner or manager
-            assignment.
-          </p>
-        </div>
-        <small>
-          © {new Date().getFullYear()} Nitewide · Business, after hours.
-        </small>
-      </section>
-    </main>
-  );
-}
-function Metric({ label, value, detail, icon: Icon }) {
-  return (
-    <div className="metric">
-      <div>
-        <span>{label}</span>
-        <Icon size={18} />
-      </div>
-      <strong>{value}</strong>
-      <small>{detail}</small>
-    </div>
-  );
-}
-function RankBars({ rows, empty, total }) {
-  if (!rows.length) return <Empty title="No sales yet">{empty}</Empty>;
-  return (
-    <div className="rank-bars">
-      {rows.slice(0, 6).map((r, i) => (
-        <div className="rank-row" key={r.id}>
-          <div>
-            <span className="rank-index">{String(i + 1).padStart(2, "0")}</span>
-            <span className="rank-name">
-              <span className="rank-title"><span className="rank-title-name" title={r.name}>{r.name}</span>{r.dateLabel && <span className="rank-date">· {r.dateLabel}</span>}</span>
-              <small>
-                {r.units ?? r.orders} {r.units != null ? "units" : "orders"}
-              </small>
-            </span>
-            <strong>{money(r.salesCents)}</strong>
-          </div>
-          <div className="rank-track">
-            <span
-              style={{
-                width: `${total ? Math.max(1, (r.salesCents / total) * 100) : 0}%`,
-              }}
-            />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-function SalesMix({ rows, total, empty }) {
-  const slices = salesMixSlices(rows);
-  if (!slices.length) return <Empty title="No sales yet">{empty}</Empty>;
-  return (
-    <>
-      <SalesMixPie slices={slices}/>
-      <RankBars rows={rows} total={total} empty={empty}/>
-    </>
-  );
-}
-function Performance({ data, onEvents }) {
-  const { report } = data;
-  const s = report.summary;
-  const eventDates = new Map(data.events.map((event) => [event.id, eventDateLabel(event)]));
-  const eventRows = report.events.filter((event) => event.salesCents).map((event) => ({ ...event, dateLabel: eventDates.get(event.id) }));
-  return (
-    <>
-      <div className="metric-grid">
-        <Metric
-          label="Gross sales"
-          value={money(s.salesCents)}
-          detail="Paid order subtotals · USD"
-          icon={CircleDollarSign}
-        />
-        <Metric
-          label="Paid orders"
-          value={s.orders.toLocaleString()}
-          detail={`${s.checkedIn.toLocaleString()} / ${(s.admissions + s.guestlistPlaces).toLocaleString()} admitted · selected period`}
-          icon={Ticket}
-        />
-        <Metric
-          label="Average order"
-          value={money(s.orders ? Math.round(s.salesCents / s.orders) : 0)}
-          detail="Before customer checkout fees"
-          icon={BarChart3}
-        />
-        <Metric
-          label="Promoter commissions"
-          value={money(s.commissionCents)}
-          detail="Recorded commission · not payout status"
-          icon={Users}
-        />
-      </div>
-      <div className="dashboard-grid">
-        <section className="panel revenue-panel">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">THE BIG PICTURE</span>
-              <h2>Sales over time</h2>
-              <p>Every experience adds up.</p>
-            </div>
-            <span className="legend-dot">Gross sales</span>
-          </div>
-          <div className="chart-summary">
-            <strong>{money(s.salesCents)}</strong>
-            <span>in the selected period</span>
-          </div>
-          <div
-            className="revenue-chart"
-            role="img"
-            aria-label={`Daily gross sales in USD over ${data.range.days} days. Total ${money(s.salesCents)}. Use Export report for the daily data.`}
-          >
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
-                data={report.daily}
-                margin={{ left: 0, right: 12, top: 15, bottom: 0 }}
-                accessibilityLayer
-              >
-                <defs>
-                  <linearGradient id="salesFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#a69aff" stopOpacity={0.34} />
-                    <stop
-                      offset="100%"
-                      stopColor="#a69aff"
-                      stopOpacity={0.01}
-                    />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid
-                  vertical={false}
-                  stroke="#292a37"
-                  strokeDasharray="3 5"
-                />
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={(v) =>
-                    new Date(`${v}T12:00:00Z`).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      timeZone: "UTC",
-                    })
-                  }
-                  tick={{ fill: "#9393a6", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  minTickGap={35}
-                />
-                <YAxis
-                  tickFormatter={(v) =>
-                    `$${v >= 100000 ? `${Math.round(v / 100000)}k` : Math.round(v / 100)}`
-                  }
-                  tick={{ fill: "#9393a6", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={58}
-                />
-                <Tooltip
-                  formatter={(v) => [money(v), "Gross sales"]}
-                  contentStyle={{
-                    background: "#20202c",
-                    border: "1px solid #3b394d",
-                    borderRadius: 12,
-                    color: "#fafafa",
-                  }}
-                />
-                <Area
-                  dataKey="salesCents"
-                  type="linear"
-                  stroke="#b2a6ff"
-                  strokeWidth={2.5}
-                  fill="url(#salesFill)"
-                  isAnimationActive={false}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="chart-footnote">
-            <span>Sales booked by payment date</span>
-            <span>UTC · USD · fees excluded</span>
-          </div>
-        </section>
-        <section className="panel breakdown-panel">
-          <Tabs defaultValue="packages">
-            <div className="section-heading">
-              <div>
-                <span className="eyebrow">WHAT’S WORKING</span>
-                <h2>Sales mix</h2>
-              </div>
-            </div>
-            <TabsList className="report-tabs">
-              <TabsTrigger value="packages">Tickets & packages</TabsTrigger>
-              <TabsTrigger value="events">Events</TabsTrigger>
-            </TabsList>
-            <TabsContent value="packages">
-              <SalesMix
-                rows={report.packages}
-                total={s.salesCents}
-                empty="Your ticket and package sales will appear here."
-              />
-            </TabsContent>
-            <TabsContent value="events" className="event-sales-mix">
-              <SalesMix
-                rows={eventRows}
-                total={s.salesCents}
-                empty="Publish an event and make your first sale."
-              />
-            </TabsContent>
-          </Tabs>
-          <p className="hint">
-            Top 6 by gross sales. Export includes every row.
-          </p>
-        </section>
-      </div>
-      <TeamPerformanceTable report={report} summary={s} onEvents={onEvents}/>
-    </>
-  );
-}
-
 export default function App() {
   const [session, setSession] = useState(readSession);
   const [onboardingToken, setOnboardingToken] = useState(() => new URLSearchParams(window.location.search).get('onboarding'));
   const [onboardingSignIn, setOnboardingSignIn] = useState(false);
   const [inviteToken, setInviteToken] = useState(() => new URLSearchParams(window.location.search).get('invite'));
-  const [page, setPage] = useState(() => new URLSearchParams(window.location.search).has('event') ? 'events' : new URLSearchParams(window.location.search).get('section') === 'team' ? 'team' : 'overview');
-  const [selectedOrganizations, setSelectedOrganizations] = useState([]);
-  const [selectedVenues, setSelectedVenues] = useState([]);
-  const [hasIndependentWorkspace, setHasIndependentWorkspace] = useState(false);
-  const [days, setDays] = useState("30");
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const { page, setPage, selectedOrganizations, setSelectedOrganizations, selectedVenues, setSelectedVenues,
+    days, eventToOpen, guestlistEntryToOpen, eventTabToOpen, eventNavigationRevision,
+    navigate: navigateRoute, chooseOrganizations, chooseVenues, chooseDays, selectEvent } = useWorkspaceNavigation();
   const [notice, setNotice] = useState("");
+  const [exporting, setExporting] = useState(false);
   const [loginNotice, setLoginNotice] = useState("");
-  const [revision, setRevision] = useState(0);
   const [editor, setEditor] = useState(null);
-  const [eventToOpen, setEventToOpen] = useState(() => new URLSearchParams(window.location.search).get('event'));
-  const [guestlistEntryToOpen, setGuestlistEntryToOpen] = useState(() => new URLSearchParams(window.location.search).get('entry'));
-  const [eventTabToOpen, setEventTabToOpen] = useState(() => new URLSearchParams(window.location.search).get('tab'));
-  const [eventNavigationRevision, setEventNavigationRevision] = useState(0);
+  const verificationAttempted = useRef(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const menuTrigger = useRef(null);
-  useEffect(() => {
-    // Each phone destination starts at its heading, not the previous page's scroll offset.
-    if (window.matchMedia("(max-width: 850px)").matches) window.scrollTo({ top: 0, behavior: "instant" });
-  }, [page]);
   useEffect(() => {
     const screen = window.matchMedia("(min-width: 851px)");
     const closeOnDesktop = () => { if (screen.matches) setMobileNav(false); };
@@ -444,24 +83,22 @@ export default function App() {
     return () => screen.removeEventListener("change", closeOnDesktop);
   }, []);
   const signOut = useCallback((expired = false) => {
-    if (!onboardingToken) window.history.replaceState(null, '', '/sign-in');
+    if (!onboardingToken && !inviteToken) window.history.replaceState(null, '', '/sign-in');
     sessionStorage.removeItem(SESSION_KEY);
     setSession(null);
-    setData(null);
     setEditor(null);
     setMobileNav(false);
     setProfileOpen(false);
     setSelectedOrganizations([]);
     setSelectedVenues([]);
-    setHasIndependentWorkspace(false);
     setNotice("");
-    setError("");
     setPage("overview");
     setLoginNotice(
       expired ? "Your session has expired. Please sign in again." : "",
     );
-  }, [onboardingToken]);
+  }, [onboardingToken, inviteToken]);
   const expire = useCallback(() => signOut(true), [signOut]);
+  const { data, loading, error, revision, setRevision } = useBusinessBootstrap(session, onboardingToken, expire);
   const refreshAdmissions = useCallback(() => setRevision((value) => value + 1), []);
   useEffect(() => {
     if (!session) return;
@@ -469,8 +106,28 @@ export default function App() {
     return () => window.removeEventListener('focus', refreshAdmissions);
   }, [session, refreshAdmissions]);
   useEffect(() => {
-    if (!onboardingToken) window.history.replaceState(null, '', session ? '/app' : '/sign-in');
-  }, [session, onboardingToken]);
+    const token = new URLSearchParams(window.location.search).get('verifyEmail');
+    if (!token || verificationAttempted.current) return;
+    verificationAttempted.current = true;
+    api('/auth/email/verify', null, { method: 'POST', body: JSON.stringify({ token }) })
+      .then(async () => {
+        setLoginNotice('Email verified. You can sign in now.');
+        setNotice('Email verified.');
+        if (session) {
+          try {
+            const identity = await api('/auth/me', session);
+            const updated = { ...session, user: { ...session.user, ...identity.user }, roles: identity.roles };
+            sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated)); setSession(updated);
+          } catch { /* Verification succeeded even if the existing session expired. */ }
+        }
+      })
+      .catch((error) => { setLoginNotice(error.message); setNotice(error.message); })
+      .finally(() => {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('verifyEmail');
+        window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}`);
+      });
+  }, []);
   useEffect(() => {
     if (!session) return;
     const remaining = new Date(session.expiresAt) - new Date();
@@ -481,92 +138,20 @@ export default function App() {
     const timer = setTimeout(expire, remaining);
     return () => clearTimeout(timer);
   }, [session, expire]);
-  useEffect(() => {
-    if (!session || onboardingToken) return;
-    const controller = new AbortController();
-    setLoading(true);
-    setError("");
-    const query = new URLSearchParams({ days });
-    selectedOrganizations.forEach((id) => query.append('organizationIds', id));
-    selectedVenues.forEach((id) => query.append('venueIds', id));
-    api(`/business/workspace?${query}`, session, { signal: controller.signal })
-      .then((result) => { setData(result); if (!selectedOrganizations.length && !selectedVenues.length) setHasIndependentWorkspace(result.events.some((event) => !event.organizationId)); })
-      .catch((err) => {
-        if (err.name === "AbortError") return;
-        if (err.status === 401) expire();
-        else setError(err.message);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [session, onboardingToken, selectedOrganizations, selectedVenues, days, revision, expire]);
   function login(value) {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(value));
     setSession(value);
     setOnboardingSignIn(false);
     setLoginNotice("");
+    if (!onboardingToken && !inviteToken && window.location.pathname === '/sign-in') writeWorkspaceLocation({}, { replace: true });
   }
   function navigate(value, eventId = null, entryId = null, eventTab = null) {
-    setRevision((revision) => revision + 1);
-    setPage(value);
-    setEventToOpen(eventId);
-    setGuestlistEntryToOpen(entryId);
-    setEventTabToOpen(eventTab);
-    setEventNavigationRevision((revision) => revision + 1);
-    setMobileNav(false);
+    navigateRoute(value, eventId, entryId, eventTab); setMobileNav(false);
   }
-  function exportReport() {
-    const r = data.report;
-    const rows = [
-      [
-        "Nitewide sales report",
-        `USD · UTC · ${data.range.since} to ${data.range.until}`,
-      ],
-      [
-        "Section",
-        "Name / date",
-        "Role / kind",
-        "Sales USD",
-        "Orders / units",
-        "Commission USD",
-        "Checked in",
-        "Expected",
-      ],
-    ];
-    for (const [name, entries] of [
-      ["Event", r.events],
-      ["Offering", r.packages],
-      ["Person", r.people],
-    ])
-      for (const entry of entries)
-        rows.push([
-          name,
-          entry.name,
-          entry.role || entry.kind || "",
-          (entry.salesCents / 100).toFixed(2),
-          entry.orders ?? entry.units,
-          entry.commissionCents == null
-            ? ""
-            : (entry.commissionCents / 100).toFixed(2),
-          name === 'Event' ? entry.checkedIn : '',
-          name === 'Event' ? entry.admissions + entry.guestlistPlaces : '',
-        ]);
-    for (const day of r.daily)
-      rows.push(["Daily", day.date, "", (day.salesCents / 100).toFixed(2)]);
-    const url = URL.createObjectURL(
-      new Blob([csv(rows)], { type: "text/csv;charset=utf-8" }),
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `nitewide-sales-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-  if (onboardingToken && onboardingSignIn) return <SignIn onSession={login} notice={loginNotice || 'Sign in with the email address on your invitation. You will return to the invitation to accept access.'} />;
-  if (onboardingToken) return <OnboardingSetup token={onboardingToken} session={session} onSignIn={() => setOnboardingSignIn(true)} onSwitchAccount={(signIn) => { signOut(); setOnboardingSignIn(signIn); }} onContinue={() => { setOnboardingToken(null); setRevision((value) => value + 1); }} />;
-  if (inviteToken) return <TeamInviteLanding token={inviteToken} session={session} onSession={login} onAccepted={(updated, accepted) => { login(updated); setInviteToken(null); setNotice('Invitation accepted. Your access is ready.'); setPage(accepted?.eventId ? 'events' : 'team'); setRevision((value) => value + 1); }} />;
-  if (!session) return <SignIn onSession={login} notice={loginNotice} />;
+  if (onboardingToken && onboardingSignIn) return <BusinessSignIn onSession={login} notice={loginNotice || 'Sign in with the email address on your invitation. You will return to the invitation to accept access.'} />;
+  if (onboardingToken) return <OnboardingSetup token={onboardingToken} session={session} onSignIn={() => setOnboardingSignIn(true)} onSwitchAccount={(signIn) => { signOut(); setOnboardingSignIn(signIn); }} onContinue={() => { setOnboardingToken(null); writeWorkspaceLocation({ onboarding: null }, { replace: true }); setRevision((value) => value + 1); }} />;
+  if (inviteToken) return <TeamInviteLanding token={inviteToken} session={session} onSession={login} onAccepted={(updated, accepted) => { login(updated); setInviteToken(null); writeWorkspaceLocation({ invite: null }, { replace: true }); setNotice('Invitation accepted. Your access is ready.'); navigate(accepted?.eventId ? 'events' : 'team', accepted?.eventId || null); setRevision((value) => value + 1); }} />;
+  if (!session || new URLSearchParams(window.location.search).has('resetPassword')) return <BusinessSignIn onSession={login} notice={loginNotice} />;
   const title =
     page === "overview"
       ? "A clearer view of your business."
@@ -579,11 +164,14 @@ export default function App() {
       : page === "admissions"
         ? "A smooth start to their night."
         : "The right people. A great night.";
+  const hasIndependentWorkspace = Boolean(data?.scope?.canCreateIndependent);
   const activeOrg = selectedOrganizations.length === 1 ? data?.organizations.find((o) => o.id === selectedOrganizations[0]) : data?.organizations.length === 1 && !hasIndependentWorkspace ? data.organizations[0] : null;
   const showVenueSelector = (data?.venues?.length || 0) > 1;
   const showOrganizationSelector = (data?.organizations.length || 0) + Number(hasIndependentWorkspace) > 1;
   const { canManage, ownOnly } = workspaceAccess(data, session.user);
-  const canManageTeam = Boolean(session.user.isInternalAdmin || data?.organizations?.some((org) => org.canManage));
+  const canManageTeam = data
+    ? Boolean(session.user.isInternalAdmin || data.organizations?.some((org) => org.canManage))
+    : Boolean(session.user.isInternalAdmin || session.roles?.some((role) => ['organization_owner', 'venue_manager'].includes(role)));
   const visibleNavigation = navigation.filter(([id]) => id !== 'team' || canManageTeam);
   const visiblePage = page === 'team' && !canManageTeam ? 'overview' : page;
   const sidebarContent = <>
@@ -658,7 +246,7 @@ export default function App() {
         <DialogContent className="business-profile-dialog">
           <DialogTitle className="sr-only">Your profile</DialogTitle>
           <DialogDescription className="sr-only">View and edit your Nitewide account details.</DialogDescription>
-          <BusinessProfile session={session} onUpdated={(user) => { const updated = { ...session, user: { ...session.user, ...user } }; sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated)); setSession(updated); }} />
+          <BusinessProfile session={session} capabilities={data?.capabilities} onLogout={() => signOut()} onUpdated={(user) => { const updated = { ...session, user: { ...session.user, ...user } }; sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated)); setSession(updated); }} />
         </DialogContent>
       </Dialog>
       <nav className="mobile-bottom-nav" aria-label="Business navigation">
@@ -684,7 +272,7 @@ export default function App() {
             <strong>{visibleNavigation.find(([id]) => id === visiblePage)?.[2] || 'Overview'}</strong>
           </div>
           <div className="topbar-right">
-            <Notifications session={session} onNavigate={navigate} />
+            <Notifications session={session} onNavigate={navigate} capabilities={data?.capabilities} />
             <span className="live-label">
               <span />
               Connected workspace
@@ -702,7 +290,7 @@ export default function App() {
           </div>
         </header>
         <main className="main-content">
-          <div className="page-heading">
+          {<div className="page-heading">
             <div>
               <span className="eyebrow">
                 {visiblePage === "overview"
@@ -732,23 +320,23 @@ export default function App() {
                 Create event
               </Button>
             )}
-          </div>
+          </div>}
           {visiblePage !== "analytics" && visiblePage !== "team" && visiblePage !== "admissions" && <div className="page-controls">
             {showOrganizationSelector && <MultiSelect
               label="Organizations"
               selected={selectedOrganizations}
-              onChange={(ids) => { setSelectedOrganizations(ids); setSelectedVenues([]); }}
+              onChange={chooseOrganizations}
               options={[
                 ...(hasIndependentWorkspace ? [{ id: 'independent', label: 'Independent events' }] : []),
                 ...(data?.organizations || []).map((o) => ({ id: o.id, label: o.name })),
               ]}
             />}
-            {showVenueSelector && <MultiSelect label="Venues" options={data.venues} selected={selectedVenues} onChange={setSelectedVenues} />}
+            {showVenueSelector && <MultiSelect label="Venues" options={data.venues} selected={selectedVenues} onChange={chooseVenues} />}
             {page !== "events" && <div>
               <Choice
                 label="Sales period"
                 value={days}
-                onChange={setDays}
+                onChange={chooseDays}
                 options={[
                   ["7", "Last 7 days"],
                   ["30", "Last 30 days"],
@@ -756,14 +344,12 @@ export default function App() {
                   ["365", "Last 365 days"],
                 ]}
               />
-              <Button
-                variant="outline"
-                disabled={!data || loading || Boolean(error)}
-                onClick={exportReport}
-              >
-                <ArrowDownToLine />
-                Export report
-              </Button>
+              <Button variant="outline" disabled={!data || loading || exporting} onClick={async () => {
+                setExporting(true);
+                try { await downloadBusinessReport(session, reportQuery({ days, organizationIds: selectedOrganizations, venueIds: selectedVenues, timezone: browserReportTimezone() })); }
+                catch (err) { setNotice(err.message); }
+                finally { setExporting(false); }
+              }}><ArrowDownToLine/>{exporting ? 'Preparing…' : 'Export report'}</Button>
             </div>}
           </div>}
           {notice && (
@@ -792,27 +378,26 @@ export default function App() {
             </div>
           )}
           {loading && <LoadingState className="workspace-loading">{data ? 'Updating your workspace…' : 'Opening your workspace…'}</LoadingState>}
-          {data && !error && (
+          {(data || visiblePage === 'admissions') && (
             <div
               className={loading ? "content-updating" : ""}
               aria-busy={loading}
             >
-              {data.scope === "mixed" && visiblePage !== 'admissions' && (
+              {data?.scope === "mixed" && visiblePage !== 'admissions' && (
                 <p className="scope-note">
                   <ShieldCheck size={16} />
                   Sales include managed events and your own referrals only.
                   Organization event editing requires owner or manager access.
                 </p>
               )}
-              {visiblePage === "overview" && (
-                ownOnly ? <PersonalOverview data={data} onEvents={(eventId) => navigate('events', eventId)} onAnalytics={() => navigate('analytics')} onGuestlists={() => { const event = reviewableGuestlistEvents(data.events)[0]; navigate('events', event?.id || null, null, event ? 'guestlist' : null); }}/> : <Performance data={data} onEvents={() => navigate("events")} />
-              )}
-              {visiblePage === "analytics" && <Analytics session={session} ownOnly={ownOnly} />}
-              {visiblePage === "admissions" && <Admissions session={session} onAdmitted={refreshAdmissions} onUnauthorized={expire} />}
-              {visiblePage === "events" && (
-                <Events
+              {visiblePage === "overview" && data && <BusinessOverview session={session} days={days} organizationIds={selectedOrganizations} venueIds={selectedVenues} ownOnly={ownOnly} revision={revision} onNavigate={navigate} onUnauthorized={expire}/>}
+              {visiblePage === "analytics" && data && <BusinessAnalytics session={session} ownOnly={ownOnly}
+                organizations={data.organizations} venues={data.venues} canCreateIndependent={data.scope.canCreateIndependent}
+                onEvent={(id) => navigate('events', id)} onUnauthorized={expire}/>}
+              {visiblePage === "admissions" && <Admissions session={session} onAdmitted={refreshAdmissions} onUnauthorized={expire} onOpenEvent={(id) => navigate('events', id)}/>}
+              {visiblePage === "events" && data && (
+                <PagedEvents
                   key={eventNavigationRevision}
-                  data={data}
                   session={session}
                   ownOnly={ownOnly}
                   initialEventId={eventToOpen}
@@ -820,10 +405,17 @@ export default function App() {
                   initialGuestlistEntryId={guestlistEntryToOpen}
                   onUnauthorized={expire}
                   onEdit={(event, initialStep = 0) => setEditor({ event, initialStep })}
+                  onDuplicate={(source, choices) => setEditor({ duplicateSource: source, copyChoices: choices,
+                    presetDraft: reusableDraft(source, choices, data.organizations, data.venues) })}
                   onCreate={() => setEditor({})}
+                  organizationIds={selectedOrganizations}
+                  venueIds={selectedVenues}
+                  revision={revision}
+                  capabilities={data.capabilities}
+                  onSelectionChange={selectEvent}
                 />
               )}
-              {visiblePage === "team" && canManageTeam && <Team session={session} organizations={data.organizations.filter((org) => org.canManage)} onUnauthorized={expire} />}
+              {visiblePage === "team" && data && canManageTeam && <BusinessTeam session={session} organizations={data.organizations.filter((org) => org.canManage)} onUnauthorized={expire} />}
             </div>
           )}
           <footer className="app-footer">
@@ -834,10 +426,15 @@ export default function App() {
       </div>
       {editor && data && (
         <EventEditor
-          key={editor.event?.id || "new"}
+          key={editor.event?.id || editor.duplicateSource?.id || "new"}
           event={editor.event || null}
+          duplicateSource={editor.duplicateSource || null}
+          copyChoices={editor.copyChoices || null}
+          presetDraft={editor.presetDraft || null}
           initialStep={editor.initialStep ?? 0}
           organizations={data.organizations}
+          venues={data.venues}
+          canCreateIndependent={data.scope.canCreateIndependent}
           defaultOrganization={
             selectedOrganizations.length === 1 && selectedOrganizations[0] === "independent"
               ? null
@@ -847,6 +444,7 @@ export default function App() {
           }
           session={session}
           onClose={() => setEditor(null)}
+          onReloadLatest={() => { setEditor(null); setRevision((value) => value + 1); setNotice('The latest event is loading. Your unsaved edits are kept in this tab.'); }}
           onSaved={(message) => {
             setEditor(null);
             setNotice(message);
@@ -854,6 +452,7 @@ export default function App() {
             setSelectedVenues([]);
             setRevision((r) => r + 1);
             setPage("events");
+            writeWorkspaceLocation({ section: 'events', event: null, entry: null, tab: null });
           }}
         />
       )}

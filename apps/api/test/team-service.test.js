@@ -29,10 +29,13 @@ test('accepting an employee invitation adds staff access, not manager access, to
   const row = { role: 'employee', email: 'customer@example.com', organizationId: 'org', expiresAt: new Date(Date.now() + 60000), update: async (values) => writes.push(['accepted', values]) };
   const models = {
     Organization: { findByPk: async () => ({ id: 'org', status: 'active' }) },
+    Event: { findAll: async () => [] },
     TeamInvitation: { sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: true } }) }, findOne: async () => row },
     User: { findByPk: async () => ({ id: 'customer', email: 'customer@example.com' }) },
     OrganizationEmployee: { findOne: async () => null, create: async (values) => writes.push(['employee', values]) },
-    OrganizationOwner: { findOne: async () => null, create: async () => writes.push(['manager']) },
+    OrganizationOwner: { findOne: async () => null, unscoped() { return this; }, create: async () => writes.push(['manager']) },
+    OrgAffiliate: { findOne: async () => null },
+    EventAffiliate: { findAll: async () => [] },
     AuditLog: { create: async () => {} },
   };
   const service = createTeamService({ models, permissions: { assertManageOrganization: async () => ({}) } });

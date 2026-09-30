@@ -1,6 +1,7 @@
 const { Op, QueryTypes } = require('sequelize');
 const { createReferralLinkService } = require('./referral-link-service');
 const { publicEvent } = require('../controllers/public-controller');
+const { accessScopeSql } = require('./event-affiliate-access');
 
 // Aggregate the customer's historical attribution in SQL. Loading every order
 // and invitation into Node made Connections grow with transaction volume.
@@ -50,6 +51,12 @@ async function connectionHistorySql(models, userId, { page = 1, pageSize = 20, s
 }
 
 async function pagedConnections({ models, userId, eventId = null, page = 1, pageSize = 9, city = '', query = '', personIds = [], now = () => new Date(), referralLinks }) {
+  const currentMember = `(
+    EXISTS (SELECT 1 FROM organization_owners owner WHERE owner.organization_id=event.organization_id AND owner.user_id=person.id AND owner.lifecycle_state='active')
+    OR EXISTS (SELECT 1 FROM organization_employees employee WHERE employee.organization_id=event.organization_id AND employee.user_id=person.id AND employee.status='active')
+    OR EXISTS (SELECT 1 FROM org_affiliates org_ref WHERE org_ref.organization_id=event.organization_id AND org_ref.user_id=person.id AND org_ref.status='active'
+      AND (org_ref.starts_at IS NULL OR org_ref.starts_at<=:now) AND (org_ref.ends_at IS NULL OR org_ref.ends_at>=:now))
+  )`;
   const scope = `FROM events event
     JOIN people connection ON TRUE
     JOIN users person ON person.id=connection.referrer_id
@@ -75,19 +82,11 @@ async function pagedConnections({ models, userId, eventId = null, page = 1, page
           AND (source.status<>'active' OR (source.starts_at IS NOT NULL AND source.starts_at > :now)
             OR (source.ends_at IS NOT NULL AND source.ends_at < :now)))
       AND NOT EXISTS (SELECT 1 FROM event_affiliates assigned WHERE assigned.event_id=event.id AND assigned.user_id=person.id
-        AND ((assigned.code LIKE 'STAFFEV-%' AND NOT EXISTS
-          (SELECT 1 FROM organization_employees active_staff WHERE active_staff.organization_id=event.organization_id
-            AND active_staff.user_id=person.id AND active_staff.status='active'))
-          OR (assigned.code LIKE 'LEADEV-%' AND NOT EXISTS
-          (SELECT 1 FROM organization_owners active_leader WHERE active_leader.organization_id=event.organization_id
-            AND active_leader.user_id=person.id AND active_leader.lifecycle_state='active'))))
+        AND ${accessScopeSql('assigned')}='organization' AND NOT ${currentMember})
       AND (
-        EXISTS (SELECT 1 FROM organization_owners owner WHERE owner.organization_id=event.organization_id AND owner.user_id=person.id AND owner.lifecycle_state='active')
-        OR EXISTS (SELECT 1 FROM organization_employees employee WHERE employee.organization_id=event.organization_id AND employee.user_id=person.id AND employee.status='active')
-        OR EXISTS (SELECT 1 FROM org_affiliates org_ref WHERE org_ref.organization_id=event.organization_id AND org_ref.user_id=person.id AND org_ref.status='active'
-          AND (org_ref.starts_at IS NULL OR org_ref.starts_at<=:now) AND (org_ref.ends_at IS NULL OR org_ref.ends_at>=:now))
+        ${currentMember}
         OR EXISTS (SELECT 1 FROM event_affiliates event_ref WHERE event_ref.event_id=event.id AND event_ref.user_id=person.id AND event_ref.status='active'
-          AND event_ref.code NOT LIKE 'STAFFEV-%' AND event_ref.code NOT LIKE 'LEADEV-%'
+          AND (${accessScopeSql('event_ref')}='event' OR ${currentMember})
           AND (event_ref.starts_at IS NULL OR event_ref.starts_at<=:now) AND (event_ref.ends_at IS NULL OR event_ref.ends_at>=:now))
         OR (event.organization_id IS NULL AND event.creator_user_id=person.id)
       )`;

@@ -20,6 +20,11 @@ export function eventDateLabel(event) {
   const get = (type) => parts.find((part) => part.type === type).value;
   return `${get("month")}/${get("day")}/${get("year")}`;
 }
+export function eventTimeLabel(event) {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: event.location?.timezone || 'UTC', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+  }).format(new Date(event.startsAt));
+}
 export function dateInput(value, timezone = "America/New_York") {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
@@ -83,16 +88,18 @@ export function releaseOptions(offerings, index) {
     name: prior.name || "earlier tier",
   }));
 }
-export function editorDraft(event, organizationId = null, organizations = []) {
-  const venueLocation = event?.organizationId && event.location
-    ? event.location
-    : organizations.find((o) => o.id === (event ? event.organizationId : organizationId))?.location;
+export function editorDraft(event, organizationId = null, organizations = [], venues = []) {
+  const selectedOrganizationId = event ? event.organizationId : organizationId;
+  const organization = organizations.find((o) => o.id === selectedOrganizationId);
+  const defaultVenue = venues.find((venue) => venue.organizationId === selectedOrganizationId);
+  const venueLocation = event?.location || organization?.location || defaultVenue?.location;
   const timezone = venueLocation?.timezone || event?.location?.timezone || "America/New_York";
   const start = new Date();
   start.setDate(start.getDate() + 1);
   start.setHours(22, 0, 0, 0);
   return {
-    organizationId: event ? event.organizationId : organizationId,
+    organizationId: selectedOrganizationId,
+    locationId: event?.locationId || organization?.locationId || defaultVenue?.locationIds?.[0] || null,
     imageAssetId: event?.imageAssetId || null,
     imageUrl: event?.imageUrl || null,
     title: event?.title || "",

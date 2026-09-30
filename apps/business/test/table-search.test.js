@@ -15,13 +15,15 @@ test('search is case-insensitive, trims whitespace, and preserves the original r
 
 test('Guest Experience and Team search filter before sorting and pagination', () => {
   const guestlists = read('Guestlists');
-  const team = read('Team');
-  assert.match(guestlists, /const visibleEntries = searchRows\(searchableEntries, search, \['guestName', 'guestEmail', 'guestPhone', 'sourceValue', 'status'\]\)/);
-  assert.match(guestlists, /sortTableRows\(visibleEntries, sortKey, descending\)/);
+  const team = read('BusinessTeam');
+  assert.match(guestlists, /new URLSearchParams\(\{ search, sortKey, descending: String\(descending\) \}\)/);
+  assert.match(guestlists, /statuses\.forEach\(\(status\) => params\.append\('statuses', status\)\)/);
+  assert.match(guestlists, /usePagedResource\([^\n]*guestlist-page\?' \+ params/);
   assert.match(guestlists, /<MobileTableSort[\s\S]*?<Input aria-label="Search guestlist"/);
   assert.ok(guestlists.indexOf('<Input aria-label="Search guestlist"') < guestlists.indexOf('{loading && loadedEventId !== eventId ? ('));
-  assert.match(team, /const visibleMembers = searchRows\(members\.filter\(\(member\) => !activeRoles\.length \|\| activeRoles\.includes\(member\.role\)\), search, \['name', 'role', 'email', 'status'\]\)/);
-  assert.match(team, /sortTableRows\(visibleMembers, sortKey, descending\)/);
+  assert.match(team, /new URLSearchParams\(\{ search, sort, timezone: browserReportTimezone\(\) \}\)/);
+  assert.match(team, /selectedRoles\.forEach\(\(role\) => params\.append\('roles', role\)\)/);
+  assert.match(team, /usePagedResource\([^\n]*team-page\?\$\{query\}/);
   assert.match(team, /<MobileTableSort[\s\S]*?<Input aria-label="Search team"/);
   assert.match(team, /className="panel team-invite-summary"/);
   assert.match(team, /className="panel team-roster"/);
@@ -30,10 +32,11 @@ test('Guest Experience and Team search filter before sorting and pagination', ()
 
 test('guestlist status refresh retains same-event rows and Team offers only roster roles', () => {
   const guestlists = read('Guestlists');
-  const team = read('Team');
-  assert.match(guestlists, /if \(entriesEventRef\.current !== eventId\) \{[\s\S]*?setEntries\(\[\]\)/);
+  const team = read('BusinessTeam');
+  assert.match(guestlists, /const list = usePagedResource\([^\n]*guestlist-page/);
+  assert.match(guestlists, /setEntries\(list\.result\.items\.map\(adapt\)\)/);
   assert.match(guestlists, /loading && loadedEventId === eventId && <LoadingState className="guest-experience-refresh">Updating requests/);
   assert.match(guestlists, /loading && loadedEventId !== eventId \? \(/);
-  assert.match(team, /roleOptions = \[\.\.\.new Set\(members\.map\(\(member\) => member\.role\)\)\]/);
-  assert.match(team, /<MultiSelect label="Roles" options=\{roleOptions\} selected=\{activeRoles\} onChange=\{setSelectedRoles\}/);
+  assert.match(team, /const roles = \['Owner', 'Manager', 'Employee', 'Promoter'\]/);
+  assert.match(team, /<MultiSelect label="Roles" options=\{roles\} selected=\{selectedRoles\} onChange=\{chooseRoles\}/);
 });

@@ -12,9 +12,10 @@ import { admissionResult } from '@/lib/admissions';
 import './admissions.css';
 
 const dateLabel = (event) => new Date(event.startsAt).toLocaleString('en-US', { timeZone: event.location?.timezone || 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-export function Admissions({ session, onAdmitted, onUnauthorized }) {
+export function Admissions({ session, onAdmitted, onUnauthorized, onOpenEvent }) {
   const [events, setEvents] = useState(null), [event, setEvent] = useState(null), [eventSearch, setEventSearch] = useState('');
   const [eventQuery, setEventQuery] = useState(''), [eventPage, setEventPage] = useState(1), [eventTotal, setEventTotal] = useState(0), [eventLoading, setEventLoading] = useState(false);
+  const [nextEvent, setNextEvent] = useState(null);
   const [mode, setMode] = useState('scan'), [camera, setCamera] = useState(false), [cameraMessage, setCameraMessage] = useState('');
   const [roster, setRoster] = useState(null), [search, setSearch] = useState(''), [query, setQuery] = useState(''), [status, setStatus] = useState('all'), [page, setPage] = useState(1);
   const [busy, setBusy] = useState(false), [loading, setLoading] = useState(false), [error, setError] = useState(''), [revision, setRevision] = useState(0);
@@ -37,7 +38,7 @@ export function Admissions({ session, onAdmitted, onUnauthorized }) {
       try {
         const params = new URLSearchParams({ page: String(eventPage), pageSize: '20', search: eventQuery });
         const data = await api(`/business/admissions/events?${params}`, session, { signal: controller.signal });
-        if (!controller.signal.aborted) { setEvents(data.items); setEventTotal(data.total); setError(''); }
+        if (!controller.signal.aborted) { setEvents(data.items); setEventTotal(data.total); setNextEvent(data.nextEvent); setError(''); }
       } catch (err) { if (!controller.signal.aborted) { if (err.status === 401) onUnauthorized(); else setError(err.message); } }
       finally { if (!controller.signal.aborted) setEventLoading(false); }
     }
@@ -111,7 +112,9 @@ export function Admissions({ session, onAdmitted, onUnauthorized }) {
     {error && <p className="error" role="alert">{error}<Button variant="outline" onClick={() => setRevision((v) => v + 1)}>Retry</Button></p>}
     {!event ? <section ref={eventPanel} className="panel"><div className="section-heading"><div><h2>Select an event</h2><p>Available 24 hours before start through 24 hours after finish.</p></div></div><div className="admissions-body"><label className="admission-search"><Search size={18}/><Input aria-label="Search admission events" placeholder="Search events or venues" value={eventSearch} onChange={(e) => setEventSearch(e.target.value)}/></label>
       {eventLoading && <LoadingState>Finding your events…</LoadingState>}
-      {!eventLoading && events && !matchingEvents.length && <Empty title="No events in this window">Your assigned events will appear here when admissions become available.</Empty>}
+      {!eventLoading && events && !matchingEvents.length && <Empty title="No events in this window">Your assigned events will appear here when admissions become available.
+        {!eventSearch && nextEvent && <span className="admission-next-event"><strong>Next assigned event: {nextEvent.title}</strong><span>{dateLabel(nextEvent)}</span><span>Admissions unlock {new Date(nextEvent.unlockAt).toLocaleString('en-US', { timeZone: nextEvent.location?.timezone || 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} venue time.</span>
+          <Button type="button" variant="outline" onClick={() => onOpenEvent?.(nextEvent.id)}>Open event details</Button></span>}</Empty>}
       <div className="admission-events">{matchingEvents.map((row) => <button key={row.id} className="admission-event" onClick={() => chooseEvent(row)}><span><small>{dateLabel(row)}</small><strong>{row.title}</strong><span>{row.location?.name || row.location?.city || 'Independent event'}</span></span><ChevronRight size={20}/></button>)}</div>
       {!eventLoading && eventTotal > 20 && <div className="admission-pagination"><Button variant="outline" disabled={eventPage <= 1} onClick={() => changeEventPage(eventPage - 1)}>Previous</Button><span>Page {eventPage} of {Math.ceil(eventTotal / 20)}</span><Button variant="outline" disabled={eventPage * 20 >= eventTotal} onClick={() => changeEventPage(eventPage + 1)}>Next</Button></div>}
     </div></section> : <section ref={panel} className="panel admission-workspace">

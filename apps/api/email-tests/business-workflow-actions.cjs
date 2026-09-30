@@ -64,6 +64,7 @@ async function collectBusinessWorkflowMessages(run) {
       },
       OrganizationOwner: {
         findOne: async ({ where }) => where.userId === member.id && orgRole === 'manager' ? row({ role: 'admin', destroy: async () => { orgRole = 'none'; } }) : null,
+        unscoped() { return this; },
         create: async () => { orgRole = 'manager'; return row({ role: 'admin' }); },
       },
       OrganizationEmployee: { findOne: async ({ where }) => where.userId === member.id ? employee : null,

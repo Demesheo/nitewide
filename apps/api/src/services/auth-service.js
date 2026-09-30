@@ -73,7 +73,7 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
   }
   async function rolesFor(user) {
     const [memberships, employeeCount, orgAffiliateCount, eventAffiliateCount, createdEventCount] = await Promise.all([
-      models.OrganizationOwner.findAll({ where: { userId: user.id }, attributes: ['role'] }),
+      models.OrganizationOwner.findAll({ where: { userId: user.id, lifecycleState: 'active' }, attributes: ['role'] }),
       models.OrganizationEmployee.count({ where: { userId: user.id, status: 'active' } }),
       models.OrgAffiliate.count({ where: { userId: user.id, status: 'active' } }),
       models.EventAffiliate.count({ where: { userId: user.id, status: 'active' } }),

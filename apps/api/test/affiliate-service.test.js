@@ -2,33 +2,35 @@ const test = require('node:test'); const assert = require('node:assert/strict');
 test('event terms override organization defaults rather than stacking', async () => {
   const orgAffiliate = { id: 'org-aff', userId: 'u1', status: 'active', defaultCommissionBps: 700, defaultGuestlistAllocation: 5 };
   const eventAffiliate = { id: 'event-aff', userId: 'u1', status: 'active', commissionBps: 1100, guestlistAllocation: 9, orgAffiliateId: 'org-aff' };
-  const models = { EventAffiliate: { findOne: async ({ where }) => where.code === 'EVENT' ? eventAffiliate : null }, OrgAffiliate: { findOne: async () => orgAffiliate, findByPk: async () => orgAffiliate }, User: { findByPk: async () => ({ isActive: true }) } };
+  const models = { EventAffiliate: { findOne: async ({ where }) => where.code === 'EVENT' ? eventAffiliate : null }, OrgAffiliate: { findOne: async () => orgAffiliate, findByPk: async () => orgAffiliate }, User: { findByPk: async () => ({ isActive: true }) }, Organization: { findByPk: async () => ({ id: 'o1', status: 'active' }) }, OrganizationOwner: { findOne: async () => null, unscoped() { return this; } }, OrganizationEmployee: { findOne: async () => null } };
   const result = await resolveAffiliate(models, { event: { id: 'e1', organizationId: 'o1' }, code: 'EVENT' });
   assert.equal(result.commissionBps, 1100); assert.equal(result.guestlistAllocation, 9);
 });
 test('an org code adopts the selected event override for the same user', async () => {
   const orgAffiliate = { id: 'org-aff', userId: 'u1', status: 'active', defaultCommissionBps: 700, defaultGuestlistAllocation: 5 };
-  const eventAffiliate = { id: 'event-aff', userId: 'u1', status: 'active', commissionBps: null, guestlistAllocation: 12 };
-  const models = { EventAffiliate: { findOne: async ({ where }) => where.code ? null : eventAffiliate }, OrgAffiliate: { findOne: async () => orgAffiliate, findByPk: async () => orgAffiliate }, User: { findByPk: async () => ({ isActive: true }) } };
+  const eventAffiliate = { id: 'event-aff', userId: 'u1', status: 'active', accessScope: 'organization', orgAffiliateId: 'org-aff', commissionBps: null, guestlistAllocation: 12 };
+  const models = { EventAffiliate: { findOne: async ({ where }) => where.code ? null : eventAffiliate, findOrCreate: async () => [eventAffiliate, true] }, OrgAffiliate: { findOne: async () => orgAffiliate, findByPk: async () => orgAffiliate }, User: { findByPk: async () => ({ isActive: true }) }, Organization: { findByPk: async () => ({ id: 'o1', status: 'active' }) }, OrganizationOwner: { findOne: async () => null, unscoped() { return this; } }, OrganizationEmployee: { findOne: async () => null } };
   const result = await resolveAffiliate(models, { event: { id: 'e1', organizationId: 'o1' }, code: 'ORG' });
   assert.equal(result.commissionBps, 700); assert.equal(result.guestlistAllocation, 12);
 });
 
 function employeeFixture({leaderRole} = {}) {
-  const employee = { id:'30000000-0000-4000-8000-000000000001', organizationId:'venue', userId:'employee', status:'active' };
+  const employee = { id:'30000000-0000-4000-8000-000000000001', organizationId:'venue', userId:'employee', status:'active', lifecycleState:'active' };
   if (leaderRole) employee.role = leaderRole;
   let present = true;
   const user = { isActive:true };
   const assignments = new Map();
   const models = {
+    Organization:{findByPk:async () => ({id:'venue',status:'active'})},
     OrganizationEmployee:{findOne:async ({where}) => !leaderRole && present && Object.entries(where).every(([k,v]) => employee[k] === v) ? employee : null},
-    OrganizationOwner:{findOne:async ({where}) => leaderRole && present && Object.entries(where).every(([k,v]) => employee[k] === v) ? employee : null},
+    OrganizationOwner:{findOne:async ({where}) => leaderRole && present && Object.entries(where).every(([k,v]) => employee[k] === v) ? employee : null,
+      unscoped() { return this; }},
     User:{findByPk:async () => user},
     EventAffiliate:{
       findOne:async ({where}) => [...assignments.values()].find((a) => Object.entries(where).every(([k,v]) => a[k] === v)) || null,
       findOrCreate:async ({where,defaults}) => { const row = assignments.get(where.eventId) || {id:`assignment-${where.eventId}`,...where,...defaults}; assignments.set(where.eventId,row); return [row,true]; },
     },
-    OrgAffiliate:{findOne:async () => null},
+    OrgAffiliate:{findOne:async () => null, findByPk:async () => null},
   };
   const resolve = (overrides = {}) => resolveAffiliate(models,{event:{id:'event',organizationId:'venue'},code:`${leaderRole?'LEAD':'STAFF'}-${employee.id}`,transaction:{},...overrides});
   return {employee,user,assignments,resolve,removeMembership:()=>{present=false;}};

@@ -1,4 +1,6 @@
 const { TEMPLATES } = require('./email-templates');
+const { accessScope } = require('./event-affiliate-access');
+const { activeUser } = require('./lifecycle-service');
 
 const name = (user) => user?.displayName?.trim() || 'there';
 const percent = (bps) => `${(Number(bps || 0) / 100).toFixed(2).replace(/\.00$/, '')}%`;
@@ -69,23 +71,26 @@ async function queueBusinessEventStatus({ email, models, event, change, details,
   const leaders = event.organizationId && models.OrganizationOwner?.findAll
     ? await models.OrganizationOwner.findAll({ where: { organizationId: event.organizationId }, attributes: ['userId'], transaction }) : [];
   const team = models.EventAffiliate?.findAll
-    ? await models.EventAffiliate.findAll({ where: { eventId: event.id, status: 'active' }, attributes: ['userId', 'code'], transaction }) : [];
+    ? await models.EventAffiliate.findAll({ where: { eventId: event.id, status: 'active' }, attributes: ['userId', 'code', 'accessScope', 'orgAffiliateId', 'sourceOrgAffiliateId'], transaction }) : [];
   let eligibleTeam = team;
-  if (event.organizationId && team.some((member) => /^(?:STAFFEV-|LEADEV-)/.test(member.code || ''))) {
+  if (event.organizationId && team.some((member) => accessScope(member) === 'organization')) {
     const staff = models.OrganizationEmployee?.findAll ? await models.OrganizationEmployee.findAll({ where: { organizationId: event.organizationId, status: 'active' }, attributes: ['userId'], transaction }) : [];
+    const promoters = models.OrgAffiliate?.findAll ? await models.OrgAffiliate.findAll({ where: { organizationId: event.organizationId, status: 'active' }, attributes: ['userId', 'startsAt', 'endsAt'], transaction }) : [];
     const leaderIds = new Set(leaders.map((member) => member.userId));
     const staffIds = new Set(staff.map((member) => member.userId));
-    eligibleTeam = team.filter((member) => member.code?.startsWith('STAFFEV-') ? staffIds.has(member.userId)
-      : member.code?.startsWith('LEADEV-') ? leaderIds.has(member.userId) : true);
+    const current = new Date();
+    const promoterIds = new Set(promoters.filter((member) => (!member.startsAt || member.startsAt <= current) && (!member.endsAt || member.endsAt >= current)).map((member) => member.userId));
+    eligibleTeam = team.filter((member) => accessScope(member) === 'event' || leaderIds.has(member.userId) || staffIds.has(member.userId) || promoterIds.has(member.userId));
   }
   const ids = [...new Set([...(event.organizationId ? [] : [event.creatorUserId]), ...leaders.map((row) => row.userId), ...eligibleTeam.map((row) => row.userId)].filter(Boolean))];
   if (!ids.length) return 0;
   const users = await models.User.findAll({ where: { id: ids, isActive: true }, transaction });
-  for (const user of users) await queueBusinessMessage({ email, to: user.email, template: TEMPLATES.businessEventStatus,
+  const recipients = users.filter(activeUser);
+  for (const user of recipients) await queueBusinessMessage({ email, to: user.email, template: TEMPLATES.businessEventStatus,
     key: `business-event/${event.id}/${actionId}/${user.id}`, transaction,
     variables: { NAME: name(user), EVENT_TITLE: event.title, CHANGE: change, DETAILS: details,
       EVENT_URL: makeUrl(businessAppUrl, { event: event.id }) } });
-  return users.length;
+  return recipients.length;
 }
 
 async function queueInstructionsSent({ email, models, userId, event, count, actionId, businessAppUrl, transaction }) {

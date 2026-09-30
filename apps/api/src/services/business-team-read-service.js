@@ -1,0 +1,70 @@
+const { QueryTypes } = require('sequelize');
+const { pageResult } = require('./business-read-service');
+const { resolvePaidRange } = require('./business-report-period');
+
+const membersSql = `WITH team AS (
+  SELECT DISTINCT ON (user_id) user_id, role, status, joined FROM (
+    SELECT user_id, CASE WHEN role = 'owner' THEN 'Owner' ELSE 'Manager' END AS role,
+      'active' AS status, created_at AS joined, CASE WHEN role = 'owner' THEN 1 ELSE 2 END AS priority
+      FROM organization_owners WHERE organization_id = :organizationId AND lifecycle_state = 'active'
+    UNION ALL SELECT user_id, 'Employee', 'active', created_at, 3 FROM organization_employees
+      WHERE organization_id = :organizationId AND status = 'active'
+    UNION ALL SELECT user_id, 'Promoter', 'active', created_at, 4 FROM org_affiliates
+      WHERE organization_id = :organizationId AND status = 'active' AND code NOT LIKE '%-STAFF'
+  ) roles ORDER BY user_id, priority ASC
+), sales AS (
+  SELECT credited.user_id, COUNT(*)::integer AS orders, SUM(o.subtotal_cents)::bigint AS "salesCents",
+    SUM(o.affiliate_commission_cents)::bigint AS "commissionCents", COUNT(DISTINCT o.buyer_user_id)::integer AS customers
+  FROM orders o JOIN events e ON e.id = o.event_id
+  LEFT JOIN event_affiliates ea ON ea.id = o.event_affiliate_id
+  LEFT JOIN org_affiliates oa ON oa.id = o.org_affiliate_id
+  CROSS JOIN LATERAL (SELECT COALESCE(ea.user_id, oa.user_id) AS user_id) credited
+  WHERE e.organization_id = :organizationId AND o.status = 'paid' AND o.currency = 'USD'
+    AND o.paid_at >= :since AND o.paid_at < :until AND credited.user_id IS NOT NULL
+  GROUP BY credited.user_id
+), rows AS (
+  SELECT team.user_id AS id, u.display_name AS name, u.email, team.role, team.status, team.joined,
+    COALESCE(sales.orders,0)::integer AS orders, COALESCE(sales."salesCents",0)::bigint AS "salesCents",
+    COALESCE(sales."commissionCents",0)::bigint AS "commissionCents", COALESCE(sales.customers,0)::integer AS customers
+  FROM team JOIN users u ON u.id = team.user_id LEFT JOIN sales ON sales.user_id = team.user_id
+  WHERE u.lifecycle_state = 'active' AND u.is_active = true)
+SELECT * FROM rows WHERE (:search = '' OR name ILIKE :searchPattern ESCAPE '\\' OR email ILIKE :searchPattern ESCAPE '\\')
+  AND (:allRoles OR role IN (:roles))`;
+
+const sorts = {
+  name_asc: 'name ASC, id ASC', name_desc: 'name DESC, id ASC', role_asc: 'role ASC, name ASC, id ASC', role_desc: 'role DESC, name ASC, id ASC',
+  email_asc: 'email ASC, id ASC', email_desc: 'email DESC, id ASC',
+  status_asc: 'status ASC, name ASC, id ASC', status_desc: 'status DESC, name ASC, id ASC',
+  sales_desc: '"salesCents" DESC, id ASC', sales_asc: '"salesCents" ASC, id ASC',
+  orders_desc: 'orders DESC, id ASC', orders_asc: 'orders ASC, id ASC',
+  customers_desc: 'customers DESC, id ASC', customers_asc: 'customers ASC, id ASC',
+};
+
+function createBusinessTeamReadService({ models, permissions, now = () => new Date() }) {
+  const select = (sql, replacements) => models.Organization.sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
+  async function page(userId, organizationId, input) {
+    await permissions.assertManageOrganization(userId, organizationId);
+    const range = await resolvePaidRange(select, { days: 30, timezone: input.timezone }, now());
+    const selectedRoles = input.roles?.length ? input.roles : input.role !== 'all' ? [input.role] : [];
+    const values = { organizationId, since: range.since, until: range.until, roles: selectedRoles.length ? selectedRoles : ['Owner', 'Manager', 'Employee', 'Promoter'],
+      allRoles: selectedRoles.length === 0, search: input.search,
+      searchPattern: `%${input.search.replace(/[\\%_]/g, '\\$&')}%`, pageSize: input.pageSize, offset: (input.page - 1) * input.pageSize };
+    const [count] = await select(`SELECT COUNT(*)::integer AS total FROM (${membersSql}) team_rows`, values);
+    const rows = await select(`SELECT * FROM (${membersSql}) team_rows ORDER BY ${sorts[input.sort]} LIMIT :pageSize OFFSET :offset`, values);
+    return { ...pageResult(rows.map((row) => ({ ...row, salesCents: Number(row.salesCents), commissionCents: Number(row.commissionCents) })),
+      count.total, input.page, input.pageSize), range };
+  }
+  async function invitations(userId, organizationId, input) {
+    await permissions.assertManageOrganization(userId, organizationId);
+    const values = { organizationId, currentTime: now(), pageSize: input.pageSize,
+      offset: (input.page - 1) * input.pageSize };
+    const predicate = `organization_id = :organizationId AND accepted_at IS NULL AND expires_at > :currentTime`;
+    const [count] = await select(`SELECT COUNT(*)::integer AS total FROM team_invitations WHERE ${predicate}`, values);
+    const rows = await select(`SELECT id, email, phone, role, expires_at AS "expiresAt", created_at AS "createdAt"
+      FROM team_invitations WHERE ${predicate} ORDER BY created_at DESC, id DESC LIMIT :pageSize OFFSET :offset`, values);
+    return pageResult(rows, count.total, input.page, input.pageSize);
+  }
+  return { page, invitations };
+}
+
+module.exports = { createBusinessTeamReadService };

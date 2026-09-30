@@ -16,10 +16,22 @@ const { createCustomerAccountService } = require('../services/customer-account-s
 const { createCustomerSavedService } = require('../services/customer-saved-service');
 const { createAdmissionsService } = require('../services/admissions-service');
 const { sendAttendeeInstructions } = require('../services/attendee-instructions-service');
+const { createBusinessReadService } = require('../services/business-read-service');
+const { createBusinessEventReadService } = require('../services/business-event-read-service');
+const { createBusinessInstructionsReadService } = require('../services/business-instructions-read-service');
+const { createBusinessReportService } = require('../services/business-report-service');
+const { createBusinessTeamReadService } = require('../services/business-team-read-service');
+const { createBusinessEventReuseService } = require('../services/business-event-reuse-service');
 
-function createRouter({ publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', tokenSecret }) {
+function createRouter({ publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', tokenSecret, deliveryTrackingConfigured = false }) {
   const router = express.Router();
   const business = createBusinessService({ models, permissions, email, customerAppUrl, businessAppUrl });
+  const businessRead = createBusinessReadService({ models, email, deliveryTrackingConfigured });
+  const businessReports = createBusinessReportService({ models, businessRead });
+  const businessTeamRead = createBusinessTeamReadService({ models, permissions });
+  const businessEventReuse = createBusinessEventReuseService({ models, permissions });
+  const businessEventRead = createBusinessEventReadService({ models });
+  const businessInstructionsRead = createBusinessInstructionsReadService({ models, permissions, email, deliveryTrackingConfigured });
   const admin = createAdminService({ models, permissions, email, customerAppUrl });
   const analytics = createAnalyticsService({ models, permissions });
   const team = createTeamService({ models, permissions, email, businessAppUrl });
@@ -81,6 +93,15 @@ function createRouter({ publicController, managementController, commerceControll
     res.json({ data: updated });
   }));
   const eventPerson = z.object({ userId: z.string().uuid().optional(), email: z.string().trim().email().optional(), commissionBps: z.number().int().min(0).max(4000), status: z.enum(['active', 'inactive']).default('active') }).refine((v) => Boolean(v.userId) !== Boolean(v.email), 'Provide a user or an email');
+  const eventPage = (req) => businessSchemas.eventPageQuery.parse(req.query);
+  router.get('/business/events/:eventId/summary', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessEventRead.summary(req.userId, z.uuid().parse(req.params.eventId)) })));
+  router.get('/business/events/:eventId/purchases', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessEventRead.purchases(req.userId, z.uuid().parse(req.params.eventId), eventPage(req)) })));
+  router.get('/business/events/:eventId/attendees', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessEventRead.attendees(req.userId, z.uuid().parse(req.params.eventId), eventPage(req)) })));
+  router.get('/business/events/:eventId/attendees/:attendeeId', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessEventRead.attendee(req.userId, z.uuid().parse(req.params.eventId), z.uuid().parse(req.params.attendeeId), eventPage(req)) })));
+  router.get('/business/events/:eventId/people-page', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessEventRead.people(req.userId, z.uuid().parse(req.params.eventId), eventPage(req)) })));
+  router.get('/business/events/:eventId/guestlist-page', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessEventRead.guestlist(req.userId, z.uuid().parse(req.params.eventId), eventPage(req)) })));
+  router.get('/business/events/:eventId/guestlist-page/:entryId', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessEventRead.guestlistEntry(req.userId, z.uuid().parse(req.params.eventId), z.uuid().parse(req.params.entryId)) })));
+  router.get('/business/events/:eventId/guestlist-settings-page', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessEventRead.guestlistSettings(req.userId, z.uuid().parse(req.params.eventId), eventPage(req)) })));
   router.get('/business/events/:eventId/detail', requireUser, asyncHandler(async (req, res) => res.json({ data: await eventWorkspace.detail(req.userId, req.params.eventId) })));
   router.get('/business/events/:eventId/referral-link', requireUser, asyncHandler(async (req, res) => res.json({ data: await referralLinks.ownLink(req.userId, req.params.eventId) })));
   router.post('/events/:eventId/referral-visits', validate(z.object({ code: z.string().min(3).max(48), sessionKey: z.string().uuid().optional() })), asyncHandler(async (req, res) => res.json({ data: await referralLinks.visit(req.params.eventId, req.body.code, req.body.sessionKey) })));
@@ -90,6 +111,15 @@ function createRouter({ publicController, managementController, commerceControll
   router.post('/business/events/:eventId/invitations',requireUser,validate(inviteInput.pick({email:true,phone:true}).extend({commissionBps:z.number().int().min(0).max(4000).default(0)})),asyncHandler(async (req,res) => res.status(201).json({data:await team.inviteEvent(req.userId,req.params.eventId,req.body)})));
   router.delete('/business/events/:eventId/invitations/:invitationId',requireUser,asyncHandler(async (req,res) => res.json({data:await team.revokeEvent(req.userId,req.params.eventId,req.params.invitationId)})));
   router.get('/business/organizations/:organizationId/team', requireUser, asyncHandler(async (req, res) => res.json({ data: await team.roster(req.userId, req.params.organizationId) })));
+  const organizationTeamPage = z.object({ page: businessSchemas.page.page, pageSize: businessSchemas.page.pageSize, timezone: businessSchemas.reportTimezone,
+    search: z.string().trim().max(120).default(''), role: z.enum(['all', 'Owner', 'Manager', 'Employee', 'Promoter']).default('all'),
+    roles: z.preprocess((value) => value === undefined ? [] : Array.isArray(value) ? value : [value],
+      z.array(z.enum(['Owner', 'Manager', 'Employee', 'Promoter'])).max(4).default([])),
+    sort: z.enum(['name_asc', 'name_desc', 'role_asc', 'role_desc', 'email_asc', 'email_desc', 'status_asc', 'status_desc', 'sales_desc', 'sales_asc', 'orders_desc', 'orders_asc', 'customers_desc', 'customers_asc']).default('name_asc') });
+  router.get('/business/organizations/:organizationId/team-page', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessTeamRead.page(req.userId,
+    z.uuid().parse(req.params.organizationId), organizationTeamPage.parse(req.query)) })));
+  router.get('/business/organizations/:organizationId/invitations-page', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessTeamRead.invitations(req.userId,
+    z.uuid().parse(req.params.organizationId), z.object(businessSchemas.page).parse(req.query)) })));
   router.patch('/business/organizations/:organizationId/team/:userId', requireUser, validate(z.object({ role: z.enum(['manager', 'employee', 'affiliate']) })), asyncHandler(async (req, res) => res.json({ data: await team.changeRole(req.userId, req.params.organizationId, req.params.userId, req.body.role) })));
   router.delete('/business/organizations/:organizationId/team/:userId', requireUser, asyncHandler(async (req, res) => res.json({ data: await team.removeMember(req.userId, req.params.organizationId, req.params.userId) })));
   router.post('/business/organizations/:organizationId/invitations', requireUser, validate(inviteInput), asyncHandler(async (req, res) => res.status(201).json({ data: await team.invite(req.userId, req.params.organizationId, req.body) })));
@@ -108,10 +138,28 @@ function createRouter({ publicController, managementController, commerceControll
   }));
   router.post('/admin/demo-users', requireUser, validate(adminSchemas.demoUser), asyncHandler(async (req, res) => res.status(201).json({ data: await admin.createDemoUser(req.userId, req.body) })));
   router.get('/business/workspace', requireUser, asyncHandler(async (req, res) => res.json({ data: await business.workspace(req.userId, businessSchemas.reportQuery.parse(req.query)) })));
+  router.get('/business/bootstrap', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessRead.bootstrap(req.userId) })));
+  router.get('/business/events', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessRead.events(req.userId, businessSchemas.eventListQuery.parse(req.query)) })));
+  router.get('/business/overview', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessRead.overview(req.userId, businessSchemas.reportQuery.parse(req.query)) })));
+  router.get('/business/overview/needs-attention', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessRead.needsAttention(req.userId, businessSchemas.reportQuery.parse(req.query)) })));
+  router.get('/business/reports/summary', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessReports.summary(req.userId, businessSchemas.reportDetailQuery.parse(req.query)) })));
+  router.get('/business/reports/export.csv', requireUser, asyncHandler(async (req, res) => businessReports.exportCsv(req.userId, businessSchemas.reportDetailQuery.parse(req.query), res)));
+  router.get('/business/reports/:table', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessReports.table(req.userId,
+    z.enum(['regions', 'venues', 'events', 'offerings', 'team', 'customers']).parse(req.params.table), businessSchemas.reportDetailQuery.parse(req.query)) })));
   router.post('/business/events', requireUser, validate(businessSchemas.eventEditor), asyncHandler(async (req, res) => res.status(201).json({ data: await business.saveEvent(req.userId, null, req.body) })));
+  router.post('/business/events/:eventId/copy-access', requireUser,
+    validate(z.object({ sourceEventId: z.uuid(), copyTeam: z.literal(true), copyAllocations: z.boolean().default(false) }).strict()),
+    asyncHandler(async (req, res) => res.json({ data: await businessEventReuse.copyAccess(req.userId,
+      z.uuid().parse(req.params.eventId), req.body) })));
   router.put('/business/events/:eventId', requireUser, validate(businessSchemas.eventEditor), asyncHandler(async (req, res) => res.json({ data: await business.saveEvent(req.userId, req.params.eventId, req.body) })));
-  router.post('/business/events/:eventId/instructions', requireUser, validate(z.object({ instructions: z.string().trim().min(3).max(1800) }).strict()), asyncHandler(async (req, res) => {
-    res.status(202).json({ data: await sendAttendeeInstructions({ models, permissions, email, customerAppUrl, businessAppUrl, userId: req.userId, eventId: req.params.eventId, instructions: req.body.instructions }) });
+  router.post('/business/events/:eventId/instructions/preview', requireUser, validate(z.object({ instructions: z.string().trim().min(3).max(1800) }).strict()), asyncHandler(async (req, res) => {
+    res.json({ data: await businessInstructionsRead.preview(req.userId, z.uuid().parse(req.params.eventId), req.body.instructions) });
+  }));
+  router.get('/business/events/:eventId/instructions/history', requireUser, asyncHandler(async (req, res) => {
+    res.json({ data: await businessInstructionsRead.history(req.userId, z.uuid().parse(req.params.eventId), z.object(businessSchemas.page).parse(req.query)) });
+  }));
+  router.post('/business/events/:eventId/instructions', requireUser, validate(z.object({ instructions: z.string().trim().min(3).max(1800), idempotencyKey: z.uuid().optional() }).strict()), asyncHandler(async (req, res) => {
+    res.status(202).json({ data: await sendAttendeeInstructions({ models, permissions, email, customerAppUrl, businessAppUrl, userId: req.userId, eventId: req.params.eventId, instructions: req.body.instructions, idempotencyKey: req.body.idempotencyKey }) });
   }));
   router.post('/auth/register', validate(schemas.register), asyncHandler(authController.register));
   router.post('/auth/sign-in', validate(schemas.signIn), asyncHandler(authController.signIn));
@@ -120,6 +168,17 @@ function createRouter({ publicController, managementController, commerceControll
   router.post('/auth/email/verify', validate(z.object({ token: z.string().min(20).max(200) }).strict()), asyncHandler(authController.verifyEmail));
   router.post('/auth/email/resend', requireUser, asyncHandler(authController.requestEmailVerification));
   router.get('/auth/me', requireUser, asyncHandler(authController.me));
+  router.get('/auth/notification-preferences', requireUser, asyncHandler(async (req, res) => {
+    const user = await models.User.findByPk(req.userId, { attributes: ['notificationPreferences'] });
+    res.json({ data: { reviewRequests: true, salesActivity: true, inventoryAlerts: true, ...user?.notificationPreferences } });
+  }));
+  router.patch('/auth/notification-preferences', requireUser,
+    validate(z.object({ reviewRequests: z.boolean(), salesActivity: z.boolean(), inventoryAlerts: z.boolean() }).strict()),
+    asyncHandler(async (req, res) => {
+      const user = await models.User.findByPk(req.userId);
+      await user.update({ notificationPreferences: req.body });
+      res.json({ data: user.notificationPreferences });
+    }));
   router.get('/events', asyncHandler(publicController.listEvents));
   router.get('/events/batch', asyncHandler(publicController.batchEvents));
   router.get('/events/:eventId', asyncHandler(publicController.getEvent));

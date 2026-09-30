@@ -3,7 +3,8 @@ const { id, basisPoints } = require('./helpers');
 class EventAffiliate extends Model {}
 function initEventAffiliate(sequelize) {
   EventAffiliate.init({
-    id: id(), eventId: { type: DataTypes.UUID, allowNull: false }, userId: { type: DataTypes.UUID, allowNull: false }, orgAffiliateId: DataTypes.UUID,
+    id: id(), eventId: { type: DataTypes.UUID, allowNull: false }, userId: { type: DataTypes.UUID, allowNull: false }, orgAffiliateId: DataTypes.UUID, sourceOrgAffiliateId: DataTypes.UUID,
+    accessScope: { type: DataTypes.STRING(20), allowNull: true, validate: { isIn: [['organization', 'event']] } },
     version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     code: { type: DataTypes.STRING(48), allowNull: false, unique: true },
     commissionBps: basisPoints(true),

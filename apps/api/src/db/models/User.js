@@ -17,6 +17,7 @@ function initUser(sequelize) {
     marketingSmsConsentAt: DataTypes.DATE,
     phoneVerifiedAt: DataTypes.DATE,
     emailVerifiedAt: DataTypes.DATE,
+    notificationPreferences: { type: DataTypes.JSONB, allowNull: false, defaultValue: { reviewRequests: true, salesActivity: true, inventoryAlerts: true } },
     isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     isInternalAdmin: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   }, { sequelize, modelName: 'User', tableName: 'users', version: true });

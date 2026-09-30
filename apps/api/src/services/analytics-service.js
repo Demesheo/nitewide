@@ -172,7 +172,7 @@ function createAnalyticsService({ models, permissions, now = () => new Date() })
       models.User.findByPk(userId), models.OrganizationOwner.findAll({ where: { userId } }), models.OrganizationEmployee.findAll({ where: { userId, status: 'active' } }), models.OrgAffiliate.findAll({ where: { userId, status: 'active' } }), models.EventAffiliate.findAll({ where: { userId, status: 'active' } }),
     ]);
     if (!admin && !user?.isActive) throw forbidden('An active account is required');
-    const currentEventAffiliates = admin ? [] : await activeEventAffiliates(models, eventAffiliates, memberships, employees);
+    const currentEventAffiliates = admin ? [] : await activeEventAffiliates(models, eventAffiliates, memberships, employees, orgAffiliates);
     const managedOrgIds = new Set(memberships.map((row) => row.organizationId));
     const ownOrgAffiliateIds = new Set(orgAffiliates.map((row) => row.id));
     const ownEventAffiliateIds = new Set(currentEventAffiliates.map((row) => row.id));

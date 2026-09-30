@@ -2,6 +2,7 @@ const { z } = require('zod');
 const { Transaction, Op, literal } = require('sequelize');
 const { conflict, notFound } = require('../domain/errors');
 const { activeUser, assertActiveOrganization } = require('./lifecycle-service');
+const { detachOrgAffiliateForStaffRole, setOrganizationAssignmentsActive } = require('./event-affiliate-transition');
 const crypto = require('node:crypto');
 const scopedRoleSchema = z.object({ organizationId: z.string().uuid(), role: z.enum(['owner', 'manager', 'employee', 'promoter', 'customer']), reason: z.string().trim().min(3).max(500), version: z.number().int().min(0) }).strict();
 const unscoped = (model) => model.unscoped ? model.unscoped() : model;
@@ -29,13 +30,12 @@ function createAdminRoleService({ models, permissions }) {
       else if (['owner', 'manager'].includes(input.role)) await models.OrganizationOwner.create({ ...where, role: input.role === 'owner' ? 'owner' : 'admin' }, { transaction });
       if (employee) await employee.update({ status: input.role === 'employee' ? 'active' : 'inactive' }, { transaction });
       else if (input.role === 'employee') await models.OrganizationEmployee.create({ ...where, status: 'active' }, { transaction });
+      const staffRole = ['owner', 'manager', 'employee'].includes(input.role);
+      if (staffRole && affiliate) await detachOrgAffiliateForStaffRole({ models, orgAffiliate: affiliate, organizationId: input.organizationId, userId, actorUserId: actor, transaction });
       if (affiliate) await affiliate.update({ status: input.role === 'promoter' ? 'active' : 'inactive' }, { transaction });
       else if (input.role === 'promoter') await models.OrgAffiliate.create({ ...where, code: `NW-${crypto.randomUUID()}`, status: 'active', defaultCommissionBps: 0, defaultGuestlistAllocation: 0 }, { transaction });
-      if (input.role !== 'promoter' && affiliate) await models.EventAffiliate.update({ status: 'inactive' }, { where: { orgAffiliateId: affiliate.id, status: 'active' }, transaction });
-      if (!['owner', 'manager'].includes(input.role)) {
-        const eventIds = (await models.Event.findAll({ where: { organizationId: input.organizationId }, attributes: ['id'], transaction })).map((event) => event.id);
-        if (eventIds.length) await models.EventAffiliate.update({ status: 'inactive' }, { where: { eventId: { [Op.in]: eventIds }, userId, code: { [Op.like]: 'LEADEV-%' }, status: 'active' }, transaction });
-      }
+      await setOrganizationAssignmentsActive({ models, organizationId: input.organizationId, userId, actorUserId: actor,
+        active: staffRole || input.role === 'promoter', staffRole, transaction });
       // This edit changes membership rows, not a User field. An instance update of
       // Sequelize's version attribute is a no-op, so use a database compare-and-swap.
       const [changed, updatedUsers] = await models.User.update(
