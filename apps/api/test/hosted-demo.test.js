@@ -9,6 +9,10 @@ const { installDemoStatic } = require('../src/http/demo-static');
 const { getConfig } = require('../src/config');
 const { createRequireUser } = require('../src/http/middleware');
 const secret = 'test-signing-secret-only-not-for-deployment';
+const demoEnvironment = { NODE_ENV: 'production', HOSTED_DEMO: 'true',
+  DATABASE_URL: 'postgres://test:test@localhost/nitewide_demo',
+  AUTH_TOKEN_SECRET: secret, QR_TOKEN_SECRET: 'test-qr-signing-secret-only-not-for-deployment',
+  EMAIL_ENCRYPTION_KEY: 'test-email-encryption-key-only-not-for-deployment' };
 async function serve(t, app) {
   const server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
@@ -19,11 +23,11 @@ async function serve(t, app) {
 test('hosted config fails closed without production mode and dedicated secrets', () => {
   assert.throws(() => getConfig({ HOSTED_DEMO: 'true' }));
   assert.throws(() => getConfig({ NODE_ENV: 'production', HOSTED_DEMO: 'true' }));
-  assert.equal(getConfig({ NODE_ENV: 'production', HOSTED_DEMO: 'true', AUTH_TOKEN_SECRET: secret }).hostedDemo, true);
+  assert.equal(getConfig(demoEnvironment).hostedDemo, true);
   assert.equal(getConfig({}).hostedDemo, false);
 });
 test('hosted demo public pages need no shared password while account endpoints remain protected', async t => {
-  const config = getConfig({ NODE_ENV: 'production', HOSTED_DEMO: 'true', AUTH_TOKEN_SECRET: secret });
+  const config = getConfig(demoEnvironment);
   const staticRoot = await mkdtemp(path.join(os.tmpdir(), 'nitewide-public-demo-test-'));
   t.after(() => rm(staticRoot, { recursive: true, force: true }));
   for (const name of ['customer', 'business', 'admin']) {

@@ -23,7 +23,7 @@ const { createBusinessReportService } = require('../services/business-report-ser
 const { createBusinessTeamReadService } = require('../services/business-team-read-service');
 const { createBusinessEventReuseService } = require('../services/business-event-reuse-service');
 
-function createRouter({ publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', tokenSecret, deliveryTrackingConfigured = false }) {
+function createRouter({ publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', qrTokenSecret, deliveryTrackingConfigured = false }) {
   const router = express.Router();
   const business = createBusinessService({ models, permissions, email, customerAppUrl, businessAppUrl });
   const businessRead = createBusinessReadService({ models, email, deliveryTrackingConfigured });
@@ -37,7 +37,7 @@ function createRouter({ publicController, managementController, commerceControll
   const team = createTeamService({ models, permissions, email, businessAppUrl });
   const eventWorkspace = createEventWorkspaceService({ models, permissions, email, businessAppUrl });
   const referralLinks = createReferralLinkService({ models });
-  const account = createCustomerAccountService({ models, tokenSecret });
+  const account = createCustomerAccountService({ models, tokenSecret: qrTokenSecret });
   const saved = createCustomerSavedService({ models });
   const admissions = createAdmissionsService({ models, permissions });
   require('./admin-onboarding').registerAdminOnboarding({ router, models, permissions, email, customerAppUrl, businessAppUrl, auth, requireUser, asyncHandler });

@@ -38,6 +38,7 @@ From the repository root:
 ```bash
 cp .env.example .env
 npm ci
+npm run secrets:generate -- --env-file .env
 docker compose up -d postgres
 npm run db:migrate
 npm run db:seed
@@ -54,6 +55,8 @@ Open:
 - API health: <http://localhost:4000/health>
 
 The API binds to `127.0.0.1` by default in development and tests, so local startup does not expose it to the network. `BIND_HOST` accepts `127.0.0.1` or `0.0.0.0`; the latter is permitted only in production, where it is the default for Render.
+
+Sessions, wallet QR passes, and encrypted email payloads use separate server secrets: `AUTH_TOKEN_SECRET`, `QR_TOKEN_SECRET`, and `EMAIL_ENCRYPTION_KEY`. Generate a fresh set for another environment with `npm run secrets:generate -- --output .env.secrets.staging` and put the values in that API service's secret environment variables. All production runtimes require explicit, distinct keys. Regular production also requires `DATABASE_SSL=true`; database certificates and hostnames are verified by both the API and migrations. See [environment secrets, verified database TLS, and rotation](docs/ENVIRONMENT_SECURITY.md) for exact setup and upgrading existing deployments.
 
 The seed command is intentionally destructive to local data: it truncates platform tables and creates a coherent sample marketplace. It refuses to run in production unless explicitly invoked with `--allow-production` from the API workspace.
 

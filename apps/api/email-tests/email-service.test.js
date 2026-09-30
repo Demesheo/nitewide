@@ -40,7 +40,7 @@ test('queue deduplicates a purchase and suppresses reserved demo addresses befor
   } };
   const email = createEmailService({
     sequelize: {}, models: { EmailOutbox: outbox }, apiKey: 're_test_key',
-    from: 'Nitewide <tickets@example.org>', tokenSecret: 'a-secret-long-enough-to-encrypt-records',
+    from: 'Nitewide <tickets@example.org>', encryptionKey: 'a-secret-long-enough-to-encrypt-records',
   });
   const message = { key: 'purchase/order-1', to: 'guest@example.org', template: TEMPLATES.purchaseReceipt, variables: { NAME: 'Guest' } };
   assert.equal(await email.queue(message), '1');
@@ -66,7 +66,7 @@ test('transient delivery errors remain retryable while invalid requests do not',
       update: async () => {},
       findAll: async () => rows,
     } },
-    apiKey: 're_test_key', from: 'Nitewide <tickets@example.org>', tokenSecret: 'same-secret',
+    apiKey: 're_test_key', from: 'Nitewide <tickets@example.org>', encryptionKey: 'same-secret',
     now: () => clock,
     fetchImpl: async (_url, options) => {
       const recipient = JSON.parse(options.body).to[0];

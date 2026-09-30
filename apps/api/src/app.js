@@ -36,7 +36,7 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   app.use(express.json({ limit: '1mb' }));
   const permissions = services.permissions || createPermissionService(models);
   const notifications = createNotificationService(models);
-  const email = services.email || createEmailService({ sequelize, models, apiKey: config.RESEND_API_KEY, from: config.RESEND_FROM_EMAIL, tokenSecret: config.AUTH_TOKEN_SECRET, testMode: config.resendTestMode });
+  const email = services.email || createEmailService({ sequelize, models, apiKey: config.RESEND_API_KEY, from: config.RESEND_FROM_EMAIL, encryptionKey: config.EMAIL_ENCRYPTION_KEY, testMode: config.resendTestMode });
   app.locals.emailService = email;
   const invitations = createGuestlistInvitationService({ sequelize, models, permissions, email, customerAppUrl: config.CUSTOMER_APP_URL });
   const auth = services.auth || createAuthService({ sequelize, models, tokenSecret: config.AUTH_TOKEN_SECRET, invitations, email, customerAppUrl: config.CUSTOMER_APP_URL });
@@ -48,9 +48,9 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
     checkout: services.checkout || createCheckoutService({ sequelize, models, environment: config.NODE_ENV, hostedDemo: config.hostedDemo, email, customerAppUrl: config.CUSTOMER_APP_URL }),
     requestGuestlist: services.requestGuestlist || guestlistService.request,
     reviewGuestlist: services.reviewGuestlist || guestlistService.review,
-    checkIn: services.checkIn || createCheckInService({ sequelize, models, tokenSecret: config.AUTH_TOKEN_SECRET, environment: config.NODE_ENV, hostedDemo: config.hostedDemo }),
+    checkIn: services.checkIn || createCheckInService({ sequelize, models, tokenSecret: config.QR_TOKEN_SECRET, environment: config.NODE_ENV, hostedDemo: config.hostedDemo }),
   };
-  app.use('/api', createRouter({ publicController: createPublicController(dependencies), managementController: createManagementController({ ...dependencies, businessAppUrl: config.businessAppUrl }), commerceController: createCommerceController(dependencies), authController: createAuthController(dependencies), auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, tokenSecret: config.AUTH_TOKEN_SECRET, deliveryTrackingConfigured: Boolean(config.RESEND_WEBHOOK_SECRET) }));
+  app.use('/api', createRouter({ publicController: createPublicController(dependencies), managementController: createManagementController({ ...dependencies, businessAppUrl: config.businessAppUrl }), commerceController: createCommerceController(dependencies), authController: createAuthController(dependencies), auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, qrTokenSecret: config.QR_TOKEN_SECRET, deliveryTrackingConfigured: Boolean(config.RESEND_WEBHOOK_SECRET) }));
   if (config.hostedDemo) require('./http/demo-static').installDemoStatic(app, staticRoot);
   app.use((_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } })); app.use(errorHandler); return app;
 }

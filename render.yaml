@@ -25,6 +25,10 @@ services:
         value: "false"
       - key: AUTH_TOKEN_SECRET
         generateValue: true
+      - key: QR_TOKEN_SECRET
+        generateValue: true
+      - key: EMAIL_ENCRYPTION_KEY
+        generateValue: true
       - key: MEDIA_UPLOAD_DIR
         value: /app/media
       - key: CORS_ORIGINS

@@ -16,7 +16,7 @@ async function initialize() {
   if (!config.hostedDemo || new URL(config.DATABASE_URL).pathname !== '/nitewide_demo') throw new Error('Demo image requires an isolated nitewide_demo database and explicit hosted-demo mode');
   const requestedGeneration = process.env.DEMO_RESEED_GENERATION?.trim() || null;
   if (requestedGeneration && !/^[a-z0-9][a-z0-9-]{0,79}$/.test(requestedGeneration)) throw new Error('Invalid demo reseed generation');
-  const client = new Client({ connectionString: config.DATABASE_URL, ssl: config.databaseSsl ? { rejectUnauthorized: true } : false });
+  const client = new Client({ connectionString: config.DATABASE_URL, ssl: config.databaseTls });
   await client.connect();
   try {
     await client.query('SELECT pg_advisory_lock(721092300)');

@@ -19,7 +19,11 @@ to public to allow anonymous Render pulls.
 
 Create a Blueprint from `render.yaml` in Render **My Workspace**. The Blueprint
 creates one free web service and an isolated PostgreSQL 16/PostGIS database. It
-generates a private token signing secret. Per the founder's September 23 decision,
+generates separate private session-signing, QR-signing and email-encryption secrets.
+Existing services require `AUTH_TOKEN_SECRET`, `QR_TOKEN_SECRET`, and `EMAIL_ENCRYPTION_KEY`
+before running this release; see [environment setup and upgrading keys](ENVIRONMENT_SECURITY.md).
+The isolated demo keeps its private-network `DATABASE_SSL=false` setting; regular
+production requires verified TLS. Per the founder's September 23 decision,
 there is no shared demo password: anyone with the URL can browse the demo and use
 the documented sample accounts. Normal account login and role permissions still
 protect account, business and admin operations. Pages are marked noindex; this is

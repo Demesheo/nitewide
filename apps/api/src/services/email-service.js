@@ -46,8 +46,8 @@ async function sendTemplate({ apiKey, from, to, templateAlias, variables, dedupe
   return result.id;
 }
 
-function createEmailService({ sequelize, models, apiKey, from, tokenSecret, testMode = false, fetchImpl = fetch, now = () => new Date() }) {
-  const enabled = Boolean(apiKey && from && tokenSecret && models.EmailOutbox);
+function createEmailService({ sequelize, models, apiKey, from, encryptionKey, testMode = false, fetchImpl = fetch, now = () => new Date() }) {
+  const enabled = Boolean(apiKey && from && encryptionKey && models.EmailOutbox);
   let draining = false;
 
   async function queue({ key, to, template, variables, expiresAt }, transaction) {
@@ -59,7 +59,7 @@ function createEmailService({ sequelize, models, apiKey, from, tokenSecret, test
       where: { dedupeKey: key },
       defaults: {
         dedupeKey: key, recipientEmail: to.toLowerCase(), templateAlias: template,
-        encryptedVariables: encryptVariables(cleaned, tokenSecret), status: 'pending',
+        encryptedVariables: encryptVariables(cleaned, encryptionKey), status: 'pending',
         nextAttemptAt: now(), expiresAt: expiresAt || null,
       },
       transaction,
@@ -96,7 +96,7 @@ function createEmailService({ sequelize, models, apiKey, from, tokenSecret, test
           continue;
         }
         try {
-          const variables = decryptVariables(row.encryptedVariables, tokenSecret);
+          const variables = decryptVariables(row.encryptedVariables, encryptionKey);
           const providerMessageId = await sendTemplate({
             apiKey, from, to: row.recipientEmail, templateAlias: row.templateAlias,
             variables, dedupeKey: row.dedupeKey, fetchImpl,

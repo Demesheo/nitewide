@@ -25,5 +25,7 @@ services:
       HOSTED_DEMO: "true"
       DATABASE_URL: postgres://postgres:isolated-smoke-password@db:5432/nitewide_demo
       AUTH_TOKEN_SECRET: isolated-local-smoke-signing-secret-not-for-hosting
+      QR_TOKEN_SECRET: isolated-local-smoke-qr-secret-not-for-hosting
+      EMAIL_ENCRYPTION_KEY: isolated-local-smoke-email-key-not-for-hosting
       MEDIA_UPLOAD_DIR: /app/media
       TZ: America/New_York

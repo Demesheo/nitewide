@@ -983,7 +983,7 @@ test(
       await m.Ticket.update({ status: 'valid' }, { where: { id: ticketId } });
       await m.Event.update({ startsAt: new Date(Date.now() - 60000) }, { where: { id: matrixEvent.id } });
       const scannedTicket = await m.Ticket.findByPk(ticketId);
-      const tokenForScan = require('../src/domain/wallet-qr').walletToken(scannedTicket, config.AUTH_TOKEN_SECRET);
+      const tokenForScan = require('../src/domain/wallet-qr').walletToken(scannedTicket, config.QR_TOKEN_SECRET);
       const scanResult = await req('/check-ins', ids.manager, 'POST', { eventId: matrixEvent.id, qrToken: tokenForScan });
       assert.equal(scanResult.status, 201, JSON.stringify(scanResult.body));
       const updatedTickets = (await req(`/customer/purchases/${booked.id}/tickets`, ids.matrixCustomer)).body.data.tickets;

@@ -58,7 +58,7 @@ test('admissions HTTP: permissions, QR integrity, concurrent scans, manual entry
     assert.equal((await request(listPath, 'outsider')).data.events.length, 0);
     assert.equal((await request(`${listPath}/${ids.event}`, 'outsider')).status, 403);
     assert.equal((await request(`${listPath}/${ids.otherEvent}`, 'promoter')).status, 403);
-    const qrToken = walletToken(await m.Ticket.findByPk(ids.ticket), config.AUTH_TOKEN_SECRET);
+    const qrToken = walletToken(await m.Ticket.findByPk(ids.ticket), config.QR_TOKEN_SECRET);
     const scan = (token = qrToken, eventId = ids.event, role = 'manager') => request('/check-ins', role, { eventId, qrToken: token });
     // Lifecycle eligibility is enforced in both the selector and every direct
     // roster/scan request, for internal admins as well as the business team.
@@ -122,7 +122,7 @@ test('admissions HTTP: permissions, QR integrity, concurrent scans, manual entry
     assert.equal(manual.data.checkIn.method, 'manual');
     assert.equal((await request('/check-ins', 'owner', { eventId: ids.event, credentialId: ids.manualTicket, kind: 'ticket' })).error.code, 'CREDENTIAL_ALREADY_USED');
     assert.equal((await request('/check-ins', 'owner', { eventId: ids.event, credentialId: ids.voidTicket, kind: 'ticket' })).error.code, 'INVALID_CREDENTIAL');
-    const guestToken = guestlistWalletToken(await m.GuestlistEntry.findByPk(ids.entry), config.AUTH_TOKEN_SECRET);
+    const guestToken = guestlistWalletToken(await m.GuestlistEntry.findByPk(ids.entry), config.QR_TOKEN_SECRET);
     const guestResult = await scan(guestToken, ids.event, 'promoter');
     assert.equal(guestResult.status, 201, JSON.stringify(guestResult));
     assert.equal(guestResult.data.credential.spots, 3);

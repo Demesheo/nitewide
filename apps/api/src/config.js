@@ -1,4 +1,12 @@
 const { z } = require('zod');
+const { databaseConnectionConfig } = require('./db/connection-config');
+
+const DEVELOPMENT_SECRETS = {
+  AUTH_TOKEN_SECRET: 'nitewide-development-secret-change-me',
+  QR_TOKEN_SECRET: 'nitewide-development-qr-secret-change-me',
+  EMAIL_ENCRYPTION_KEY: 'nitewide-development-email-key-change-me',
+};
+const SECRET_NAMES = Object.keys(DEVELOPMENT_SECRETS);
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -8,7 +16,9 @@ const schema = z.object({
   DATABASE_SSL: z.enum(['true', 'false']).default('false'),
   MEDIA_UPLOAD_DIR: z.string().optional(),
   CORS_ORIGINS: z.string().default('http://localhost:5173,http://localhost:5174,http://localhost:5175'),
-  AUTH_TOKEN_SECRET: z.string().min(32).default('nitewide-development-secret-change-me'),
+  AUTH_TOKEN_SECRET: z.string().min(32).optional(),
+  QR_TOKEN_SECRET: z.string().min(32).optional(),
+  EMAIL_ENCRYPTION_KEY: z.string().min(32).optional(),
   HOSTED_DEMO: z.enum(['true', 'false']).default('false'),
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().optional(),
@@ -21,10 +31,20 @@ const schema = z.object({
 
 function getConfig(environment = process.env) {
   const values = schema.parse(environment);
+  for (const name of SECRET_NAMES) {
+    if (values.NODE_ENV === 'production' && (!values[name] || Object.values(DEVELOPMENT_SECRETS).includes(values[name]) || /replace[-_ ]?this|change[-_ ]?me|your[-_ ]?(secret|key)/i.test(values[name]))) {
+      throw new Error(`Production requires an explicit, non-default ${name} (at least 32 characters)`);
+    }
+    values[name] ||= DEVELOPMENT_SECRETS[name];
+  }
+  if (new Set(SECRET_NAMES.map(name => values[name])).size !== SECRET_NAMES.length) {
+    throw new Error('AUTH_TOKEN_SECRET, QR_TOKEN_SECRET and EMAIL_ENCRYPTION_KEY must be different keys');
+  }
+  const database = databaseConnectionConfig(environment);
   if (values.NODE_ENV !== 'production' && values.BIND_HOST === '0.0.0.0') {
     throw new Error('BIND_HOST=0.0.0.0 is reserved for production; local API binds to 127.0.0.1');
   }
-  if (values.HOSTED_DEMO === 'true' && (values.NODE_ENV !== 'production' || values.AUTH_TOKEN_SECRET === 'nitewide-development-secret-change-me')) {
+  if (values.HOSTED_DEMO === 'true' && values.NODE_ENV !== 'production') {
     throw new Error('Hosted demo requires production runtime and a non-default signing secret');
   }
   if (Boolean(values.RESEND_API_KEY) !== Boolean(values.RESEND_FROM_EMAIL)) {
@@ -47,7 +67,8 @@ function getConfig(environment = process.env) {
     ...values,
     bindHost: values.BIND_HOST || (values.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1'),
     hostedDemo: values.HOSTED_DEMO === 'true',
-    databaseSsl: values.DATABASE_SSL === 'true',
+    ...database,
+    DATABASE_URL: database.databaseUrl,
     resendTestMode: values.RESEND_TEST_MODE === 'true',
     businessAppUrl,
     businessGuestlistReviewEmails: values.BUSINESS_GUESTLIST_REVIEW_EMAILS === 'true',
@@ -55,4 +76,4 @@ function getConfig(environment = process.env) {
   };
 }
 
-module.exports = { getConfig };
+module.exports = { getConfig, DEVELOPMENT_SECRETS, SECRET_NAMES };
