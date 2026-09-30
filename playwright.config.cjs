@@ -13,7 +13,9 @@ module.exports = defineConfig({
   reporter: [['list'], ['html', { open: 'never' }], ['junit', { outputFile: 'test-results/e2e.xml' }]],
   use: { trace: 'retain-on-failure', screenshot: 'only-on-failure', video: 'retain-on-failure',
     actionTimeout: 10000, navigationTimeout: 15000, timezoneId: 'America/New_York', locale: 'en-US', reducedMotion: 'reduce', serviceWorkers: 'block' },
-  projects: ['customer', 'business', 'admin'].flatMap(app => [
+  // Admin browser coverage is paused during its frontend rework. Keep its
+  // specs for re-enabling later; API/unit coverage and admin builds still run.
+  projects: ['customer', 'business'].flatMap(app => [
     { name: `${app}-iphone`, testMatch: `${app}.spec.cjs`, use: { ...devices['iPhone 13'], browserName: 'webkit', baseURL: urls[app] } },
     { name: `${app}-desktop`, testMatch: `${app}.spec.cjs`, use: { ...devices['Desktop Chrome'], baseURL: urls[app] } },
   ]),

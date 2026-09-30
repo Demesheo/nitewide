@@ -184,7 +184,7 @@ The customer app uses shadcn/ui (Radix primitives), Tailwind CSS, and Lucide ico
 - **More nights** fetches the next server page rather than slicing an initial 100-event snapshot. Saved IDs remain browser-local and are resolved through public event detail; saved events/wallet are not synchronized across devices.
 - Uploaded event artwork from Nitewide Business appears on customer cards and details, with portrait flyers shown uncropped. Events without artwork use stock Unsplash mood photography (not verified venue photography). Replace fallback imagery with approved venue/event assets before public launch.
 
-Customer checks: `npm test --workspace @nitewide/customer`. Production build: `npm run build --workspace @nitewide/customer`. Automated browser coverage for customer, business and admin runs with `npm run test:e2e` against built apps and a disposable PostgreSQL database. Install browsers once with `npx playwright install chromium webkit`; start Docker/PostgreSQL first. See [UI and end-to-end testing](docs/UI_TESTING.md) for iPhone/desktop projects, debugging, safe codegen, selectors and CI. Component setup follows the [shadcn Vite integration](https://ui.shadcn.com/docs/installation/vite); installed component source is in `apps/customer/src/components/ui`.
+Customer checks: `npm test --workspace @nitewide/customer`. Production build: `npm run build --workspace @nitewide/customer`. Automated browser coverage for customer and business runs with `npm run test:e2e` against built apps and a disposable PostgreSQL database. Admin browser projects are temporarily paused during its frontend rework; admin unit/API tests and builds remain enabled. Install browsers once with `npx playwright install chromium webkit`; start Docker/PostgreSQL first. See [UI and end-to-end testing](docs/UI_TESTING.md) for iPhone/desktop projects, debugging, safe codegen, selectors and CI. Component setup follows the [shadcn Vite integration](https://ui.shadcn.com/docs/installation/vite); installed component source is in `apps/customer/src/components/ui`.
 
 Before using cursor-paged discovery, run `npm run db:migrate` to apply `202609290003-discovery-pagination`. It adds the ICU numeric/base-strength title collation and a concurrently built partial discovery index; no reseed is needed. A cursor belongs to its original filters and is rejected if reused with different filters. Pages follow venue-local day, Premium host, title, then event ID; inserts before a cursor do not displace already-read rows.
 
@@ -287,6 +287,10 @@ isolated Render database and free-tier limits. The hosted demo is available at
 Pushing to `main` automatically runs tests, builds the Docker image on GitHub,
 publishes it to GHCR, and asks Render to deploy that image digest (or the same
 verified commit when the service is Git-backed).
+Unit/API tests, browser regressions and the cached image build run in parallel.
+The browser test container has preinstalled Linux dependencies; publication reuses
+the single checked image. New commits cancel superseded checks, not started
+deployment requests. See [CI workflow and timeout budgets](docs/UI_TESTING.md#cicd-and-diagnostics).
 To rebuild and deploy the **already-pushed remote main** manually:
 
 ```bash

@@ -102,16 +102,24 @@ it may still be needed.
    do not also dispatch another run unless you deliberately want a rebuild.
 2. To rebuild existing `main`, open [Actions → Demo image](https://github.com/Demesheo/nitewide/actions/workflows/demo-image.yml),
    choose **Run workflow**, select **main**, then start the run.
-3. Wait for **verify**, **publish**, and **deploy** to succeed. Verification includes
-   unit tests, database migrations/integration tests, app builds, and Docker build.
+3. Wait for **Unit and API tests**, **Browser regression tests**, and **Build demo
+   image once** to pass in parallel, followed by **verify**, **publish**, and **deploy**.
+   Verification includes database migrations/integration tests, customer/business
+   iPhone/WebKit and desktop/Chromium projects, all three frontend builds, and
+   runtime-image smoke checks. Admin browser tests are paused during its rework.
+   Publication reuses that checked image rather than rebuilding it.
 4. Open [the Render service](https://dashboard.render.com/web/srv-daq3nmo473hc73cgqgk0)
    in **My Workspace** and wait for its newest deployment to show **Live**.
 5. Check `/health` and the browser smoke checks below. GitHub's deploy job confirms
    the request was accepted, not that Render has finished or is healthy.
 
 Only `main` publishes/deploys. Pull requests and manual runs on other branches
-verify code without publishing. Runs on main are serialized rather than cancelling
-an in-progress deployment. The workflow reads GitHub environment `demo` secret
+verify code without publishing. New commits cancel superseded verification/build
+jobs; publication and deployment remain serialized in their own non-cancelling
+queues. Both check the latest remote `main` SHA before releasing an image/request.
+The browser container includes preinstalled browsers and Linux dependencies,
+avoiding per-run Ubuntu package downloads. See [CI/CD and diagnostics](UI_TESTING.md#cicd-and-diagnostics)
+for version pins, timeout budgets, caches and artifacts. The workflow reads GitHub environment `demo` secret
 `RENDER_DEMO_DEPLOY_HOOK`; if absent it publishes an image but explicitly skips
 the Render request. Always check the deploy job output, not just its green icon.
 

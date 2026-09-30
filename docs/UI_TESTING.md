@@ -1,6 +1,6 @@
 # Automated browser testing
 
-Playwright exercises the customer, business and admin apps through real browser interactions, API routes, authentication, migrations and PostgreSQL. External email is mocked; **zero Resend quota is consumed**. There are no live payments or SMS sends.
+Playwright exercises the customer and business apps through real browser interactions, API routes, authentication, migrations and PostgreSQL. Admin browser coverage is temporarily paused for its frontend rework; its specs are retained, and admin unit/API tests and production builds remain enabled. External email is mocked; **zero Resend quota is consumed**. There are no live payments or SMS sends.
 
 ## Run locally
 
@@ -19,7 +19,7 @@ The runner builds all apps with isolated settings before testing. You do not nee
 ```sh
 npm run test:e2e -- --project=customer-iphone
 npm run test:e2e -- --project=business-iphone --grep "QR photo"
-npm run test:e2e:headed -- --project=admin-desktop
+npm run test:e2e:headed -- --project=business-desktop
 npm run test:e2e:ui
 npm run test:e2e:report
 ```
@@ -39,13 +39,13 @@ npm run test:e2e:report
 
 ## Browser and workflow coverage
 
-Each app runs in two projects: **iPhone 13 / WebKit**, the mobile-first target, and **desktop Chromium**. All use America/New_York and reduced motion to make timezone/rendering assertions repeatable.
+Customer and business each run in two projects: **iPhone 13 / WebKit**, the mobile-first target, and **desktop Chromium**. All use America/New_York and reduced motion to make timezone/rendering assertions repeatable. Admin has no active browser projects locally or in CI; restore `admin` in the `projects` list in `playwright.config.cjs` when its frontend is ready.
 
 Customer workflows cover sign-in/session persistence, registration/password confirmation, recoverable auth errors, event deep links, Maps links, saving/reloading, booking pagination, guestlist passes, notification navigation/dismissal/clear-all, pending-request edits/withdrawal, and demo VIP checkout with individual admission passes.
 
 Business workflows cover navigation/URL cleanup, chart switching, backend team pagination, manager referrals/personal-pool invitations, explicit analytics search, drill-down, full CSV export, manual admissions, customer admission status, real QR-photo decoding for valid/fake/wrong-event/repeat codes, promoter access and offering-editor interactions.
 
-Admin workflows cover mobile/desktop navigation, customer access denial, paginated user search, audited edits, suspension/restoration, event archiving, purchase-history retention and independent-creator onboarding with a mocked setup email.
+Retained, inactive admin specs cover mobile/desktop navigation, customer access denial, paginated user search, audited edits, suspension/restoration, event archiving, purchase-history retention and independent-creator onboarding with a mocked setup email.
 
 These are real interaction regressions, not screenshots-only checks or mocked API response snapshots. Extend the suite whenever a fixed bug or stable repeated workflow warrants coverage. It is not exhaustive coverage of every control.
 
@@ -81,9 +81,17 @@ For agent-assisted browser work, use an owned Codex side tab when manual investi
 
 ## CI/CD and diagnostics
 
-`.github/workflows/demo-image.yml` runs unit/API tests, installs Chromium/WebKit with system dependencies, and runs every browser project before building/publishing the Docker image. Publishing depends on verification; Render deployment depends on publishing. A browser failure blocks publication/deployment. The runner itself builds the frontends, so a second standalone build step is unnecessary.
+`.github/workflows/demo-image.yml` runs unit/API tests, all four active browser projects, and the cached production image build in three parallel jobs. The two test jobs have separate ephemeral PostgreSQL services. The `verify` gate fails unless all three jobs pass; no image is published and no Render request is made before that gate passes. Browser tests remain single-worker because each test resets its own job's database.
 
-CI retries failures once for diagnosis and also fails on recovered flaky tests. Reports/JUnit XML are always retained as `playwright-results` for 14 days; screenshots, videos and traces are kept on failures. All test mutations remain disposable. Review flaky results and remove their underlying race rather than increasing retries.
+The browser job pulls `mcr.microsoft.com/playwright:v1.63.0-noble`, which already contains browsers and Linux dependencies. It does not run `playwright install --with-deps` or download Ubuntu packages. `e2e/ci-container.cjs --check` rejects an image version that differs from the installed `@playwright/test` version. When upgrading Playwright, update both the lockfile and `PLAYWRIGHT_CONTAINER_IMAGE` in the workflow. The Linux container mounts the checked-out repository and the exact Node/npm installation from `setup-node`, preserving Node 24.21.0 and npm 12.1.0 rather than using the image's bundled runtime. Host networking keeps the database and app URLs on loopback; provider credentials are not forwarded.
+
+Browser image pulls and npm dependency installation have five-minute step limits; browser execution has six minutes. The browser job has a twelve-minute overall limit, and the unit/API job has ten minutes. These limits fail a stalled prerequisite without bypassing tests. A registry or runner outage can still fail setup; inspect the affected step before rerunning. The initial 5–10 minute verification/publication target is an engineering goal, not a measured guarantee, and excludes Render startup.
+
+The production image is built once, exported as a Docker archive, smoke-checked for Linux/amd64, non-root execution and required app files, and retained as `demo-image` for one day. After verification, publication verifies the archive checksum, loads and pushes that same image; it never rebuilds. BuildKit uses the GitHub Actions layer cache. The Playwright image and test harness remain excluded from the deployable image.
+
+New commits cancel superseded unit, browser and build jobs for the same Git ref. Publication and deployment jobs use separate non-cancelling queues. Both check the current remote `main` SHA before proceeding, so an older completed verification cannot intentionally release a superseded commit. Once a deployment request starts it is not cancelled by a new push. The Render hook has bounded connection/request timeouts and is not automatically retried, since an uncertain response might already have triggered a deployment.
+
+CI retries failures once for diagnosis and also fails on recovered flaky tests. Available reports/JUnit XML are retained as `playwright-results` for 14 days after success or failure, except cancelled jobs; screenshots, videos and traces are kept on failures. All test mutations remain disposable. Review flaky results and remove their underlying race rather than increasing retries.
 
 ```sh
 npm run test:e2e:report
