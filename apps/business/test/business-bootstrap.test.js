@@ -30,7 +30,7 @@ test('fresh signed-out bootstrap renders sign in without requesting protected bu
   let vite;
   let unmount;
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { default: App } = await vite.ssrLoadModule('/src/App.jsx');
     const React = await import('react');

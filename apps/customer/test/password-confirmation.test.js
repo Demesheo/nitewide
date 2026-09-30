@@ -14,7 +14,7 @@ test("registration requires a nonempty exact password confirmation", () => {
 
 test("confirmation is registration-only, accessible, and checked before the API call", () => {
   const source = readFileSync(new URL("../src/components/auth-dialog.jsx", import.meta.url), "utf8");
-  assert.match(source, /name="confirmPassword"[\s\S]*?type=\{showConfirmPassword \? 'text' : 'password'\}[\s\S]*?autoComplete="new-password"/);
+  assert.match(source, /name="confirmPassword"[\s\S]*?type="password"[\s\S]*?visibilityLabel="confirmed password"[\s\S]*?autoComplete="new-password"/);
   assert.match(source, /aria-invalid=\{showMismatch/);
   assert.match(source, /aria-describedby=\{showMismatch \? confirmationErrorId/);
   assert.match(source, /disabled=\{busy \|\| \(register && Boolean\(confirmationError\)\)\}/);

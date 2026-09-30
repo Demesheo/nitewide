@@ -36,7 +36,7 @@ test('shared report tables and team performance fetch real second pages and pers
       range: { timezone: 'America/New_York' } } }), { status: 200, headers: { 'content-type': 'application/json' } }); };
   let vite; let unmount;
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({ configFile: resolve(root, 'vite.config.js'), root, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { BusinessReportTable } = await vite.ssrLoadModule('/src/components/BusinessReportTables.jsx');
     const { BusinessTeamPerformance } = await vite.ssrLoadModule('/src/components/BusinessTeamPerformance.jsx');

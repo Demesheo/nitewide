@@ -33,7 +33,7 @@ test('event member controls stay gated until Edit member is selected', async () 
   let vite;
   let unmount;
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { EventPeople } = await vite.ssrLoadModule('/src/components/EventDetail.jsx');
     const React = await import('react');

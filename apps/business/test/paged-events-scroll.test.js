@@ -48,7 +48,7 @@ test('PagedEvents skips fresh restores, accepts zero, cancels pending restore, a
   let vite;
   let mounted;
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({ configFile: resolve(root, 'vite.config.js'), root, logLevel: 'silent',
       server: { middlewareMode: true }, appType: 'custom' });
     const { PagedEvents } = await vite.ssrLoadModule('/src/components/PagedEvents.jsx');

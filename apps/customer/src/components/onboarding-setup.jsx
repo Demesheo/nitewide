@@ -26,6 +26,7 @@ export function OnboardingSetup({ token, session, onSignIn, onSwitchAccount, onC
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     let active = true;
@@ -87,8 +88,8 @@ export function OnboardingSetup({ token, session, onSignIn, onSwitchAccount, onC
                 : existing && !session ? <div className="onboarding-state"><p>Sign in with <strong>{preview.email}</strong>, then return here to accept.</p><button className="onboarding-primary" onClick={onSignIn}>Sign in to continue <ArrowRight size={18} /></button></div>
                   : <form onSubmit={accept} className="onboarding-form">
                     {!existing && <>
-                      <label>New password <span>At least 12 characters</span><div className="onboarding-password"><input autoComplete="new-password" type={showPassword ? 'text' : 'password'} minLength={12} maxLength={128} required value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>
-                      <label>Confirm password<div className="onboarding-password"><input autoComplete="new-password" type={showPassword ? 'text' : 'password'} minLength={12} maxLength={128} required value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /><button type="button" aria-label={showPassword ? 'Hide passwords' : 'Show passwords'} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>
+                      <label>New password <span>At least 12 characters</span><div className="onboarding-password"><input name="password" autoComplete="new-password" type={showPassword ? 'text' : 'password'} minLength={12} maxLength={128} required value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>
+                      <label>Confirm password<div className="onboarding-password"><input name="confirmPassword" autoComplete="new-password" type={showConfirmation ? 'text' : 'password'} minLength={12} maxLength={128} required value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /><button type="button" aria-label={showConfirmation ? 'Hide confirmed password' : 'Show confirmed password'} aria-pressed={showConfirmation} onClick={() => setShowConfirmation(!showConfirmation)}>{showConfirmation ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}</button></div></label>
                     </>}
                     {validation && <p role="status" className="onboarding-error">{validation}</p>}
                     {error && <p role="alert" className="onboarding-error">{error}</p>}

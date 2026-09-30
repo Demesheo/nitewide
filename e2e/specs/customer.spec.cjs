@@ -1,5 +1,26 @@
 const { test, expect, login, expectNoOverflow } = require('../fixtures.cjs');
 const { urls } = require('../environment.cjs');
+const { checkPasswordVisibility, checkOnboardingPasswords } = require('../password-visibility.cjs');
+
+test('customer password visibility works in login, signup and reset without submitting', async ({ page }) => {
+  const actions = [];
+  page.on('request', request => { if (request.method() === 'POST' && request.url().includes('/api/auth/')) actions.push(request.url()); });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Log in', exact: true }).click();
+  await checkPasswordVisibility(page, 'Password');
+  await page.getByRole('button', { name: 'Create an account', exact: true }).click();
+  await checkPasswordVisibility(page, 'Password');
+  await checkPasswordVisibility(page, 'Confirm password', 'confirmed password');
+  await expect(page.getByLabel('Password', { exact: true })).toHaveAttribute('type', 'password');
+  await expectNoOverflow(page);
+  await page.goto('/?resetPassword=synthetic-visibility-token');
+  await checkPasswordVisibility(page, 'New password');
+  await checkPasswordVisibility(page, 'Confirm new password', 'confirmed password');
+  await expectNoOverflow(page);
+  await checkOnboardingPasswords(page);
+  await expectNoOverflow(page);
+  expect(actions).toEqual([]);
+});
 test('customer sign out everywhere revokes both sessions at the API', async ({ page, request, fixture }) => {
   await login(page, fixture, 'customer');
   const token = await page.evaluate(() => JSON.parse(localStorage.getItem('nitewide.session')).accessToken);

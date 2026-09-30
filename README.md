@@ -54,6 +54,37 @@ Open:
 - Admin: <http://localhost:5175>
 - API health: <http://localhost:4000/health>
 
+### Local Vite cache and recovery
+
+Normal `npm run dev` starts reuse Vite's dependency cache for fast startup. UI unit
+tests use `apps/business/test/helpers/vite-server.js`, which gives every test
+server a unique temporary cache and removes it on close (or failed startup).
+Tests must use this helper instead of starting Vite against an app's dev cache.
+Playwright serves production builds on separate ports, not the local Vite servers.
+
+Stop dev servers before running `npm ci`, changing dependency versions, or
+switching branches that change the lockfile, then start them again. Each frontend
+uses a fixed port with `--strictPort`: an occupied port produces an error instead
+of silently moving the app to a different URL.
+If a grouped start fails, it stops the other processes started by that command;
+it does not stop your pre-existing servers.
+
+If a tab is blank with **Outdated Optimize Dep** errors, stop the affected dev
+server, start it fresh, and reload the tab:
+
+```bash
+# Re-optimize just the affected app (business/admin work the same way)
+npm run dev:fresh --workspace @nitewide/customer
+
+# Or, after stopping all local servers, re-optimize all three frontends
+npm run dev:fresh
+```
+
+Fresh starts rebuild dependency caches; they do not clear accounts, databases,
+uploads, or browser sessions. Do not run a fresh start alongside the existing dev
+server or routinely clear caches while servers are running. Keep normal cached
+starts for everyday development.
+
 The API binds to `127.0.0.1` by default in development and tests, so local startup does not expose it to the network. `BIND_HOST` accepts `127.0.0.1` or `0.0.0.0`; the latter is permitted only in production, where it is the default for Render.
 
 Sessions, wallet QR passes, and encrypted email payloads use separate server secrets: `AUTH_TOKEN_SECRET`, `QR_TOKEN_SECRET`, and `EMAIL_ENCRYPTION_KEY`. Generate a fresh set for another environment with `npm run secrets:generate -- --output .env.secrets.staging` and put the values in that API service's secret environment variables. All production runtimes require explicit, distinct keys. Regular production also requires `DATABASE_SSL=true`; database certificates and hostnames are verified by both the API and migrations. See [environment secrets, verified database TLS, and rotation](docs/ENVIRONMENT_SECURITY.md) for exact setup and upgrading existing deployments.

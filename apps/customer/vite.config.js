@@ -7,5 +7,5 @@ export default defineConfig({
   optimizeDeps: { include: ['@nitewide/pricing'] },
   build: { commonjsOptions: { include: [/node_modules/, /apps\/pricing/] } },
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
-  server: { proxy: { "/api": process.env.NITEWIDE_API_PROXY || "http://localhost:4000" } },
+  server: { strictPort: true, proxy: { "/api": process.env.NITEWIDE_API_PROXY || "http://localhost:4000" } },
 });

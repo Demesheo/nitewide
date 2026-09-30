@@ -33,7 +33,7 @@ test('password reset deep link remains intact until a mocked reset succeeds', as
   let vite;
   let unmount;
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { BusinessSignIn } = await vite.ssrLoadModule('/src/components/BusinessSignIn.jsx');
     const React = await import('react');
@@ -55,6 +55,12 @@ test('password reset deep link remains intact until a mocked reset succeeds', as
     await user.type(screen.getByLabelText('Confirm new password'), 'CorrectPass123');
     await user.click(screen.getByRole('button', { name: 'Show password' }));
     assert.equal(screen.getByLabelText('New password').type, 'text');
+    assert.equal(screen.getByLabelText('Confirm new password').type, 'password');
+    await user.click(screen.getByRole('button', { name: 'Show confirmed password' }));
+    assert.equal(screen.getByLabelText('Confirm new password').type, 'text');
+    await user.click(screen.getByRole('button', { name: 'Hide confirmed password' }));
+    assert.equal(screen.getByLabelText('Confirm new password').type, 'password');
+    assert.equal(calls.length, 0, 'visibility buttons do not trigger a reset request');
     await user.click(screen.getByRole('button', { name: 'Reset password' }));
     await screen.findByRole('status');
     assert.deepEqual([calls[0].url.pathname, calls[0].method, calls[0].body.token, calls[0].body.password], [
@@ -139,7 +145,7 @@ test('notifications support scoped read, dismiss, and confirmed clear interactio
   let vite;
   let unmount;
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { Notifications } = await vite.ssrLoadModule('/src/components/Notifications.jsx');
     assert.equal(typeof Notifications, 'function');
@@ -225,7 +231,7 @@ test('profile saves role-relevant in-app preferences without invoking email deli
   let vite;
   let unmount;
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { BusinessProfile } = await vite.ssrLoadModule('/src/components/BusinessProfile.jsx');
     const React = await import('react');

@@ -171,7 +171,7 @@ test('business workflows preserve scope, navigation, delivery confirmation, and 
   let vite;
   let unmount;
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({
       configFile: resolve(businessRoot, 'vite.config.js'),
       root: businessRoot,

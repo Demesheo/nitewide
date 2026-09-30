@@ -39,7 +39,7 @@ test('Guest Experience status selection sends repeated status query values', asy
   let vite;
   let unmount;
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { Guestlists } = await vite.ssrLoadModule('/src/components/Guestlists.jsx');
     const React = await import('react');

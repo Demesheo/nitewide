@@ -108,7 +108,7 @@ test('Overview switches from Tickets & packages to Events with unique sales mix 
   let vite;
   let unmount;
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { OverviewPresentation } = await vite.ssrLoadModule('/src/components/OverviewPresentation.jsx');
     const React = await import('react');

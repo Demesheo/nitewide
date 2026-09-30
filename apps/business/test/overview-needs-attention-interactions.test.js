@@ -26,7 +26,7 @@ async function withBusinessDom(run) {
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   let vite;
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const React = await import('react');
     const testing = await import('@testing-library/react');

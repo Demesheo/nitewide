@@ -14,7 +14,7 @@ function memoryStorage() {
 
 async function withReuse(callback) {
   const businessRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
-  const { createServer } = await import('vite');
+  const { createTestServer: createServer } = await import('./helpers/vite-server.js');
   const vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
   try {
     return await callback(await vite.ssrLoadModule('/src/lib/event-reuse.js'));

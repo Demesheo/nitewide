@@ -1,6 +1,29 @@
 const { test, expect, login, businessSection, expectNoOverflow } = require('../fixtures.cjs');
 const QRCode = require('qrcode');
 const { urls } = require('../environment.cjs');
+const { checkPasswordVisibility, checkOnboardingPasswords } = require('../password-visibility.cjs');
+
+test('business password visibility works independently in login and reset without submitting', async ({ page }) => {
+  const actions = [];
+  page.on('request', request => { if (request.method() === 'POST' && request.url().includes('/api/auth/')) actions.push(request.url()); });
+  await page.goto('/sign-in');
+  await checkPasswordVisibility(page, 'Password');
+  await page.goto('/sign-in?resetPassword=synthetic-visibility-token');
+  await checkPasswordVisibility(page, 'New password');
+  await checkPasswordVisibility(page, 'Confirm new password', 'confirmed password');
+  await expect(page.getByLabel('New password', { exact: true })).toHaveAttribute('type', 'password');
+  await expectNoOverflow(page);
+  await checkOnboardingPasswords(page, '/app');
+  await page.route('**/api/team/invitations/synthetic-visibility-token', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: {
+    email: 'visibility@playwright.nitewide.test', organizationName: 'Visibility Test', role: 'employee',
+  } }) }));
+  await page.goto('/app?invite=synthetic-visibility-token');
+  await checkPasswordVisibility(page, 'Password');
+  await page.getByRole('button', { name: 'New to Nitewide? Create an account', exact: true }).click();
+  await checkPasswordVisibility(page, 'Password');
+  await expectNoOverflow(page);
+  expect(actions).toEqual([]);
+});
 test('business profile logout revokes the token server-side', async ({ page, request, fixture }) => {
   await login(page, fixture, 'business');
   const token = await page.evaluate(() => JSON.parse(sessionStorage.getItem('nitewide.business.session')).accessToken);

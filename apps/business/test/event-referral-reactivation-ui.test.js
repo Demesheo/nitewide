@@ -34,7 +34,7 @@ test('manager can reactivate an inactive event assignment through the event team
     return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { EventPeople } = await vite.ssrLoadModule('/src/components/EventDetail.jsx');
     const React = await import('react');
@@ -106,7 +106,7 @@ test('referral link retry recovers from an actionable error and revisions refetc
     throw new Error(`Unexpected fixture request: ${value}`);
   };
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { ReferralLink } = await vite.ssrLoadModule('/src/components/EventDetail.jsx');
     const React = await import('react');

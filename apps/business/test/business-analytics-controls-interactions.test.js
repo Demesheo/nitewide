@@ -83,7 +83,7 @@ test('analytics table controls stay with the active table and preserve URL scope
   let vite;
   let unmount;
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot,
       logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { BusinessAnalytics } = await vite.ssrLoadModule('/src/components/BusinessAnalytics.jsx');

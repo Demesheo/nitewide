@@ -6,7 +6,8 @@
   "description": "Nitewide event discovery, commerce, affiliate, and operations platform",
   "workspaces": ["apps/*"],
   "scripts": {
-    "dev": "concurrently -n api,customer,business,admin -c magenta,cyan,yellow,green \"npm run dev:api\" \"npm run dev:customer\" \"npm run dev:business\" \"npm run dev:admin\"",
+    "dev": "concurrently --kill-others-on-fail -n api,customer,business,admin -c magenta,cyan,yellow,green \"npm run dev:api\" \"npm run dev:customer\" \"npm run dev:business\" \"npm run dev:admin\"",
+    "dev:fresh": "concurrently --kill-others-on-fail -n api,customer,business,admin -c magenta,cyan,yellow,green \"npm run dev:api\" \"npm run dev:fresh --workspace @nitewide/customer\" \"npm run dev:fresh --workspace @nitewide/business\" \"npm run dev:fresh --workspace @nitewide/admin\"",
     "dev:api": "npm run dev --workspace @nitewide/api",
     "dev:customer": "npm run dev --workspace @nitewide/customer",
     "dev:business": "npm run dev --workspace @nitewide/business",

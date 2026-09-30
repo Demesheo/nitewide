@@ -43,7 +43,7 @@ test('team performance requests and renders sales in the direction shown by its 
   let vite;
   let unmount;
   try {
-    const { createServer } = await import('vite');
+    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
     vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { BusinessTeamPerformance } = await vite.ssrLoadModule('/src/components/BusinessTeamPerformance.jsx');
     const React = await import('react');

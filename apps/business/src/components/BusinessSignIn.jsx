@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowRight, BarChart3, Command, Eye, EyeOff, LoaderCircle, ShieldCheck, Ticket } from 'lucide-react';
+import { ArrowRight, BarChart3, Command, LoaderCircle, ShieldCheck, Ticket } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { api } from '@/lib/api';
@@ -10,7 +10,6 @@ export function BusinessSignIn({ onSession, notice = '' }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -45,8 +44,8 @@ export function BusinessSignIn({ onSession, notice = '' }) {
       <h2>{mode === 'forgot' ? 'Reset your password.' : mode === 'reset' ? 'Choose a new password.' : 'Welcome back.'}</h2>
       <p>{mode === 'forgot' ? 'If an account exists, we’ll send a one-hour reset link.' : mode === 'reset' ? 'Use a strong password with uppercase, lowercase and a number.' : 'Sign in to make your next experience exceptional.'}</p>
       <form id="business-signin-form" aria-label="Business sign in" onSubmit={submit}>{mode !== 'reset' && <label className="field" htmlFor="business-signin-email"><span>Work email</span><Input id="business-signin-email" type="email" name="email" autoComplete="username" required maxLength={320} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@yourbusiness.com"/></label>}
-        {mode !== 'forgot' && <><div className="field"><label htmlFor="business-signin-password"><span>{mode === 'reset' ? 'New password' : 'Password'}</span></label><span className="password-input-wrap"><Input id="business-signin-password" type={showPassword ? 'text' : 'password'} name="password" autoComplete={mode === 'reset' ? 'new-password' : 'current-password'} required minLength={mode === 'reset' ? 8 : 1} maxLength={128} pattern={mode === 'reset' ? '(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}' : undefined} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password"/><button type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></span></div>
-          {mode === 'reset' && <label className="field"><span>Confirm new password</span><Input id="business-confirm-password" name="confirmPassword" type={showPassword ? 'text' : 'password'} autoComplete="new-password" required value={confirmation} onChange={(event) => setConfirmation(event.target.value)}/></label>}</>}
+        {mode !== 'forgot' && <><div className="field"><label htmlFor="business-signin-password"><span>{mode === 'reset' ? 'New password' : 'Password'}</span></label><Input id="business-signin-password" key={mode} type="password" name="password" autoComplete={mode === 'reset' ? 'new-password' : 'current-password'} required minLength={mode === 'reset' ? 8 : 1} maxLength={128} pattern={mode === 'reset' ? '(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}' : undefined} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password"/></div>
+          {mode === 'reset' && <label className="field"><span>Confirm new password</span><Input id="business-confirm-password" name="confirmPassword" type="password" visibilityLabel="confirmed password" autoComplete="new-password" required value={confirmation} onChange={(event) => setConfirmation(event.target.value)}/></label>}</>}
         {(error || notice) && <p role="alert" className="error">{error || notice}</p>}{message && <p role="status" className="notice">{message}</p>}
         <Button disabled={busy} type="submit" size="lg">{busy && <LoaderCircle className="nw-loading-icon" aria-hidden="true"/>}{busy ? 'Working…' : mode === 'forgot' ? 'Request reset link' : mode === 'reset' ? 'Reset password' : 'Sign in to Nitewide'}{!busy && <ArrowRight/>}</Button></form>
       <div className="signin-help">{mode === 'sign-in' ? <Button variant="ghost" onClick={() => { setMode('forgot'); setError(''); setMessage(''); }}>Forgot password?</Button>
