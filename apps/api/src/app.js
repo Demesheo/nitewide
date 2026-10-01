@@ -19,7 +19,12 @@ const { createAbuseService } = require('./services/abuse-service');
 const { asyncHandler } = require('./http/middleware');
 
 function createApp({ sequelize, models, config, healthCheck = () => sequelize.authenticate(), services = {}, staticRoot }) {
-  const app = express(); app.disable('x-powered-by'); app.use(helmet());
+  const app = express(); app.disable('x-powered-by');
+  // Hosted HTML must permit the final private-image redirect, not just /api/media.
+  // Path-style S3 URLs use this exact origin; no wildcard Cloudflare permission.
+  const imageSources = ["'self'", 'data:'];
+  if (config.R2_ACCOUNT_ID) imageSources.push(new URL(config.R2_ENDPOINT || `https://${config.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`).origin);
+  app.use(helmet({ contentSecurityPolicy: { directives: { imgSrc: imageSources } } }));
   app.set('trust proxy', config.trustProxy ?? (config.hostedDemo ? 1 : false));
   app.get('/health', async (_req, res) => { try { await healthCheck(); res.json({ status: 'ok', service: 'nitewide-api' }); } catch (_error) { res.status(503).json({ status: 'degraded', service: 'nitewide-api' }); } });
   if (config.hostedDemo) {
@@ -48,7 +53,7 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   const abuse = services.abuse || createAbuseService({ sequelize, secret: config.AUTH_TOKEN_SECRET });
   app.use('/api', asyncHandler(async (req, res, next) => { res.set('Cache-Control', 'no-store'); await abuse.before(req); next(); }));
   const requireUser = createRequireUser({ authenticate: auth.authenticate, allowDevelopmentUserHeader: config.NODE_ENV !== 'production', abuse });
-  app.use('/api', createMediaRouter({ models, requireUser, uploadDir: config.MEDIA_UPLOAD_DIR }));
+  app.use('/api', createMediaRouter({ models, requireUser, config, uploadDir: config.MEDIA_UPLOAD_DIR, storage: services.mediaStorage }));
   const guestlistService = services.requestGuestlist && services.reviewGuestlist ? null : createGuestlistService({ sequelize, models, permissions, email, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, reviewEmailsEnabled: config.businessGuestlistReviewEmails });
   const dependencies = {
     models, permissions, auth, email,

@@ -248,6 +248,7 @@ function createBusinessService({
             transaction,
           });
           if (!asset) throw notFound('Image');
+          if (asset.status !== 'ready') throw conflict('Image upload is not ready. Please upload it again.', 'MEDIA_NOT_READY');
           if (asset.uploadedByUserId !== userId) {
             // A newly uploaded image can be shared among the active managers of
             // the same organization. Unrelated uploaders still need a managed

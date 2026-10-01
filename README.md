@@ -8,6 +8,8 @@ Transactional account, purchase, guestlist, and event-update emails use publishe
 
 Emails, checkout notification fan-out and large exports run in a [dedicated background worker](docs/BACKGROUND_WORKERS.md), not the API process. `npm run dev` starts it automatically; `npm run dev:worker` starts only the worker. Apply migrations before starting either process. Standard tests mock email delivery and consume no Resend quota.
 
+Event artwork supports [private Cloudflare R2 storage](docs/MEDIA_STORAGE.md), verified upload finalization and worker-managed orphan cleanup. PostgreSQL stores stable asset IDs/keys; signed read URLs are generated on demand. Local storage remains the default until R2 runtime credentials are configured. Apply migrations before restarting; no reseed is needed. Existing local flyers are not automatically copied to R2.
+
 This repository contains:
 
 - `apps/api` — Express, Sequelize, PostgreSQL, and PostGIS REST API
@@ -19,6 +21,7 @@ This repository contains:
 - `docs/REPORTING_EXPORTS.md` — SQL report APIs, snapshot CSV jobs, progress, retention, query-plan measurements and migration
 - `TODO.md` — completed, current, next, and later work
 - `docs/PRODUCT_ROADMAP.md` — dated sprints, milestones, regions, quality targets, and scale gates
+- `docs/LAUNCH_HOSTING_PLAN.md` — agreed $34.50/month lean Render and Cloudflare launch plan, saved for later implementation
 - `docs/LINEAR_BACKLOG.md` — Linear goals, labels, cycles, and initial user-story backlog
 - `docs/TOP_25_NIGHTLIFE_METROS.md` — ranked U.S. nightlife metro targets, rollout interpretation, and market-launch scorecard
 - `docs/PAYMENT_PROVIDER_EVALUATION.md` — Stripe MVP decision and post-launch Stax/PayPal evaluation framework
@@ -168,7 +171,7 @@ The API development process uses a normal Node process for compatibility with ma
 
 The assumptions, outputs, valuation sensitivities, and evidence gates behind the Florida model are documented in [docs/FLORIDA_50M_MODEL.md](docs/FLORIDA_50M_MODEL.md).
 
-`npm test` runs the unit/frontend tests and eleven required real-PostgreSQL suites using Node's built-in test runner. Supertest exercises the Express HTTP boundary for authentication, permissions, customer/business/admin workflows, checkout replay/conflicts, admissions, uploads, CSV exports, and signed webhooks. Database suites also verify reporting, pagination, lifecycle protections, and concurrent authorization/write behavior. Each receives a fresh generated database, migrations, and deterministic fixtures; the runner removes that database afterward. No development/demo seed is required or modified, and email delivery is disabled. Missing PostgreSQL/PostGIS prerequisites fail with setup guidance rather than skipping coverage. `test:api:unit` needs no database; `test:api:integration` runs all required database suites or a single named suite. GitHub's existing `npm test` verification includes this coverage automatically. See [Testing](docs/TESTING.md) for commands, conventions, local/CI setup, and the separate demo-only command.
+`npm test` runs the unit/frontend tests and fourteen required real-PostgreSQL suites using Node's built-in test runner. Supertest exercises the Express HTTP boundary for authentication, permissions, customer/business/admin workflows, checkout replay/conflicts, admissions, uploads, CSV exports, and signed webhooks. Database suites also verify reporting, pagination, lifecycle protections, and concurrent authorization/write behavior. Each receives a fresh generated database, migrations, and deterministic fixtures; the runner removes that database afterward. No development/demo seed is required or modified, and email delivery is disabled. Missing PostgreSQL/PostGIS prerequisites fail with setup guidance rather than skipping coverage. `test:api:unit` needs no database; `test:api:integration` runs all required database suites or a single named suite. GitHub's existing `npm test` verification includes this coverage automatically. See [Testing](docs/TESTING.md) for commands, conventions, local/CI setup, and the separate demo-only command.
 
 Business and Admin reports now share scoped SQL summaries and server-paginated tables; the legacy capped bulk report endpoints return `410`. CSV exports up to 1,000 rows download immediately from a stable snapshot. Larger exports prepare in a durable background queue, show progress and retry controls, and remain downloadable for 24 hours. Apply `npm run db:migrate` and restart the API; no reseed or new hosting service is required. See [SQL reporting and snapshot exports](docs/REPORTING_EXPORTS.md) for APIs, security, retention, measured EXPLAIN plans and the rollup decision.
 

@@ -41,6 +41,8 @@ Checkout writes one notification job inside the same transaction as the purchase
 
 Exports retain repeatable-read snapshots, chunk checkpoints, authenticated downloads and existing retry endpoints. See [Snapshot exports](REPORTING_EXPORTS.md). Independent lanes keep a long export from blocking emails or notifications.
 
+An optional independent [R2 media cleanup lane](MEDIA_STORAGE.md) removes aged, unattached application-managed objects, at most 25 per hourly pass. Keep `MEDIA_CLEANUP_ENABLED=false` for the current shared dev/demo bucket: each database cannot verify the other environment's references. Enable cleanup only after isolating or coordinating storage ownership, with the R2 configuration and `202609300008-durable-media` migration. Referenced/legacy assets remain protected. Media requests do not run inside database transactions; shutdown waits for active deletion and expired claims recover after interruption. Heartbeats include `mediaCleanupEnabled`.
+
 SIGTERM/SIGINT stop new claims, wake polling sleeps, finish active email requests and notification batches, checkpoint/release exports, then close the database. If hosting kills the process first, expired leases recover durable work. No exactly-once external delivery guarantee is made beyond the provider's idempotency window.
 
 ## Inspect and replay

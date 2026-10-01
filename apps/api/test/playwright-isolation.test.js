@@ -16,10 +16,12 @@ test('Playwright cannot select a remote or application database for maintenance'
 
 test('Playwright isolates URLs, secrets, email quota and database SSL from ambient configuration', () => {
   const url = 'postgres://test:fake@127.0.0.1:5433/nitewide_test_00000000000040008000000000000099';
-  const env = isolatedEnvironment(url, { RESEND_API_KEY: 'never-send', RESEND_TEST_READ_API_KEY: 'never-read', RESEND_UNKNOWN_KEY: 'never-use', NODE_ENV: 'production', HOSTED_DEMO: 'true', DATABASE_URL: 'remote', DATABASE_SSL: 'true', DATABASE_SSL_CA: 'production-ca', NITEWIDE_API_PROXY: 'https://live.example' });
+  const env = isolatedEnvironment(url, { RESEND_API_KEY: 'never-send', RESEND_TEST_READ_API_KEY: 'never-read', RESEND_UNKNOWN_KEY: 'never-use', R2_ACCOUNT_ID: 'a'.repeat(32), R2_BUCKET: 'real-media', R2_ACCESS_KEY_ID: 'never-write', R2_SECRET_ACCESS_KEY: 'never-write', MEDIA_STORAGE_DRIVER: 'r2', MEDIA_CLEANUP_ENABLED: 'true', NODE_ENV: 'production', HOSTED_DEMO: 'true', DATABASE_URL: 'remote', DATABASE_SSL: 'true', DATABASE_SSL_CA: 'production-ca', NITEWIDE_API_PROXY: 'https://live.example' });
   assert.equal(assertManagedTestDatabase(env), url);
   for (const [key, value] of Object.entries(env)) if (key.startsWith('RESEND_') && key !== 'RESEND_TEST_MODE') assert.equal(value, '', key);
   assert.equal(env.RESEND_TEST_MODE, 'false');
+  assert.equal(env.R2_ACCESS_KEY_ID, ''); assert.equal(env.R2_SECRET_ACCESS_KEY, '');
+  assert.equal(env.MEDIA_STORAGE_DRIVER, 'local'); assert.equal(env.MEDIA_CLEANUP_ENABLED, 'false');
   assert.equal(env.NODE_ENV, 'test'); assert.equal(env.HOSTED_DEMO, 'false');
   assert.equal(env.NITEWIDE_API_PROXY, urls.api);
   assert.equal(env.DATABASE_SSL, 'false'); assert.equal(env.DATABASE_SSL_CA, '');

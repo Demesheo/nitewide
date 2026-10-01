@@ -27,7 +27,7 @@ test('hosted config fails closed without production mode and dedicated secrets',
   assert.equal(getConfig({}).hostedDemo, false);
 });
 test('hosted demo public pages need no shared password while account endpoints remain protected', async t => {
-  const config = getConfig(demoEnvironment);
+  const config = getConfig({ ...demoEnvironment, R2_ACCOUNT_ID: 'a'.repeat(32) });
   const staticRoot = await mkdtemp(path.join(os.tmpdir(), 'nitewide-public-demo-test-'));
   t.after(() => rm(staticRoot, { recursive: true, force: true }));
   for (const name of ['customer', 'business', 'admin']) {
@@ -43,6 +43,8 @@ test('hosted demo public pages need no shared password while account endpoints r
   assert.equal(home.text, '<html><body>customer</body></html>');
   assert.equal(home.headers['set-cookie'], undefined);
   assert.match(home.headers['x-robots-tag'], /noindex/);
+  assert.match(home.headers['content-security-policy'], /img-src 'self' data: https:\/\/a{32}\.r2\.cloudflarestorage\.com;/);
+  assert.doesNotMatch(home.headers['content-security-policy'], /\*\.r2/);
   assert.equal((await request('/api/auth/me')).status, 401);
   assert.equal((await request('/api/auth/me', { headers: { 'x-user-id': 'admin' } })).status, 401);
 });

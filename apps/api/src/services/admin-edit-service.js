@@ -101,7 +101,11 @@ function createAdminEditService({ models, permissions, email = null, customerApp
           await assertOrganizationVenue(models, organization, merged.locationId, transaction);
         }
         if (changes.creatorUserId && !await models.User.findByPk(changes.creatorUserId, { transaction })) throw notFound('Creator');
-        if (changes.imageAssetId && !await models.MediaAsset.findByPk(changes.imageAssetId, { transaction })) throw notFound('Image');
+        if (changes.imageAssetId) {
+          const asset = await models.MediaAsset.findByPk(changes.imageAssetId, { transaction });
+          if (!asset) throw notFound('Image');
+          if (asset.status !== 'ready') throw conflict('Image upload is not ready', 'MEDIA_NOT_READY');
+        }
         const tickets = await models.Ticket.count({ where: { eventId: id, status: { [Op.in]: ['valid', 'checked_in', 'transferred'] } }, transaction });
         const approved = Number(await models.GuestlistEntry.sum('partySize', { where: { eventId: id, status: { [Op.in]: ['confirmed', 'checked_in'] } }, transaction })) || 0;
         if (changes.capacity != null && changes.capacity < tickets + approved) throw conflict('Capacity cannot fall below ticket and approved guestlist admissions', 'EVENT_CAPACITY');

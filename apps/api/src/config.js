@@ -7,6 +7,7 @@ const DEVELOPMENT_SECRETS = {
   EMAIL_ENCRYPTION_KEY: 'nitewide-development-email-key-change-me',
 };
 const SECRET_NAMES = Object.keys(DEVELOPMENT_SECRETS);
+const optionalR2 = validator => z.preprocess(value => value === '' ? undefined : value, validator.optional());
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -15,6 +16,15 @@ const schema = z.object({
   DATABASE_URL: z.string().default('postgres://postgres:postgres@localhost:5432/nitewide'),
   DATABASE_SSL: z.enum(['true', 'false']).default('false'),
   MEDIA_UPLOAD_DIR: z.string().optional(),
+  MEDIA_STORAGE_DRIVER: z.enum(['local', 'r2']).default('local'),
+  R2_ACCOUNT_ID: optionalR2(z.string().regex(/^[a-f0-9]{32}$/i)),
+  R2_BUCKET: optionalR2(z.string().regex(/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/)),
+  R2_ACCESS_KEY_ID: optionalR2(z.string().min(16)),
+  R2_SECRET_ACCESS_KEY: optionalR2(z.string().min(32)),
+  R2_ENDPOINT: optionalR2(z.string().url()),
+  R2_READ_URL_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
+  MEDIA_CLEANUP_ENABLED: z.enum(['true', 'false']).default('false'),
+  MEDIA_CLEANUP_INTERVAL_MS: z.coerce.number().int().min(60000).max(86400000).default(3600000),
   CORS_ORIGINS: z.string().default('http://localhost:5173,http://localhost:5174,http://localhost:5175'),
   AUTH_TOKEN_SECRET: z.string().min(32).optional(),
   QR_TOKEN_SECRET: z.string().min(32).optional(),
@@ -39,6 +49,18 @@ const schema = z.object({
 
 function getConfig(environment = process.env) {
   const values = schema.parse(environment);
+  if (values.MEDIA_STORAGE_DRIVER === 'r2') {
+    for (const key of ['R2_ACCOUNT_ID', 'R2_BUCKET', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY']) {
+      if (!values[key]) throw new Error(`R2 storage requires ${key}`);
+    }
+  }
+  if (values.R2_ENDPOINT) {
+    const allowed = values.R2_ACCOUNT_ID && new RegExp(`^https://${values.R2_ACCOUNT_ID}(?:\\.(?:eu|us|fedramp))?\\.r2\\.cloudflarestorage\\.com/?$`, 'i');
+    if (!allowed || !allowed.test(values.R2_ENDPOINT)) throw new Error('R2_ENDPOINT must be the HTTPS Cloudflare R2 endpoint for R2_ACCOUNT_ID');
+  }
+  if (values.MEDIA_CLEANUP_ENABLED === 'true' && values.MEDIA_STORAGE_DRIVER !== 'r2') {
+    throw new Error('Automatic media cleanup requires R2; local files are not shared across instances');
+  }
   for (const name of SECRET_NAMES) {
     if (values.NODE_ENV === 'production' && (!values[name] || Object.values(DEVELOPMENT_SECRETS).includes(values[name]) || /replace[-_ ]?this|change[-_ ]?me|your[-_ ]?(secret|key)/i.test(values[name]))) {
       throw new Error(`Production requires an explicit, non-default ${name} (at least 32 characters)`);

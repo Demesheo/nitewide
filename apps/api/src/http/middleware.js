@@ -29,6 +29,7 @@ function errorHandler(error, _req, res, _next) {
   if (error instanceof DomainError) return res.status(error.status).json({ error: { code: error.code, message: error.message, details: error.details } });
   if (error.name === 'SequelizeUniqueConstraintError') return res.status(409).json({ error: { code: 'DUPLICATE', message: 'A unique value is already in use' } });
   if (error.name === 'SequelizeOptimisticLockError' || ['40001', '40P01'].includes(error.original?.code)) return res.status(409).json({ error: { code: 'CONCURRENT_UPDATE', message: 'The data changed during this operation. Refresh and try again.' } });
+  if (error.original?.constraint === 'event_media_ready') return res.status(409).json({ error: { code: 'MEDIA_NOT_READY', message: 'Image upload is not ready. Please upload it again.' } });
   console.error(error); return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Unexpected server error' } });
 }
 module.exports = { asyncHandler, validate, createRequireUser, errorHandler };

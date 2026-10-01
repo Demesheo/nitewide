@@ -36,3 +36,17 @@ test('API server has no email, notification or export dispatch timer', () => {
   const source = require('node:fs').readFileSync(require.resolve('../src/server'), 'utf8');
   assert.doesNotMatch(source, /setInterval|\.drain\(/);
 });
+
+test('media cleanup has its own worker lane and shutdown waits for an in-flight deletion', async () => {
+  let release, started = false, closed = false;
+  const deletion = new Promise(resolve => { release = resolve; });
+  const noop = { enabled: false, drain: async () => 0, stop: async () => {} };
+  const media = { enabled: true, drain: async () => { started = true; await deletion; }, stop: async () => { await deletion; closed = true; } };
+  const heartbeats = [];
+  const runtime = createWorkerRuntime({ sequelize: { authenticate: async () => {}, query: async (_sql, options) => heartbeats.push(JSON.parse(options.replacements.details)) },
+    services: { email: noop, notifications: noop, exports: [], media }, pollIntervalMs: 5 });
+  await runtime.start(); assert.equal(started, true);
+  assert.equal(heartbeats[0].mediaCleanupEnabled, true);
+  const stop = runtime.stop(); await new Promise(resolve => setImmediate(resolve)); assert.equal(closed, false);
+  release(); await stop; assert.equal(closed, true);
+});
