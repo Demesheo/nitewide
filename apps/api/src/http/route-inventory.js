@@ -246,6 +246,11 @@ const routeInventory = [
     ]
   },
   {
+    "method": "post",
+    "path": "/auth/password/change",
+    "successStatuses": [200]
+  },
+  {
     "method": "patch",
     "path": "/auth/profile",
     "successStatuses": [

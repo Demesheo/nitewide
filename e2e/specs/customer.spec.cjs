@@ -2,6 +2,90 @@ const { test, expect, login, expectNoOverflow } = require('../fixtures.cjs');
 const { urls } = require('../environment.cjs');
 const { checkPasswordVisibility, checkOnboardingPasswords } = require('../password-visibility.cjs');
 
+test('customer profile Edit saves contact details independently of password and notification settings', async ({ page, fixture }) => {
+  await login(page, fixture, 'customer');
+  await page.getByRole('button', { name: "Open Jordan Customer's profile" }).click();
+  await expect(page.getByLabel('Display name', { exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByLabel('Display name', { exact: true }).fill('Jordan Updated');
+  await page.getByRole('button', { name: 'Save details', exact: true }).click();
+  await expect(page.getByLabel('Display name', { exact: true })).toBeDisabled();
+  await expect(page.getByLabel('Display name', { exact: true })).toHaveValue('Jordan Updated');
+  await expect(page.getByLabel('Current password', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Your preferences are updated.' })).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.reload();
+  await page.getByRole('button', { name: "Open Jordan Updated's profile" }).click();
+  await expect(page.getByLabel('Display name', { exact: true })).toHaveValue('Jordan Updated');
+  await expectNoOverflow(page);
+});
+
+test('customer profile password change validates and rotates the session with a compact desktop layout', async ({ page, request, fixture }) => {
+  await login(page, fixture, 'customer');
+  const oldToken = await page.evaluate(() => JSON.parse(localStorage.getItem('nitewide.session')).accessToken);
+  await expect(page.locator('.site-header').getByRole('link', { name: 'For business' })).toHaveCount(0);
+  await expect(page.locator('.site-footer')).not.toContainText('Orlando · Miami');
+  await expect(page.locator('.site-footer').getByRole('link', { name: 'For business' })).toBeVisible();
+  await page.getByRole('button', { name: "Open Jordan Customer's profile" }).click();
+  await expect(page.getByRole('button', { name: 'Change password', exact: true })).toHaveCount(0);
+  // Compare position in the dialog's content, not the viewport: on iPhone,
+  // reaching the Change password button naturally scrolls the dialog.
+  const contactPosition = () => page.getByLabel('Display name', { exact: true }).evaluate((element) => {
+    const dialog = element.closest('.account-modal');
+    const field = element.getBoundingClientRect();
+    return { top: field.top - dialog.getBoundingClientRect().top + dialog.scrollTop, width: field.width };
+  });
+  const originalNamePosition = await contactPosition();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByLabel('Current password', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Change password', exact: true }).click();
+  const expandedNamePosition = await contactPosition();
+  expect(expandedNamePosition.top).toBeCloseTo(originalNamePosition.top, 0);
+  expect(expandedNamePosition.width).toBeCloseTo(originalNamePosition.width, 0);
+  const passwordForm = page.getByRole('form', { name: 'Change password' });
+  await expect(page.getByLabel('Current password', { exact: true })).toBeVisible();
+  if (page.viewportSize().width > 850) expect(await page.locator('.account-modal').evaluate((element) => element.scrollHeight - element.clientHeight)).toBeLessThanOrEqual(1);
+  await page.getByLabel('Current password', { exact: true }).fill(fixture.password);
+  await page.getByLabel('New password', { exact: true }).fill('UpdatedFixturePassword123');
+  await page.getByLabel('Confirm new password', { exact: true }).fill('Mismatch123');
+  await expect(passwordForm.getByRole('button', { name: 'Change password', exact: true })).toBeDisabled();
+  await page.getByLabel('Confirm new password', { exact: true }).fill('UpdatedFixturePassword123');
+  await page.getByRole('button', { name: 'Show new password', exact: true }).click();
+  await expect(page.getByLabel('New password', { exact: true })).toHaveAttribute('type', 'text');
+  await expect(page.getByLabel('Confirm new password', { exact: true })).toHaveAttribute('type', 'password');
+  await page.getByRole('button', { name: 'Hide new password', exact: true }).click();
+  await passwordForm.getByRole('button', { name: 'Change password', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Password changed. Other sessions have been signed out.' })).toBeVisible();
+  const fresh = await page.evaluate(() => JSON.parse(localStorage.getItem('nitewide.session')).accessToken);
+  expect(fresh).not.toBe(oldToken);
+  expect((await request.get(`${urls.api}/api/auth/me`, { headers: { Authorization: `Bearer ${oldToken}` } })).status()).toBe(401);
+  expect((await request.get(`${urls.api}/api/auth/me`, { headers: { Authorization: `Bearer ${fresh}` } })).status()).toBe(200);
+  await expect(page.getByLabel('Current password', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('button', { name: 'Change password', exact: true }).click();
+  for (const label of ['Current password', 'New password', 'Confirm new password']) await expect(page.getByLabel(label, { exact: true })).toHaveValue('');
+  await expectNoOverflow(page);
+});
+
+test('customer profile password failure and close preserve the session but clear unsaved secrets', async ({ page, fixture }) => {
+  await login(page, fixture, 'customer');
+  await page.getByRole('button', { name: "Open Jordan Customer's profile" }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('button', { name: 'Change password', exact: true }).click();
+  await page.getByLabel('Current password', { exact: true }).fill('WrongPassword123');
+  await page.getByLabel('New password', { exact: true }).fill('UpdatedFixturePassword123');
+  await page.getByLabel('Confirm new password', { exact: true }).fill('UpdatedFixturePassword123');
+  await page.getByRole('form', { name: 'Change password' }).getByRole('button', { name: 'Change password', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText('Current password is incorrect');
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: "Open Jordan Customer's profile" }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('button', { name: 'Change password', exact: true }).click();
+  for (const label of ['Current password', 'New password', 'Confirm new password']) await expect(page.getByLabel(label, { exact: true })).toHaveValue('');
+  await expectNoOverflow(page);
+});
+
 test('customer password visibility works in login, signup and reset without submitting', async ({ page }) => {
   const actions = [];
   page.on('request', request => { if (request.method() === 'POST' && request.url().includes('/api/auth/')) actions.push(request.url()); });

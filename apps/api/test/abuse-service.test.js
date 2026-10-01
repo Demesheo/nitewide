@@ -10,6 +10,7 @@ test('sensitive endpoint classification covers uploads, exports, invitations and
   for (const [method, path, group] of [
     ['POST', '/auth/sign-in', 'login'], ['POST', '/auth/register', 'registration'],
     ['POST', '/auth/business/sign-in', 'login'], ['POST', '/business/access-requests', 'access_request'],
+    ['POST', '/auth/password/change', 'password_change'],
     ['POST', '/business/events/abc/guestlist-invitations', 'invitation'],
     ['POST', '/business/organizations/abc/invitations/123/resend', 'invitation'],
     ['POST', '/guestlist-invitations/token/claim', 'invitation'],

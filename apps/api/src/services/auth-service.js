@@ -98,12 +98,38 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
       const current = await models.User.findByPk(user.id, { transaction, lock: transaction.LOCK.UPDATE });
       if (!activeUser(current)) throw new DomainError('Session is invalid or expired', { code: 'UNAUTHENTICATED', status: 401 });
       if (business) await require('./business-access-policy').assertBusinessAccess(models,current.id,transaction,current);
-      const issuedAt = Math.floor(now().getTime() / 1000);
-      const expiresAt = issuedAt + TOKEN_TTL_SECONDS;
       const credential = await models.UserCredential.findByPk(user.id, { transaction, lock: transaction.LOCK.UPDATE });
       if (expectedCredential && credential?.passwordHash !== expectedCredential.passwordHash) throw new DomainError('Please sign in again', { code: 'UNAUTHENTICATED', status: 401 });
-      const session = await models.AuthSession.create({ userId: user.id, expiresAt: new Date(expiresAt * 1000) }, { transaction });
-      return { accessToken: signToken({ sub: user.id, sid: session.id, iat: issuedAt, exp: expiresAt, pwd: credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null }, tokenSecret), expiresAt: new Date(expiresAt * 1000).toISOString(), user: publicUser(current), roles: await rolesFor(current) };
+      return issueSession(current, credential, transaction);
+    });
+  }
+
+  async function issueSession(user, credential, transaction) {
+    const issuedAt = Math.floor(now().getTime() / 1000);
+    const expiresAt = issuedAt + TOKEN_TTL_SECONDS;
+    const session = await models.AuthSession.create({ userId: user.id, expiresAt: new Date(expiresAt * 1000) }, { transaction });
+    return { accessToken: signToken({ sub: user.id, sid: session.id, iat: issuedAt, exp: expiresAt, pwd: credential?.passwordChangedAt ? new Date(credential.passwordChangedAt).getTime() : null }, tokenSecret), expiresAt: new Date(expiresAt * 1000).toISOString(), user: publicUser(user), roles: await rolesFor(user) };
+  }
+
+  async function changePassword(userId, sessionId, input) {
+    // Apply the shared policy even when invoked outside the HTTP route.
+    const { currentPassword, password } = require('../http/schemas').passwordChange.parse(input);
+    const nextPassword = await createPasswordRecord(password);
+    return mutationTransaction(sequelize, async (transaction) => {
+      // The user lock serializes login, logout, recovery and password changes.
+      const user = await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!activeUser(user)) throw new DomainError('Please sign in again', { code: 'UNAUTHENTICATED', status: 401 });
+      const credential = await models.UserCredential.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE });
+      const session = await models.AuthSession.findByPk(sessionId, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!session || session.userId !== userId || session.revokedAt || new Date(session.expiresAt) <= now()) throw new DomainError('Please sign in again', { code: 'UNAUTHENTICATED', status: 401 });
+      if (!credential || !await passwordMatches(currentPassword, credential)) throw new DomainError('Current password is incorrect', { code: 'INVALID_CURRENT_PASSWORD', status: 400 });
+      if (currentPassword === password) throw new DomainError('Choose a different new password', { code: 'PASSWORD_UNCHANGED', status: 422 });
+      const changedAt = new Date(Math.max(now().getTime(), new Date(credential.passwordChangedAt || 0).getTime() + 1));
+      await credential.update({ ...nextPassword, passwordChangedAt: changedAt }, { transaction });
+      await models.AuthSession.update({ revokedAt: now() }, { where: { userId, revokedAt: null }, transaction });
+      await models.UserActionToken.update({ consumedAt: now() }, { where: { userId, purpose: 'password_reset', consumedAt: null }, transaction });
+      await models.AuditLog.create({ actorUserId: userId, entityType: 'User', entityId: userId, action: 'account.password_changed', after: { otherSessionsRevoked: true } }, { transaction });
+      return issueSession(user, credential, transaction);
     });
   }
 
@@ -192,14 +218,18 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
 
   async function consumeAction(raw, purpose, onValid) {
     if (!models.UserActionToken) throw new DomainError('This link is invalid or expired', { code: 'ACTION_TOKEN_INVALID', status: 400 });
-    return sequelize.transaction(async (transaction) => {
+    // Discover the owning user without locking; all validation is repeated below.
+    // Lock user before token, matching password changes and avoiding deadlocks.
+    const preview = await models.UserActionToken.findOne({ where: { tokenHash: tokenHash(raw), purpose }, attributes: ['userId'] });
+    if (!preview) throw new DomainError('This link is invalid or expired', { code: 'ACTION_TOKEN_INVALID', status: 400 });
+    return mutationTransaction(sequelize, async (transaction) => {
+      const user = await models.User.findByPk(preview.userId, { transaction, lock: transaction.LOCK.UPDATE });
       const record = await models.UserActionToken.findOne({
         where: { tokenHash: tokenHash(raw), purpose }, transaction, lock: transaction.LOCK.UPDATE,
       });
-      if (!record || record.consumedAt || record.expiresAt <= now()) {
+      if (!record || record.userId !== preview.userId || record.consumedAt || record.expiresAt <= now()) {
         throw new DomainError('This link is invalid or expired', { code: 'ACTION_TOKEN_INVALID', status: 400 });
       }
-      const user = await models.User.findByPk(record.userId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!activeUser(user) || user.email !== record.email) {
         throw new DomainError('This link is invalid or expired', { code: 'ACTION_TOKEN_INVALID', status: 400 });
       }
@@ -234,7 +264,7 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
     return { user: publicUser(user), roles: await rolesFor(user) };
   }
 
-  return { register, signIn, signInBusiness: input => signIn(input, true), authenticate, me, sessions, revoke, requestPasswordReset, requestEmailVerification, verifyEmail, resetPassword };
+  return { register, signIn, signInBusiness: input => signIn(input, true), authenticate, me, sessions, revoke, changePassword, requestPasswordReset, requestEmailVerification, verifyEmail, resetPassword };
 }
 
 module.exports = { createAuthService, createPasswordRecord, passwordMatches, signToken, verifyToken };

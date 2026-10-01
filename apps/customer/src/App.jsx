@@ -571,7 +571,6 @@ export default function App() {
             {hasConnections && <button className={view === 'connections' ? 'active' : ''} aria-current={view === 'connections' ? 'page' : undefined} onClick={() => navigateView('connections')}>Connections</button>}
           </nav>
           <div className="header-actions">
-            {!session && <a className="business-nav-link" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a>}
             {session ? (
               <>
                 <Notifications key={session.user.id} session={session} onNotification={openNotification} />
@@ -757,11 +756,7 @@ export default function App() {
           <Brand />
           <p className="copyright">© {new Date().getFullYear()} Nitewide</p>
         </div>
-        <div className="footer-markets">
-          <p>Orlando · Miami · Fort Lauderdale · Tampa</p>
-          <small>Event availability varies by city.</small>
-        </div>
-        {session && <a className="business-nav-link footer-business" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a>}
+        <a className="business-nav-link footer-business" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a>
       </footer>
 
       <Dialog
@@ -1019,6 +1014,7 @@ export default function App() {
         onSuccess={authSuccess}
       />
       <AccountDialog open={walletOpen} onOpenChange={setWalletOpen} session={session}
+        onSessionChanged={(updated) => { setSession(updated); writeStorage('nitewide.session', updated); }}
         onProfile={(user) => { const updated = { ...session, user }; setSession(updated); writeStorage('nitewide.session', updated); }}
         onSignOut={async (everywhere = false) => {
           try { await api(everywhere ? '/auth/sessions/revoke-all' : '/auth/logout', { token: session.accessToken, method: 'POST' }); }

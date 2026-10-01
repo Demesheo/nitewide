@@ -3,6 +3,60 @@ const QRCode = require('qrcode');
 const { urls } = require('../environment.cjs');
 const { checkPasswordVisibility, checkOnboardingPasswords } = require('../password-visibility.cjs');
 
+test('business profile password change rotates the session and preserves workspace access', async ({ page, request, fixture }) => {
+  await login(page, fixture, 'business');
+  const oldToken = await page.evaluate(() => JSON.parse(sessionStorage.getItem('nitewide.business.session')).accessToken);
+  await page.getByRole('button', { name: 'Your profile', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Change password', exact: true })).toHaveCount(0);
+  const originalNamePosition = await page.getByLabel('Name', { exact: true }).boundingBox();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByLabel('Current password', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Change password', exact: true }).click();
+  expect((await page.getByLabel('Name', { exact: true }).boundingBox()).y).toBeCloseTo(originalNamePosition.y, 0);
+  const passwordForm = page.getByRole('form', { name: 'Change password' });
+  if (page.viewportSize().width > 850) expect(await page.locator('.business-profile-dialog').evaluate((element) => element.scrollHeight - element.clientHeight)).toBeLessThanOrEqual(1);
+  await expect(page.getByLabel('Current password', { exact: true })).toHaveAttribute('autocomplete', 'current-password');
+  await page.getByLabel('Current password', { exact: true }).fill(fixture.password);
+  await page.getByLabel('New password', { exact: true }).fill('UpdatedFixturePassword123');
+  await page.getByLabel('Confirm new password', { exact: true }).fill('Mismatch123');
+  await expect(passwordForm.getByRole('button', { name: 'Change password', exact: true })).toBeDisabled();
+  await page.getByLabel('Confirm new password', { exact: true }).fill('UpdatedFixturePassword123');
+  await page.getByRole('button', { name: 'Show new password', exact: true }).click();
+  await expect(page.getByLabel('New password', { exact: true })).toHaveAttribute('type', 'text');
+  await expect(page.getByLabel('Current password', { exact: true })).toHaveAttribute('type', 'password');
+  await page.getByRole('button', { name: 'Hide new password', exact: true }).click();
+  await expectNoOverflow(page);
+  await passwordForm.getByRole('button', { name: 'Change password', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Password changed. Other sessions have been signed out.' })).toBeVisible();
+  const current = await page.evaluate(() => JSON.parse(sessionStorage.getItem('nitewide.business.session')));
+  expect(current.accessToken).not.toBe(oldToken);
+  expect(JSON.stringify(current)).not.toContain('UpdatedFixturePassword123');
+  expect((await request.get(`${urls.api}/api/auth/me`, { headers: { Authorization: `Bearer ${oldToken}` } })).status()).toBe(401);
+  expect((await request.get(`${urls.api}/api/auth/me`, { headers: { Authorization: `Bearer ${current.accessToken}` } })).status()).toBe(200);
+  await page.getByRole('button', { name: 'Your profile', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('button', { name: 'Change password', exact: true }).click();
+  for (const label of ['Current password', 'New password', 'Confirm new password']) await expect(page.getByLabel(label, { exact: true })).toHaveValue('');
+  await expectNoOverflow(page);
+});
+
+test('business profile incorrect current password is retryable and cancel clears secrets', async ({ page, fixture }) => {
+  await login(page, fixture, 'business');
+  await page.getByRole('button', { name: 'Your profile', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('button', { name: 'Change password', exact: true }).click();
+  await page.getByLabel('Current password', { exact: true }).fill('IncorrectPassword123');
+  await page.getByLabel('New password', { exact: true }).fill('UpdatedFixturePassword123');
+  await page.getByLabel('Confirm new password', { exact: true }).fill('UpdatedFixturePassword123');
+  await page.getByRole('form', { name: 'Change password' }).getByRole('button', { name: 'Change password', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText('Current password is incorrect');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('button', { name: 'Change password', exact: true }).click();
+  for (const label of ['Current password', 'New password', 'Confirm new password']) await expect(page.getByLabel(label, { exact: true })).toHaveValue('');
+  await expectNoOverflow(page);
+});
+
 // These use the real production build served by the isolated preview, not a
 // Vite optimizer URL. Only the lazy App asset fails; the entry/recovery code
 // remains available. No auth submission, email, or fixture mutation is needed.

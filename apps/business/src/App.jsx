@@ -262,7 +262,7 @@ export default function App() {
         <DialogContent className="business-profile-dialog">
           <DialogTitle className="sr-only">Your profile</DialogTitle>
           <DialogDescription className="sr-only">View and edit your Nitewide account details.</DialogDescription>
-          <BusinessProfile session={session} capabilities={data?.capabilities} onLogout={(everywhere) => signOut(false, everywhere)} onUpdated={(user) => { const updated = { ...session, user: { ...session.user, ...user } }; sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated)); setSession(updated); }} />
+          <BusinessProfile session={session} capabilities={data?.capabilities} onLogout={(everywhere) => signOut(false, everywhere)} onSessionChanged={(updated) => { sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated)); setProfileOpen(false); setNotice('Password changed. Other sessions have been signed out.'); setSession(updated); }} onUpdated={(user) => { const updated = { ...session, user: { ...session.user, ...user } }; sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated)); setSession(updated); }} />
         </DialogContent>
       </Dialog>
       <nav className="mobile-bottom-nav" aria-label="Business navigation">

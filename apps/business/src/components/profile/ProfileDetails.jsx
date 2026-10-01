@@ -4,12 +4,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { profileConfirmation } from '@/lib/profile-confirmation';
+import { ProfilePassword } from './ProfilePassword';
 
 const emptyConfirmation = () => ({ email: '', phone: '', phoneTouched: false });
 
-export function ProfileDetails({ session, onUpdated, capabilities = {} }) {
+export function ProfileDetails({ session, onUpdated, onSessionChanged, capabilities = {} }) {
   const [editing, setEditing] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [saving, setBusy] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const busy = saving || passwordBusy;
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
   const [verificationMessage, setVerificationMessage] = useState('');
@@ -23,10 +27,11 @@ export function ProfileDetails({ session, onUpdated, capabilities = {} }) {
     setError('');
     setConfirmation(emptyConfirmation());
     setEditing(false);
+    setChangingPassword(false);
   }
   async function submit(event) {
     event.preventDefault();
-    if (!checks.canSave) return;
+    if (busy || !checks.canSave) return;
     setBusy(true);
     setError('');
     setSaved(false);
@@ -41,6 +46,7 @@ export function ProfileDetails({ session, onUpdated, capabilities = {} }) {
       setFields({ displayName: user.displayName, email: user.email, phone: user.phone || '' });
       setConfirmation(emptyConfirmation());
       setEditing(false);
+      setChangingPassword(false);
       setSaved(true);
     } catch (err) {
       setError(err.message);
@@ -63,14 +69,18 @@ export function ProfileDetails({ session, onUpdated, capabilities = {} }) {
       {!session.user.emailVerifiedAt && <Button type="button" variant="outline" disabled={resending || !capabilities.emailConfigured} onClick={resendVerification}>{resending ? 'Queuing…' : 'Resend'}</Button>}
       {!capabilities.emailConfigured && !session.user.emailVerifiedAt && <small>Email delivery is not configured; contact support if verification is required.</small>}
       {verificationMessage && <small>{verificationMessage}</small>}</div>
+    <div className="business-profile-edit-grid" data-editing={editing}>
     <form onSubmit={submit} className="business-profile-form">
       <label className="field"><span>Name</span><Input autoComplete="name" required maxLength={120} disabled={!editing || busy} value={fields.displayName} onChange={(event) => setFields((current) => ({ ...current, displayName: event.target.value }))} /></label>
       <label className="field"><span>Email</span><Input type="email" autoComplete="email" required maxLength={320} disabled={!editing || busy} value={fields.email} onChange={(event) => setFields((current) => ({ ...current, email: event.target.value }))} /></label>
-      {editing && checks.emailChanged && <label className="field"><span>Confirm email</span><Input type="email" autoComplete="off" required maxLength={320} disabled={busy} value={confirmation.email} onChange={(event) => setConfirmation((current) => ({ ...current, email: event.target.value }))} aria-invalid={confirmation.email.length > 0 && !checks.emailMatches} />{confirmation.email.length > 0 && !checks.emailMatches && <small className="business-profile-field-error">Email addresses do not match.</small>}</label>}
       <label className="field"><span>Phone</span><Input type="tel" autoComplete="tel" placeholder="Optional" disabled={!editing || busy} value={fields.phone} onChange={(event) => setFields((current) => ({ ...current, phone: event.target.value }))} /></label>
+      <div className="business-profile-password-row"><label className="field" htmlFor="profile-password-display"><span>Password</span><input id="profile-password-display" type="password" placeholder="••••••••" value="" readOnly disabled autoComplete="off" /></label>{editing && <Button type="button" variant="outline" disabled={busy || changingPassword} aria-expanded={changingPassword} aria-controls="business-password-editor" onClick={() => setChangingPassword(true)}>Change password</Button>}</div>
+      {editing && checks.emailChanged && <label className="field"><span>Confirm email</span><Input type="email" autoComplete="off" required maxLength={320} disabled={busy} value={confirmation.email} onChange={(event) => setConfirmation((current) => ({ ...current, email: event.target.value }))} aria-invalid={confirmation.email.length > 0 && !checks.emailMatches} />{confirmation.email.length > 0 && !checks.emailMatches && <small className="business-profile-field-error">Email addresses do not match.</small>}</label>}
       {editing && checks.phoneChanged && <label className="field"><span>Confirm phone</span><Input type="tel" autoComplete="off" placeholder={fields.phone.trim() ? 'Re-enter phone number' : 'Leave blank to confirm removal'} disabled={busy} value={confirmation.phone} onChange={(event) => setConfirmation((current) => ({ ...current, phone: event.target.value, phoneTouched: true }))} onBlur={() => setConfirmation((current) => ({ ...current, phoneTouched: true }))} aria-invalid={confirmation.phoneTouched && !checks.phoneMatches} />{confirmation.phoneTouched && !checks.phoneMatches && <small className="business-profile-field-error">Phone numbers do not match.</small>}</label>}
       {error && <p className="error" role="alert">{error}</p>}
-      <div className="business-profile-actions">{editing ? <><Button type="button" variant="outline" onClick={cancel} disabled={busy}>Cancel</Button><Button type="submit" disabled={busy || !checks.canSave}>{busy && <LoaderCircle className="nw-loading-icon" aria-hidden="true" />}{busy ? 'Saving…' : 'Save changes'}</Button></> : <Button type="button" variant="outline" onClick={() => { setSaved(false); setEditing(true); }}><Pencil size={16} /> Edit</Button>}</div>
+      <div className="business-profile-actions">{editing ? <><Button type="button" variant="outline" onClick={cancel} disabled={busy}>Cancel</Button><Button type="submit" disabled={busy || !checks.canSave}>{saving && <LoaderCircle className="nw-loading-icon" aria-hidden="true" />}{saving ? 'Saving…' : 'Save changes'}</Button></> : <Button type="button" variant="outline" onClick={() => { setSaved(false); setEditing(true); }}><Pencil size={16} /> Edit</Button>}</div>
     </form>
+    {editing && changingPassword && <div id="business-password-editor"><ProfilePassword session={session} onSessionChanged={onSessionChanged} disabled={saving} onBusyChange={setPasswordBusy} onCancel={() => setChangingPassword(false)} /></div>}
+    </div>
   </section>;
 }

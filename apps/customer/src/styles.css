@@ -849,12 +849,11 @@ h3 {
   padding-top: 16px;
   padding-bottom: 16px;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   justify-content: space-between;
   gap: 16px;
 }
-.footer-markets { text-align: center; }
 .footer-business { justify-self: end; min-height: 44px; }
 .site-footer .brand {
   font-size: 22px;
@@ -1659,23 +1658,6 @@ h3 {
     padding-top: 10px;
     padding-bottom: 12px;
   }
-  .site-footer .footer-markets {
-    grid-column: 2;
-    grid-row: 1;
-    min-width: 0;
-    text-align: right;
-  }
-  .site-footer .footer-business { grid-column: 2; grid-row: 2; }
-  .site-footer:has(.footer-business) {
-    grid-template-columns: auto auto minmax(0, 1fr);
-  }
-  .site-footer:has(.footer-business) .footer-business {
-    grid-column: 2;
-    grid-row: 1;
-  }
-  .site-footer:has(.footer-business) .footer-markets {
-    grid-column: 3;
-  }
   [data-slot="dialog-content"] {
     padding: 23px 20px;
     max-height: 92dvh;
@@ -1857,7 +1839,7 @@ h3 {
 .account-modal > * { flex-shrink: 0; }
 .loading-indicator { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .loading-spinner { flex-shrink: 0; animation: customer-spin .85s linear infinite; }
-.profile-form button[type="submit"]:disabled::before { content: ''; width: 16px; height: 16px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: customer-spin .85s linear infinite; }
+.profile-form button[type="submit"][aria-busy="true"]::before { content: ''; width: 16px; height: 16px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: customer-spin .85s linear infinite; }
 .booked-page { min-height: 65dvh; padding-top: 40px; padding-bottom: 56px; }
 .booked-page-heading { margin-bottom: 28px; }
 .booked-page-heading h1 { font-size: clamp(36px, 6vw, 60px); letter-spacing: -2px; margin: 10px 0; }
@@ -1899,7 +1881,7 @@ main:not([hidden]), .account-modal [role="tabpanel"][data-state="active"],
   .site-header nav button, .period-switch button, [role="tab"], .offering,
   .save-button, .profile-trigger, .purchase-card, .event-card { transition: none; }
 }
-@media (prefers-reduced-motion: reduce) { .loading-spinner, .skeleton-card, .profile-form button[type="submit"]:disabled::before { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .loading-spinner, .skeleton-card, .profile-form button[type="submit"][aria-busy="true"]::before { animation: none; } }
 .account-heading[data-slot="dialog-header"] { display: flex; flex-direction: row; align-items: center; text-align: left; gap: 18px; padding-right: 18px; }
 .account-heading h2 { font-size: clamp(22px, 4vw, 30px); letter-spacing: -1px; margin: 5px 0 8px; }
 .account-heading p { font-size: 12px; }
@@ -1963,6 +1945,18 @@ main:not([hidden]), .account-modal [role="tabpanel"][data-state="active"],
 .profile-form > label { display: grid; gap: 8px; font-size: 12px; margin-top: 18px; }
 .profile-form input:not([type="checkbox"]) { height: 44px; border-radius: 8px; border: 1px solid #ffffff18; background: #ffffff04; padding: 12px; width: 100%; }
 .profile-form input:disabled { opacity: .6; }
+.profile-password-field { display: grid; gap: 8px; font-size: 12px; margin-top: 18px; }
+.profile-password-error { color: #ffc0d6 !important; }
+.profile-password-form > button { margin-top: 16px; }
+.profile-form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 16px; }
+.profile-details-heading h3 { font-size: 20px; }
+.profile-details-heading p { color: var(--text-muted); font-size: 13px; line-height: 1.5; margin: 6px 0 16px; }
+.verification-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; font-size: 13px; }
+.verification-row > button { margin-left: auto; }
+.profile-password-row { margin-top: 18px; }
+.profile-password-row { display: flex; align-items: flex-end; gap: 10px; }
+.profile-password-row > label { display: grid; gap: 8px; font-size: 12px; flex: 1; min-width: 0; }
+.profile-password-row input { height: 44px; border-radius: 8px; border: 1px solid #ffffff18; background: #ffffff04; padding: 12px; width: 100%; }
 .profile-form small { display: block; font-size: 11px; color: var(--text-muted); margin-top: 8px; }
 .profile-form fieldset { border-top: 1px solid #ffffff10; margin: 26px 0; padding-top: 18px; }
 .profile-form legend { font-size: 14px; padding-right: 12px; }
@@ -2047,3 +2041,32 @@ main:not([hidden]), .account-modal [role="tabpanel"][data-state="active"],
   .circle-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 380px) { .site-header .header-actions { gap: 10px; } .site-header .brand { font-size: 22px; } .site-header .brand span { font-size: 26px; } }
+
+@media (min-width: 851px) {
+  .account-modal[data-slot="dialog-content"] { width: min(1120px, calc(100vw - 48px)); max-width: 1120px; height: min(660px, calc(100dvh - 48px)); max-height: calc(100dvh - 48px); padding: 20px; gap: 10px; }
+  .account-modal .profile-avatar.large { width: 48px; height: 48px; }
+  .account-heading h2 { font-size: 26px; margin: 2px 0 4px; }
+  .account-modal .profile-content-grid[data-state="active"] { display: grid; grid-template-columns: minmax(0, 2.5fr) minmax(220px, 1fr); gap: 12px 24px; margin-top: 0; align-items: start; }
+  .customer-profile-edit-grid { display: block; }
+  .account-modal .profile-form { max-width: none; width: 100%; margin: 0; min-width: 0; }
+  .account-modal .customer-profile-edit-grid > .profile-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .account-modal .customer-profile-edit-grid > .profile-form > label, .account-modal .profile-password-row { margin-top: 0; }
+  .account-modal .profile-form-actions { grid-column: 1 / -1; margin-top: 8px; }
+  .account-modal .profile-form h3 { font-size: 18px; }
+  .account-modal .profile-form > p { margin: 6px 0 12px; line-height: 1.45; }
+  .account-modal .profile-form > label, .account-modal .profile-password-field { margin-top: 12px; gap: 5px; }
+  .account-modal .customer-profile-details > .customer-profile-edit-grid > .profile-form > label:first-child { margin-top: 0; }
+  .account-modal .profile-password-form { margin-top: 10px; padding-top: 8px; border-top: 1px solid #ffffff15; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 12px; }
+  .account-modal .profile-password-form > p { grid-column: 1 / -1; margin-bottom: 8px; }
+  .account-modal .profile-form input:not([type="checkbox"]) { height: 40px; }
+  .account-modal .verification-row { font-size: 12px; margin-bottom: 8px; }
+  .account-modal .profile-form > button { margin-top: 12px; }
+  .account-modal .profile-password-row input { height: 40px; }
+  .account-modal .profile-preferences { border-left: 1px solid #ffffff15; padding-left: 24px; }
+  .account-modal .profile-preferences fieldset { display: grid; grid-template-columns: 1fr; gap: 16px; margin: 0; padding: 0; border: 0; }
+  .account-modal .profile-preferences legend { margin-top: 12px; margin-bottom: 16px; font-size: 14px; }
+  .account-modal .consent-choice { margin-bottom: 0; align-items: flex-start; }
+  .account-modal .profile-preferences small { grid-column: 1 / -1; margin: 0; }
+  .account-modal .profile-signout { grid-column: 1 / -1; width: 100%; max-width: none; display: flex; gap: 8px; margin: 0; padding-top: 12px; }
+  .account-modal .profile-message { grid-column: 1 / -1; font-size: 13px; }
+}

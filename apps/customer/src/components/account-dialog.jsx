@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight, LogOut, Ticket, UserRound, RefreshCw } from 'lucide-react';
+import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight, LogOut, Ticket, UserRound, RefreshCw, Pencil } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Tabs, TabsContent } from './ui/tabs';
 import { Button } from './ui/button';
@@ -8,17 +8,21 @@ import { NightCard } from './night-card';
 import { LoadingIndicator } from './loading-indicator';
 import { AdmissionPassView } from './admission-pass-view';
 import { loadPassCache, removePassCache, savePassCache } from '../lib/pass-cache';
+import { ProfilePasswordForm } from './profile-password-form';
 
 export function initials(name = '') { return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase(); }
 function InlineAccount({ children }) { return children; }
 function withPassKind(pass, kind) { return { ...pass, kind: pass.kind || kind }; }
 
-export function AccountDialog({ open, onOpenChange, session, onProfile, onSignOut, embedded = false, notificationBooking, bookingRoute, onBookingRouteChange, onNotificationOpened }) {
+export function AccountDialog({ open, onOpenChange, session, onProfile, onSessionChanged, onSignOut, embedded = false, notificationBooking, bookingRoute, onBookingRouteChange, onNotificationOpened }) {
   const Container = embedded ? InlineAccount : Dialog;
   const Content = embedded ? 'div' : DialogContent;
   const scrollContainer = useRef(null), ticketReturn = useRef(null), restoreTicketPosition = useRef(false);
   const [tab, setTab] = useState(embedded ? 'plans' : 'profile'), [period, setPeriod] = useState('upcoming'), [page, setPage] = useState(1);
-  const [data, setData] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [data, setData] = useState(null), [working, setBusy] = useState(false), [error, setError] = useState('');
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false), [changingPassword, setChangingPassword] = useState(false);
+  const busy = working || passwordBusy;
   const [refresh, setRefresh] = useState(0), [ticket, setTicket] = useState(null), [ticketBusy, setTicketBusy] = useState('');
   const [ticketIndex, setTicketIndex] = useState(0), [cachedPass, setCachedPass] = useState(false);
   const [editingSpots, setEditingSpots] = useState(false), [requestedSpots, setRequestedSpots] = useState(1);
@@ -77,7 +81,7 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSignOu
     window.addEventListener('focus', refreshTickets);
     return () => { controller.abort(); clearInterval(interval); window.removeEventListener('focus', refreshTickets); };
   }, [open, ticket?.id, tab, session?.accessToken]);
-  useEffect(() => { if (open) { setTab(embedded ? 'plans' : 'profile'); setTicket(null); setTicketIndex(0); setCachedPass(false); setError(''); setMessage(''); } }, [open, embedded]);
+  useEffect(() => { setEditingProfile(false); setChangingPassword(false); if (open) { setTab(embedded ? 'plans' : 'profile'); setTicket(null); setTicketIndex(0); setCachedPass(false); setError(''); setMessage(''); } }, [open, embedded]);
   useEffect(() => {
     if (!open || !notificationBooking) return;
     const { ticket: incoming } = notificationBooking;
@@ -143,7 +147,7 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSignOu
     finally { setTicketBusy(''); }
   }
   async function saveProfile(event) {
-    event.preventDefault(); setBusy(true); setError(''); setMessage('');
+    event.preventDefault(); if (busy) return; setBusy(true); setError(''); setMessage('');
     const changedEmail = email.trim().toLowerCase() !== session.user.email;
     const changedPhone = phone !== (session.user.phone || '');
     if (changedEmail && email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) { setBusy(false); setError('Email addresses must match.'); return; }
@@ -152,13 +156,14 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSignOu
       const result = await api('/auth/profile', { token: session.accessToken, method: 'PATCH', body: { displayName: name, email, ...(changedEmail ? { confirmEmail } : {}), phone, ...(changedPhone ? { confirmPhone } : {}) } });
       onProfile(result.user || result);
       setConfirmEmail(''); setConfirmPhone('');
+      setEditingProfile(false); setChangingPassword(false);
       setMessage(changedEmail ? result.verificationMessage || 'Your profile changed. Check your new email for a verification link if delivery is available.' : 'Your profile is updated.');
     }
     catch (error) { setError(error.message); }
     finally { setBusy(false); }
   }
   async function savePreferences(event) {
-    event.preventDefault(); setBusy(true); setError(''); setMessage('');
+    event.preventDefault(); if (busy) return; setBusy(true); setError(''); setMessage('');
     try { const user = await api('/customer/profile', { token: session.accessToken, method: 'PATCH', body: { displayName: session.user.displayName, phone: session.user.phone || '', ...consents } }); onProfile(user); setMessage('Your preferences are updated.'); }
     catch (error) { setError(error.message); }
     finally { setBusy(false); }
@@ -203,23 +208,28 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSignOu
             {data && data.total > 10 && <div className="account-pagination"><Button variant="ghost" disabled={page === 1} onClick={() => setPage(page - 1)}><ChevronLeft /> Previous</Button><span>{page} / {Math.ceil(data.total / 10)}</span><Button variant="ghost" disabled={page * 10 >= data.total} onClick={() => setPage(page + 1)}>Next <ChevronRight /></Button></div>}
           </>}
         </TabsContent>
-        <TabsContent value="profile">
+        <TabsContent value="profile" className="profile-content-grid">
+          <section className="customer-profile-details" aria-label="Profile">
+          <div className="profile-details-heading"><h3>Profile</h3><p>Keep your contact information current for bookings and guestlist updates.</p></div>
+          <div className="verification-row"><strong>Email verification</strong><span>{session?.user.emailVerifiedAt ? 'Verified' : 'Not verified'}</span>{!session?.user.emailVerifiedAt && <Button type="button" variant="ghost" disabled={busy || Boolean(resendCooldown)} onClick={resendVerification}>{resendCooldown ? `Retry in ${resendCooldown}s` : 'Resend'}</Button>}</div>
+          <div className="customer-profile-edit-grid" data-editing={editingProfile}>
           <form className="profile-form" onSubmit={saveProfile}>
-            <h3>Your details</h3><p>Keep your contact information current for bookings and guestlist updates.</p>
-            <label>Display name<input value={name} maxLength={120} required autoComplete="name" onChange={(event) => setName(event.target.value)} /></label>
-            <label>Email<input value={email} type="email" required autoComplete="email" onChange={(event) => setEmail(event.target.value)} /></label>
-            {email.trim().toLowerCase() !== session?.user.email && <label>Confirm new email<input value={confirmEmail} type="email" required autoComplete="off" onChange={(event) => setConfirmEmail(event.target.value)} /></label>}
-            <div className="verification-row"><span>Email: {session?.user.emailVerifiedAt ? 'Verified' : 'Not verified'}</span>{!session?.user.emailVerifiedAt && <Button type="button" variant="ghost" disabled={busy || Boolean(resendCooldown)} onClick={resendVerification}>{resendCooldown ? `Retry in ${resendCooldown}s` : 'Resend verification'}</Button>}</div>
-            <label>Phone number<input value={phone} type="tel" autoComplete="tel" placeholder="+1 (407) 555-0123" onChange={(event) => setPhone(event.target.value)} /></label>
-            {phone !== (session?.user.phone || '') && <label>Confirm new phone<input value={confirmPhone} type="tel" autoComplete="off" required={Boolean(phone)} onChange={(event) => setConfirmPhone(event.target.value)} /></label>}
-            {phone && <small>Phone: {session?.user.phoneVerifiedAt ? 'Verified' : 'Not verified'}</small>}
-            <Button disabled={busy} type="submit">{busy ? 'Saving…' : 'Save details'}</Button>
+            <label>Display name<input value={name} maxLength={120} required autoComplete="name" disabled={!editingProfile || busy} onChange={(event) => setName(event.target.value)} /></label>
+            <label>Email<input value={email} type="email" required autoComplete="email" disabled={!editingProfile || busy} onChange={(event) => setEmail(event.target.value)} /></label>
+            <label>Phone number<input value={phone} type="tel" aria-label="Phone number" aria-describedby={phone ? 'customer-phone-verification' : undefined} autoComplete="tel" placeholder="+1 (407) 555-0123" disabled={!editingProfile || busy} onChange={(event) => setPhone(event.target.value)} />{phone && <small id="customer-phone-verification">Phone: {session?.user.phoneVerifiedAt ? 'Verified' : 'Not verified'}</small>}</label>
+            <div className="profile-password-row"><label htmlFor="customer-password-display">Password<input id="customer-password-display" type="password" placeholder="••••••••" value="" readOnly disabled autoComplete="off" /></label>{editingProfile && <Button type="button" variant="outline" disabled={busy || changingPassword} aria-expanded={changingPassword} aria-controls="customer-password-editor" onClick={() => setChangingPassword(true)}>Change password</Button>}</div>
+            {email.trim().toLowerCase() !== session?.user.email && <label>Confirm new email<input value={confirmEmail} type="email" required autoComplete="off" disabled={busy} onChange={(event) => setConfirmEmail(event.target.value)} /></label>}
+            {phone !== (session?.user.phone || '') && <label>Confirm new phone<input value={confirmPhone} type="tel" autoComplete="off" required={Boolean(phone)} disabled={busy} onChange={(event) => setConfirmPhone(event.target.value)} /></label>}
+            <div className="profile-form-actions">{editingProfile ? <><Button type="button" variant="outline" disabled={busy} onClick={() => { setName(session.user.displayName); setEmail(session.user.email); setPhone(session.user.phone || ''); setConfirmEmail(''); setConfirmPhone(''); setError(''); setEditingProfile(false); setChangingPassword(false); }}>Cancel</Button><Button disabled={busy} aria-busy={working} type="submit">{working ? 'Saving…' : 'Save details'}</Button></> : <Button type="button" variant="outline" onClick={() => { setMessage(''); setEditingProfile(true); }}><Pencil size={16} aria-hidden="true" /> Edit</Button>}</div>
           </form>
+          {editingProfile && changingPassword && <div id="customer-password-editor"><ProfilePasswordForm session={session} open={open} disabled={working} onBusyChange={setPasswordBusy} onCancel={() => setChangingPassword(false)} onSessionChanged={(updated) => { onSessionChanged(updated); setChangingPassword(false); setEditingProfile(false); setMessage('Password changed. Other sessions have been signed out.'); }} /></div>}
+          </div>
+          </section>
           <form className="profile-form profile-preferences" onSubmit={savePreferences}>
+            <h3>Settings</h3>
             <fieldset><legend>Stay in the loop</legend>{[['transactionalSmsConsent','Event and booking reminders by text'], ['marketingSmsConsent','Offers and recommendations by text'], ['marketingConsent','Offers and recommendations by email']].map(([key,label]) => <label className="consent-choice" key={key}><input type="checkbox" checked={Boolean(consents[key])} onChange={(event) => setConsents({ ...consents, [key]: event.target.checked })} />{label}</label>)}<small>Optional. Delivery depends on the messaging services enabled for this environment.</small></fieldset>
-            <Button disabled={busy} type="submit">Save preferences</Button>
+            <Button disabled={busy} aria-busy={working} type="submit">Save preferences</Button>
           </form>
-          <div className="profile-security"><h3>Password</h3><p>If you need a new password, request a reset link from the sign-in screen.</p><Button variant="outline" onClick={async () => { try { await api('/auth/password-reset/request', { body: { email: session.user.email } }); setMessage('If email delivery is available, a reset link will arrive shortly.'); } catch (error) { setError(error.message); } }}>Request password reset</Button></div>
           {message && <p className="profile-message" role="status">{message}</p>}
           <div className="profile-signout"><Button variant="ghost" disabled={busy} onClick={async () => { setBusy(true); try { setError(await onSignOut(false) || ''); } finally { setBusy(false); } }}><LogOut size={16} /> Sign out</Button><Button variant="ghost" disabled={busy} onClick={async () => { setBusy(true); try { setError(await onSignOut(true) || ''); } finally { setBusy(false); } }}>Sign out everywhere</Button></div>
         </TabsContent>

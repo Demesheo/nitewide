@@ -102,7 +102,7 @@ function responseFor(method, path) {
     return entity;
   }
   if (path === '/openapi.json') return record;
-  if (['/auth/register', '/auth/sign-in', '/auth/business/sign-in'].includes(path)) return session;
+  if (['/auth/register', '/auth/sign-in', '/auth/business/sign-in', '/auth/password/change'].includes(path)) return session;
   if (path === '/business/access-requests') return z.object({ message: z.string() });
   if (path === '/admin/business-access/requests') return page(accessRequest);
   if (path === '/admin/business-access/requests/:id') return accessRequest;

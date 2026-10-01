@@ -6,6 +6,7 @@ const { optionalPhone } = require('../domain/phone');
 function registerAccountRoutes({ router, authController, auth, requireUser, models, email, account }) {
   const requireSession = (req, _res, next) => req.authSessionId ? next() : next(new (require('../domain/errors').DomainError)('A signed-in session is required', { code: 'UNAUTHENTICATED', status: 401 }));
   router.post('/auth/logout', requireUser, requireSession, asyncHandler(async (req, res) => res.json({ data: await auth.revoke(req.userId, req.authSessionId) })));
+  router.post('/auth/password/change', requireUser, requireSession, validate(schemas.passwordChange), asyncHandler(async (req, res) => res.json({ data: await auth.changePassword(req.userId, req.authSessionId, req.body) })));
   router.get('/auth/sessions', requireUser, requireSession, asyncHandler(async (req, res) => res.json({ data: await auth.sessions(req.userId, req.authSessionId) })));
   router.post('/auth/sessions/revoke-all', requireUser, requireSession, asyncHandler(async (req, res) => res.json({ data: await auth.revoke(req.userId) })));
   router.delete('/auth/sessions/:sessionId', requireUser, requireSession, asyncHandler(async (req, res) => res.json({ data: await auth.revoke(req.userId, z.uuid().parse(req.params.sessionId)) })));

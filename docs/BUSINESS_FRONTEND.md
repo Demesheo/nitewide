@@ -2,6 +2,14 @@
 
 ## Scope and local startup
 
+### Profile password changes
+
+Open **Your profile → Edit → Change password**, beside the masked password row with your contact fields. The password form stays collapsed until requested, opens below the contact fields without rearranging them, and has its own Cancel action. Enter the current password, a new password (8–128 characters with uppercase, lowercase and a number), and its exact confirmation. Each password has its own visibility toggle. Password changes are submitted separately from contact edits; Cancel or closing the profile clears the unsaved password fields. Desktop uses a compact, stable contact grid alongside Settings, with logout at the bottom; mobile retains a single column with safe scrolling.
+
+`POST /api/auth/password/change` requires a bearer session and `{ currentPassword, password, confirmPassword }`. It returns a replacement session, keeps the initiating Business tab signed in, and revokes all previous sessions across Nitewide. Outstanding password-reset links are invalidated, but email verification links remain valid. Incorrect current passwords do not change credentials or revoke sessions. Changes are audited without password material and share PostgreSQL-backed IP/account limits (30/IP and 5/user per hour, independently of email recovery). No migration or email send is needed.
+
+Coverage: `password-change-integration.test.js` runs in the standard disposable-database API suite; `profile-password-interactions.test.js` exercises mocked component interactions; Business Playwright profile-password scenarios run on iPhone WebKit and desktop Chromium with isolated fixture accounts, never real demo credentials.
+
 Current reporting uses SQL summaries and server-paginated tables. Small CSVs capture a stable dataset before download; exports above 1,000 rows prepare in a durable queue with progress, retry and later download. Apply `202609300005-report-export-jobs` with `npm run db:migrate`, then restart the API; no reseed is required. See [SQL reporting and snapshot exports](REPORTING_EXPORTS.md) for replacement APIs, retention, access controls and measurements.
 
 The business application is a real API-backed React/Vite application, not a static dashboard. It uses the existing single User identity, shadcn/ui components, Radix accessible primitives, Tailwind CSS v4, Lucide icons, and Recharts. Apply the additive `202609210001-event-images` migration; no reseed is needed and existing events/sales are preserved.

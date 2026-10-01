@@ -1,6 +1,6 @@
 # Customer account, tickets, and connections
 
-The customer header uses compact Discover / Booked / Saved navigation, plus Connections for eligible signed-in customers, notifications, and an initials avatar. The avatar opens Profile settings; Booked opens purchases and guestlist entries. Connections has its own feed. There is no separate ticket shortcut. Signed-in customers find For business in the footer; signed-out visitors retain the header link.
+The customer header uses compact Discover / Booked / Saved navigation, plus Connections for eligible signed-in customers, notifications, and an initials avatar. The avatar opens Profile settings; Booked opens purchases and guestlist entries. Connections has its own feed. There is no separate ticket shortcut. All visitors find For business in the footer beside the brand, replacing the former city list.
 
 ## My nights
 
@@ -39,6 +39,10 @@ The feed includes future published, discoverable events for active owners, manag
 Opening a card validates and applies that person's referral code for the destination event. Purchase and guestlist requests use the existing attribution services. The destination event's current commission applies to a new order; historical orders retain their snapshots. Business sales, customer, commission, analytics, and notification records receive the normal checkout updates. Being connected to someone does not grant them access to unrelated customer activity.
 
 ## Profile
+
+The profile follows Business: contact details and a masked password row together, Settings alongside them on desktop, and sign-out actions along the bottom. Click **Edit**, then **Change password** beside the masked field to reveal the password form below the contact fields. The contact grid and modal dimensions remain stable; the form is not open by default. Mobile retains a single readable column and internal scrolling. Normal desktop layouts fit without scrolling; short screens, enlarged text, validation messages or additional confirmation fields may scroll so no controls are clipped.
+
+The signed-in **Change password** form requires the current password and an exact new-password confirmation. The policy is 8–128 characters with uppercase, lowercase and a number. Each field has an independent eye toggle. `POST /api/auth/password/change` replaces the initiating session, revokes other sessions across Nitewide, invalidates outstanding password-reset links, and creates a redacted audit entry. Contact details and preferences have separate save buttons. Closing the profile clears unsaved password fields. The signed-out password-reset flow remains available; no email is sent by a profile password change.
 
 ### Temporary customer demo presentation
 

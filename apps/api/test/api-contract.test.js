@@ -27,6 +27,8 @@ test('request and query contracts retain the actual shared validators and canoni
   const { contracts } = buildContract();
   const find = (method, path) => contracts.find((route) => route.method === method && route.path === path);
   assert.equal(find('post', '/auth/register').requestSchema, schemas.register);
+  assert.equal(find('post', '/auth/password/change').requestSchema, schemas.passwordChange);
+  assert.equal(find('post', '/auth/password/change').authenticated, true);
   assert.equal(find('post', '/orders').requestSchema, schemas.checkout);
   assert.equal(find('post', '/business/events').requestSchema, business.eventEditor);
   assert.equal(find('get', '/business/reports/:table').querySchema, business.reportDetailQuery);

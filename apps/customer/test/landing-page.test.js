@@ -58,9 +58,11 @@ test('event details place the title beside a right-aligned close control on iPho
   assert.match(css, /\.event-modal\[data-event-stage="details"\] > \[data-slot="dialog-close"\] svg\s*\{[^}]*width: 18px;[^}]*height: 18px;/);
 });
 
-test('iPhone footer keeps the cities in a right-aligned column beside the brand', async () => {
-  const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
-  assert.match(css, /\.site-footer\s*\{\s*grid-template-columns: auto minmax\(0, 1fr\);/);
-  assert.match(css, /\.site-footer \.footer-markets\s*\{[^}]*grid-column: 2;[^}]*grid-row: 1;[^}]*text-align: right;/);
-  assert.match(css, /\.site-footer:has\(\.footer-business\)\s*\{\s*grid-template-columns: auto auto minmax\(0, 1fr\);/);
+test('footer replaces the city list with business navigation for all accounts', async () => {
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const footer = app.match(/<footer className="site-footer wrap">([\s\S]*?)<\/footer>/)[1];
+  assert.match(footer, /<Brand \/>/);
+  assert.doesNotMatch(footer, /footer-markets|Orlando · Miami/);
+  assert.match(footer, /footer-business[^]*?For business/);
+  assert.doesNotMatch(app.match(/<div className="header-actions">([\s\S]*?)<\/header>/)[1], /For business/);
 });
