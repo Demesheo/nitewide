@@ -35,6 +35,25 @@ test('browser container preserves loopback isolation, sequential tests and exact
   assert.throws(() => containerPlan({ ...options, workspace: '/workspace,unsafe' }), /safe absolute/);
 });
 
+test('CI separates all six browser projects into isolated per-app jobs without increasing database concurrency', () => {
+  const groups = ['customer', 'business', 'admin-rebuild'];
+  assert.match(section('browser'), /app: \[customer, business, admin-rebuild\]/);
+  assert.match(section('browser'), /fail-fast: false/);
+  assert.match(section('browser'), /group: demo-browser-\$\{\{ matrix\.app \}\}-\$\{\{ github\.ref \}\}/);
+  assert.match(section('browser'), /PLAYWRIGHT_PROJECT_GROUP: \$\{\{ matrix\.app \}\}/);
+  assert.match(section('browser'), /name: playwright-results-\$\{\{ matrix\.app \}\}/);
+  assert.match(section('browser'), /services:\s+postgres:/);
+  const coveredProjects = [];
+  for (const group of groups) {
+    const { args } = containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: group } });
+    assert.deepEqual(args.slice(-6), ['npm', 'run', 'test:e2e', '--', `--project=${group}-iphone`, `--project=${group}-desktop`]);
+    assert.doesNotMatch(args.join(' '), /never-forward|live\.example|--workers|--fully-parallel/);
+    coveredProjects.push(...args.filter(argument => argument.startsWith('--project=')).map(argument => argument.slice('--project='.length)));
+  }
+  assert.deepEqual(coveredProjects, require('../../../playwright.config.cjs').projects.map(project => project.name));
+  assert.throws(() => containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: 'customer --workers=4' } }), /supported browser project group/);
+});
+
 test('all parallel verification jobs gate publication without registry writes or duplicate builds', () => {
   assert.match(section('verify'), /needs: \[unit, browser, build\]/);
   assert.match(section('verify'), /if: \$\{\{ always\(\) \}\}/);

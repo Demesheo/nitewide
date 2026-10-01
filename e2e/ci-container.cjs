@@ -14,6 +14,9 @@ function containerPlan({ source = process.env, workspace = path.resolve(__dirnam
   if (!path.isAbsolute(workspace) || !path.isAbsolute(nodeExecutable) || [workspace, nodeExecutable].some(value => /[,\n\r]/.test(value))) throw new Error('Container mounts require safe absolute paths.');
   const nodeRoot = path.dirname(path.dirname(nodeExecutable));
   const databaseUrl = maintenanceUrl(source);
+  const projectGroup = source.PLAYWRIGHT_PROJECT_GROUP;
+  if (projectGroup && !['customer', 'business', 'admin-rebuild'].includes(projectGroup)) throw new Error('Select a supported browser project group: customer, business, or admin-rebuild.');
+  const projectArguments = projectGroup ? ['--', `--project=${projectGroup}-iphone`, `--project=${projectGroup}-desktop`] : [];
   return { image: expectedImage, args: [
     'run', '--rm', '--pull=never', '--init', '--ipc=host', '--network=host',
     '--mount', `type=bind,source=${workspace},target=${workspace}`,
@@ -25,7 +28,7 @@ function containerPlan({ source = process.env, workspace = path.resolve(__dirnam
     '--env', 'CI=true', '--env', 'NODE_ENV=test',
     '--env', 'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
     '--env', `TEST_DATABASE_ADMIN_URL=${databaseUrl}`,
-    expectedImage, 'npm', 'run', 'test:e2e',
+    expectedImage, 'npm', 'run', 'test:e2e', ...projectArguments,
   ] };
 }
 

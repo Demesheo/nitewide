@@ -102,11 +102,11 @@ it may still be needed.
    do not also dispatch another run unless you deliberately want a rebuild.
 2. To rebuild existing `main`, open [Actions → Demo image](https://github.com/Demesheo/nitewide/actions/workflows/demo-image.yml),
    choose **Run workflow**, select **main**, then start the run.
-3. Wait for **Unit and API tests**, **Browser regression tests**, and **Build demo
+3. Wait for **Unit and API tests**, all three **Browser regression tests** jobs, and **Build demo
    image once** to pass in parallel, followed by **verify**, **publish**, and **deploy**.
    Verification includes database migrations/integration tests, customer/business
-   iPhone/WebKit and desktop/Chromium projects, all three frontend builds, and
-   runtime-image smoke checks. Admin browser tests are paused during its rework.
+   and rebuilt-admin iPhone/WebKit and desktop/Chromium projects, all three frontend builds, and
+   runtime-image smoke checks. Legacy admin screen tests remain paused; dedicated rebuilt-admin workflows are required.
    Publication reuses that checked image rather than rebuilding it.
 4. Open [the Render service](https://dashboard.render.com/web/srv-daq3nmo473hc73cgqgk0)
    in **My Workspace** and wait for its newest deployment to show **Live**.

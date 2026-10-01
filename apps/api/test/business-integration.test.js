@@ -1,14 +1,15 @@
-// Opt in against the LOCAL development database. Only this test's UUID-scoped
-// fixtures are removed; no seed, truncate, or existing-record updates occur.
+// Runs against the managed isolated test database, never development/demo data.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { request: httpRequest } = require('./support/http-client.cjs');
 const { randomUUID } = require("node:crypto");
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
+const { createDemoStaticFixture } = require('./support/demo-static-fixture.cjs');
 test(
   "business HTTP workflow: real PostgreSQL, authentication, isolation, sales, create/edit and approvals",
-  async () => {
+  async (t) => {
     assertManagedTestDatabase();
+    const staticRoot = await createDemoStaticFixture(t);
     require("dotenv").config({
       path: require("node:path").resolve(__dirname, "../../../.env"),
     });
@@ -128,6 +129,7 @@ test(
       const app = createApp({
         sequelize,
         models: m,
+        staticRoot,
         config: {
           ...config,
           NODE_ENV: "production",

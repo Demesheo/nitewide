@@ -8,9 +8,11 @@ const path = require('node:path');
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 const { signToken, createPasswordRecord } = require('../src/services/auth-service');
 const { aggregateAdminSales } = require('../src/services/admin-service');
+const { createDemoStaticFixture } = require('./support/demo-static-fixture.cjs');
 
-test('admin onboarding, scoped edits, and lifecycle transitions preserve authorization and history', async () => {
+test('admin onboarding, scoped edits, and lifecycle transitions preserve authorization and history', async (t) => {
   assertManagedTestDatabase();
+  const staticRoot = await createDemoStaticFixture(t);
   require('dotenv').config({ path: path.resolve(__dirname, '../../../.env') });
   const { getConfig } = require('../src/config');
   const { createSequelize } = require('../src/db/sequelize');
@@ -51,6 +53,7 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
 
     const app = createApp({
       sequelize, models,
+      staticRoot,
       config: { ...config, NODE_ENV: 'production', hostedDemo: true, MEDIA_UPLOAD_DIR: mediaDir }, // Production authentication with explicit simulated paid-event fixtures.
       services: { email },
     });
