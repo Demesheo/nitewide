@@ -75,9 +75,9 @@ function createAdminOnboardingService({ models, permissions, email = null, custo
     if (membership?.role === 'owner' && active(membership)) throw conflict('This account is already an owner', 'ALREADY_ORGANIZATION_OWNER');
     return issue(actor, user, accountMode, { ...grants, incomingUserVersion: user.version, incomingMembershipVersion: membership?.version ?? null, incomingMembershipId: membership?.id || null, incomingEmployeeId: employee?.id || null, incomingEmployeeVersion: employee?.version ?? null, incomingAffiliateId: affiliate?.id || null, incomingAffiliateVersion: affiliate?.version ?? null }, explanation, tx);
   }
-  async function create(actor, body) {
+  async function create(actor, body, suppliedTransaction = null) {
     await permissions.assertInternal(actor); const input = onboardingSchema.parse(body);
-    return transaction(async (tx) => {
+    const work = async (tx) => {
       await permissions.assertInternal(actor, tx);
       const { user, accountMode } = await prepareRecipient(input.recipient, tx);
       const grants = { kind: input.kind, independentCreator: false, isInternalAdmin: input.isInternalAdmin, ...(input.isInternalAdmin ? { internalAdminRole: input.internalAdminRole || 'platform_owner' } : {}) };
@@ -95,7 +95,12 @@ function createAdminOnboardingService({ models, permissions, email = null, custo
         await models.AuditLog.create({ actorUserId: actor, organizationId: organization.id, entityType: 'Organization', entityId: organization.id, action: 'admin.organization.onboarded', after: { name: organization.name, businessType: organization.businessType, recipientUserId: user.id, initialRole: grants.role, financeAuthorized: grants.financeAuthorized, confirmedAuthority: true, adminReason: input.reason } }, { transaction: tx });
       }
       return issue(actor, user, accountMode, grants, input.reason, tx);
-    });
+    };
+    if (suppliedTransaction) {
+      await require('./mutation-transaction').authorizationFence(models.User.sequelize, suppliedTransaction, true);
+      return work(suppliedTransaction);
+    }
+    return transaction(work);
   }
   async function lookup(raw, tx) {
     z.string().min(20).max(200).parse(raw);

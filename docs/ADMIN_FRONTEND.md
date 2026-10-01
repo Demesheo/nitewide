@@ -20,7 +20,7 @@ Seed only when deliberately preparing a demo database (`npm run db:seed`), not a
 | Section | Purpose |
 | --- | --- |
 | Overview | Financial/performance metrics and admin-specific attention items. |
-| Businesses | Searchable, paginated organization directory, profile, ownership/finance and venue management. |
+| Businesses | Organization directory, profile, ownership/finance, venues and Access requests awaiting manual review. |
 | Events | Inspect the flyer, edit with the full shared creator editor, cancel/archive with history retained. |
 | People | Inspect identities, access and bookings; invite, edit, suspend/archive within staff permissions. |
 | Support | Cases, record links, priorities, status, assignment and audited history. |
@@ -34,6 +34,12 @@ Detail pages have related tabs and contextual actions. Returning preserves direc
 All new businesses use one organization workspace, including solo creators and promotion groups. Organizations can have zero, one or many exclusive managed venues. Business type, server-generated slugs and the legacy default-location pointer are not normal editing controls. Existing stored classifications/identities remain compatibility data. Events may use their own physical name/address without claiming ownership of that location.
 
 Onboarding accepts an initial owner or manager. The contact verifies email and sets their own password, or signs into the matching existing account before accepting access. Admin never chooses or receives the password or setup token. Secure ownership additions/transfers activate only after acceptance; transfers explicitly retain the outgoing owner as manager/employee or remove access. Manager finance permission is separate.
+
+### Business access requests
+
+Businesses → Access requests provides a searchable, status-filtered, server-paginated review queue; pending requests also appear in Overview's admin-specific Needs attention list. Open a request to read the contact, intended role and business description. Authorized platform owners can approve through the existing onboarding form, verify the applicant's authority, configure optional venues and record a reason, or decline with a reason. Support, operations and read-only staff may inspect but cannot grant access.
+
+Request submission does not send mail or create a business. Approval atomically creates the organization and secure invitation and requires queued delivery; unavailable delivery leaves the request pending and preserves the form for retry. A stale review returns a conflict rather than creating duplicate access. Approval is not activation: the invited contact must verify/accept access before entering Business. The submitted email is locked during review; ordinary manual onboarding remains available for separately verified contacts.
 
 Venue lists and team choices are searchable and server-paginated. Venue-only assignments do not create organization-wide membership or grant another venue's operations/finance access. Physical event-location snapshots remain distinct from managed-venue ownership. See [Internal admin management](ADMIN_MANAGEMENT.md) for boundaries.
 
@@ -49,7 +55,7 @@ Tables paginate in SQL. CSVs include the full authorized filtered result, not th
 
 No permanent-delete UI/API. Suspension/archive retain IDs, bookings, admissions and audit. Organization suspension blocks new sales, invitations and business changes while honoring existing passes/admissions; event cancellation is separate. Credential/QR hashes, provider identifiers, encrypted email payloads and storage keys are not editable. Contact-change, last-owner/admin, capacity and pricing protections are enforced server-side.
 
-Platform owner has full access; operations manages events and reads reports; support manages cases and inspects directories; read-only inspects directories/reports/cases/audit. Ownership, finance and staff access changes remain platform-owner controls. Future self-service business applications, customer/business support intake, Stripe Connect, reconciliation, disputes/refunds and step-up controls are separate phases.
+Platform owner has full access; operations manages events and reads reports; support manages cases and inspects directories; read-only inspects directories/reports/cases/audit. Ownership, finance and staff access changes remain platform-owner controls. Full self-service business configuration, customer/business support intake, Stripe Connect, reconciliation, disputes/refunds and step-up controls are separate phases; the current Request access form is a review intake, not self-service provisioning.
 
 ## Verification
 

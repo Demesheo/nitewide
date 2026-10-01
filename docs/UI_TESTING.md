@@ -1,6 +1,6 @@
 # Automated browser testing
 
-Playwright exercises the customer, business, and rebuilt admin apps through real browser interactions, API routes, authentication, migrations and PostgreSQL. Legacy admin specs remain paused; `admin-rebuild.spec.cjs` covers the new workflows. External email is mocked; **zero Resend quota is consumed**. There are no live payments or SMS sends.
+Playwright exercises the customer, business, and rebuilt admin apps through real browser interactions, API routes, authentication, migrations and PostgreSQL. Legacy admin specs remain paused; `admin-rebuild.spec.cjs` and `admin-access-requests.spec.cjs` cover the new workflows. External email is mocked; **zero Resend quota is consumed**. There are no live payments or SMS sends.
 
 ## Run locally
 
@@ -45,6 +45,8 @@ Customer workflows cover sign-in/session persistence, registration/password conf
 
 Business workflows cover navigation/URL cleanup, chart switching, backend team pagination, manager referrals/personal-pool invitations, explicit analytics search, drill-down, full CSV export, manual admissions, customer admission status, real QR-photo decoding for valid/fake/wrong-event/repeat codes, promoter access and offering-editor interactions.
 
+`business-access.spec.cjs` exercises approved-only sign-in, customer/session denial, public request submission and the invitation authentication exception. `admin-access-requests.spec.cjs` exercises manual review, approval and review permission/error states. Negative UI cases use controlled API responses; a real-API approval case on each viewport verifies that queuing the invitation does not grant access before acceptance. Required API/database integration tests separately verify actual new-account and existing-account acceptance. Both browser specs run on iPhone/WebKit and desktop/Chromium with disposable requests and mocked delivery; none of these tests dispatch real email or consume sending quota.
+
 Business startup regressions deliberately fail a production workspace module download and inject a route-render failure in both WebKit and Chromium. The eagerly loaded recovery screen must stay visible, retain the current URL and stored session, hide private error details, and reload only when requested. Chromium verifies recovery after a transient module failure. The tested WebKit build can retain a failed module across reloads: its regression verifies that the retry remains safe and the recovery screen stays usable, not that reload always restores the workspace. Persistent failure includes guidance to reopen the browser and, if necessary, sign in again. These do not replace API-error handling: an ordinary rejected request must not destroy a healthy sign-in form or erase a typed password. A static startup message remains in the HTML if JavaScript cannot boot at all.
 
 Offline HTTP tests also enforce the hosted release cache policy: entry HTML is `no-store`, fingerprinted JavaScript/CSS is immutable, unversioned assets revalidate, and missing assets return an uncached 404 rather than an application HTML document. The browser recovery screen cannot restore an unavailable server; it gives a safe path to retry after the connection or deployment recovers.
@@ -85,7 +87,7 @@ For agent-assisted browser work, use an owned Codex side tab when manual investi
 
 ## CI/CD and diagnostics
 
-`.github/workflows/demo-image.yml` runs unit/API tests, all four active browser projects, and the cached production image build in three parallel jobs. The two test jobs have separate ephemeral PostgreSQL services. The `verify` gate fails unless all three jobs pass; no image is published and no Render request is made before that gate passes. Browser tests remain single-worker because each test resets its own job's database.
+`.github/workflows/demo-image.yml` runs unit/API tests, all six active browser projects, and the cached production image build in three parallel jobs. The two test jobs have separate ephemeral PostgreSQL services. The `verify` gate fails unless all three jobs pass; no image is published and no Render request is made before that gate passes. Browser tests remain single-worker because each test resets its own job's database.
 
 The browser job pulls `mcr.microsoft.com/playwright:v1.63.0-noble`, which already contains browsers and Linux dependencies. It does not run `playwright install --with-deps` or download Ubuntu packages. `e2e/ci-container.cjs --check` rejects an image version that differs from the installed `@playwright/test` version. When upgrading Playwright, update both the lockfile and `PLAYWRIGHT_CONTAINER_IMAGE` in the workflow. The Linux container mounts the checked-out repository and the exact Node/npm installation from `setup-node`, preserving Node 24.21.0 and npm 12.1.0 rather than using the image's bundled runtime. Host networking keeps the database and app URLs on loopback; provider credentials are not forwarded.
 

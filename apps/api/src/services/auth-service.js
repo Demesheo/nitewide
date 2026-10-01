@@ -93,10 +93,11 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
     return roles;
   }
 
-  async function sessionFor(user, expectedCredential) {
-    return sequelize.transaction(async (transaction) => {
+  async function sessionFor(user, expectedCredential, business = false) {
+    return mutationTransaction(sequelize, async (transaction) => {
       const current = await models.User.findByPk(user.id, { transaction, lock: transaction.LOCK.UPDATE });
       if (!activeUser(current)) throw new DomainError('Session is invalid or expired', { code: 'UNAUTHENTICATED', status: 401 });
+      if (business) await require('./business-access-policy').assertBusinessAccess(models,current.id,transaction,current);
       const issuedAt = Math.floor(now().getTime() / 1000);
       const expiresAt = issuedAt + TOKEN_TTL_SECONDS;
       const credential = await models.UserCredential.findByPk(user.id, { transaction, lock: transaction.LOCK.UPDATE });
@@ -130,7 +131,7 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
     return { ...await sessionFor(user), verificationEmailQueued, ...(guestlistInvite ? { guestlistInvite } : {}) };
   }
 
-  async function signIn(input) {
+  async function signIn(input, business = false) {
     const user = await models.User.findOne({ where: { email: input.email.trim().toLowerCase() } });
     const credential = user ? await models.UserCredential.findByPk(user.id) : null;
     // Unknown and inactive accounts still incur password work, avoiding a cheap
@@ -139,7 +140,7 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
     if (!activeUser(user) || !credential || !matches) {
       throw new DomainError('Email or password is incorrect', { code: 'INVALID_CREDENTIALS', status: 401 });
     }
-    return sessionFor(user, credential);
+    return sessionFor(user, credential, business);
   }
 
   async function authenticate(accessToken) {
@@ -233,7 +234,7 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
     return { user: publicUser(user), roles: await rolesFor(user) };
   }
 
-  return { register, signIn, authenticate, me, sessions, revoke, requestPasswordReset, requestEmailVerification, verifyEmail, resetPassword };
+  return { register, signIn, signInBusiness: input => signIn(input, true), authenticate, me, sessions, revoke, requestPasswordReset, requestEmailVerification, verifyEmail, resetPassword };
 }
 
 module.exports = { createAuthService, createPasswordRecord, passwordMatches, signToken, verifyToken };

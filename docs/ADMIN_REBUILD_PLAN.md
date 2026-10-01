@@ -50,6 +50,8 @@ Collect the business/creator name, applicant name and role, verified email, phon
 
 Admin supplies the business configuration. The recipient verifies their email and sets their own password, or accepts access through their existing account. The business completes its own Stripe onboarding when payments are integrated. Account activation, business approval, and Stripe readiness are separate states.
 
+Business sign-in requires current approved/onboarded business access, not merely an existing Customer account. The public Request access form now collects an application for manual Admin review. It does not grant a draft workspace or self-provision an organization. Admin approval uses the existing secure onboarding invitation, with access activated only after acceptance. Full self-service configuration remains a later phase.
+
 Future self-service onboarding will let an owner, manager, or independent creator configure their business and draft events before submitting for manual admin review. Publication requires approval; paid sales additionally require Stripe readiness. Review actions are Approve, Request changes, and Decline. Admin-created businesses can bypass application review because the administrator has already reviewed them.
 
 ## Suspension and support

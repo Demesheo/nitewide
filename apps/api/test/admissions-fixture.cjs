@@ -11,7 +11,7 @@ async function createFixture(m, config) {
   await m.Event.sequelize.transaction(async (transaction) => {
     const options = { transaction };
     for (const key of ['owner', 'manager', 'employee', 'promoter', 'admin', 'independentCreator', 'guest', 'pendingGuest', 'outsider']) {
-      await m.User.create({ id: ids[key], email: `${key}.${ids.org}@admissions.nitewide.test`, displayName: `Admissions QA ${key}`, isActive: true, isInternalAdmin: key === 'admin' }, options);
+      await m.User.create({ id: ids[key], email: `${key}.${ids.org}@admissions.nitewide.test`, displayName: `Admissions QA ${key}`, isActive: true, isInternalAdmin: key === 'admin', independentCreator: key === 'independentCreator' }, options);
       await m.UserCredential.create({ userId: ids[key], ...await createPasswordRecord('NitewideDemo!2026') }, options);
     }
     await m.Organization.create({ id: ids.org, name: 'Admissions QA', slug: `admissions-${ids.org}` }, options);

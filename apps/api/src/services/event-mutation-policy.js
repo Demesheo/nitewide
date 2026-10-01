@@ -8,6 +8,7 @@ const { assertEditorPricing } = require('../domain/editor-pricing-policy');
 async function authorizeEventWrite({ models, permissions, userId, event, organizationId, locationId, transaction, now = new Date() }) {
   const actor = await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.SHARE || 'SHARE' });
   if (!activeUser(actor)) throw forbidden('An active account is required');
+  if (permissions.assertBusinessAccess) await permissions.assertBusinessAccess(userId, transaction);
   if (actor.isInternalAdmin && permissions.assertInternalPermission) await permissions.assertInternalPermission(userId, 'events.manage', transaction);
   else if (event) await permissions.assertManageEvent(userId, event.id, transaction);
   else if (organizationId) {

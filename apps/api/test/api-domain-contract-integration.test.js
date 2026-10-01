@@ -80,7 +80,7 @@ test('domain HTTP contracts and legacy/new authorization share the same database
     });
     await t.test('malformed params and unauthorized access return structured failures', async () => {
       await api('get', '/business/events/not-a-uuid/summary').expect(422);
-      await api('get', `/business/events/${eventId}/summary`, customer).expect(404);
+      await api('get', `/business/events/${eventId}/summary`, customer).expect(403);
       const unsupported = await api('get', '/business/reports/regions').query({ sort: 'commission_desc' }).expect(400);
       assert.equal(unsupported.body.error.code, 'UNSUPPORTED_REPORT_SORT');
     });

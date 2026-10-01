@@ -6,6 +6,7 @@ const { DomainError } = require('../domain/errors');
 const POLICIES = {
   login: { seconds: 900, ip: 60, account: 30, pair: 10 },
   registration: { seconds: 3600, ip: 20, account: 5 },
+  access_request: { seconds: 86400, ip: 20, account: 3 },
   recovery: { seconds: 3600, ip: 30, account: 5, user: 5 },
   invitation: { seconds: 3600, ip: 300, user: 100 },
   upload: { seconds: 3600, ip: 120, user: 40 },
@@ -24,7 +25,8 @@ function clientNetwork(value) {
 function routePolicy(method, path) {
   if (method === 'HEAD') method = 'GET'; // Express executes GET handlers for HEAD.
   path = path.toLowerCase().replace(/\/+$/, '');
-  if (method === 'POST' && path === '/auth/sign-in') return 'login';
+  if (method === 'POST' && ['/auth/sign-in','/auth/business/sign-in'].includes(path)) return 'login';
+  if (method === 'POST' && path === '/business/access-requests') return 'access_request';
   if (method === 'POST' && path === '/auth/register') return 'registration';
   if (method === 'POST' && /^\/auth\/(password-reset|email|onboarding)/.test(path)) return 'recovery';
   if (/^\/auth\/sessions/.test(path) || path === '/auth/logout') return 'session';

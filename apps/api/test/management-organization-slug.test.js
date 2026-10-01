@@ -8,7 +8,7 @@ test('legacy organization creation always generates distinct safe slugs and pres
     Organization: { sequelize: { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: 'UPDATE' } }) },
       create: async (values) => { const row = { id: rows.length, ...values, toJSON() { return { ...this }; } }; rows.push(row); return row; } },
     OrganizationOwner: { create: async () => {} }, AuditLog: { create: async () => {} } };
-  const service = createManagementService({ models, permissions: {} });
+  const service = createManagementService({ models, permissions: { assertInternal: async () => {} } });
   const first = await service.createOrganization('user', {}, { name: 'Same Name', slug: 'client-override' });
   const second = await service.createOrganization('user', {}, { name: 'Same Name' });
   assert.match(first.slug, /^same-name-[a-f0-9-]{36}$/); assert.notEqual(first.slug, second.slug);

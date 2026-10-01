@@ -10,6 +10,7 @@ const editSchemas = require('../services/admin-edit-service').schemas;
 const { scopedRoleSchema } = require('../services/admin-role-service');
 const adminReports = require('./admin-report-schemas');
 const adminSupport = require('./admin-support-schemas');
+const businessAccess = require('./business-access-schemas');
 const { venuePageSchema } = require('../services/business-venue-service');
 
 const uuid = z.uuid();
@@ -37,12 +38,21 @@ const exportJob = z.object({ id: uuid, status: z.enum(['queued', 'snapshotting',
   totalRows: count, processedRows: count, progress: count, snapshotAt: dateTime.nullable(),
   createdAt: dateTime, expiresAt: dateTime, filename: z.string().nullable(), error: z.string().nullable(),
   statusUrl: z.string(), downloadUrl: z.string() });
+const accessRequest = z.object({ id: uuid, displayName: z.string(), email: z.email(), phone: z.string(), businessName: z.string(),
+  role: z.enum(['owner','manager']), details: z.string(), status: z.enum(['pending','approved','declined']), version: count,
+  reviewedByUserId: uuid.nullable(), reviewedAt: dateTime.nullable(), reviewReason: z.string().nullable(),
+  organizationId: uuid.nullable(), onboardingInvitationId: uuid.nullable(), createdAt: dateTime, updatedAt: dateTime });
+const onboardingInvitation = z.object({ id: uuid, userId: uuid, email: z.email(), accountMode: z.enum(['new','existing']),
+  organizationId: uuid.nullable(), role: z.enum(['owner','manager']).nullable(), financeAuthorized: z.boolean(),
+  ownershipIntent: z.string().nullable(), outgoingOwnerUserId: uuid.nullable(), outgoingRole: z.string().nullable(),
+  expiresAt: dateTime, acceptedAt: dateTime.nullable(), revokedAt: dateTime.nullable(), version: count,
+  delivery: z.enum(['queued','unavailable']).optional() });
 const envelope = (data) => z.object({ data });
 const error = z.object({ error: z.object({ code: z.string(), message: z.string(), requestId: z.string().optional(), details: z.json().optional() }) });
 
 // Concrete shared wire models are executable with safeParse at HTTP boundaries.
 // Dynamic management resources retain JSON extension fields by design.
-const responses = { entity, event, offering, user, session, guest, sales, reportRow, exportJob, error, page, envelope };
+const responses = { entity, event, offering, user, session, guest, sales, reportRow, exportJob, accessRequest, onboardingInvitation, error, page, envelope };
 const queries = {
   '/events': z.union([publicQuery.discoveryQuery, publicQuery.legacyDiscoveryQuery]), '/events/batch': publicQuery.batchQuery,
   '/customer/bookings': domainQuery.bookings, '/customer/saved': domainQuery.saved, '/customer/saved/ids': domainQuery.savedIds,
@@ -64,6 +74,7 @@ const queries = {
   '/admin/support/cases': adminSupport.caseQuery,
   '/admin/support/cases/:id/history': adminSupport.historyQuery,
   '/admin/overview/needs-attention': adminSupport.attentionQuery,
+  '/admin/business-access/requests': businessAccess.query,
   '/business/analytics': analyticsQuery, '/admin/analytics': analyticsQuery,
   '/admin/workspace': admin.reportQuery, '/admin/operations': admin.operationsQuery,
   '/admin/management/:resource': managed.querySchema,
@@ -91,7 +102,12 @@ function responseFor(method, path) {
     return entity;
   }
   if (path === '/openapi.json') return record;
-  if (['/auth/register', '/auth/sign-in'].includes(path)) return session;
+  if (['/auth/register', '/auth/sign-in', '/auth/business/sign-in'].includes(path)) return session;
+  if (path === '/business/access-requests') return z.object({ message: z.string() });
+  if (path === '/admin/business-access/requests') return page(accessRequest);
+  if (path === '/admin/business-access/requests/:id') return accessRequest;
+  if (path === '/admin/business-access/requests/:id/approve') return z.object({ request: accessRequest, invitation: onboardingInvitation });
+  if (path === '/admin/business-access/requests/:id/decline') return z.object({ request: accessRequest });
   if (path === '/auth/me') return z.object({ user, roles });
   if (path === '/auth/sessions') return z.array(z.object({ id: uuid, current: z.boolean(), createdAt: dateTime, expiresAt: dateTime }));
   if (path === '/auth/logout' || path.includes('/auth/sessions/')) return z.object({ revoked: z.literal(true) });

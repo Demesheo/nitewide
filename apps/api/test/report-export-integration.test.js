@@ -127,7 +127,7 @@ test('scaled SQL reports and durable snapshot exports', { timeout: 180000 }, asy
       id = queued.body.data.id;
       assert.equal(queued.body.data.status, 'queued');
       await request(`/api/business/reports/exports/${id}/download`).expect(409);
-      await request(`/api/business/reports/exports/${id}`, ids.outsider).expect(404);
+      await request(`/api/business/reports/exports/${id}`, ids.outsider).expect(403);
       // Inject a real purchase after the first durable render checkpoint.
       const original = db.query.bind(db); let inserted = false;
       db.query = async (sql, options) => {

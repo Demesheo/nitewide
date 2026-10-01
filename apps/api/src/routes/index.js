@@ -42,6 +42,7 @@ function createRouter(options) {
   const context = { router, publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl, businessAppUrl, qrTokenSecret, deliveryTrackingConfigured, business, businessRead, businessReports, adminReports, reportExports, businessTeamRead, businessEventReuse, businessEventRead, businessInstructionsRead, admin, adminSupport, analytics, team, eventWorkspace, referralLinks, account, saved, admissions };
   require('./public').registerPublicRoutes(context);
   require('./account').registerAccountRoutes(context);
+  require('./business-access').registerBusinessAccessRoutes(context);
   require('./customer').registerCustomerRoutes(context);
   require('./admissions').registerAdmissionsRoutes(context);
   require('./reporting').registerReportingRoutes(context);

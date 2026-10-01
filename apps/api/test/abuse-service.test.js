@@ -9,6 +9,7 @@ test('IPv6 privacy addresses share a /64; IPv4 mapped addresses normalize', () =
 test('sensitive endpoint classification covers uploads, exports, invitations and authentication', () => {
   for (const [method, path, group] of [
     ['POST', '/auth/sign-in', 'login'], ['POST', '/auth/register', 'registration'],
+    ['POST', '/auth/business/sign-in', 'login'], ['POST', '/business/access-requests', 'access_request'],
     ['POST', '/business/events/abc/guestlist-invitations', 'invitation'],
     ['POST', '/business/organizations/abc/invitations/123/resend', 'invitation'],
     ['POST', '/guestlist-invitations/token/claim', 'invitation'],

@@ -6,6 +6,7 @@ import { Button } from './ui/button';
 import { RecordForm } from './Management';
 import { ResourceState, Pager } from './ResourceState';
 import OnboardingForm from './OnboardingForm';
+import BusinessAccessRequests from './BusinessAccessRequests';
 import { ReferenceInput } from './Management';
 import { readSession } from '../lib/api';
 import { hasAdminPermission } from '../lib/permissions';
@@ -28,7 +29,12 @@ export function RecordList({ result, resourceKey, onOpenRecord, onPage }) {
   const view = { users: 'View person', organizations: 'View business', events: 'View event', locations: 'View venue', orders: 'View purchase' }[resourceKey] || 'View record';
   return <section className="panel management-panel"><p role="status">{recordCount(result.total, resourceKey)}</p>{result.items.length ? <div className="management-records">{result.items.map((record) => <article className="management-record" data-testid="admin-record" data-record-id={record.id} key={record.id}><div className="management-record-summary"><h3>{recordTitle(record, resourceKey)}</h3><p className="management-record-state">{recordStatuses(record, resourceKey).map(humanLabel).join(' · ')}</p><p className="management-record-context">{record.displayName ? record.email : record.city ? [record.city, record.region].filter(Boolean).join(', ') : record.startsAt ? formatDate(record.startsAt, true) : record.totalCents != null ? formatMoney(record.totalCents) : humanLabel(record.role || '')}{record.organization?.name ? ` · ${record.organization.name}` : ''}{record.event?.title ? ` · ${record.event.title}` : ''}</p><details className="management-record-meta"><summary>Identifiers & history</summary><div><code>{record.id}</code><small>Created {formatDate(record.createdAt, true)}</small></div></details></div><Button variant="outline" onClick={() => onOpenRecord(resourceKey, record.id)}>{view}</Button></article>)}</div> : <div className="empty">No matching {resourceLabels[resourceKey]?.toLowerCase() || 'records'}.</div>}<Pager result={result} onPage={onPage}/></section>;
 }
-export default function Directory({ section, resourceKey, params, onUpdate, onOpenRecord }) {
+export default function Directory(props) {
+  const requests = props.section === 'businesses' && props.params.get('businessView') === 'requests';
+  const businessTabs = props.section === 'businesses' && <div className="record-tabs business-view-tabs" role="tablist" aria-label="Business views">{[['directory', 'Businesses'], ['requests', 'Access requests']].map(([view, title]) => <Button id={`admin-business-view-${view}`} variant="outline" role="tab" aria-selected={requests === (view === 'requests')} key={view} onClick={() => props.onUpdate({ businessView: view === 'requests' ? 'requests' : null, request: null }, false)}>{title}</Button>)}</div>;
+  return requests ? <BusinessAccessRequests {...props} businessTabs={businessTabs}/> : <DirectoryRecords {...props} businessTabs={businessTabs}/>;
+}
+function DirectoryRecords({ section, resourceKey, params, onUpdate, onOpenRecord, businessTabs }) {
   const [refresh, setRefresh] = useState(0); const [creating, setCreating] = useState(false); const [onboarding, setOnboarding] = useState(false);
   const [chooseBusiness, setChooseBusiness] = useState(false); const [businessId, setBusinessId] = useState(''); const [createEvent, setCreateEvent] = useState(false);
   const metadata = useAdminResource('/admin/management/resources', refresh);
@@ -51,6 +57,7 @@ export default function Directory({ section, resourceKey, params, onUpdate, onOp
         {key === 'events' && hasAdminPermission(readSession()?.user, 'events.manage') && <Button onClick={() => setChooseBusiness(true)}>Create event</Button>}
         {key === 'users' && resource?.canCreate && <Button onClick={() => setCreating(true)}>Invite person</Button>}
     </PageHeader>
+    {businessTabs}
     <div className={`management-toolbar directory-toolbar${key === 'events' ? ' directory-events' : ''}`}>
       <div className="management-list-filters">
       {statuses[key] && <BusinessMultiSelect label="Status" options={statuses[key].map((id) => ({ id, label: humanLabel(id) }))} selected={selected} onChange={(next) => change({ statuses: next, status: null })}/>}

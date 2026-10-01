@@ -56,7 +56,7 @@ test('admissions HTTP: permissions, QR integrity, concurrent scans, manual entry
     const searchedEvents = await request(`${listPath}?search=${encodeURIComponent(pagedEvents.data.events[0].title)}`, 'manager');
     assert.equal(searchedEvents.status, 200, JSON.stringify(searchedEvents));
     assert.ok(searchedEvents.data.events.some((entry) => entry.id === pagedEvents.data.events[0].id));
-    assert.equal((await request(listPath, 'outsider')).data.events.length, 0);
+    assert.equal((await request(listPath, 'outsider')).status, 403, 'customer-only identities cannot enter the Business admissions workspace');
     assert.equal((await request(`${listPath}/${ids.event}`, 'outsider')).status, 403);
     assert.equal((await request(`${listPath}/${ids.otherEvent}`, 'promoter')).status, 403);
     const qrToken = walletToken(await m.Ticket.findByPk(ids.ticket), config.QR_TOKEN_SECRET);
@@ -85,6 +85,10 @@ test('admissions HTTP: permissions, QR integrity, concurrent scans, manual entry
       }
       for (const role of ['owner', 'manager', 'employee', 'promoter', 'admin']) {
         const list = await request(listPath, role);
+        if (role === 'promoter' && model !== m.Organization) {
+          assert.equal(list.status, 403, 'an unavailable sole event assignment grants no Business entry');
+          continue;
+        }
         assert.equal(list.data.events.some((event) => event.id === ids.event), model === m.Organization, `${label} lifecycle ${model === m.Organization ? 'retains existing admissions in' : 'excludes event from'} ${role} picker`);
       }
       for (const role of ['manager', 'admin']) {
@@ -114,6 +118,7 @@ test('admissions HTTP: permissions, QR integrity, concurrent scans, manual entry
     await m.User.update({ lifecycleState: 'suspended' }, { where: { id: ids.independentCreator } });
     for (const role of ['owner', 'manager', 'employee', 'promoter', 'admin']) {
       const list = await request(listPath, role);
+      if (role === 'promoter') { assert.equal(list.status, 403, 'an unavailable standalone creator removes the sole active Business assignment'); continue; }
       assert.ok(!list.data.events.some((event) => event.id === ids.event), `inactive independent creator excludes event from ${role} picker`);
     }
     assert.equal((await request(`${listPath}/${ids.event}`, 'admin')).status, 403, 'inactive independent creator denies direct admin roster');
@@ -167,7 +172,7 @@ test('admissions HTTP: permissions, QR integrity, concurrent scans, manual entry
     // Access is checked again for every action, including after removal.
     await m.EventAffiliate.update({ status: 'inactive' }, { where: { eventId: ids.event, userId: ids.promoter } });
     assert.equal((await scan(qrToken, ids.event, 'promoter')).status, 403);
-    assert.equal((await request(listPath, 'promoter')).data.events.length, 0);
+    assert.equal((await request(listPath, 'promoter')).status, 403, 'removing the sole event assignment removes Business entry');
     // Database and time-window enforcement, independent of the event picker.
     await m.Event.update({ status: 'draft' }, { where: { id: ids.event } });
     assert.equal((await request(`${listPath}/${ids.event}`)).error.code, 'EVENT_NOT_OPEN');

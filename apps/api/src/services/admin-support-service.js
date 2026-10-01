@@ -125,6 +125,9 @@ function createAdminSupportService({ models,permissions,now = () => new Date() }
         SELECT 'case:'||c.id::text AS id,'support_case'::text AS kind,c.title,c.priority,${rankSql('c')} AS "priorityRank",c.created_at AS "createdAt",
           c.id AS "recordId",'support_case'::text AS "recordType",c.organization_id AS "organizationId",c.event_id AS "eventId",c.customer_user_id AS "customerUserId",
           '/support/'||c.id::text AS "actionPath" FROM support_cases c WHERE c.status IN ('open','in_progress')
+        UNION ALL SELECT 'business-access:'||r.id::text,'business_access_request','Business access requested: '||r.business_name,
+          'normal',12,r.created_at,r.id,'business_access_request',NULL::uuid,NULL::uuid,NULL::uuid,'/access-requests/'||r.id::text
+          FROM business_access_requests r WHERE r.status='pending'
         UNION ALL SELECT 'onboarding:'||i.id::text,'onboarding',CASE WHEN i.expires_at<=:now THEN 'Onboarding invitation expired: ' ELSE 'Onboarding awaiting acceptance: ' END||u.display_name,
           'normal',12,i.created_at,i.id,'onboarding_invitation',NULLIF(i.grants->>'organizationId','')::uuid,NULL::uuid,i.user_id,'/people/'||i.user_id::text
           FROM onboarding_invitations i JOIN users u ON u.id=i.user_id WHERE i.accepted_at IS NULL AND i.revoked_at IS NULL

@@ -49,7 +49,9 @@ function createMediaService({ models, uploadDir, config = {}, storage = createMe
     if (actual.sizeBytes !== pending.sizeBytes || actual.mimeType !== 'image/webp' || actual.sha256 !== pending.sha256 ||
       (pending.storageProvider === 'r2' && actual.assetId !== pending.id)) throw new DomainError('Uploaded artwork could not be verified. Please upload it again.', { status: 422, code: 'MEDIA_VERIFICATION_FAILED' });
     return mutationTransaction(models.MediaAsset.sequelize, async transaction => {
-      require('./lifecycle-service').assertActiveUser(await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE }));
+      const actor = await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE });
+      require('./lifecycle-service').assertActiveUser(actor);
+      await require('./business-access-policy').assertBusinessAccess(models, userId, transaction, actor);
       const asset = await models.MediaAsset.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
       if (!asset || !['pending', 'ready'].includes(asset.status)) throw new DomainError('Image upload expired. Please upload it again.', { status: 409, code: 'MEDIA_UPLOAD_EXPIRED' });
       if (asset.status === 'pending') await asset.update({ status: 'ready', lastStorageError: null, cleanupAfter: new Date(Date.now() + 86400000) }, { transaction });
@@ -63,7 +65,9 @@ function createMediaService({ models, uploadDir, config = {}, storage = createMe
     // Reserve before PUT: a crash never leaves an untracked managed object.
     const asset = await mutationTransaction(models.MediaAsset.sequelize, async (transaction) => {
         // Serialize this uploader's quota; image processing stays outside locks.
-        require('./lifecycle-service').assertActiveUser(await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE }));
+        const actor = await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE });
+        require('./lifecycle-service').assertActiveUser(actor);
+        await require('./business-access-policy').assertBusinessAccess(models, userId, transaction, actor);
         const count = await models.MediaAsset.count({ where: { uploadedByUserId: userId }, transaction });
         if (count >= 200) throw new DomainError('Your upload allowance is reached. Contact support before uploading more artwork.', { status: 429, code: 'UPLOAD_LIMIT' });
         return models.MediaAsset.create({

@@ -19,6 +19,15 @@ Admin is the platform operations/support application. Every endpoint requires an
 
 Onboarding preview is non-consuming/redacted. Acceptance requires password confirmation for a new account or an authenticated matching existing account without credential overwrite. It rechecks inviter, scope/account/membership versions, consumes once and grants the chosen role. Expired/revoked/replayed/stale invitations fail atomically.
 
+### Request review contract
+
+- Public `POST /business/access-requests` returns a generic 202 receipt. It stores a pending application without creating an identity, organization, grant or email; pending duplicates are coalesced by normalized email, with shared account/IP abuse limits.
+- `GET /admin/business-access/requests` and `GET .../:id` require `directory.view`. Lists accept repeated `statuses=pending|approved|declined`, explicit search and bounded page/pageSize.
+- `POST .../:id/approve` requires `access.manage`, the current request `version`, the normal organization-onboarding document, authority confirmation and an audit reason. The contact email must match the request. Request status, organization, invitation, audit and queued email commit together. Unavailable email delivery returns 503 and rolls back approval.
+- `POST .../:id/decline` requires `access.manage`, current `version` and a reason. It retains the request/audit, grants nothing and sends no decline email. Stale or previously reviewed requests return 409.
+
+Approved requests link to their business and invitation. Acceptance is a separate step; approval alone does not activate Business access. Ordinary manual onboarding retains its existing queued/unavailable delivery handling. Apply `202610010005-business-access-requests`; no seed changes are needed.
+
 Ownership controls use `/admin/businesses/:organizationId/access`. Adding an owner preserves co-owners. Transfers explicitly identify outgoing owner and manager/employee/removal outcome, activating atomically after incoming acceptance. Retained managers do not inherit finance permission. Recovery requires separate confirmation/reason. Business owners can separately grant/revoke manager finance permission.
 
 ## Venue identity and scale

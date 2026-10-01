@@ -21,6 +21,7 @@ function createManagementService({ models, permissions, email = null, businessAp
   return {
     createOrganization: async (userId, ids, input) => {
       const organization = await mutationTransaction(models.Organization.sequelize, async (transaction) => {
+        await permissions.assertInternal(userId, transaction);
         assertActiveUser(await models.User.findByPk(userId, { transaction }));
         const org = await models.Organization.create({ ...input, slug: createBusinessSlug(input.name) }, { transaction });
         await models.OrganizationOwner.create({ organizationId: org.id, userId: userId, role: 'owner' }, { transaction });

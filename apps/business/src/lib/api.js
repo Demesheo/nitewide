@@ -39,6 +39,9 @@ export async function api(path, session, options = {}) {
     error.status = response.status;
     error.code = payload?.error?.code;
     error.details = details;
+    if (error.status === 403 && error.code === 'BUSINESS_ACCESS_REQUIRED' && session?.accessToken && path.startsWith('/business/') && typeof window !== 'undefined') {
+      window.dispatchEvent(new window.CustomEvent('nitewide:business-access-required', { detail: { accessToken: session.accessToken } }));
+    }
     throw error;
   }
   return payload.data;

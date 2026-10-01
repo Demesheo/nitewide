@@ -26,7 +26,7 @@ function createPermissionService(models) {
     const user = await models.User.findByPk(userId, options(transaction));
     if (!activeUser(user)) throw forbidden('An active account is required');
     if (!hasInternalPermission(user, 'events.manage')) await assertActiveEvent(models, event, transaction);
-    if (hasInternalPermission(user, 'events.manage') || (!event.organizationId && event.creatorUserId === userId) || (event.organizationId && await canManageOrganization(userId, event.organizationId, transaction))) return event;
+    if (hasInternalPermission(user, 'events.manage') || (!event.organizationId && event.creatorUserId === userId && user.independentCreator) || (event.organizationId && await canManageOrganization(userId, event.organizationId, transaction))) return event;
     if ((await currentVenueMembership(models, event, userId, transaction))?.role === 'manager') return event;
     throw forbidden('Event manager access required');
   }
@@ -45,7 +45,7 @@ function createPermissionService(models) {
     const user = await models.User.findByPk(userId, options(transaction));
     if (!activeUser(user)) throw forbidden('An active account is required');
     if (!hasInternalPermission(user, 'events.manage')) await assertActiveEvent(models, event, transaction);
-    if (hasInternalPermission(user, 'events.manage') || (!event.organizationId && event.creatorUserId === userId) || (event.organizationId && await canManageOrganization(userId, event.organizationId, transaction)) || (await currentVenueMembership(models, event, userId, transaction))?.role === 'manager') {
+    if (hasInternalPermission(user, 'events.manage') || (!event.organizationId && event.creatorUserId === userId && user.independentCreator) || (event.organizationId && await canManageOrganization(userId, event.organizationId, transaction)) || (await currentVenueMembership(models, event, userId, transaction))?.role === 'manager') {
       return { event, canReviewAny: true, eventAffiliateIds: [] };
     }
     let affiliates = await models.EventAffiliate.findAll({ where: { eventId, userId, status: 'active' }, order: [['id', 'ASC']], ...options(transaction) });
@@ -62,7 +62,7 @@ function createPermissionService(models) {
     const user = await models.User.findByPk(userId, options(transaction));
     if (!activeUser(user)) throw forbidden('An active account is required');
     await assertAdmissionEvent(models, event, transaction);
-    if (hasInternalPermission(user, 'events.manage') || (!event.organizationId && event.creatorUserId === userId)) return event;
+    if (hasInternalPermission(user, 'events.manage') || (!event.organizationId && event.creatorUserId === userId && user.independentCreator)) return event;
     if (event.organizationId) {
       const leader = await models.OrganizationOwner.findOne({ where: { organizationId: event.organizationId, userId, lifecycleState: 'active' }, ...options(transaction) });
       const employee = await models.OrganizationEmployee.findOne({ where: { organizationId: event.organizationId, userId, status: 'active' }, ...options(transaction) });
@@ -87,6 +87,6 @@ function createPermissionService(models) {
   async function assertInternalIdentity(userId, transaction) { const user = await models.User.findByPk(userId, options(transaction)); if (!activeUser(user) || !user.isInternalAdmin) throw forbidden('Internal administrator access required'); return user; }
   async function assertInternalPermission(userId, permission, transaction) { const user = await assertInternalIdentity(userId, transaction); if (!hasInternalPermission(user, permission)) throw forbidden(`Internal ${permission} permission required`); return user; }
   async function assertInternal(userId, transaction) { return assertInternalPermission(userId, 'access.manage', transaction); }
-  return { canManageOrganization, assertManageOrganization, assertOwnOrganization, assertManageEvent, assertCreateEvent, assertAdmitEvent, guestlistReviewScope, assertGuestlistApprover, assertInternal, assertInternalIdentity, assertInternalPermission, canManageFinance, assertManageFinance };
+  return { assertBusinessAccess: (userId, transaction) => require('./business-access-policy').assertBusinessAccess(models,userId,transaction), canManageOrganization, assertManageOrganization, assertOwnOrganization, assertManageEvent, assertCreateEvent, assertAdmitEvent, guestlistReviewScope, assertGuestlistApprover, assertInternal, assertInternalIdentity, assertInternalPermission, canManageFinance, assertManageFinance };
 }
 module.exports = { createPermissionService, INTERNAL_ADMIN_PERMISSIONS, hasInternalPermission, internalAdminRole };

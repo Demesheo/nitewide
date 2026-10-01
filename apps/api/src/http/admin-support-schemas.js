@@ -17,6 +17,6 @@ const createCase = z.object({ title: text(180).min(3),description: text(10000).m
 const updateCase = z.object({ version: z.number().int().nonnegative(),reason,title: text(180).min(3).optional(),description: text(10000).min(3).optional(),
   category: z.enum(categories).optional(),priority: z.enum(priorities).optional(),status: z.enum(statuses).optional(),resolution: text(10000).nullable().optional(),...links }).strict()
   .refine(value => Object.keys(value).some(key => !['version','reason'].includes(key)),'Choose a field to update');
-const attentionQuery = z.object({ ...page,kind: z.enum(['all','support_case','onboarding','email_failure','export_failure','media_failure','notification_failure']).default('all') });
+const attentionQuery = z.object({ ...page,kind: z.enum(['all','support_case','business_access_request','onboarding','email_failure','export_failure','media_failure','notification_failure']).default('all') });
 const historyQuery = z.object(page);
 module.exports = { caseQuery,createCase,updateCase,attentionQuery,historyQuery,categories,priorities,statuses };

@@ -20,6 +20,7 @@ const initializers = [
   require('./EmailDeliveryEvent').initEmailDeliveryEvent,
   require('./SavedEvent').initSavedEvent,
   require('./SupportCase').initSupportCase,
+  require('./BusinessAccessRequest').initBusinessAccessRequest,
 ];
 
 function initModels(sequelize) {

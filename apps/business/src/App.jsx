@@ -83,7 +83,7 @@ export default function App() {
     screen.addEventListener("change", closeOnDesktop);
     return () => screen.removeEventListener("change", closeOnDesktop);
   }, []);
-  const signOut = useCallback(async (expired = false, everywhere = false) => {
+  const signOut = useCallback(async (expired = false, everywhere = false, accessNotice = '') => {
     if (!expired && session?.accessToken) {
       try { await api(everywhere ? '/auth/sessions/revoke-all' : '/auth/logout', session, { method: 'POST' }); }
       catch (error) { if (error.status !== 401) { setNotice(error.message); return error.message; } }
@@ -99,11 +99,18 @@ export default function App() {
     setNotice("");
     setPage("overview");
     setLoginNotice(
-      expired ? "Your session has expired. Please sign in again." : "",
+      accessNotice || (expired ? "Your session has expired. Please sign in again." : ""),
     );
   }, [onboardingToken, inviteToken, session]);
   const expire = useCallback(() => signOut(true), [signOut]);
-  const { data, loading, error, revision, setRevision } = useBusinessBootstrap(session, onboardingToken, expire);
+  const requireBusinessAccess = useCallback(() => signOut(true, false, 'Your Nitewide account does not have active Business access. Request access below, or accept your invitation to complete onboarding.'), [signOut]);
+  const { data, loading, error, revision, setRevision } = useBusinessBootstrap(session, onboardingToken || inviteToken, expire, requireBusinessAccess);
+  useEffect(() => {
+    if (!session || onboardingToken || inviteToken) return;
+    const accessChanged = (event) => { if (event.detail?.accessToken === session.accessToken) requireBusinessAccess(); };
+    window.addEventListener('nitewide:business-access-required', accessChanged);
+    return () => window.removeEventListener('nitewide:business-access-required', accessChanged);
+  }, [session, onboardingToken, inviteToken, requireBusinessAccess]);
   const refreshAdmissions = useCallback(() => setRevision((value) => value + 1), []);
   useEffect(() => {
     if (!session) return;
@@ -153,10 +160,14 @@ export default function App() {
   function navigate(value, eventId = null, entryId = null, eventTab = null) {
     navigateRoute(value, eventId, entryId, eventTab); setMobileNav(false);
   }
-  if (onboardingToken && onboardingSignIn) return <BusinessSignIn onSession={login} notice={loginNotice || 'Sign in with the email address on your invitation. You will return to the invitation to accept access.'} />;
+  if (onboardingToken && onboardingSignIn) return <BusinessSignIn invitationOnly onSession={login} notice={loginNotice || 'Sign in with the email address on your invitation. You will return to the invitation to accept access.'} />;
   if (onboardingToken) return <><OnboardingSetup token={onboardingToken} session={session} onSignIn={() => setOnboardingSignIn(true)} onSwitchAccount={async (signIn) => { if (!await signOut()) setOnboardingSignIn(signIn); }} onContinue={() => { setOnboardingToken(null); writeWorkspaceLocation({ onboarding: null }, { replace: true }); setRevision((value) => value + 1); }} />{notice && <p role="alert">{notice}</p>}</>;
   if (inviteToken) return <TeamInviteLanding token={inviteToken} session={session} onSession={login} onAccepted={(updated, accepted) => { login(updated); setInviteToken(null); writeWorkspaceLocation({ invite: null }, { replace: true }); setNotice('Invitation accepted. Your access is ready.'); navigate(accepted?.eventId ? 'events' : 'team', accepted?.eventId || null); setRevision((value) => value + 1); }} />;
   if (!session || new URLSearchParams(window.location.search).has('resetPassword')) return <BusinessSignIn onSession={login} notice={loginNotice} />;
+  if (!data) return <main className="business-access-gate"><Brand /><section className="business-access-gate-card" aria-label="Business access check">
+    {error ? <><h1>We couldn’t open your workspace.</h1><p className="error" role="alert">{error}</p><div className="business-access-gate-actions"><Button onClick={() => setRevision((value) => value + 1)}>Try again</Button><Button variant="outline" onClick={() => signOut(true, false, 'Sign in to try opening your Business workspace again.')}>Return to sign in</Button></div></>
+      : <><h1>Checking your Business access.</h1><LoadingState>Opening your workspace…</LoadingState></>}
+  </section></main>;
   const title =
     page === "overview"
       ? "A clearer view of your business."

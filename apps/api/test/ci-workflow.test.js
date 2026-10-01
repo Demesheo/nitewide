@@ -73,7 +73,13 @@ test('publication and deployment do not cancel started releases or deploy stale 
 test('legacy admin browser projects remain paused while rebuild workflows have dedicated coverage', () => {
   const config = require('../../../playwright.config.cjs');
   assert.deepEqual(config.projects.map(project => project.name), ['customer-iphone', 'customer-desktop', 'business-iphone', 'business-desktop', 'admin-rebuild-iphone', 'admin-rebuild-desktop']);
-  assert.ok(config.projects.filter(project => project.name.startsWith('admin-')).every(project => project.testMatch === 'admin-rebuild.spec.cjs'));
+  for (const project of config.projects.filter(project => project.name.startsWith('admin-'))) {
+    assert.deepEqual(project.testMatch, ['admin-rebuild.spec.cjs', 'admin-access-requests.spec.cjs']);
+    assert.ok(!project.testMatch.includes('admin.spec.cjs'));
+  }
+  for (const project of config.projects.filter(project => project.name.startsWith('business-'))) {
+    assert.deepEqual(project.testMatch, ['business.spec.cjs', 'business-access.spec.cjs']);
+  }
   assert.ok(fs.existsSync(path.join(root, 'e2e/specs/admin.spec.cjs')));
   const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
   assert.match(dockerfile, /npm run build --workspace @nitewide\/admin/);

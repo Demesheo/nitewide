@@ -48,7 +48,8 @@ test('platform reporting and support preserve canonical scopes, snapshots, finan
       const bootstrap = await reports.bootstrap(ids.admin);
       assert.ok(bootstrap.organizations.some(row => row.id === zero.id));
       const businesses = await reports.table(ids.admin,'businesses',{ ...query,pageSize: 100 });
-      assert.equal(businesses.total,2);
+      assert.equal(businesses.total,3, 'the two organizations and explicitly provisioned legacy creator appear in the directory');
+      assert.equal(businesses.items.find(row => row.creatorUserId === ids.independentCreator).businessType,'legacy_creator');
       assert.equal(businesses.items.find(row => row.id === zero.id).events,0);
       const row = businesses.items.find(row => row.id === ids.org);
       assert.equal(row.salesCents,6000); assert.equal(row.addedBuyerFeesCents,700); assert.equal(row.orders,2); assert.equal(row.customers,1);
@@ -150,7 +151,7 @@ test('platform reporting and support preserve canonical scopes, snapshots, finan
       assert.equal(bootstrap.organizations.length,100); assert.equal(bootstrap.businesses.length,100);
       assert.equal(bootstrap.optionsTruncated.businesses,true);
       const directory = await reports.table(ids.admin,'businesses',{ ...query,page: 2,pageSize: 100,sort: 'name_asc' });
-      assert.equal(directory.total,107); assert.equal(directory.items.length,7);
+      assert.equal(directory.total,108); assert.equal(directory.items.length,8);
       const selected = await reports.table(ids.admin,'businesses',{ ...query,businessId: zero.id });
       assert.equal(selected.total,1); assert.equal(selected.items[0].id,zero.id);
       const active = await reports.table(ids.admin,'businesses',{ ...query,activityOnly: 'true',pageSize: 100 });

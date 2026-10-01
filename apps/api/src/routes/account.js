@@ -29,6 +29,7 @@ function registerAccountRoutes({ router, authController, auth, requireUser, mode
   }));
   router.post('/auth/register', validate(schemas.register), asyncHandler(authController.register));
   router.post('/auth/sign-in', validate(schemas.signIn), asyncHandler(authController.signIn));
+  router.post('/auth/business/sign-in', validate(schemas.signIn), asyncHandler(authController.signInBusiness));
   router.post('/auth/password-reset/request', validate(z.object({ email: z.string().trim().email().max(320) }).strict()), asyncHandler(authController.requestPasswordReset));
   router.post('/auth/password-reset/complete', validate(z.object({ token: z.string().min(20).max(200), password: schemas.password }).strict()), asyncHandler(authController.resetPassword));
   router.post('/auth/email/verify', validate(z.object({ token: z.string().min(20).max(200) }).strict()), asyncHandler(authController.verifyEmail));
