@@ -1,10 +1,12 @@
 const { QueryTypes, Op } = require('sequelize');
 const { forbidden, notFound } = require('../domain/errors');
 const { activeUser } = require('./lifecycle-service');
-const { venueOptions, venueFilter } = require('./venue-scope');
+const { venueOptions } = require('./venue-scope');
 const { eventFinished } = require('../domain/event-policy');
 const { resolvePaidRange } = require('./business-report-period');
 const { accessScopeSql } = require('./event-affiliate-access');
+const { hasInternalPermission } = require('./internal-admin-permissions');
+const { venueMemberSql,venueManagerSql } = require('./venue-access-policy');
 
 // Every collection and aggregate starts from this SQL scope. In particular, a
 // revoked automatic assignment cannot keep a former staff member in an event.
@@ -17,65 +19,87 @@ const organizationMember = `(
 const access = `(
   :isAdmin OR (e.organization_id IS NULL AND e.creator_user_id = :userId)
   OR ${organizationMember}
+  OR ${venueMemberSql('e')}
   OR EXISTS (SELECT 1 FROM event_affiliates ea WHERE ea.event_id = e.id AND ea.user_id = :userId AND ea.status = 'active'
+    AND (ea.starts_at IS NULL OR ea.starts_at <= NOW()) AND (ea.ends_at IS NULL OR ea.ends_at >= NOW())
     AND (${accessScopeSql('ea')} = 'event' OR ${organizationMember}))
 )`;
-const manages = `(:isAdmin OR (e.organization_id IS NULL AND e.creator_user_id = :userId)
-  OR EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organization_id = e.organization_id AND oo.user_id = :userId AND oo.lifecycle_state = 'active'))`;
+const manages = `(:canManageEvents OR (e.organization_id IS NULL AND e.creator_user_id = :userId)
+  OR EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organization_id = e.organization_id AND oo.user_id = :userId AND oo.lifecycle_state = 'active')
+  OR ${venueManagerSql('e')})`;
 const base = `e.lifecycle_state = 'active'
   AND (e.organization_id IS NULL OR EXISTS (SELECT 1 FROM organizations org WHERE org.id = e.organization_id AND org.lifecycle_state = 'active' AND org.status = 'active'))
   AND (e.location_id IS NULL OR EXISTS (SELECT 1 FROM locations loc WHERE loc.id = e.location_id AND loc.lifecycle_state = 'active'))
   AND (e.organization_id IS NOT NULL OR EXISTS (SELECT 1 FROM users creator WHERE creator.id = e.creator_user_id AND creator.lifecycle_state = 'active' AND creator.is_active = true AND creator.onboarding_pending = false))
   AND ${access}
-  AND (e.status <> 'draft' OR ${manages} OR EXISTS (SELECT 1 FROM event_affiliates draft_ea WHERE draft_ea.event_id = e.id AND draft_ea.user_id = :userId AND draft_ea.status = 'active'
+  AND (e.status <> 'draft' OR :isAdmin OR ${manages} OR EXISTS (SELECT 1 FROM event_affiliates draft_ea WHERE draft_ea.event_id = e.id AND draft_ea.user_id = :userId AND draft_ea.status = 'active'
+    AND (draft_ea.starts_at IS NULL OR draft_ea.starts_at <= NOW()) AND (draft_ea.ends_at IS NULL OR draft_ea.ends_at >= NOW())
     AND (${accessScopeSql('draft_ea')} = 'event' OR ${organizationMember})))`;
-const orderAccess = `(${manages}
+const orderAccess = `(:isAdmin OR ${manages}
   OR EXISTS (SELECT 1 FROM event_affiliates own_ea WHERE own_ea.id = o.event_affiliate_id AND own_ea.user_id = :userId)
   OR (o.event_affiliate_id IS NULL AND EXISTS (SELECT 1 FROM org_affiliates own_oa WHERE own_oa.id = o.org_affiliate_id AND own_oa.user_id = :userId AND own_oa.status = 'active')))`;
-const guestAccess = `(${manages} OR EXISTS (SELECT 1 FROM event_affiliates own_ea WHERE own_ea.id = g.event_affiliate_id AND own_ea.user_id = :userId))`;
+const guestAccess = `(:isAdmin OR ${manages} OR EXISTS (SELECT 1 FROM event_affiliates own_ea WHERE own_ea.id = g.event_affiliate_id AND own_ea.user_id = :userId))`;
 
 const pageResult = (items, total, page, pageSize) => ({ items, total: Number(total || 0), page, pageSize, hasMore: page * pageSize < Number(total || 0) });
 const cents = (value) => Number(value || 0);
+const cleanVenue = column => `REGEXP_REPLACE(LOWER(COALESCE(${column},'')),'[^a-z0-9]','','g')`;
+const venueIdentitySql = `encode(digest('["'||COALESCE(e.organization_id::text,'creator:'||e.creator_user_id::text)||'","'||
+  ${['name','address_line1','city','region','country_code'].map(column => cleanVenue(`filter_location.${column}`)).join(`||'","'||`)}||'"]','sha256'),'hex')`;
 
 function createBusinessReadService({ models, email = null, deliveryTrackingConfigured = false, now = () => new Date() }) {
   const select = (sql, replacements, { transaction } = {}) => models.Event.sequelize.query(sql, { replacements, transaction, type: QueryTypes.SELECT });
   async function actor(userId, { transaction } = {}) {
-    const user = await models.User.findByPk(userId, { transaction, attributes: ['id', 'isActive', 'lifecycleState', 'onboardingPending', 'isInternalAdmin', 'independentCreator'] });
+    const user = await models.User.findByPk(userId, { transaction, attributes: ['id', 'isActive', 'lifecycleState', 'onboardingPending', 'isInternalAdmin', 'internalAdminRole', 'independentCreator'] });
     if (!activeUser(user)) throw forbidden('An active account is required');
     const memberships = await models.OrganizationOwner.findAll({ transaction, where: { userId, lifecycleState: 'active' }, attributes: ['organizationId'] });
-    return { userId, isAdmin: Boolean(user.isInternalAdmin), user,
+    return { userId, isAdmin: hasInternalPermission(user, 'reports.view'), canManageBusinesses: hasInternalPermission(user, 'access.manage'), canManageEvents: hasInternalPermission(user, 'events.manage'), user,
       managedOrgIds: new Set(memberships.map((row) => row.organizationId)) };
   }
   async function organizations(scope, { transaction } = {}) {
-    const rows = await select(`SELECT org.id, org.name, org.plan_tier AS "planTier", org.location_id AS "locationId",
-      (${scope.isAdmin ? 'true' : `EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organization_id = org.id AND oo.user_id = :userId AND oo.lifecycle_state = 'active')`}) AS "canManage"
+    const broadAccess = `(:isAdmin OR ${organizationMember.replace(/\be\.organization_id\b/g,'org.id')})`;
+    const rows = await select(`SELECT org.id, org.name, org.plan_tier AS "planTier",
+      CASE WHEN ${broadAccess} THEN org.location_id ELSE NULL END AS "locationId",
+      ${broadAccess} AS "organizationWideAccess",
+      (:canManageEvents OR EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organization_id=org.id AND oo.user_id=:userId AND oo.lifecycle_state='active')
+        OR EXISTS (SELECT 1 FROM venue_access va JOIN organization_venues ov ON ov.organization_id=va.organization_id AND ov.location_id=va.location_id
+          JOIN locations venue_location ON venue_location.id=va.location_id AND venue_location.lifecycle_state='active'
+          WHERE va.organization_id=org.id AND va.user_id=:userId AND va.status='active' AND va.role='manager')) AS "canCreateEvents",
+      (${scope.canManageBusinesses ? 'true' : `EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organization_id = org.id AND oo.user_id = :userId AND oo.lifecycle_state = 'active')`}) AS "canManage"
       FROM organizations org WHERE org.lifecycle_state = 'active' AND org.status = 'active' AND
-      (:isAdmin OR EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organization_id = org.id AND oo.user_id = :userId AND oo.lifecycle_state = 'active')
-      OR EXISTS (SELECT 1 FROM organization_employees oe WHERE oe.organization_id = org.id AND oe.user_id = :userId AND oe.status = 'active')
-      OR EXISTS (SELECT 1 FROM org_affiliates oa WHERE oa.organization_id = org.id AND oa.user_id = :userId AND oa.status = 'active')
-      OR EXISTS (SELECT 1 FROM event_affiliates ea JOIN events e ON e.id = ea.event_id WHERE e.organization_id = org.id AND ea.user_id = :userId AND ea.status = 'active'))
-      ORDER BY org.name ASC, org.id ASC`, scope, { transaction });
+      (${broadAccess}
+      OR EXISTS (SELECT 1 FROM venue_access va JOIN organization_venues ov ON ov.organization_id=va.organization_id AND ov.location_id=va.location_id
+        JOIN locations venue_location ON venue_location.id=va.location_id AND venue_location.lifecycle_state='active'
+        WHERE va.organization_id=org.id AND va.user_id=:userId AND va.status='active')
+      OR EXISTS (SELECT 1 FROM events e WHERE e.organization_id=org.id AND ${base}))
+      ORDER BY org.name ASC, org.id ASC LIMIT 101`, scope, { transaction });
     const locations = await models.Location.findAll({ transaction, where: { id: rows.map((r) => r.locationId).filter(Boolean), lifecycleState: 'active' } });
     const byId = new Map(locations.map((r) => [r.id, r]));
-    return rows.map((r) => ({ ...r, location: byId.get(r.locationId) || null, canInviteManager: r.canManage }));
+    const result = rows.slice(0,100).map((r) => ({ ...r, location: byId.get(r.locationId) || null, canInviteManager: r.canManage }));
+    result.hasMore = rows.length>100;
+    return result;
   }
   async function venues(scope, orgs, { transaction } = {}) {
     const locations = await select(`SELECT DISTINCT e.organization_id AS "organizationId", e.creator_user_id AS "creatorUserId", e.location_id AS "locationId"
       FROM events e WHERE ${base} AND e.location_id IS NOT NULL
       UNION SELECT DISTINCT ov.organization_id, NULL::uuid, ov.location_id
       FROM organization_venues ov JOIN locations loc ON loc.id = ov.location_id AND loc.lifecycle_state = 'active'
-      WHERE ov.organization_id IN (:organizationIds)`, { ...scope, organizationIds: orgs.map((o) => o.id).length ? orgs.map((o) => o.id) : ['00000000-0000-0000-0000-000000000000'] }, { transaction });
+      WHERE ov.organization_id IN (:organizationIds) AND (:isAdmin OR ${organizationMember.replace(/\be\.organization_id\b/g,'ov.organization_id')} OR ${venueMemberSql('ov')})
+      ORDER BY "organizationId","locationId" LIMIT 101`,
+    { ...scope, organizationIds: orgs.map((o) => o.id).length ? orgs.map((o) => o.id) : ['00000000-0000-0000-0000-000000000000'] }, { transaction });
     const placeRows = await models.Location.findAll({ transaction, where: { id: [...new Set(locations.map((r) => r.locationId))], lifecycleState: 'active' } });
     const byId = new Map(placeRows.map((r) => [r.id, r]));
-    return venueOptions(locations.filter((r) => byId.has(r.locationId)).map((r) => ({ ...r, location: byId.get(r.locationId) })));
+    const result = venueOptions(locations.slice(0,100).filter((r) => byId.has(r.locationId)).map((r) => ({ ...r, location: byId.get(r.locationId) })));
+    result.hasMore = locations.length>100;
+    return result;
   }
   async function bootstrap(userId) {
     const scope = await actor(userId);
     const orgs = await organizations(scope);
-    return { organizations: orgs, venues: await venues(scope, orgs),
+    const venueOptions = await venues(scope,orgs);
+    return { organizations: orgs, venues: venueOptions,optionsTruncated: { organizations: orgs.hasMore,venues: venueOptions.hasMore },
       capabilities: { emailConfigured: Boolean(email?.enabled), deliveryTrackingConfigured,
         smsConfigured: false, instructions: Boolean(email?.enabled), notifications: true },
-      scope: { canCreateIndependent: Boolean(scope.isAdmin || scope.user.independentCreator), isInternalAdmin: scope.isAdmin } };
+      scope: { canCreateIndependent: Boolean(scope.canManageBusinesses || scope.user.independentCreator), isInternalAdmin: Boolean(scope.user.isInternalAdmin) } };
   }
   async function filters(scope, input = {}, { dates = false, transaction } = {}) {
     const clauses = [];
@@ -87,10 +111,10 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
       if (real.length) values.organizationIds = real;
     }
     if (input.venueIds?.length) {
-      const options = await venues(scope, await organizations(scope, { transaction }), { transaction });
-      const selected = venueFilter(options, input.venueIds);
-      clauses.push(selected.sql);
-      Object.assign(values, selected.values);
+      // The surrounding event scope remains authoritative. Selected physical
+      // venue keys are matched in SQL, without materializing every actor venue.
+      clauses.push(`EXISTS (SELECT 1 FROM locations filter_location WHERE filter_location.id=e.location_id AND ${venueIdentitySql} IN (:selectedVenueIds))`);
+      values.selectedVenueIds = input.venueIds;
     }
     if (dates) {
       if (input.from) { clauses.push('e.starts_at >= :from'); values.from = input.from; }
@@ -131,7 +155,9 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
       COUNT(*) FILTER (WHERE e.status = 'draft' AND e.ends_at > :currentTime)::integer AS draft
       FROM events e WHERE ${base}${countFilter.sql}`, { ...countFilter.values, currentTime: values.currentTime });
     const [count] = await select(`SELECT COUNT(*)::integer AS total FROM events e WHERE ${base}${conditions}`, values);
-    const ids = await select(`SELECT e.id FROM events e ${salesJoin} WHERE ${base}${conditions} ORDER BY ${sort} LIMIT :pageSize OFFSET :offset`, values);
+    const ids = await select(`SELECT e.id,${manages} AS "canManage",
+      EXISTS (SELECT 1 FROM organization_venues ov WHERE ov.organization_id=e.organization_id AND ov.location_id=e.location_id) AS "isManagedVenue"
+      FROM events e ${salesJoin} WHERE ${base}${conditions} ORDER BY ${sort} LIMIT :pageSize OFFSET :offset`, values);
     if (!ids.length) return { ...pageResult([], count.total, input.page, input.pageSize), counts };
     const rows = await models.Event.findAll({ where: { id: ids.map((r) => r.id) }, include: [
       { model: models.Location, as: 'location' }, { model: models.Offering, as: 'offerings' } ] });
@@ -142,20 +168,21 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
     const bySales = new Map(sales.map((r) => [r.id, r]));
     const reviewable = await select(`SELECT DISTINCT ea.event_id AS id FROM event_affiliates ea JOIN events e ON e.id = ea.event_id
       WHERE ea.event_id IN (:ids) AND ea.user_id = :userId AND ea.status = 'active'
+      AND (ea.starts_at IS NULL OR ea.starts_at <= NOW()) AND (ea.ends_at IS NULL OR ea.ends_at >= NOW())
       AND (${accessScopeSql('ea')} = 'event' OR ${organizationMember})`,
     { ...scope, ids: ids.map((r) => r.id) });
     const reviewIds = new Set(reviewable.map((row) => row.id));
-    const items = ids.map(({ id }) => {
+    const items = ids.map(({ id,canManage: scopedManage,isManagedVenue }) => {
       const event = byId.get(id);
-      const editable = Boolean(scope.isAdmin || (!event.organizationId && event.creatorUserId === userId) || scope.managedOrgIds.has(event.organizationId));
+      const editable = Boolean(scope.canManageEvents || (!event.organizationId && event.creatorUserId === userId) || scope.managedOrgIds.has(event.organizationId));
       const result = event.toJSON();
-      const canManage = editable;
+      const canManage = scopedManage ?? editable;
       result.offerings = result.offerings.sort((a, b) => a.sortOrder - b.sortOrder).map(({ accessCodeHash, ...tier }) => {
         if (!canManage) delete tier.quantitySold;
         return tier;
       });
       const sale = bySales.get(id);
-      return { ...result, canManage, canEdit: canManage && !eventFinished(event, now()),
+      return { ...result, canManage,isManagedVenue: Boolean(isManagedVenue),canEdit: canManage && !eventFinished(event, now()),
         lifetimeSales: sale ? { salesCents: Number(sale.salesCents), paidOrders: sale.paidOrders } : { salesCents: 0, paidOrders: 0 },
         canReviewGuestlist: canManage || reviewIds.has(id) };
     });
@@ -254,4 +281,4 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
   return { bootstrap, events, overview, needsAttention, actor, filters };
 }
 
-module.exports = { createBusinessReadService, access, manages, base, orderAccess, guestAccess, pageResult };
+module.exports = { createBusinessReadService, organizationMember,access, manages, base, orderAccess, guestAccess, pageResult };

@@ -928,7 +928,9 @@ test(
       assert.equal(savedProfile.body.data.phoneVerifiedAt, null);
       assert.equal((await req('/customer/profile', ids.matrixCustomer, 'PATCH', { displayName: 'Escalate', isInternalAdmin: true })).status, 422);
       // A previous promoter's new event feeds into normal checkout and business attribution.
-      await m.Organization.create({ id: ids.secondOrg, name: 'Another venue across town', slug: `cross-venue-${ids.secondOrg}`, locationId: venueLocation.id });
+      const secondOrgLocation = await m.Location.create({ ...input.location, name: 'Another venue across town', addressLine1: '24 Other Street' });
+      locations.add(secondOrgLocation.id);
+      await m.Organization.create({ id: ids.secondOrg, name: 'Another venue across town', slug: `cross-venue-${ids.secondOrg}`, locationId: secondOrgLocation.id });
       await m.OrganizationOwner.bulkCreate([{ organizationId: ids.secondOrg, userId: ids.owner, role: 'owner' }, { organizationId: ids.secondOrg, userId: ids.manager, role: 'admin' }]);
       const nextNight = await req('/business/events', ids.owner, 'POST', { ...input, organizationId: ids.secondOrg, title: 'Connected next night', slug: `circle-${randomUUID()}`, isDiscoverable: true });
       assert.equal(nextNight.status, 201, JSON.stringify(nextNight.body));

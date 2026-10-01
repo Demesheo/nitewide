@@ -175,7 +175,7 @@ export default function App() {
   const showOrganizationSelector = (data?.organizations.length || 0) + Number(hasIndependentWorkspace) > 1;
   const { canManage, ownOnly } = workspaceAccess(data, session.user);
   const canManageTeam = data
-    ? Boolean(session.user.isInternalAdmin || data.organizations?.some((org) => org.canManage))
+    ? Boolean(session.user.isInternalAdmin || data.organizations?.some((org) => org.canManage || org.canCreateEvents))
     : Boolean(session.user.isInternalAdmin || session.roles?.some((role) => ['organization_owner', 'venue_manager'].includes(role)));
   const visibleNavigation = navigation.filter(([id]) => id !== 'team' || canManageTeam);
   const visiblePage = page === 'team' && !canManageTeam ? 'overview' : page;
@@ -421,7 +421,7 @@ export default function App() {
                   onSelectionChange={selectEvent}
                 />
               )}
-              {visiblePage === "team" && data && canManageTeam && <BusinessTeam session={session} organizations={data.organizations.filter((org) => org.canManage)} onUnauthorized={expire} />}
+              {visiblePage === "team" && data && canManageTeam && <BusinessTeam session={session} organizations={data.organizations.filter((org) => org.canManage || org.canCreateEvents)} onUnauthorized={expire} />}
             </div>
           )}
           <footer className="app-footer">
@@ -446,7 +446,7 @@ export default function App() {
               ? null
               : activeOrg?.canManage
                 ? activeOrg.id
-                : data.organizations.find((o) => o.canManage)?.id || null
+                : data.organizations.find((o) => o.canManage || o.canCreateEvents)?.id || null
           }
           session={session}
           onClose={() => setEditor(null)}

@@ -2,6 +2,7 @@ const { Op, QueryTypes } = require('sequelize');
 const { createReferralLinkService } = require('./referral-link-service');
 const { publicEvent } = require('../controllers/public-controller');
 const { accessScopeSql } = require('./event-affiliate-access');
+const { venueMemberSql } = require('./venue-access-policy');
 
 // Aggregate the customer's historical attribution in SQL. Loading every order
 // and invitation into Node made Connections grow with transaction volume.
@@ -51,6 +52,11 @@ async function connectionHistorySql(models, userId, { page = 1, pageSize = 20, s
 }
 
 async function pagedConnections({ models, userId, eventId = null, page = 1, pageSize = 9, city = '', query = '', personIds = [], now = () => new Date(), referralLinks }) {
+  const currentVenue = venueMemberSql('event').replaceAll(':userId', 'person.id');
+  const currentVenueAssignment = (alias) => `EXISTS (SELECT 1 FROM venue_access va JOIN organization_venues ov
+    ON ov.organization_id=va.organization_id AND ov.location_id=va.location_id
+    WHERE va.id=${alias}.venue_access_id AND va.user_id=person.id AND va.status='active'
+      AND va.organization_id=event.organization_id AND va.location_id=event.location_id)`;
   const currentMember = `(
     EXISTS (SELECT 1 FROM organization_owners owner WHERE owner.organization_id=event.organization_id AND owner.user_id=person.id AND owner.lifecycle_state='active')
     OR EXISTS (SELECT 1 FROM organization_employees employee WHERE employee.organization_id=event.organization_id AND employee.user_id=person.id AND employee.status='active')
@@ -83,10 +89,14 @@ async function pagedConnections({ models, userId, eventId = null, page = 1, page
             OR (source.ends_at IS NOT NULL AND source.ends_at < :now)))
       AND NOT EXISTS (SELECT 1 FROM event_affiliates assigned WHERE assigned.event_id=event.id AND assigned.user_id=person.id
         AND ${accessScopeSql('assigned')}='organization' AND NOT ${currentMember})
+      AND NOT EXISTS (SELECT 1 FROM event_affiliates assigned WHERE assigned.event_id=event.id AND assigned.user_id=person.id
+        AND ${accessScopeSql('assigned')}='venue' AND NOT ${currentVenueAssignment('assigned')})
       AND (
         ${currentMember}
+        OR ${currentVenue}
         OR EXISTS (SELECT 1 FROM event_affiliates event_ref WHERE event_ref.event_id=event.id AND event_ref.user_id=person.id AND event_ref.status='active'
-          AND (${accessScopeSql('event_ref')}='event' OR ${currentMember})
+          AND (${accessScopeSql('event_ref')}='event' OR (${accessScopeSql('event_ref')}='organization' AND ${currentMember})
+            OR (${accessScopeSql('event_ref')}='venue' AND ${currentVenueAssignment('event_ref')}))
           AND (event_ref.starts_at IS NULL OR event_ref.starts_at<=:now) AND (event_ref.ends_at IS NULL OR event_ref.ends_at>=:now))
         OR (event.organization_id IS NULL AND event.creator_user_id=person.id)
       )`;

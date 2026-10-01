@@ -15,6 +15,7 @@ function initEvent(sequelize) {
     summary: DataTypes.STRING(500),
     description: DataTypes.TEXT,
     category: { type: DataTypes.STRING(80), allowNull: false, defaultValue: 'other' },
+    feeMode: { type: DataTypes.STRING(16),allowNull: false,defaultValue: 'buyer',validate: { isIn: [['buyer','absorbed']] } },
     status: { type: DataTypes.ENUM('draft', 'published', 'cancelled', 'completed'), allowNull: false, defaultValue: 'draft' },
     startsAt: { type: DataTypes.DATE, allowNull: false },
     endsAt: { type: DataTypes.DATE, allowNull: false },

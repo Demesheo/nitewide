@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { Op } = require('sequelize');
 const { createAdminManagementService } = require('../src/services/admin-management-service');
 
 const ADMIN = '10000000-0000-4000-8000-000000000001';
@@ -19,10 +20,10 @@ function fixture({ deny = false, rows = {}, related = {}, ownerCount = 2, guestl
     const model = {
       rawAttributes: { id: {}, createdAt: {}, updatedAt: {}, displayName: {}, email: {}, name: {}, slug: {}, description: {}, locationId: {}, title: {}, status: {}, lifecycleState: {}, startsAt: {}, endsAt: {}, capacity: {}, guestlistCapacity: {}, isDiscoverable: {}, version: {}, eventId: {}, userId: {}, orderId: {}, orderItemId: {}, holderUserId: {}, amountCents: {}, totalCents: {}, currency: {}, paidAt: {}, phone: {}, isActive: {}, isInternalAdmin: {}, creatorUserId: {}, organizationId: {}, priceCents: {}, quantitySold: {}, passwordHash: {}, passwordSalt: {}, templateAlias: {}, attemptCount: {}, nextAttemptAt: {}, expiresAt: {}, recipientEmail: {}, encryptedVariables: {}, providerMessageId: {}, lastError: {}, ...rawAttributes },
       getTableName: () => table,
-      sequelize: { transaction: async (options, run) => {
+      sequelize: { query: async (sql) => /SELECT COALESCE\(MAX\(rate\)/.test(sql) ? [{ rate: 0 }] : [], transaction: async (options, run) => {
         if (typeof options === 'function') run = options;
         calls.push(['transaction', name]);
-        return run(transaction);
+        return run({ LOCK: { UPDATE: 'UPDATE', SHARE: 'SHARE' } });
       } },
       findByPk: async (id, options = {}) => {
         calls.push(['findByPk', name, id, options]);
@@ -58,7 +59,7 @@ function fixture({ deny = false, rows = {}, related = {}, ownerCount = 2, guestl
   };
   const fk = (model, key, table, onDelete) => ({ [key]: { references: { model: table }, onDelete } });
   const userModel = define('User', 'users', { passwordHash: {}, email: {} });
-  userModel.sequelize = { transaction: async (options, run) => { if (typeof options === 'function') run = options; calls.push(['transaction', 'User']); return run(transaction); } };
+  userModel.sequelize = { query: async () => [], transaction: async (options, run) => { if (typeof options === 'function') run = options; calls.push(['transaction', 'User']); return run({ LOCK: { UPDATE: 'UPDATE', SHARE: 'SHARE' } }); } };
   define('UserCredential', 'user_credentials', fk('UserCredential', 'userId', 'users', 'CASCADE'));
   define('UserActionToken', 'user_action_tokens', fk('UserActionToken', 'userId', 'users', 'CASCADE'));
   define('Notification', 'notifications', fk('Notification', 'userId', 'users', 'CASCADE'));
@@ -122,6 +123,119 @@ test('management pages apply status and allowlisted sort before returning record
   assert.equal(archived.where.lifecycleState, 'archived');
 });
 
+test('People multi-status filters use OR, combine with search, and clear without stale predicates', async () => {
+  const context = fixture();
+  await context.service.list(ADMIN, 'users', { statuses: ['active', 'suspended', 'active'], search: 'Rivera' });
+  const options = context.calls.find((call) => call[0] === 'findAndCountAll' && call[1] === 'User')[2];
+  assert.deepEqual(options.where[Op.and][0][Op.or], [{ isActive: true, lifecycleState: 'active' }, { lifecycleState: 'suspended' }]);
+  assert.equal(options.where[Op.and][1][Op.or][0].displayName[Op.iLike], '%Rivera%');
+  await context.service.list(ADMIN, 'users', { statuses: [] });
+  assert.deepEqual(context.calls.filter((call) => call[0] === 'findAndCountAll').at(-1)[2].where, {});
+  await context.service.list(ADMIN, 'users', { statuses: 'disabled' });
+  assert.deepEqual(context.calls.filter((call) => call[0] === 'findAndCountAll').at(-1)[2].where[Op.and][0][Op.or], [{ isActive: false, lifecycleState: 'active' }]);
+  await assert.rejects(context.service.list(ADMIN, 'users', { statuses: ['active', 'paid'] }), { code: 'VALIDATION_ERROR' });
+  await assert.rejects(context.service.list(ADMIN, 'users', { statuses: ['suspended'], status: 'active' }));
+});
+
+test('People searches name, email, normalized phone or exact indexed ID without exposing credentials', async () => {
+  const context = fixture({ rows: { User: [record(USER, { phone: '+1 (407) 555-0100' })] } });
+  const options = () => context.calls.filter((call) => call[0] === 'findAndCountAll').at(-1)[2];
+  const matches = () => options().where[Op.and][0][Op.or];
+  for (const search of ['Jordan', 'jordan@example.test']) {
+    await context.service.list(ADMIN, 'users', { search });
+    assert.deepEqual(matches().map((match) => Object.keys(match)[0]), ['displayName', 'email', 'phone']);
+  }
+  await context.service.list(ADMIN, 'users', { search: '(407) 555-0100' });
+  assert.equal(matches().length, 4);
+  assert.equal(matches()[3].attribute.fn, 'regexp_replace');
+  assert.equal(matches()[3].attribute.args[0].col, 'phone');
+  assert.equal(matches()[3].logic[Op.like], '%4075550100%');
+  assert.ok(options().attributes.includes('phone'));
+  await context.service.list(ADMIN, 'users', { search: USER });
+  assert.deepEqual(matches(), [{ id: USER }]);
+  await context.service.list(ADMIN, 'users', { search: '50%_\\name' });
+  assert.equal(matches()[0].displayName[Op.iLike], '%50\\%\\_\\\\name%');
+});
+
+test('People related reads scope tickets and admission to their holder, not the scanner', async () => {
+  const context = fixture();
+  delete context.models.Ticket.rawAttributes.userId;
+  delete context.models.CheckIn.rawAttributes.userId;
+  await context.service.list(ADMIN, 'tickets', { userId: USER });
+  assert.equal(context.calls.filter((call) => call[0] === 'findAndCountAll').at(-1)[2].where.holderUserId, USER);
+  await context.service.list(ADMIN, 'check_ins', { userId: USER });
+  const options = context.calls.filter((call) => call[0] === 'findAndCountAll').at(-1)[2];
+  assert.match(options.where[Op.and][0][Op.or][0].ticketId[Op.in].val, new RegExp(`holder_user_id='${USER}'`));
+  assert.match(options.where[Op.and][0][Op.or][1].guestlistEntryId[Op.in].val, new RegExp(`user_id='${USER}'`));
+  assert.equal(options.where.checkedInByUserId, undefined);
+});
+
+test('People invitations distinguish sent and received and match verified identity history', async () => {
+  const context = fixture({ rows: { User: [record(USER, { email: 'Rivera@EXAMPLE.test', phone: '+1 (407) 555-0100' })] } });
+  for (const key of ['TeamInvitation', 'GuestlistInvitation']) delete context.models[key].rawAttributes.userId;
+  for (const key of ['team_invitations', 'guestlist_invitations']) {
+    await context.service.list(ADMIN, key, { userId: USER, relation: 'sent' });
+    assert.equal(context.calls.filter((call) => call[0] === 'findAndCountAll').at(-1)[2].where.invitedByUserId, USER);
+    await context.service.list(ADMIN, key, { userId: USER, relation: 'received' });
+    const options = context.calls.filter((call) => call[0] === 'findAndCountAll').at(-1)[2];
+    const matches = options.where[Op.and][0][Op.or];
+    assert.deepEqual(matches[0], { acceptedByUserId: USER });
+    assert.equal(matches[1].attribute.fn, 'lower');
+    assert.equal(matches[1].logic, 'rivera@example.test');
+    assert.equal(matches[2].logic, '14075550100');
+  }
+  await assert.rejects(context.service.list(ADMIN, 'users', { userId: USER, relation: 'sent' }), { code: 'VALIDATION_ERROR' });
+  await assert.rejects(context.service.list(ADMIN, 'team_invitations', { relation: 'received' }), { code: 'VALIDATION_ERROR' });
+  await assert.rejects(context.service.list(ADMIN, 'team_invitations', { userId: ORG }), { code: 'NOT_FOUND' });
+});
+
+test('contextual rows batch related human labels only for IDs on the bounded page', async () => {
+  const context = fixture({ rows: { EventAffiliate: [record(OFFERING, { userId: USER, eventId: EVENT })] } });
+  const queries = [];
+  context.models.User.findAll = async (options) => {
+    queries.push(['User', options]);
+    return [{ id: USER, displayName: 'Sam Rivera', email: 'sam@example.test', passwordHash: 'never exposed', phone: '+14075550100' }];
+  };
+  context.models.Event.findAll = async (options) => {
+    queries.push(['Event', options]);
+    return [{ id: EVENT, title: 'Rew1nd Saturdays', description: 'Not part of a label' }];
+  };
+  const result = await context.service.list(ADMIN, 'event_affiliates', { userId: USER });
+  assert.deepEqual(result.items[0].user, { id: USER, displayName: 'Sam Rivera', email: 'sam@example.test' });
+  assert.deepEqual(result.items[0].event, { id: EVENT, title: 'Rew1nd Saturdays' });
+  assert.equal(queries.length, 2);
+  for (const [, options] of queries) {
+    assert.equal(options.where.id[Op.in].length, 1);
+    assert.equal(options.limit, 1);
+  }
+});
+
+test('related searches match human context while preserving the selected person and escaping SQL', async () => {
+  const context = fixture();
+  await context.service.list(ADMIN, 'owners', { userId: USER, search: "Sam's 50%_ club" });
+  const options = context.calls.filter((call) => call[0] === 'findAndCountAll').at(-1)[2];
+  assert.equal(options.where.userId, USER);
+  const matches = options.where[Op.and][0][Op.or];
+  assert.match(matches[0].organizationId[Op.in].val, /SELECT id FROM organizations/);
+  assert.match(matches[0].organizationId[Op.in].val, /Sam''s 50\\%\\_ club/);
+  assert.match(matches[1].userId[Op.in].val, /display_name ILIKE/);
+  assert.equal(options.limit, 25);
+});
+
+test('event date filters use inclusive local calendar dates without converting the indexed timestamp', async () => {
+  const context = fixture({ rows: { Event: [record(EVENT, { title: 'Sunday night' })] } });
+  const result = await context.service.list(ADMIN, 'events', { page: 2, startDate: '2027-03-14', endDate: '2027-03-14', timezone: 'America/New_York' });
+  const options = context.calls.find((call) => call[0] === 'findAndCountAll' && call[1] === 'Event')[2];
+  assert.equal(result.page, 2);
+  assert.equal(result.timezone, 'America/New_York');
+  assert.equal(options.where.startsAt[Op.gte].val, "('2027-03-14'::date::timestamp AT TIME ZONE 'America/New_York')");
+  assert.equal(options.where.startsAt[Op.lt].val, "(('2027-03-14'::date + 1)::timestamp AT TIME ZONE 'America/New_York')");
+  await assert.rejects(context.service.list(ADMIN, 'events', { startDate: '2027-03-15', endDate: '2027-03-14' }));
+  await assert.rejects(context.service.list(ADMIN, 'events', { startDate: '2027-02-30' }));
+  await assert.rejects(context.service.list(ADMIN, 'events', { startDate: '2027-03-14', timezone: "UTC'; DROP TABLE events;--" }));
+  await assert.rejects(context.service.list(ADMIN, 'users', { startDate: '2027-03-14' }), { code: 'VALIDATION_ERROR' });
+});
+
 test('detail, create, and lifecycle actions authorize before touching records; hard-delete APIs are absent', async () => {
   const denied = fixture({ deny: true });
   await assert.rejects(() => denied.service.detail(USER, 'users', USER), { code: 'FORBIDDEN' });
@@ -152,26 +266,25 @@ test('user creation delegates to onboarding and never accepts or stores an initi
   assert.equal(context.calls.some(([kind, model]) => kind === 'create' && ['User', 'UserCredential'].includes(model)), false);
 });
 
-test('organization creation validates the owner reference and writes membership plus reasoned audit atomically', async () => {
+test('generic organization creation cannot bypass secure business onboarding and ownership acceptance', async () => {
   const owner = record(USER, { displayName: 'Org Owner', email: 'owner@example.test' });
   const context = fixture({ rows: { User: [owner] } });
   const input = { name: 'Test Venue', slug: 'test-venue', ownerUserId: USER, reason: WHY };
-  await assert.rejects(() => context.service.create(ADMIN, 'organizations', { ...input, ownerUserId: EVENT }), { code: 'NOT_FOUND' });
+  await assert.rejects(() => context.service.create(ADMIN, 'organizations', { ...input, ownerUserId: EVENT }), { code: 'BUSINESS_ONBOARDING_REQUIRED' });
   assert.equal(context.calls.some(([kind, model]) => kind === 'create' && model === 'Organization'), false);
-  const result = await context.service.create(ADMIN, 'organizations', input);
-  assert.equal(result.name, 'Test Venue');
-  assert.equal(context.calls.some(([kind, model]) => kind === 'create' && model === 'OrganizationOwner'), true);
-  assert.equal(context.calls.some(([kind, model]) => kind === 'create' && model === 'AuditLog'), true);
+  await assert.rejects(() => context.service.create(ADMIN, 'organizations', input), { code: 'BUSINESS_ONBOARDING_REQUIRED' });
+  await assert.rejects(() => context.service.create(ADMIN, 'owners', { organizationId: ORG, userId: USER, role: 'owner', reason: WHY }), { code: 'OWNERSHIP_ACCEPTANCE_REQUIRED' });
+  assert.equal(context.calls.some(([kind]) => kind === 'create'), false);
 });
 
-test('event creation cannot bypass the saved organization-location requirement', async () => {
+test('generic event creation cannot bypass the shared creator event editor', async () => {
   const user = record(USER);
   const organization = record(ORG, { locationId: null });
   const context = fixture({ rows: { User: [user], Organization: [organization] } });
   await assert.rejects(() => context.service.create(ADMIN, 'events', {
     title: 'New Test Event', slug: 'new-test-event', creatorUserId: USER, organizationId: ORG,
     startsAt: '2030-01-01T00:00:00Z', endsAt: '2030-01-01T04:00:00Z', category: 'music', reason: WHY,
-  }), { code: 'ORGANIZATION_LOCATION_REQUIRED' });
+  }), { code: 'EVENT_EDITOR_REQUIRED' });
   assert.equal(context.calls.some(([kind, model]) => kind === 'create' && model === 'Event'), false);
 });
 

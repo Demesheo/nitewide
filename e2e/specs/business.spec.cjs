@@ -3,6 +3,87 @@ const QRCode = require('qrcode');
 const { urls } = require('../environment.cjs');
 const { checkPasswordVisibility, checkOnboardingPasswords } = require('../password-visibility.cjs');
 
+// These use the real production build served by the isolated preview, not a
+// Vite optimizer URL. Only the lazy App asset fails; the entry/recovery code
+// remains available. No auth submission, email, or fixture mutation is needed.
+for (const failure of ['unavailable chunk','route render failure']) {
+  test(`business startup recovery handles ${failure} without an automatic reload or session reset`,async ({page,browserName}) => {
+    const privateMarker = 'synthetic-private-error-payload';
+    const rawSession = JSON.stringify({accessToken:'synthetic-expired-session',expiresAt:'2000-01-01T00:00:00.000Z'});
+    let documents = 0,failures = 0,blocked = true;
+    const messages = [];
+    page.on('console',message => messages.push(message.text()));
+    page.on('request',request => {if (request.isNavigationRequest() && request.resourceType() === 'document') documents += 1;});
+    await page.goto('/');
+    await page.evaluate(value => sessionStorage.setItem('nitewide.business.session',value),rawSession);
+    const appAsset = url => url.origin === urls.business && /^\/assets\/App-[^/]+\.js$/.test(url.pathname);
+    await page.route(appAsset,route => {
+      if (!blocked) return route.continue();
+      failures += 1;
+      return failure === 'unavailable chunk'
+        ? route.fulfill({status:504,contentType:'text/plain',headers:{'Cache-Control':'no-store'},body:'This workspace asset is temporarily unavailable.'})
+        : route.fulfill({contentType:'application/javascript',headers:{'Cache-Control':'no-store'},body:`export default function BrokenBusinessRoute() { throw new Error(${JSON.stringify(privateMarker)}); }`});
+    });
+    const address = `${urls.business}/sign-in?returnTo=%2Fapp%3Fsection%3Devents#resume`;
+    await page.goto(address);
+    await expect(page.getByRole('heading',{name:'This page couldn’t open',exact:true})).toBeVisible();
+    await expect(page.getByRole('alert')).toContainText('Unsaved information may need to be entered again');
+    await expect(page.getByRole('heading',{name:'This page couldn’t open',exact:true})).toBeFocused();
+    await expect(page).toHaveURL(address); await expectNoOverflow(page);
+    expect(failures).toBeGreaterThan(0);
+    expect(await page.evaluate(() => sessionStorage.getItem('nitewide.business.session'))).toBe(rawSession);
+    expect(await page.locator('body').innerText()).not.toContain(privateMarker);
+    expect(messages.join('\n')).not.toContain(privateMarker);
+    const initialDocuments = documents;
+    // The recovery waits for the person, even after the connection recovers.
+    blocked = false;
+    await expect(page.getByRole('button',{name:'Reload page',exact:true})).toBeVisible();
+    expect(documents).toBe(initialDocuments);
+    await Promise.all([
+      page.waitForEvent('framenavigated',frame => frame === page.mainFrame()),
+      page.getByRole('button',{name:'Reload page',exact:true}).click(),
+    ]);
+    if (browserName === 'webkit') {
+      // WebKit retains failed dynamic modules in this browsing context even
+      // after a manual reload. Assert honest safe guidance, not recovery that
+      // our real HTTP504 diagnostic could not deliver. Normal boot is tested
+      // independently below; no automatic tabs or secret copying workaround.
+      await expect(page.getByRole('heading',{name:'This page couldn’t open',exact:true})).toBeVisible();
+      await expect(page.getByRole('alert')).toContainText('close and reopen your browser');
+      await expect(page.getByRole('button',{name:'Reload page',exact:true})).toBeVisible();
+    } else {
+      await expect(page.getByRole('button',{name:'Sign in to Nitewide',exact:true})).toBeVisible();
+    }
+    await expect(page).toHaveURL(address);
+    expect(documents).toBe(initialDocuments+1);
+    expect(await page.evaluate(() => sessionStorage.getItem('nitewide.business.session'))).toBe(rawSession);
+  });
+}
+
+test('business startup retains a safe static recovery message when its production entry asset is unavailable',async ({page}) => {
+  const rawSession = JSON.stringify({accessToken:'synthetic-expired-session',expiresAt:'2000-01-01T00:00:00.000Z'});
+  await page.goto('/');
+  await page.evaluate(value => sessionStorage.setItem('nitewide.business.session',value),rawSession);
+  await page.route(url => url.origin === urls.business && /^\/assets\/index-[^/]+\.js$/.test(url.pathname),route => route.fulfill({status:504,contentType:'text/plain',headers:{'Cache-Control':'no-store'},body:'Startup temporarily unavailable.'}));
+  const address = `${urls.business}/sign-in?returnTo=%2Fapp#resume`;
+  await page.goto(address);
+  await expect(page.getByRole('heading',{name:'Opening Nitewide Business…',exact:true})).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('Your stored sign-in session will remain');
+  await expect(page).toHaveURL(address); await expectNoOverflow(page);
+  expect(await page.evaluate(() => sessionStorage.getItem('nitewide.business.session'))).toBe(rawSession);
+  expect(await page.locator('body').innerText()).not.toContain('synthetic-expired-session');
+});
+
+test('business sign-in boots normally on a clean browser page without exposing recovery UI',async ({page}) => {
+  await page.goto('/sign-in');
+  await expect(page.getByLabel('Work email',{exact:true})).toBeVisible();
+  await expect(page.getByLabel('Password',{exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Sign in to Nitewide',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'This page couldn’t open',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('heading',{name:'Opening Nitewide Business…',exact:true})).toHaveCount(0);
+  await expectNoOverflow(page);
+});
+
 test('business password visibility works independently in login and reset without submitting', async ({ page }) => {
   const actions = [];
   page.on('request', request => { if (request.method() === 'POST' && request.url().includes('/api/auth/')) actions.push(request.url()); });

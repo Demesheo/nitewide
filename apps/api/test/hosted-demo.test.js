@@ -43,6 +43,7 @@ test('hosted demo public pages need no shared password while account endpoints r
   assert.equal(home.text, '<html><body>customer</body></html>');
   assert.equal(home.headers['set-cookie'], undefined);
   assert.match(home.headers['x-robots-tag'], /noindex/);
+  assert.equal(home.headers['cache-control'], 'no-store');
   assert.match(home.headers['content-security-policy'], /img-src 'self' data: https:\/\/a{32}\.r2\.cloudflarestorage\.com;/);
   assert.doesNotMatch(home.headers['content-security-policy'], /\*\.r2/);
   assert.equal((await request('/api/auth/me')).status, 401);
@@ -83,4 +84,40 @@ test('single-origin demo maps each app and assets without swallowing unknown API
   assert.match((await request('/admin/assets/app.js')).text, /admin/);
   assert.equal((await request('/api/not-real')).status, 404);
   assert.equal((await request('/.env')).status, 404);
+});
+test('entry documents are not cached and missing release assets never become HTML or cached failures', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'nitewide-static-cache-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const name of ['customer', 'business', 'admin']) {
+    const dist = path.join(root, 'apps', name, 'dist');
+    await mkdir(path.join(dist, 'assets'), { recursive: true });
+    await writeFile(path.join(dist, 'index.html'), `<html><body>${name}</body></html>`);
+    await writeFile(path.join(dist, 'assets', 'App-abcdefgh.js'), 'export default {};');
+    await writeFile(path.join(dist, 'assets', 'index-abcdefgh.css'), 'body { color: white; }');
+    await writeFile(path.join(dist, 'assets', 'unversioned.js'), 'export default {};');
+  }
+  const app = express(); installDemoStatic(app, root);
+  const request = await serve(t, app);
+  for (const url of ['/', '/?city=Orlando', '/index.html', '/app', '/app?section=events', '/sign-in', '/business', '/business/', '/admin', '/admin/']) {
+    const response = await request(url);
+    assert.equal(response.status, 200, url);
+    assert.match(response.headers['content-type'], /text\/html/, url);
+    assert.equal(response.headers['cache-control'], 'no-store', url);
+  }
+  for (const prefix of ['/assets', '/business/assets', '/admin/assets']) {
+    for (const filename of ['App-abcdefgh.js', 'index-abcdefgh.css']) {
+      const response = await request(`${prefix}/${filename}`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers['cache-control'], 'public, max-age=31536000, immutable');
+    }
+    const unversioned = await request(`${prefix}/unversioned.js`);
+    assert.equal(unversioned.headers['cache-control'], 'public, max-age=0, must-revalidate');
+    for (const method of ['GET', 'HEAD']) {
+      const response = await request(`${prefix}/App-oldbuild.js`, { method });
+      assert.equal(response.status, 404);
+      assert.match(response.headers['content-type'], /text\/plain/);
+      assert.equal(response.headers['cache-control'], 'no-store');
+      if (method === 'GET') assert.equal(response.text, 'Asset not found');
+    }
+  }
 });

@@ -41,6 +41,8 @@ async function seed(models, config) {
     }
     await models.Location.create({ id: ids.location, name: 'Playwright Venue', city: 'Orlando', region: 'FL', countryCode: 'US', addressLine1: '100 Nightlife Lane', postalCode: '32801', timezone: 'America/New_York', privacy: 'public' }, options);
     await models.Organization.create({ id: ids.org, name: 'Playwright Nightlife', slug: 'playwright-nightlife', locationId: ids.location, planTier: 'premium' }, options);
+    // Organization's compatibility afterSave hook already creates this link.
+    await models.OrganizationVenue.findOrCreate({ where: { organizationId: ids.org, locationId: ids.location }, ...options });
     await models.OrganizationOwner.create({ organizationId: ids.org, userId: accounts.business.id, role: 'admin' }, options);
     await models.OrganizationEmployee.bulkCreate(Array.from({ length: 25 }, (_, i) => ({ organizationId: ids.org, userId: uuid(1000 + i), status: 'active' })), options);
     await models.OrgAffiliate.bulkCreate([{ organizationId: ids.org, userId: accounts.business.id, code: 'PW-SAM', defaultGuestlistAllocation: 10 }, { organizationId: ids.org, userId: accounts.promoter.id, code: 'PW-LEO', defaultGuestlistAllocation: 10, defaultCommissionBps: 500 }], options);

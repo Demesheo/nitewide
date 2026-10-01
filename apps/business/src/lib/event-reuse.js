@@ -17,7 +17,7 @@ function laterWallClock(start, end, timezone) {
 function cleanOffering(offering, keyBySourceId) {
   const sourceKey = offering.id || offering.clientKey;
   return { clientKey: keyBySourceId.get(sourceKey), name: offering.name || '',
-    description: offering.description || '', kind: offering.kind || 'ticket',
+    description: offering.description || '', kind: offering.kind || 'ticket', feeMode: offering.feeMode || 'inherit',
     inventoryMode: offering.inventoryMode || 'finite', quantityTotal: offering.quantityTotal ?? 0,
     entriesPerUnit: offering.entriesPerUnit ?? 1, minPerOrder: offering.minPerOrder ?? 1,
     maxPerOrder: offering.maxPerOrder ?? 10,
@@ -38,12 +38,12 @@ function cleanTemplateSource(source) {
   } : null;
   return { title: source.title.slice(0, 180), summary: String(source.summary || '').slice(0, 500),
     description: String(source.description || '').slice(0, 20000), organizationId: source.organizationId || null,
-    locationId: source.locationId || null, location,
+    locationId: source.locationId || null, location, feeMode: source.feeMode || 'buyer',
     startsAt: source.startsAt, endsAt: source.endsAt,
     guestlistCapacity: source.guestlistCapacity ?? 50, capacity: source.capacity ?? null,
     offerings: source.offerings.slice(0, 50).filter((tier) => tier && typeof tier === 'object').map((tier) => ({
       id: tier.id, clientKey: tier.clientKey, name: tier.name, description: tier.description,
-      kind: tier.kind, priceCents: tier.priceCents, price: tier.price,
+      kind: tier.kind, feeMode: tier.feeMode || 'inherit', priceCents: tier.priceCents, price: tier.price,
       quantityTotal: tier.quantityTotal, inventoryMode: tier.inventoryMode,
       entriesPerUnit: tier.entriesPerUnit, minPerOrder: tier.minPerOrder, maxPerOrder: tier.maxPerOrder,
       isActive: tier.isActive, visibility: tier.visibility,
@@ -73,7 +73,7 @@ export function readEventTemplates(userId) {
 
 export function saveEventTemplate(userId, event) {
   const source = { title: event.title, summary: event.summary, description: event.description,
-    organizationId: event.organizationId, locationId: event.locationId,
+    organizationId: event.organizationId, locationId: event.locationId, feeMode: event.feeMode || 'buyer',
     location: event.location ? { name: event.location.name || '', addressLine1: event.location.addressLine1 || '',
       city: event.location.city || '', region: event.location.region || '', postalCode: event.location.postalCode || '',
       countryCode: event.location.countryCode || 'US', timezone: event.location.timezone || 'America/New_York',
@@ -81,7 +81,7 @@ export function saveEventTemplate(userId, event) {
     startsAt: event.startsAt, endsAt: event.endsAt,
     guestlistCapacity: event.guestlistCapacity, capacity: event.capacity,
     offerings: (event.offerings || []).map((tier) => ({ id: tier.id, name: tier.name, description: tier.description,
-      kind: tier.kind, priceCents: tier.priceCents, quantityTotal: tier.quantityTotal, inventoryMode: tier.inventoryMode,
+      kind: tier.kind, feeMode: tier.feeMode || 'inherit', priceCents: tier.priceCents, quantityTotal: tier.quantityTotal, inventoryMode: tier.inventoryMode,
       entriesPerUnit: tier.entriesPerUnit, minPerOrder: tier.minPerOrder, maxPerOrder: tier.maxPerOrder,
       isActive: tier.isActive, visibility: tier.visibility, releaseAfterOfferingId: tier.releaseAfterOfferingId })) };
   const item = { schema: 1, id: crypto.randomUUID(), name: event.title, createdAt: new Date().toISOString(), source };

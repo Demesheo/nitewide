@@ -15,6 +15,7 @@ const BASE = {
     { name: 'Venue Two', addressLine1: '2 Second Street', city: 'Tampa', countryCode: 'US', timezone: 'America/New_York', privacy: 'private' },
   ],
   reason: WHY,
+  confirmedAuthority: true,
 };
 
 function fixture({ existingUser = null, enabled = true, now = new Date('2026-09-29T12:00:00.000Z'), deny = false } = {}) {
@@ -35,6 +36,7 @@ function fixture({ existingUser = null, enabled = true, now = new Date('2026-09-
       const row = {
         id: values.id || crypto.randomUUID(),
         version: 0,
+        ...(name === 'Organization' ? { status: 'active', lifecycleState: 'active' } : {}),
         ...values,
         toJSON() { return { ...this }; },
         update: async function update(changes) { Object.assign(this, changes); this.version += 1; return this; },
@@ -51,6 +53,13 @@ function fixture({ existingUser = null, enabled = true, now = new Date('2026-09-
       return rows.find((row) => Object.entries(where).every(([key, value]) => row[key] === value)) || null;
     },
     count: async ({ where = {} } = {}) => rows.filter((row) => Object.entries(where).every(([key, value]) => row[key] === value)).length,
+    findAll: async ({ where = {} } = {}) => rows.filter((row) => Object.entries(where).every(([key, value]) => row[key] === value)),
+    update: async (changes, { where }) => {
+      const row = rows.find((value) => Object.entries(where).every(([key, expected]) => value[key] === expected));
+      if (!row) return [0, []];
+      Object.assign(row, { ...changes, version: typeof changes.version === 'number' ? changes.version : row.version + 1 });
+      return [1, [row]];
+    },
     findOrCreate: async ({ where, defaults, transaction }) => {
       const found = rows.find((row) => Object.entries(where).every(([key, value]) => row[key] === value));
       return found ? [found, false] : [await model.create({ ...where, ...defaults }, { transaction }), true];
@@ -87,10 +96,11 @@ function fixture({ existingUser = null, enabled = true, now = new Date('2026-09-
     OrganizationVenue: make(organizationVenues, 'OrganizationVenue'),
     OnboardingInvitation: make(invitations, 'OnboardingInvitation'),
     AuditLog: auditModel,
-    OrganizationOwner: { findOrCreate: async ({ where, defaults, transaction }) => {
-      calls.push(['owner:findOrCreate', where, defaults, transaction]);
-      return [{ ...where, ...defaults }, true];
-    } },
+    OrganizationOwner: make([], 'OrganizationOwner'),
+    OrganizationEmployee: make([], 'OrganizationEmployee'),
+    OrgAffiliate: make([], 'OrgAffiliate'),
+    Event: make([], 'Event'),
+    EventAffiliate: make([], 'EventAffiliate'),
   };
   const permissions = { assertInternal: async (actor) => { calls.push(['authorize', actor]); if (deny || actor !== ADMIN) { const error = new Error('Internal administrator access required'); error.code = 'FORBIDDEN'; throw error; } } };
   const email = { enabled, queue: async (message, transaction) => { queued.push({ message, transaction }); return true; } };
@@ -102,9 +112,8 @@ test('onboarding schema rejects unknown fields and inconsistent individual/busin
   const context = fixture();
   await assert.rejects(() => context.service.create(OTHER, BASE), { code: 'FORBIDDEN' });
   await assert.rejects(() => context.service.create(ADMIN, { ...BASE, leaked: true }));
-  await assert.rejects(() => context.service.create(ADMIN, { ...BASE, venues: [] }));
+  await assert.rejects(() => context.service.create(ADMIN, { ...BASE, confirmedAuthority: false }));
   await assert.rejects(() => context.service.create(ADMIN, { ...BASE, kind: 'independent_creator', organization: undefined }));
-  await assert.rejects(() => context.service.create(ADMIN, { ...BASE, kind: 'venue' }));
   assert.equal(context.users.filter((user) => user.id !== ADMIN).length, 0);
   assert.equal(context.organizations.length, 0);
 });
@@ -119,6 +128,8 @@ test('organization onboarding creates pending owner and two scoped venues but ne
   assert.equal(recipient.isInternalAdmin, false);
   assert.equal(context.organizations.length, 1);
   assert.equal(context.organizations[0].businessType, 'organization');
+  assert.match(context.organizations[0].slug, /^sample-organization-[a-f0-9-]{36}$/);
+  assert.notEqual(context.organizations[0].slug, BASE.organization.slug, 'client-selected slug is ignored');
   assert.equal(context.locations.length, 2);
   assert.equal(context.organizationVenues.length, 2);
   assert.equal(context.organizations[0].locationId, context.locations[0].id);
@@ -138,9 +149,34 @@ test('organization onboarding creates pending owner and two scoped venues but ne
   assert.equal(JSON.stringify(context.auditRows).includes(context.invitations[0].tokenHash), false);
 });
 
+test('business onboarding generates distinct bounded ASCII slugs for duplicate and untrusted names', async () => {
+  const context = fixture({ enabled: false });
+  for (const [index, name] of ['Café North', 'Café North', '<script>alert(1)</script> ../../ 東京 🎉', '東京 🎉', 'É'.repeat(160)].entries()) {
+    await context.service.create(ADMIN, { ...BASE, recipient: { ...BASE.recipient, email: `slug-${index}@example.test` }, organization: { name }, venues: [] });
+  }
+  const slugs = context.organizations.map((row) => row.slug);
+  assert.equal(new Set(slugs).size, slugs.length);
+  for (const slug of slugs) { assert.match(slug, /^[a-z0-9]+(?:-[a-z0-9]+)*$/); assert.ok(slug.length <= 180); }
+  assert.match(slugs[0], /^cafe-north-/); assert.match(slugs[1], /^cafe-north-/);
+  assert.match(slugs[2], /^script-alert-1-script-/); assert.match(slugs[3], /^business-/);
+  const writes = context.organizations.length;
+  await assert.rejects(context.service.create(ADMIN, { ...BASE, organization: { name: 'Unsafe override', slug: '../<script>' } }));
+  assert.equal(context.organizations.length, writes);
+});
+
+test('legacy business kinds are descriptive compatibility input, not separate models or venue cardinality rules', async () => {
+  for (const kind of ['venue', 'independent_creator']) for (const venues of [[], BASE.venues]) {
+    const context = fixture({ enabled: false });
+    await context.service.create(ADMIN, { ...BASE, kind, venues });
+    assert.equal(context.organizations[0].businessType, 'organization');
+    assert.equal(context.locations.length, venues.length);
+    assert.equal(context.users.find((user) => user.id !== ADMIN).independentCreator, false);
+  }
+});
+
 test('preview is non-consuming; new-account accept requires confirmed password and creates verified credentials atomically', async () => {
   const context = fixture();
-  await context.service.create(ADMIN, { ...BASE, kind: 'independent_creator', organization: undefined, venues: [] });
+  await context.service.create(ADMIN, { ...BASE, kind: 'independent_creator', venues: [] });
   const recipient = context.users.find((user) => user.id !== ADMIN);
   const invitation = context.invitations[0];
   const raw = new URL(context.queued[0].message.variables.SETUP_URL).searchParams.get('onboarding');
@@ -158,7 +194,9 @@ test('preview is non-consuming; new-account accept requires confirmed password a
   assert.equal(accepted.accepted, true);
   assert.equal(invitation.acceptedAt.getTime(), context.now.getTime());
   assert.equal(recipient.onboardingPending, false);
-  assert.equal(recipient.independentCreator, true);
+  assert.equal(recipient.independentCreator, false);
+  assert.equal(context.organizations[0].businessType, 'organization');
+  assert.equal(context.organizations[0].onboardingEstablished, true);
   assert.equal(recipient.emailVerifiedAt.getTime(), context.now.getTime());
   assert.notEqual(context.credentials.get(recipient.id).passwordHash, 'Password12345');
   await assert.rejects(() => context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345' }), { code: 'ONBOARDING_INVALID' });
@@ -206,4 +244,30 @@ test('email-disabled onboarding creates an explicit unavailable delivery and nev
   assert.equal(context.queued.length, 0);
   assert.equal(recipient.onboardingPending, true);
   assert.equal(context.invitations.length, 1);
+});
+
+test('a business may start with a manager, no owners, and no venue or headquarters', async () => {
+  const context = fixture();
+  const created = await context.service.create(ADMIN, { ...BASE, recipient: { ...BASE.recipient, role: 'manager', financeAuthorized: true }, venues: [] });
+  assert.equal(created.role, 'manager');
+  assert.equal(created.financeAuthorized, true);
+  assert.equal(context.locations.length, 0);
+  assert.equal(context.organizations[0].locationId, null);
+  const raw = new URL(context.queued[0].message.variables.SETUP_URL).searchParams.get('onboarding');
+  await context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345' });
+  const membership = await context.models.OrganizationOwner.findOne({ where: { organizationId: created.organizationId, userId: created.userId } });
+  assert.equal(membership.role, 'admin');
+  assert.equal(membership.financeAuthorized, true);
+  assert.equal(context.organizations[0].onboardingEstablished, false);
+  assert.equal((await context.models.OrganizationOwner.findAll({ where: { role: 'owner' } })).length, 0);
+});
+
+test('legacy pending independent-creator invitations retain existing creator access', async () => {
+  const context = fixture();
+  await context.service.create(ADMIN, { ...BASE, kind: 'user', organization: undefined, venues: [] });
+  Object.assign(context.invitations[0].grants, { kind: 'independent_creator', independentCreator: true });
+  const raw = new URL(context.queued[0].message.variables.SETUP_URL).searchParams.get('onboarding');
+  await context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345' });
+  assert.equal(context.users.find((user) => user.id !== ADMIN).independentCreator, true);
+  assert.equal(context.organizations.length, 0);
 });

@@ -1,6 +1,6 @@
 # Automated browser testing
 
-Playwright exercises the customer and business apps through real browser interactions, API routes, authentication, migrations and PostgreSQL. Admin browser coverage is temporarily paused for its frontend rework; its specs are retained, and admin unit/API tests and production builds remain enabled. External email is mocked; **zero Resend quota is consumed**. There are no live payments or SMS sends.
+Playwright exercises the customer, business, and rebuilt admin apps through real browser interactions, API routes, authentication, migrations and PostgreSQL. Legacy admin specs remain paused; `admin-rebuild.spec.cjs` covers the new workflows. External email is mocked; **zero Resend quota is consumed**. There are no live payments or SMS sends.
 
 ## Run locally
 
@@ -14,7 +14,7 @@ npm run test:e2e
 
 Linux needs browser system dependencies: `npx playwright install --with-deps chromium webkit`.
 
-The runner builds all apps with isolated settings before testing. You do not need to start the normal local apps; they can continue running separately.
+The runner builds all apps with isolated settings and `NODE_ENV=production` before testing, so Vite selects production React and optimized bundles. Only the disposable API/database harness uses `NODE_ENV=test`; provider credentials remain cleared in both environments. You do not need to start the normal local apps; they can continue running separately.
 
 ```sh
 npm run test:e2e -- --project=customer-iphone
@@ -39,13 +39,17 @@ npm run test:e2e:report
 
 ## Browser and workflow coverage
 
-Customer and business each run in two projects: **iPhone 13 / WebKit**, the mobile-first target, and **desktop Chromium**. All use America/New_York and reduced motion to make timezone/rendering assertions repeatable. Admin has no active browser projects locally or in CI; restore `admin` in the `projects` list in `playwright.config.cjs` when its frontend is ready.
+Customer, business, and rebuilt admin each run in two projects: **iPhone 13 / WebKit**, the mobile-first target, and **desktop Chromium**. Admin desktop uses a 1440 × 900 viewport and iPhone uses 390 × 844. All use America/New_York and reduced motion to make timezone/rendering assertions repeatable. Run both `admin-rebuild-iphone` and `admin-rebuild-desktop` for every admin UI change; inspect grid placement, readable hierarchy, compact artwork, reachable actions, and horizontal overflow as well as functional outcomes. See [Admin responsive design standard](ADMIN_FRONTEND.md) for the durable UI review requirements.
 
 Customer workflows cover sign-in/session persistence, registration/password confirmation, recoverable auth errors, event deep links, Maps links, saving/reloading, booking pagination, guestlist passes, notification navigation/dismissal/clear-all, pending-request edits/withdrawal, and demo VIP checkout with individual admission passes.
 
 Business workflows cover navigation/URL cleanup, chart switching, backend team pagination, manager referrals/personal-pool invitations, explicit analytics search, drill-down, full CSV export, manual admissions, customer admission status, real QR-photo decoding for valid/fake/wrong-event/repeat codes, promoter access and offering-editor interactions.
 
-Retained, inactive admin specs cover mobile/desktop navigation, customer access denial, paginated user search, audited edits, suspension/restoration, event archiving, purchase-history retention and independent-creator onboarding with a mocked setup email.
+Business startup regressions deliberately fail a production workspace module download and inject a route-render failure in both WebKit and Chromium. The eagerly loaded recovery screen must stay visible, retain the current URL and stored session, hide private error details, and reload only when requested. Chromium verifies recovery after a transient module failure. The tested WebKit build can retain a failed module across reloads: its regression verifies that the retry remains safe and the recovery screen stays usable, not that reload always restores the workspace. Persistent failure includes guidance to reopen the browser and, if necessary, sign in again. These do not replace API-error handling: an ordinary rejected request must not destroy a healthy sign-in form or erase a typed password. A static startup message remains in the HTML if JavaScript cannot boot at all.
+
+Offline HTTP tests also enforce the hosted release cache policy: entry HTML is `no-store`, fingerprinted JavaScript/CSS is immutable, unversioned assets revalidate, and missing assets return an uncached 404 rather than an application HTML document. The browser recovery screen cannot restore an unavailable server; it gives a safe path to retry after the connection or deployment recovers.
+
+Active admin rebuild specs cover directory/navigation state, capability boundaries, onboarding, audited edits, scoped venues and venue teams, support cases, analytics drill-downs and complete exports, and compact event artwork/layout. Retained legacy specs are not a substitute for coverage of the rebuilt interface.
 
 These are real interaction regressions, not screenshots-only checks or mocked API response snapshots. Extend the suite whenever a fixed bug or stable repeated workflow warrants coverage. It is not exhaustive coverage of every control.
 

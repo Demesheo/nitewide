@@ -1,132 +1,28 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { api } from '../lib/api';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 
-const blankVenue = () => ({ name: '', addressLine1: '', addressLine2: '', city: '', region: '', postalCode: '', countryCode: 'US', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, privacy: 'public' });
-
-function ReviewRow({ title, children }) {
-  return <div><dt>{title}</dt><dd>{children}</dd></div>;
-}
-
+const blankVenue = () => ({ key: crypto.randomUUID(), name: '', addressLine1: '', addressLine2: '', city: '', region: '', postalCode: '', countryCode: 'US', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, privacy: 'public' });
 export default function OnboardingForm({ onClose, onSaved }) {
-  const [step, setStep] = useState(0);
-  const [kind, setKind] = useState('organization');
-  const [recipient, setRecipient] = useState({ displayName: '', email: '', phone: '' });
-  const [organization, setOrganization] = useState({ name: '', slug: '', description: '', planTier: 'free' });
-  const [venues, setVenues] = useState([blankVenue()]);
-  const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [result, setResult] = useState(null);
-  const business = kind !== 'independent_creator';
-  const steps = ['Recipient', business ? 'Business & venues' : 'Creator profile', 'Review & invite'];
-
+  const [step, setStep] = useState(0); const [recipient, setRecipient] = useState({ displayName: '', email: '', phone: '', role: 'owner', financeAuthorized: false });
+  const [organization, setOrganization] = useState({ name: '', description: '', planTier: 'free', website: '' });
+  const [venues, setVenues] = useState([]); const [authority, setAuthority] = useState(false); const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [result, setResult] = useState(null);
   async function submit(event) {
-    event.preventDefault();
-    setError('');
+    event.preventDefault(); setError('');
     if (step < 2) { setStep(step + 1); return; }
     setBusy(true);
-    try {
-      setResult(await api('/admin/onboarding', { method: 'POST', body: JSON.stringify({ kind, recipient, ...(business ? { organization, venues } : {}), reason }) }));
-    } catch (err) { setError(err.message); } finally { setBusy(false); }
+    try { setResult(await api('/admin/onboarding', { method: 'POST', body: JSON.stringify({ kind: 'organization', recipient: { ...recipient, financeAuthorized: recipient.role === 'manager' && recipient.financeAuthorized }, organization: { ...organization, website: organization.website || undefined }, venues: venues.map(({ key, ...venue }) => venue), confirmedAuthority: authority, reason }) })); }
+    catch (err) { setError(err.message); } finally { setBusy(false); }
   }
-  function changeKind(value) {
-    setKind(value);
-    if (value === 'venue') setVenues((previous) => [previous[0] || blankVenue()]);
-  }
-  function updateVenue(index, key, value) {
-    setVenues((previous) => previous.map((item, position) => position === index ? { ...item, [key]: value } : item));
-  }
-
-  return <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-    <DialogContent className="dialog management-dialog">
-      <DialogHeader>
-        <DialogTitle>Onboard business or creator</DialogTitle>
-        <DialogDescription>The recipient confirms their email and sets their own password; existing accounts sign in to accept access.</DialogDescription>
-      </DialogHeader>
-      {result ? <div className="success">
-        <b>Onboarding prepared.</b>
-        <p>{result.delivery === 'queued' ? 'Setup email is queued. Delivery is not yet confirmed.' : 'Email was not sent because delivery is unavailable. The pending profile is saved; configure delivery and resend from Account onboarding invitations.'}</p>
-        <p>Invitation expires {new Date(result.expiresAt).toLocaleString()}. No password or setup link is exposed to administrators.</p>
-        <Button onClick={() => onSaved(result)}>Done</Button>
-      </div> : <>
-        <ol className="management-stepper" aria-label="Onboarding progress">
-          {steps.map((title, index) => <li key={title} aria-current={step === index ? 'step' : undefined}>{index + 1}. {title}</li>)}
-        </ol>
-        <form onSubmit={submit}>
-          {step === 0 && <section aria-label="Recipient">
-            <label>Business type
-              <select value={kind} onChange={(event) => changeKind(event.target.value)}>
-                <option value="organization">Organization · one or multiple venues</option>
-                <option value="venue">Venue · one location</option>
-                <option value="independent_creator">Independent event creator</option>
-              </select>
-            </label>
-            <h3>Recipient</h3>
-            <div className="management-form">
-              {[['displayName', 'Full name', 'text'], ['email', 'Email', 'email'], ['phone', 'Phone (optional)', 'tel']].map(([key, title, type]) => <label key={key}>{title}
-                <Input type={type} value={recipient[key]} required={key !== 'phone'} maxLength={key === 'email' ? 320 : key === 'phone' ? 32 : 120} onChange={(event) => setRecipient({ ...recipient, [key]: event.target.value })}/>
-              </label>)}
-            </div>
-          </section>}
-          {step === 1 && (business ? <section aria-label="Business and venues">
-            <h3>Business profile</h3>
-            <div className="management-form">
-              {[['name', 'Business name'], ['slug', 'Public slug'], ['description', 'Description']].map(([key, title]) => <label key={key}>{title}
-                <Input value={organization[key]} required={key !== 'description'} onChange={(event) => setOrganization({ ...organization, [key]: event.target.value })}/>
-              </label>)}
-              <label>Plan
-                <select value={organization.planTier} onChange={(event) => setOrganization({ ...organization, planTier: event.target.value })}>
-                  <option>free</option><option>premium</option>
-                </select>
-              </label>
-            </div>
-            <h3>Venues</h3>
-            {venues.map((venue, index) => <fieldset key={index}>
-              <legend>Venue {index + 1}</legend>
-              <div className="management-form">
-                {[['name', 'Venue name'], ['addressLine1', 'Street address'], ['addressLine2', 'Address line 2'], ['city', 'City'], ['region', 'State / region'], ['postalCode', 'Postal code'], ['countryCode', 'Country code'], ['timezone', 'IANA timezone']].map(([key, title]) => <label key={key}>{title}
-                  <Input value={venue[key]} required={['name', 'addressLine1', 'city', 'countryCode', 'timezone'].includes(key)} maxLength={key === 'postalCode' ? 24 : key === 'countryCode' ? 2 : key === 'timezone' ? 64 : 180} onChange={(event) => updateVenue(index, key, event.target.value)}/>
-                </label>)}
-                <label>Address privacy
-                  <select value={venue.privacy} onChange={(event) => updateVenue(index, 'privacy', event.target.value)}>
-                    {['public', 'attendees_only', 'private'].map((value) => <option key={value}>{value}</option>)}
-                  </select>
-                </label>
-              </div>
-              {kind === 'organization' && venues.length > 1 && <Button type="button" variant="outline" onClick={() => setVenues(venues.filter((_, position) => position !== index))}>Remove venue from this draft</Button>}
-            </fieldset>)}
-            {kind === 'organization' && <Button type="button" variant="outline" disabled={venues.length >= 25} onClick={() => setVenues([...venues, blankVenue()])}>Add another venue</Button>}
-          </section> : <section aria-label="Creator profile">
-            <h3>Independent creator profile</h3>
-            <p>{recipient.displayName} will receive an invitation at {recipient.email}. After accepting, they can create and manage independent events.</p>
-            <p>No business or venue is required for this account type.</p>
-          </section>)}
-          {step === 2 && <section aria-label="Review and invite">
-            <h3>Review invitation</h3>
-            <dl className="management-review">
-              <ReviewRow title="Account type">{kind === 'independent_creator' ? 'Independent event creator' : kind === 'venue' ? 'Venue' : 'Organization'}</ReviewRow>
-              <ReviewRow title="Recipient">{recipient.displayName} · {recipient.email}{recipient.phone ? ` · ${recipient.phone}` : ''}</ReviewRow>
-              {business && <>
-                <ReviewRow title="Business">{organization.name} · {organization.slug} · {organization.planTier} plan{organization.description ? ` · ${organization.description}` : ''}</ReviewRow>
-                <ReviewRow title="Venues">{venues.map((venue, index) => <span key={index} className="management-review-venue">{venue.name} · {venue.addressLine1}{venue.addressLine2 ? `, ${venue.addressLine2}` : ''}, {venue.city}{venue.region ? `, ${venue.region}` : ''} {venue.postalCode} · {venue.countryCode} · {venue.timezone} · {venue.privacy.replaceAll('_', ' ')}</span>)}</ReviewRow>
-              </>}
-            </dl>
-            <label className="management-reason">Required audit reason
-              <textarea value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} maxLength={500} required/>
-            </label>
-            <p className="guardrail">The recipient chooses their own password. The setup link is sent by email and is never shown here.</p>
-          </section>}
-          {error && <div className="error" role="alert">{error}</div>}
-          <div className="management-dialog-actions">
-            {step > 0 && <Button type="button" variant="outline" disabled={busy} onClick={() => { setStep(step - 1); setError(''); }}>Back</Button>}
-            <Button type="button" variant="outline" disabled={busy} onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={busy}>{busy ? 'Preparing…' : step === 2 ? 'Prepare and invite recipient' : 'Continue'}</Button>
-          </div>
-        </form>
-      </>}
-    </DialogContent>
-  </Dialog>;
+  const person = (key) => (event) => setRecipient((prior) => ({ ...prior, [key]: event.target.value }));
+  const business = (key) => (event) => setOrganization((prior) => ({ ...prior, [key]: event.target.value }));
+  return <Dialog open onOpenChange={(open) => !open && !busy && onClose()}><DialogContent className="dialog management-dialog"><DialogHeader><DialogTitle>Onboard business</DialogTitle><DialogDescription>Whether this is for an event creator, venue, or organization, the initial contact must verify their email to receive access.</DialogDescription></DialogHeader>{result ? <div className="success"><b>Onboarding prepared.</b><p>{result.delivery === 'queued' ? 'Setup email is queued. Delivery is not yet confirmed.' : 'Email delivery is unavailable. The pending workspace is saved; resend from Account invitations when delivery is configured.'}</p><p>{recipient.role === 'manager' ? 'The initial contact will be a manager. Ownership has not been granted.' : 'The recipient will become an owner after accepting the invitation.'}</p><p>No password or setup link is exposed to administrators.</p><Button onClick={() => onSaved(result)}>Done</Button></div> : <><ol className="management-stepper" aria-label="Onboarding progress">{['Initial contact', 'Business & optional venues', 'Review & invite'].map((title, index) => <li key={title} aria-current={step === index ? 'step' : undefined}>{index + 1}. {title}</li>)}</ol><form onSubmit={submit}>
+    {step === 0 && <section aria-label="Initial contact"><h3>Initial contact</h3><div className="management-form">{[['displayName', 'Full name', 'text'], ['email', 'Email', 'email'], ['phone', 'Phone', 'tel']].map(([key, title, type]) => <label htmlFor={`onboarding-${key}`} key={key}>{title}<Input id={`onboarding-${key}`} name={key} type={type} required maxLength={key === 'email' ? 320 : key === 'phone' ? 32 : 120} value={recipient[key]} onChange={person(key)}/></label>)}<label htmlFor="onboarding-role">Initial business role<select id="onboarding-role" value={recipient.role} onChange={(event) => setRecipient((prior) => ({ ...prior, role: event.target.value, financeAuthorized: false }))}><option value="owner">Owner</option><option value="manager">Manager</option></select></label></div>{recipient.role === 'manager' && <><p className="notice">A manager can be the business’s first contact. Add an owner later through the ownership controls.</p><label className="management-confirm" htmlFor="onboarding-finance"><input id="onboarding-finance" type="checkbox" checked={recipient.financeAuthorized} onChange={(event) => setRecipient((prior) => ({ ...prior, financeAuthorized: event.target.checked }))}/>Grant separate finance permission</label><small>Operational management alone does not grant finance access. Payment account setup remains a future phase.</small></>}<p className="notice">The email is verified during acceptance. The recipient chooses their own password or accepts with an existing account.</p></section>}
+    {step === 1 && <section aria-label="Business and venues"><h3>Business workspace</h3><div className="management-form"><label htmlFor="onboarding-business-name">Business name<Input id="onboarding-business-name" required maxLength={160} value={organization.name} onChange={business('name')}/></label><label htmlFor="onboarding-description">Description (optional)<Input id="onboarding-description" value={organization.description} onChange={business('description')}/></label><label htmlFor="onboarding-website">Website (optional)<Input id="onboarding-website" type="url" value={organization.website} onChange={business('website')}/></label><label htmlFor="onboarding-plan">Plan<select id="onboarding-plan" value={organization.planTier} onChange={business('planTier')}><option value="free">Free</option><option value="premium">Premium</option></select></label></div><h3>Saved venues (optional)</h3><p className="notice">A business can have no saved venue or business address. Event locations can be supplied when creating events.</p>{venues.map((venue, index) => <fieldset key={venue.key}><legend>Venue {index + 1}</legend><div className="management-form">{[['name', 'Venue name'], ['addressLine1', 'Street address'], ['addressLine2', 'Address line 2 (optional)'], ['city', 'City'], ['region', 'State / region'], ['postalCode', 'Postal code'], ['countryCode', 'Country code']].map(([key, title]) => <label htmlFor={`onboarding-venue-${index}-${key}`} key={key}>{title}<Input id={`onboarding-venue-${index}-${key}`} required={['name', 'addressLine1', 'city', 'countryCode'].includes(key)} value={venue[key]} onChange={(event) => setVenues((prior) => prior.map((item) => item.key === venue.key ? { ...item, [key]: event.target.value } : item))}/></label>)}</div><Button type="button" variant="outline" onClick={() => setVenues((prior) => prior.filter((item) => item.key !== venue.key))}>Remove venue from this draft</Button></fieldset>)}<Button type="button" variant="outline" disabled={venues.length >= 25} onClick={() => setVenues((prior) => [...prior, blankVenue()])}>Add venue</Button></section>}
+    {step === 2 && <section aria-label="Review and invite"><h3>Review invitation</h3><dl className="management-review"><div><dt>Business</dt><dd>{organization.name} · {organization.planTier} plan</dd></div><div><dt>Initial contact</dt><dd>{recipient.displayName} · {recipient.email} · {recipient.phone}</dd></div><div><dt>Access after acceptance</dt><dd>{recipient.role === 'owner' ? 'Owner' : recipient.financeAuthorized ? 'Manager with finance permission' : 'Manager without finance permission'}</dd></div><div><dt>Saved venues</dt><dd>{venues.length ? venues.map((venue) => <span className="management-review-venue" key={venue.key}>{venue.name} · {venue.addressLine1}, {venue.city}</span>) : 'No saved venues'}</dd></div></dl><label className="management-confirm" htmlFor="onboarding-authority"><input id="onboarding-authority" type="checkbox" required checked={authority} onChange={(event) => setAuthority(event.target.checked)}/>I have confirmed the contact’s authority to represent this business.</label><label className="management-reason" htmlFor="onboarding-reason">Required audit reason<textarea id="onboarding-reason" minLength={3} maxLength={500} required value={reason} onChange={(event) => setReason(event.target.value)}/></label><p className="notice">Admin-created businesses have already been reviewed. Account activation and business approval remain separate from future payment readiness.</p></section>}
+    {error && <p className="error" role="alert">{error}</p>}<div className="management-dialog-actions">{step > 0 && <Button type="button" variant="outline" disabled={busy} onClick={() => { setStep(step - 1); setError(''); }}>Back</Button>}<Button type="button" variant="outline" disabled={busy} onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Preparing…' : step === 2 ? 'Prepare and invite recipient' : 'Continue'}</Button></div>
+  </form></>}</DialogContent></Dialog>;
 }

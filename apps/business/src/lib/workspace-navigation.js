@@ -27,7 +27,8 @@ const sectionKeys = {
     'eventFrom', 'eventTo', 'eventPage', 'eventPageSize']),
   admissions: new Set(),
   team: new Set(['teamOrganizationId', 'teamRoles', 'teamSearch', 'teamSort', 'teamPage',
-    'teamPageSize', 'teamInvitationPage', 'teamInvitationPageSize']),
+    'teamPageSize', 'teamInvitationPage', 'teamInvitationPageSize', 'managedVenueBusinessId', 'managedVenueId',
+    'managedVenueTab', 'venueSearch', 'venuesPage', 'venuesRefresh', 'venueTeamSearch', 'venueTeamPage']),
 };
 const defaultValues = {
   days: '30', eventView: 'upcoming', eventSort: 'starts_asc', eventPage: '1', eventPageSize: '10',

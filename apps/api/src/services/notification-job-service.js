@@ -74,7 +74,7 @@ function createNotificationJobService({ sequelize, models, now = () => new Date(
     if (!activeUser(user)) return false;
     if (delivery.kind === 'purchase_confirmed') return delivery.user_id === payload.buyerUserId;
     const [event] = await select(`SELECT e.id,e.organization_id,e.creator_user_id FROM events e WHERE e.id=:eventId AND ${base}`,
-      { eventId: payload.eventId, userId: delivery.user_id, isAdmin: false }, transaction);
+      { eventId: payload.eventId, userId: delivery.user_id, isAdmin: false, canManageEvents: false }, transaction);
     if (!event) return false;
     if (delivery.kind === 'referral_purchase') {
       if (payload.eventAffiliateId) {

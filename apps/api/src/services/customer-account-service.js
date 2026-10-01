@@ -6,7 +6,7 @@ const { walletToken, guestlistWalletToken } = require('../domain/wallet-qr');
 const { createReferralLinkService } = require('./referral-link-service');
 const { redactLocation } = require('../controllers/public-controller');
 const { ADMISSION_WINDOW_MS } = require('../domain/admission-policy');
-const { assertActiveEvent, assertActiveUser } = require('./lifecycle-service');
+const { assertActiveEvent, assertActiveUser, assertAdmissionEvent } = require('./lifecycle-service');
 const { connectionHistorySql, pagedConnections } = require('./customer-connections-page-service');
 
 function profile(user) {
@@ -42,7 +42,7 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     return new Set([...orders, ...guests].map((row) => row.eventId));
   }
   async function eventActiveForAdmission(event) {
-    try { await assertActiveEvent(models, event); return true; }
+    try { await assertAdmissionEvent(models, event); return true; }
     catch (error) { if ([403, 404].includes(error.status)) return false; throw error; }
   }
   async function guestlistStatus(userId, eventId) {
@@ -244,20 +244,23 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     if (!referrerIds.length) return [];
     // Connections belong to people. Deliberately query ALL current venues and
     // event-only assignments for each referrer, not only the original venue.
-    const [leaders, employees, promoters, assignments] = await Promise.all([
+    const [leaders, employees, promoters, assignments, venueMembers] = await Promise.all([
       models.OrganizationOwner.findAll({ where: { userId: referrerIds } }),
       models.OrganizationEmployee.findAll({ where: { userId: referrerIds, status: 'active' } }),
       models.OrgAffiliate.findAll({ where: { userId: referrerIds, status: 'active' } }),
       models.EventAffiliate.findAll({ where: { userId: referrerIds, status: 'active' } }),
+      models.VenueAccess ? models.VenueAccess.findAll({ where: { userId: referrerIds, status: 'active' } }) : [],
     ]);
     const organizations = [...new Set([...leaders, ...employees, ...promoters].map((row) => row.organizationId))];
     const events = await models.Event.findAll({ where: { ...(eventId ? { id: eventId } : {}), status: 'published', isDiscoverable: true, startsAt: { [Op.gt]: now() },
-      [Op.or]: [{ organizationId: organizations }, { id: assignments.map((row) => row.eventId) }, { organizationId: null, creatorUserId: referrerIds }] },
+      [Op.or]: [{ organizationId: organizations }, { id: assignments.map((row) => row.eventId) }, { organizationId: null, creatorUserId: referrerIds },
+        ...venueMembers.map((member) => ({ organizationId: member.organizationId, locationId: member.locationId }))] },
       include: eventInclude.include, order: [['startsAt', 'ASC']], limit: 100 });
     const links = referralLinks || createReferralLinkService({ models, now });
     const result = [];
     for (const event of events) for (const user of history.people) {
       const eligible = [...leaders, ...employees, ...promoters].some((row) => row.userId === user.id && row.organizationId === event.organizationId)
+        || venueMembers.some((row) => row.userId === user.id && row.organizationId === event.organizationId && row.locationId === event.locationId)
         || assignments.some((row) => row.eventId === event.id && row.userId === user.id) || (!event.organizationId && event.creatorUserId === user.id);
       if (!eligible) continue;
       try {

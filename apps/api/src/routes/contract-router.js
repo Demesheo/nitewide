@@ -43,7 +43,7 @@ function instrumentRouter(router, { requireUser, permissions } = {}) {
       // Role authorization precedes all parameter/body validation on internal
       // operations; domain services still recheck inside write transactions.
       if (path.startsWith('/admin/') && permissions) routeHandlers.splice(boundary >= 0 ? boundary + 1 : 0, 0,
-        middleware.asyncHandler(async (req, _res, next) => { await permissions.assertInternal(req.userId); next(); }));
+        middleware.asyncHandler(async (req, _res, next) => { await (permissions.assertInternalIdentity || permissions.assertInternal)(req.userId); next(); }));
       routeHandlers.unshift((req, _res, next) => { req.diagnosticRoute = `/api${path}`; next(); });
       return register(path, ...routeHandlers);
     };

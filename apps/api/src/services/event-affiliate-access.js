@@ -14,6 +14,10 @@ function accessScopeSql(alias) {
     OR ${alias}.code LIKE 'LEADEV-%' THEN 'organization' ELSE 'event' END)`;
 }
 
+function accessWindowCurrent(record, now = new Date()) {
+  return Boolean(record && (!record.startsAt || new Date(record.startsAt) <= now) && (!record.endsAt || new Date(record.endsAt) >= now));
+}
+
 async function currentOrganizationMembership(models, organizationId, userId, transaction, now = new Date()) {
   if (!organizationId) return null;
   const common = { transaction };
@@ -26,9 +30,9 @@ async function currentOrganizationMembership(models, organizationId, userId, tra
   const employee = await models.OrganizationEmployee.findOne({ where: { organizationId, userId, status: 'active' }, ...common });
   const affiliate = await models.OrgAffiliate.findOne({ where: { organizationId, userId, status: 'active' }, ...common });
   if (!activeUser(user) || !active(organization) || organization.status !== 'active') return null;
-  const affiliateCurrent = affiliate && (!affiliate.startsAt || affiliate.startsAt <= now) && (!affiliate.endsAt || affiliate.endsAt >= now);
+  const affiliateCurrent = accessWindowCurrent(affiliate, now);
   return leader ? { kind: 'leader', record: leader } : employee ? { kind: 'employee', record: employee }
     : affiliateCurrent ? { kind: 'affiliate', record: affiliate } : null;
 }
 
-module.exports = { accessScope, accessScopeSql, currentOrganizationMembership };
+module.exports = { accessScope, accessScopeSql, accessWindowCurrent, currentOrganizationMembership };

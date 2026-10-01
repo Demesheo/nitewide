@@ -1,7 +1,7 @@
 const { mutationTransaction } = require('./mutation-transaction');
 const { z } = require('zod');
 const crypto = require('node:crypto');
-const { Op } = require('sequelize');
+const { Op, literal, fn, col, where: sqlWhere } = require('sequelize');
 const { DomainError, conflict, notFound } = require('../domain/errors');
 const { createPasswordRecord } = require('./auth-service');
 const { queueEventEmail, formatTime } = require('./email-events');
@@ -13,13 +13,16 @@ const { createAdminEditService, schemas: editSchemas } = require('./admin-edit-s
 const { createAdminOnboardingService, venueSchema } = require('./admin-onboarding-service');
 const { active, assertActiveEvent, assertOrganizationVenue } = require('./lifecycle-service');
 const { revokePendingGuestlistInvitations } = require('./guestlist-invitation-policy');
+const { persistOffering } = require('./event-mutation-policy');
+const { assertCommissionPricing } = require('../domain/editor-pricing-policy');
+const { reportTimezone } = require('../http/business-schemas');
 
 const text = (max = 160) => z.string().trim().min(1).max(max);
 const uuid = z.string().uuid();
 const optionalId = uuid.nullable().optional();
 const integer = (min = 0, max = 1000000) => z.coerce.number().int().min(min).max(max);
 const reasonSchema = text(500).min(3);
-const querySchema = z.object({ page: integer(1).default(1), pageSize: integer(1, 100).default(25), search: z.string().trim().max(120).default(''), status: z.string().trim().max(40).default(''), sort: z.string().trim().max(40).default('createdAt'), direction: z.enum(['asc', 'desc']).default('desc') });
+const querySchema = z.object({ page: integer(1).default(1), pageSize: integer(1, 100).default(25), search: z.string().trim().max(120).default(''), status: z.string().trim().max(40).default(''), statuses: z.preprocess((value) => value === undefined ? [] : Array.isArray(value) ? value : [value], z.array(z.string().trim().min(1).max(40)).max(8).default([])), sort: z.string().trim().max(40).default('createdAt'), direction: z.enum(['asc', 'desc']).default('desc'), organizationId: uuid.optional(), eventId: uuid.optional(), userId: uuid.optional(), entityId: uuid.optional(), orderId: uuid.optional(), relation: z.enum(['sent', 'received']).optional(), startDate: z.iso.date().optional(), endDate: z.iso.date().optional(), timezone: reportTimezone }).refine((value) => !value.startDate || !value.endDate || value.startDate <= value.endDate, 'Start date must be on or before end date').refine((value) => !value.status || !value.statuses.length, 'Choose status or statuses, not both');
 const actionReasonSchema = z.object({ reason: reasonSchema }).strict();
 const lifecycleActionSchema = actionReasonSchema.extend({ version: z.number().int().min(0) }).strict();
 const plain = (record) => record?.toJSON ? record.toJSON() : record;
@@ -28,6 +31,13 @@ const reference = (key, label, resource, required = true) => field(key, label, '
 const select = (key, label, options, required = true) => field(key, label, 'select', { options, required });
 const basics = ['id', 'createdAt', 'updatedAt'];
 const retained = 'Financial and admission history is retained. Use the supported lifecycle workflow instead of deleting historical records.';
+const relatedSearchFields = {
+  owners: ['organizationId', 'userId'], employees: ['organizationId', 'userId'], venue_access: ['organizationId', 'locationId', 'userId'],
+  organization_affiliates: ['organizationId', 'userId'], event_affiliates: ['eventId', 'userId'],
+  offerings: ['eventId'], orders: ['eventId', 'buyerUserId'], guestlist: ['eventId', 'userId'], tickets: ['eventId', 'holderUserId'],
+  team_invitations: ['organizationId', 'eventId', 'invitedByUserId'], guestlist_invitations: ['eventId', 'invitedByUserId'],
+  notifications: ['eventId', 'userId'], attributions: ['eventId', 'userId'], check_ins: ['eventId'],
+};
 const cleanupPolicy = {
   User: { UserCredential: 'delete', UserActionToken: 'delete', Notification: 'delete', OrganizationEmployee: 'delete', OrganizationOwner: 'delete', OrgAffiliate: 'delete', EventAffiliate: 'delete', TeamInvitation: 'delete', AuditLog: 'unlink' },
   Organization: { OrganizationOwner: 'delete', OrganizationEmployee: 'delete', OrgAffiliate: 'delete', TeamInvitation: 'delete', AuditLog: 'unlink' },
@@ -59,11 +69,16 @@ const registry = {
   payments: { model: 'Payment', label: 'Payments', title: 'id', attributes: [...basics, 'orderId', 'provider', 'status', 'amountCents', 'currency', 'processedAt'], fields: [], actions: [], delete: false, unavailable: 'Payments are recorded by checkout and the payment provider. Refund and provider changes are not available through manual database edits.' },
   tickets: { model: 'Ticket', label: 'Tickets', title: 'id', attributes: [...basics, 'eventId', 'orderItemId', 'holderUserId', 'status', 'checkedInAt'], fields: [], actions: [{ id: 'void', label: 'Void unused ticket', status: 'void' }], delete: false, unavailable: 'Ticket issuance requires checkout. Admission history is retained.' },
   check_ins: { model: 'CheckIn', label: 'Check-ins', title: 'id', fields: [], actions: [], delete: false, unavailable: 'Check-ins are produced by validated admission scans. Attendance history is retained.' },
+  venue_access: { model: 'VenueAccess', label: 'Venue assignments', title: 'role', attributes: [...basics, 'organizationId', 'locationId', 'userId', 'role', 'status', 'version'], fields: [], actions: [], delete: false, unavailable: 'Manage this assignment through the linked venue’s team controls. Historical access records are retained.' },
   audit: { model: 'AuditLog', label: 'Audit history', title: 'action', attributes: ['id', 'actorUserId', 'organizationId', 'entityType', 'entityId', 'action', 'createdAt'], fields: [], actions: [], delete: false, unavailable: 'Audit records are append-only and record every administrative mutation.' },
 };
 
 // Lifecycle actions replace deletion. Domain cancellation remains independent.
 for (const config of Object.values(registry)) config.delete = false;
+for (const config of Object.values(registry)) {
+  config.fields = config.fields.filter((item) => item.key !== 'slug');
+  if (config.attributes) config.attributes = config.attributes.filter((item) => item !== 'slug');
+}
 for (const key of ['users', 'organizations', 'locations', 'events']) {
   registry[key].attributes = [...new Set([...(registry[key].attributes || []), 'lifecycleState', 'version'])];
   registry[key].actions = [...registry[key].actions.filter((action) => !['deactivate', 'close'].includes(action.id)), ...['suspend', 'archive', 'restore'].map((id) => ({ id, label: `${id[0].toUpperCase()}${id.slice(1)} ${registry[key].label.toLowerCase()}`, lifecycle: true }))];
@@ -71,17 +86,23 @@ for (const key of ['users', 'organizations', 'locations', 'events']) {
 registry.users.fields = registry.users.fields.filter((item) => item.key !== 'password');
 registry.locations.schema = venueSchema;
 registry.locations.fields = registry.locations.fields.map((item) => ['name', 'addressLine1'].includes(item.key) ? { ...item, required: true } : item);
-registry.users.schema = z.object({ displayName: text(120), email: z.string().trim().toLowerCase().email().max(320), phone: z.string().trim().max(32).optional(), isInternalAdmin: z.boolean().default(false) });
+registry.users.schema = z.object({ displayName: text(120), email: z.string().trim().toLowerCase().email().max(320), phone: z.string().trim().max(32).optional(), isInternalAdmin: z.boolean().default(false), internalAdminRole: z.enum(['platform_owner', 'support', 'operations', 'read_only']).optional() });
 registry.users.attributes.push('independentCreator', 'onboardingPending', 'emailVerifiedAt');
-registry.organizations.attributes.push('businessType');
+registry.users.search.push('phone');
 registry.users.fields.push(field('independentCreator', 'Independent event creator', 'checkbox'));
-registry.organizations.fields.push(select('businessType', 'Business type', ['organization', 'venue']), field('venueIds', 'Associated venues', 'references', { resource: 'locations' }));
+// Venue links are the only normal editing control. The legacy locationId is an
+// internal default, synchronized when venueIds change rather than edited twice.
+registry.organizations.fields = registry.organizations.fields.filter((item) => item.key !== 'locationId');
 registry.events.fields.push(select('status', 'Event status', ['draft', 'published', 'cancelled', 'completed']), reference('imageAssetId', 'Image asset', 'media', false));
+registry.events.attributes.push('imageAssetId', 'imageUrl', 'feeMode');
 for (const key of ['owners', 'employees', 'organization_affiliates', 'event_affiliates']) {
   if (registry[key].attributes) registry[key].attributes.push('version');
   if (key !== 'owners') registry[key].fields.push(select('status', 'Assignment status', ['active', 'inactive']));
 }
 registry.owners.attributes = [...basics, 'organizationId', 'userId', 'role', 'lifecycleState', 'version'];
+registry.owners.attributes.push('financeAuthorized');
+registry.users.attributes.push('internalAdminRole');
+registry.users.fields.push(select('internalAdminRole', 'Internal access level', ['platform_owner', 'support', 'operations', 'read_only']));
 registry.onboarding_invitations = { model: 'OnboardingInvitation', label: 'Account onboarding invitations', title: 'email', search: ['email'], attributes: [...basics, 'userId', 'email', 'accountMode', 'expiresAt', 'acceptedAt', 'revokedAt', 'version'], fields: [], actions: [], delete: false, unavailable: 'Account setup links are delivered by email only. Pending invitations can be resent or revoked through onboarding controls.' };
 
 function createAdminManagementService({ models, permissions, email = null, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', guestlistService: suppliedGuestlistService = null, guestlistInvitationService: suppliedInvitationService = null, onboardingService: suppliedOnboardingService = null }) {
@@ -94,6 +115,27 @@ function createAdminManagementService({ models, permissions, email = null, custo
   const managedModel = (config) => models[config.model].unscoped ? models[config.model].unscoped() : models[config.model];
   const attributes = (config) => (config.attributes || Object.keys(models[config.model].rawAttributes).filter((key) => !/hash|token|password|secret|metadata|snapshot|storageKey|providerReference|idempotency/i.test(key))).filter((key) => models[config.model].rawAttributes[key]);
   const safe = (config, record) => { const value = plain(record); const result = Object.fromEntries(attributes(config).map((key) => [key, value[key]])); if (config.model === 'UserCredential') result.id = value.userId; return result; };
+  async function withRelatedLabels(items) {
+    // Resolve only IDs on the already-bounded page. Four batch lookups replace
+    // per-row requests without loading whole organizations or user directories.
+    const relationships = [
+      { keys: [['organizationId', 'organization']], model: 'Organization', attributes: ['id', 'name'] },
+      { keys: [['eventId', 'event']], model: 'Event', attributes: ['id', 'title'] },
+      { keys: [['locationId', 'location']], model: 'Location', attributes: ['id', 'name'] },
+      { keys: [['userId', 'user'], ['buyerUserId', 'buyer'], ['holderUserId', 'holder'], ['invitedByUserId', 'inviter']], model: 'User', attributes: ['id', 'displayName', 'email'] },
+    ];
+    const lookups = await Promise.all(relationships.map(async ({ keys, model, attributes: fields }) => {
+      const ids = [...new Set(items.flatMap((item) => keys.map(([key]) => item[key]).filter(Boolean)))];
+      if (!ids.length || !models[model]) return new Map();
+      const rows = await models[model].findAll({ where: { id: { [Op.in]: ids } }, attributes: fields, limit: ids.length });
+      return new Map(rows.map((record) => { const row = plain(record); return [row.id, Object.fromEntries(fields.map((field) => [field, row[field]]))]; }));
+    }));
+    return items.map((item) => {
+      const enriched = { ...item };
+      for (const [index, { keys }] of relationships.entries()) for (const [key, label] of keys) if (lookups[index].has(item[key])) enriched[label] = lookups[index].get(item[key]);
+      return enriched;
+    });
+  }
   const listOptions = {
     users: { statuses: { active: { isActive: true, lifecycleState: 'active' }, disabled: { isActive: false, lifecycleState: 'active' }, suspended: { lifecycleState: 'suspended' }, archived: { lifecycleState: 'archived' } }, sorts: ['createdAt', 'displayName', 'email'] },
     organizations: { statuses: { active: { status: 'active', lifecycleState: 'active' }, suspended: { [Op.or]: [{ status: 'suspended' }, { lifecycleState: 'suspended' }] }, closed: { status: 'closed' }, archived: { lifecycleState: 'archived' } }, sorts: ['createdAt', 'name', 'status'] },
@@ -101,17 +143,63 @@ function createAdminManagementService({ models, permissions, email = null, custo
     orders: { statuses: { pending: { status: 'pending' }, paid: { status: 'paid' }, cancelled: { status: 'cancelled' }, refunded: { status: 'refunded' } }, sorts: ['createdAt', 'totalCents', 'status'] },
     audit: { statuses: {}, sorts: ['createdAt', 'action'] },
   };
-  async function authorize(actor, transaction) { await permissions.assertInternal(actor, transaction); }
+  const capability = (key, write = false) => !write ? (key === 'audit' ? 'audit.view' : 'directory.view') : ['events', 'offerings', 'locations', 'boosts'].includes(key) ? 'events.manage' : 'access.manage';
+  async function authorize(actor, transaction, permission = 'access.manage') { return permissions.assertInternalPermission ? permissions.assertInternalPermission(actor, permission, transaction) : permissions.assertInternal(actor, transaction); }
   async function getRecord(config, id, transaction) { const record = await managedModel(config).findByPk(uuid.parse(id), { transaction, ...(transaction ? { lock: transaction.LOCK.UPDATE } : {}) }); if (!record) throw notFound(config.label); return record; }
   async function audit(actor, config, record, action, before, reason, transaction, extra = {}) { await models.AuditLog.create({ actorUserId: actor, organizationId: record.organizationId || (config.model === 'Organization' && action !== 'deleted' ? record.id : null), entityType: config.model, entityId: record.id, action: `admin.${config.model.toLowerCase()}.${action}`, before, after: { ...safe(config, record), adminReason: reason, ...extra } }, { transaction }); }
   async function metadata(actor) {
-    await authorize(actor);
-    return Object.entries(registry).filter(([, config]) => models[config.model]).map(([key, config]) => ({ key, label: config.label, title: config.title, fields: config.fields.filter((item) => !['password', 'venueIds', 'businessType', 'independentCreator', 'status', 'imageAssetId'].includes(item.key)), editFields: editSchemas[key] ? [...(config.fields || []).filter((item) => item.key !== 'password' && !['ownerUserId', ...(key === 'events' ? [] : ['organizationId', 'userId', 'eventId'])].includes(item.key)), ...(key === 'users' ? [field('confirmEmail', 'Confirm changed email', 'email'), field('confirmPhone', 'Confirm changed phone', 'tel')] : [])] : [], canEdit: Boolean(editSchemas[key]), actions: config.actions, canCreate: Boolean(config.schema), canDelete: false, unavailable: config.unavailable || null }));
+    const user = await authorize(actor, null, 'directory.view');
+    const allowed = (permission) => !user || require('./internal-admin-permissions').hasInternalPermission(user, permission);
+    return Object.entries(registry).filter(([key, config]) => models[config.model] && allowed(capability(key))).map(([key, config]) => ({ key, label: config.label, title: config.title, fields: config.fields.filter((item) => !['password', 'venueIds', 'businessType', 'independentCreator', 'status', 'imageAssetId'].includes(item.key)), editFields: editSchemas[key] && allowed(capability(key, true)) ? [...(config.fields || []).filter((item) => item.key !== 'password' && !['ownerUserId', ...(key === 'events' ? [] : ['organizationId', 'userId', 'eventId'])].includes(item.key)), ...(key === 'users' ? [field('confirmEmail', 'Confirm changed email', 'email'), field('confirmPhone', 'Confirm changed phone', 'tel')] : [])] : [], canEdit: key !== 'owners' && Boolean(editSchemas[key]) && allowed(capability(key, true)), actions: allowed(capability(key, true)) ? config.actions : [], canCreate: !['owners', 'organizations', 'events'].includes(key) && Boolean(config.schema) && allowed(capability(key, true)), canDelete: false, unavailable: config.unavailable || null }));
   }
   async function list(actor, key, input) {
-    await authorize(actor); const config = resource(key); const query = querySchema.parse(input);
+    await authorize(actor, null, capability(key)); const config = resource(key); const query = querySchema.parse(input);
     const where = {};
+    const raw = models[config.model].rawAttributes;
+    const predicates = [];
+    const invitationResource = ['team_invitations', 'guestlist_invitations'].includes(key);
+    if (query.relation && (!invitationResource || !query.userId)) throw new DomainError('Invitation direction requires an invitation resource and a person', { status: 422, code: 'VALIDATION_ERROR' });
+    if (query.startDate || query.endDate) {
+      if (key !== 'events') throw new DomainError('Date range filters are supported for events only', { status: 422, code: 'VALIDATION_ERROR' });
+      // Convert local calendar boundaries, not the indexed event timestamp.
+      // PostgreSQL resolves each midnight separately, including DST changes.
+      const sqlString = (value) => `'${value.replaceAll("'", "''")}'`;
+      where.startsAt = {};
+      if (query.startDate) where.startsAt[Op.gte] = literal(`(${sqlString(query.startDate)}::date::timestamp AT TIME ZONE ${sqlString(query.timezone)})`);
+      if (query.endDate) where.startsAt[Op.lt] = literal(`((${sqlString(query.endDate)}::date + 1)::timestamp AT TIME ZONE ${sqlString(query.timezone)})`);
+    }
+    for (const field of ['organizationId', 'eventId', 'userId', 'entityId', 'orderId']) {
+      const value = query[field]; if (!value) continue;
+      if (raw[field]) where[field] = value;
+      else if (key === 'users' && field === 'userId' || key === 'organizations' && field === 'organizationId' || key === 'events' && field === 'eventId' || key === 'orders' && field === 'orderId') where.id = value;
+      else if (key === 'users' && field === 'organizationId') predicates.push({ id: { [Op.in]: literal(`(SELECT user_id FROM organization_owners WHERE organization_id='${value}' UNION SELECT user_id FROM organization_employees WHERE organization_id='${value}' UNION SELECT user_id FROM org_affiliates WHERE organization_id='${value}')`) } });
+      else if (key === 'locations' && field === 'organizationId') predicates.push({ id: { [Op.in]: literal(`(SELECT location_id FROM organization_venues WHERE organization_id='${value}')`) } });
+      else if (key === 'orders' && field === 'userId') where.buyerUserId = value;
+      else if (key === 'tickets' && field === 'userId') where.holderUserId = value;
+      else if (key === 'check_ins' && field === 'userId') predicates.push({ [Op.or]: [
+        { ticketId: { [Op.in]: literal(`(SELECT id FROM tickets WHERE holder_user_id='${value}')`) } },
+        { guestlistEntryId: { [Op.in]: literal(`(SELECT id FROM guestlist_entries WHERE user_id='${value}')`) } },
+      ] });
+      else if (invitationResource && field === 'userId') {
+        if (query.relation === 'sent') where.invitedByUserId = value;
+        else {
+          const person = await managedModel(registry.users).findByPk(value, { attributes: ['id', 'email', 'phone'] });
+          if (!person) throw notFound('Person');
+          const recipient = plain(person);
+          const recipients = [{ acceptedByUserId: value }];
+          if (recipient.email) recipients.push(sqlWhere(fn('lower', col('email')), recipient.email.toLowerCase()));
+          const digits = recipient.phone?.replace(/\D/g, '');
+          if (digits) recipients.push(sqlWhere(fn('regexp_replace', col('phone'), '[^0-9]', '', 'g'), digits));
+          predicates.push({ [Op.or]: recipients });
+        }
+      }
+      else throw new DomainError(`The ${field} filter is not supported for this resource`, { status: 422, code: 'VALIDATION_ERROR' });
+    }
     const options = listOptions[key] || { statuses: {}, sorts: ['createdAt'] };
+    if (query.statuses.length) {
+      if (query.statuses.some((value) => !Object.hasOwn(options.statuses, value))) throw new DomainError('Invalid status filter', { status: 422, code: 'VALIDATION_ERROR' });
+      predicates.push({ [Op.or]: [...new Set(query.statuses)].map((value) => options.statuses[value]) });
+    }
     if (query.status) {
       if (!Object.hasOwn(options.statuses, query.status)) throw new DomainError('Invalid status filter', { status: 422, code: 'VALIDATION_ERROR' });
       Object.assign(where, options.statuses[query.status]);
@@ -120,29 +208,75 @@ function createAdminManagementService({ models, permissions, email = null, custo
     if (query.search) {
       const pattern = `%${query.search.replace(/[\\%_]/g, '\\$&')}%`;
       const matches = (config.search || []).map((name) => ({ [name]: { [Op.iLike]: pattern } }));
-      if (uuid.safeParse(query.search).success) matches.push({ [models[config.model].rawAttributes.id ? 'id' : models[config.model].primaryKeyAttribute || 'userId']: query.search });
+      if (uuid.safeParse(query.search).success) {
+        // An exact identifier should use its index rather than text-searching
+        // every name/contact column for the same UUID.
+        matches.splice(0, matches.length, { [models[config.model].rawAttributes.id ? 'id' : models[config.model].primaryKeyAttribute || 'userId']: query.search });
+      } else if (key === 'users' && /^[+\d\s().-]+$/.test(query.search)) {
+        const digits = query.search.replace(/\D/g, '');
+        if (digits.length >= 3) matches.push(sqlWhere(fn('regexp_replace', col('phone'), '[^0-9]', '', 'g'), { [Op.like]: `%${digits}%` }));
+      }
+      if (!uuid.safeParse(query.search).success && relatedSearchFields[key]) {
+        // Human context (business/event/person) is searchable without fetching
+        // it into the browser first. SQL identifiers come only from this map;
+        // search strings are escaped by Sequelize, not interpolated as SQL.
+        const escape = (value) => models[config.model].sequelize.escape?.(value) || `'${value.replaceAll("'", "''")}'`;
+        const term = escape(pattern);
+        const digits = /^[+\d\s().-]+$/.test(query.search) ? query.search.replace(/\D/g, '') : '';
+        const people = `(SELECT id FROM users WHERE display_name ILIKE ${term} OR email ILIKE ${term} OR phone ILIKE ${term}${digits.length >= 3 ? ` OR regexp_replace(phone, '[^0-9]', '', 'g') LIKE ${escape(`%${digits}%`)}` : ''})`;
+        const targets = {
+          organizationId: `(SELECT id FROM organizations WHERE name ILIKE ${term})`,
+          eventId: `(SELECT id FROM events WHERE title ILIKE ${term})`,
+          locationId: `(SELECT id FROM locations WHERE name ILIKE ${term} OR address_line1 ILIKE ${term} OR city ILIKE ${term})`,
+          userId: people, buyerUserId: people, holderUserId: people, invitedByUserId: people,
+        };
+        for (const field of relatedSearchFields[key]) if (raw[field]) matches.push({ [field]: { [Op.in]: literal(targets[field]) } });
+        if (key === 'check_ins') matches.push(
+          { ticketId: { [Op.in]: literal(`(SELECT id FROM tickets WHERE holder_user_id IN ${people})`) } },
+          { guestlistEntryId: { [Op.in]: literal(`(SELECT id FROM guestlist_entries WHERE user_id IN ${people})`) } },
+        );
+      }
       if (!matches.length) return { ...query, total: 0, hasMore: false, items: [] };
-      where[Op.and] = [{ [Op.or]: matches }];
+      predicates.push({ [Op.or]: matches });
     }
+    if (predicates.length) where[Op.and] = predicates;
     const identifier = models[config.model].rawAttributes.id ? 'id' : models[config.model].primaryKeyAttribute || 'userId';
     const direction = query.direction.toUpperCase();
     const order = query.sort === identifier ? [[identifier, direction]] : [[query.sort, direction], [identifier, direction]];
     const result = await managedModel(config).findAndCountAll({ where, attributes: attributes(config), order, limit: query.pageSize, offset: (query.page - 1) * query.pageSize });
-    return { ...query, total: result.count, hasMore: query.page * query.pageSize < result.count, items: result.rows.map((row) => safe(config, row)) };
+    return { ...query, total: result.count, hasMore: query.page * query.pageSize < result.count, items: await withRelatedLabels(result.rows.map((row) => safe(config, row))) };
   }
-  async function detail(actor, key, id) { await authorize(actor); const config = resource(key); const record = await getRecord(config, id); const result = safe(config, record); if (key === 'organizations') result.venueIds = (await models.OrganizationVenue.findAll({ where: { organizationId: id } })).map((link) => link.locationId); return result; }
+  async function detail(actor, key, id) {
+    await authorize(actor, null, capability(key)); const config = resource(key); const record = await getRecord(config, id); const result = safe(config, record);
+    if (key === 'organizations') result.venueCount = await models.OrganizationVenue.count({ where: { organizationId: id } });
+    if (key === 'events' && result.locationId) {
+      const location = await models.Location.findByPk(result.locationId, { attributes: ['id', 'name', 'addressLine1', 'addressLine2', 'city', 'region', 'postalCode', 'countryCode', 'timezone', 'privacy'] });
+      result.location = location ? plain(location) : null;
+    }
+    if (key === 'locations' && models.OrganizationVenue) {
+      // Managed venue ownership is explicit; event-only location snapshots are
+      // unowned and must not imply a business relationship from address text.
+      const links = await models.OrganizationVenue.findAll({ where: { locationId: id }, limit: 2 });
+      if (links.length > 1) throw conflict('This venue has conflicting business ownership. Resolve its records before managing it.', 'VENUE_OWNERSHIP_CONFLICT');
+      result.organizationId = links[0]?.organizationId || null;
+    }
+    return result;
+  }
   async function validateReferences(config, input, transaction) {
     for (const descriptor of config.fields.filter((item) => item.type === 'reference')) {
       if (input[descriptor.key]) await getRecord(resource(descriptor.resource), input[descriptor.key], transaction);
     }
   }
   async function create(actor, key, body) {
-    await authorize(actor); const config = resource(key);
+    await authorize(actor, null, capability(key, true)); const config = resource(key);
+    if (key === 'owners') throw conflict('Add or transfer ownership through a secure ownership invitation.', 'OWNERSHIP_ACCEPTANCE_REQUIRED');
+    if (key === 'organizations') throw conflict('Create a business through the onboarding workflow.', 'BUSINESS_ONBOARDING_REQUIRED');
+    if (key === 'events') throw conflict('Create an event through the shared event editor.', 'EVENT_EDITOR_REQUIRED');
     if (key === 'users') {
       const { reason, ...recipientInput } = body;
       const data = config.schema.strict().parse(recipientInput);
-      const { isInternalAdmin, ...recipient } = data;
-      return onboarding.create(actor, { kind: 'user', recipient, isInternalAdmin, reason });
+      const { isInternalAdmin, internalAdminRole, ...recipient } = data;
+      return onboarding.create(actor, { kind: 'user', recipient, isInternalAdmin, ...(internalAdminRole ? { internalAdminRole } : {}), reason });
     }
     if (!config.schema) throw conflict(config.unavailable || 'Creation is unavailable for this resource', 'MANAGED_WORKFLOW_REQUIRED');
     const { reason, ...input } = z.object({ reason: reasonSchema }).passthrough().parse(body);
@@ -179,7 +313,7 @@ function createAdminManagementService({ models, permissions, email = null, custo
       return { ...(createdInvitation || result.invitation), handoff: { url: url?.toString() || null, message: result.entryId ? 'The existing recipient has been confirmed through the guestlist admission workflow.' : 'Share this claim link with the intended recipient. Capacity is checked when they claim it.' } };
     }
     return mutationTransaction(models.User.sequelize, async (transaction) => {
-      await authorize(actor, transaction);
+      await authorize(actor, transaction, capability(key, true));
       const data = parsed.data; await validateReferences(config, data, transaction);
       let credentials;
       if (key === 'users') { credentials = await createPasswordRecord(data.password); delete data.password; }
@@ -201,6 +335,11 @@ function createAdminManagementService({ models, permissions, email = null, custo
         const affiliate = await getRecord(resource('organization_affiliates'), data.orgAffiliateId, transaction);
         if (affiliate.organizationId !== event.organizationId || affiliate.userId !== data.userId) throw conflict('Organization affiliate must belong to this event organization and selected user', 'AFFILIATE_PARENT_MISMATCH');
       }
+      if (key === 'organization_affiliates') await assertCommissionPricing({ models, organizationId: data.organizationId, commissionBps: data.defaultCommissionBps, transaction });
+      if (key === 'event_affiliates') {
+        const parent = data.commissionBps == null && data.orgAffiliateId ? await getRecord(resource('organization_affiliates'), data.orgAffiliateId, transaction) : null;
+        await assertCommissionPricing({ models, eventId: data.eventId, commissionBps: data.commissionBps ?? parent?.defaultCommissionBps ?? 0, transaction });
+      }
       if (key === 'boosts') {
         const event = await getRecord(resource('events'), data.eventId, transaction);
         if (['cancelled', 'completed'].includes(event.status) || new Date(event.endsAt) <= new Date()) throw conflict('Boost requires an upcoming active event', 'EVENT_NOT_EDITABLE');
@@ -210,6 +349,7 @@ function createAdminManagementService({ models, permissions, email = null, custo
       if (key === 'team_invitations') {
         const event = data.eventId ? await getRecord(resource('events'), data.eventId, transaction) : null;
         if (event && (event.status === 'completed' || new Date(event.endsAt) <= new Date())) throw conflict('Past events cannot receive new team invitations', 'EVENT_FINISHED');
+        await assertCommissionPricing({ models, organizationId: data.organizationId, eventId: data.eventId, commissionBps: data.commissionBps, transaction });
         const token = crypto.randomBytes(32).toString('base64url');
         data.invitedByUserId = actor;
         data.tokenHash = crypto.createHash('sha256').update(token).digest('hex');
@@ -224,7 +364,7 @@ function createAdminManagementService({ models, permissions, email = null, custo
         handoff = { url: url.toString(), message: queued ? 'Invitation email is queued for delivery.' : 'Email delivery is disabled. Share this link manually with the intended recipient.' };
         return { ...safe(config, record), handoff };
       }
-      const record = await models[config.model].create(data, { transaction });
+      const record = key === 'offerings' ? await persistOffering({ models, eventId: data.eventId, values: data, transaction }) : await models[config.model].create(data, { transaction });
       if (credentials) await models.UserCredential.create({ userId: record.id, ...credentials }, { transaction });
       if (ownerUserId) await models.OrganizationOwner.create({ organizationId: record.id, userId: ownerUserId, role: 'owner' }, { transaction });
       await audit(actor, config, record, 'created', null, reason, transaction);
@@ -232,12 +372,13 @@ function createAdminManagementService({ models, permissions, email = null, custo
     }, { accessChange: true });
   }
   async function action(actor, key, id, actionId, body) {
-    await authorize(actor); const config = resource(key);
+    await authorize(actor, null, capability(key, true)); const config = resource(key);
     const lifecycle = ['suspend', 'archive', 'restore'].includes(actionId);
-    const input = (lifecycle ? lifecycleActionSchema : actionReasonSchema).parse(body);
+    const versioned = lifecycle || key === 'events' && actionId === 'cancel';
+    const input = (versioned ? lifecycleActionSchema : actionReasonSchema).parse(body);
     if (!config.actions.some((action) => action.id === actionId)) throw conflict('This transition is unavailable', 'UNSUPPORTED_TRANSITION');
     if (lifecycle) return mutationTransaction(models.User.sequelize, async (transaction) => {
-      await authorize(actor, transaction);
+      await authorize(actor, transaction, capability(key, true));
       const record = await getRecord(config, id, transaction);
       if ((record.version ?? 0) !== input.version) throw conflict('This record changed. Refresh first.', 'STALE_VERSION');
       const before = safe(config, record); const lifecycleState = actionId === 'restore' ? 'active' : actionId === 'archive' ? 'archived' : 'suspended';
@@ -262,8 +403,9 @@ function createAdminManagementService({ models, permissions, email = null, custo
       return safe(config, result.entry);
     }
     return mutationTransaction(models.User.sequelize, async (transaction) => {
-      await authorize(actor, transaction);
+      await authorize(actor, transaction, capability(key, true));
       const record = await getRecord(config, id, transaction); const before = safe(config, record); let changes;
+      if (versioned && (record.version ?? 0) !== input.version) throw conflict('This record changed. Refresh first.', 'STALE_VERSION');
       if (key === 'users') {
         changes = { isActive: false };
         await assertUserAccessChange({ models, actorUserId: actor, user: record, changes, transaction });

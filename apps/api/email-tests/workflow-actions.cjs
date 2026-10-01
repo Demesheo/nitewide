@@ -14,8 +14,7 @@ const CUSTOMER_TEMPLATES = new Set([
 const APP_URL = 'https://nitewide.example/';
 const future = (hours) => new Date(Date.now() + hours * 3600000).toISOString();
 const recipient = (label, runLabel) => `delivered+${label}-${runLabel}@resend.dev`;
-const transaction = { LOCK: { UPDATE: 'UPDATE' } };
-const sequelize = { transaction: async (options, work) => typeof options === 'function' ? options(transaction) : work(transaction) };
+const sequelize = { transaction: async (options, work) => (typeof options === 'function' ? options : work)({ LOCK: { UPDATE: 'UPDATE', SHARE: 'SHARE' } }), query: async () => [{ rate: 0 }] };
 
 // Action fixtures never touch a database, payment processor, or real customer.
 // They invoke the same service methods used by the API and capture their queued
@@ -168,6 +167,7 @@ async function collectWorkflowMessages(runLabel) {
         },
       },
       GuestlistEntry: { sum: async () => 0, findAll: async () => [] },
+      Ticket: { count: async () => 0 },
       Order: { findAll: async () => [{ id: `event-order-${kind}-${runLabel}`, buyerUserId: buyer.id }] },
       User: { findAll: async () => [buyer], findByPk: async () => buyer },
       AuditLog: { create: async () => ({ id: `audit-${kind}-${runLabel}` }) },

@@ -4,6 +4,7 @@ const { z } = require('zod');
 const { createHash } = require('node:crypto');
 const { assertActiveEvent } = require('../services/lifecycle-service');
 const { discoveryQuery } = require('../http/public-schemas');
+const { effectiveFeeMode } = require('@nitewide/pricing');
 const cursorSchema = z.object({ day: z.iso.date(), premium: z.boolean(), title: z.string(), id: z.uuid(), filter: z.string().length(64) }).strict();
 const discoveryFilterKey = (input) => createHash('sha256').update(JSON.stringify([input.city, input.startDate, input.endDate, input.query, input.category, input.timezone])).digest('hex');
 function decodeCursor(value, filter) {
@@ -90,7 +91,7 @@ function publicEvent(event) {
   const offerings = event.offerings || [];
   return { ...json, isPremiumHost: event.organization?.planTier === 'premium', location: redactLocation(event.location), offerings: offerings.filter((o) => o.isActive && o.visibility === 'public').map((o) => {
     const { accessCodeHash, ...tier } = o.toJSON();
-    return { ...tier, saleState: eventFinished(event) ? 'closed' : offeringSaleState(o, offerings) };
+    return { ...tier, effectiveFeeMode: effectiveFeeMode(event.feeMode || 'buyer', o.feeMode || 'inherit'), saleState: eventFinished(event) ? 'closed' : offeringSaleState(o, offerings) };
   }) };
 }
 function redactLocation(location) {

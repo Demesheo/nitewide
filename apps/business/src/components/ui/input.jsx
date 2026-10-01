@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "../../lib/utils";
 
 function Input({ className, type, visibilityLabel = 'password', ...props }) {
   const [visible, setVisible] = React.useState(false);

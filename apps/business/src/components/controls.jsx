@@ -4,8 +4,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
+} from "./ui/select";
+import { Input } from "./ui/input";
 export function Choice({
   id,
   label,

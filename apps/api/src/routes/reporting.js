@@ -1,18 +1,23 @@
 const { asyncHandler } = require('./contract-router');
 const businessSchemas = require('../http/business-schemas');
+const adminSchemas = require('../http/admin-report-schemas');
 const { analyticsQuery } = require('../http/analytics-schemas');
 const { z } = require('zod');
 
 function registerReportingRoutes({ router, managementController, requireUser, permissions, businessRead, businessReports, adminReports, reportExports, analytics }) {
   router.get('/admin/analytics', requireUser, asyncHandler(async (req, res) => res.json({ data: await analytics.adminReport(req.userId, analyticsQuery.parse(req.query)) })));
   router.get('/admin/reports/bootstrap', requireUser, asyncHandler(async (req, res) => res.json({ data: await adminReports.bootstrap(req.userId) })));
-  router.get('/admin/reports/summary', requireUser, asyncHandler(async (req, res) => res.json({ data: await adminReports.summary(req.userId, businessSchemas.reportDetailQuery.parse(req.query)) })));
+  router.get('/admin/reports/summary', requireUser, asyncHandler(async (req, res) => res.json({ data: await adminReports.summary(req.userId, adminSchemas.reportDetailQuery.parse(req.query)) })));
   router.get('/admin/reports/export.csv', requireUser, asyncHandler(async (req, res) => {
-    await permissions.assertInternal(req.userId);
-    return reportExports.request(req.userId, { ...businessSchemas.reportDetailQuery.parse(req.query), audience: 'admin' }, res);
+    await permissions.assertInternalPermission(req.userId, 'reports.view');
+    return reportExports.request(req.userId, { ...adminSchemas.reportDetailQuery.parse(req.query), audience: 'admin' }, res);
   }));
+  router.get('/admin/reports/exports', requireUser, asyncHandler(async (req, res) => { await permissions.assertInternalPermission(req.userId,'reports.view'); res.json({ data: await reportExports.list(req.userId, 'admin') }); }));
+  router.get('/admin/reports/exports/:id', requireUser, asyncHandler(async (req, res) => { await permissions.assertInternalPermission(req.userId,'reports.view'); res.json({ data: await reportExports.status(req.userId,z.uuid().parse(req.params.id)) }); }));
+  router.get('/admin/reports/exports/:id/download', requireUser, asyncHandler(async (req, res) => { await permissions.assertInternalPermission(req.userId,'reports.view'); return reportExports.download(req.userId,z.uuid().parse(req.params.id),res); }));
+  router.post('/admin/reports/exports/:id/retry', requireUser, asyncHandler(async (req, res) => { await permissions.assertInternalPermission(req.userId,'reports.view'); res.json({ data: await reportExports.retry(req.userId,z.uuid().parse(req.params.id)) }); }));
   router.get('/admin/reports/:table', requireUser, asyncHandler(async (req, res) => res.json({ data: await adminReports.table(req.userId,
-    z.enum(['regions','venues','events','offerings','team','customers']).parse(req.params.table), businessSchemas.reportDetailQuery.parse(req.query)) })));
+    adminSchemas.reportTables.parse(req.params.table), adminSchemas.reportDetailQuery.parse(req.query)) })));
   router.get('/business/analytics', requireUser, asyncHandler(async (req, res) => res.json({ data: await analytics.businessReport(req.userId, analyticsQuery.parse(req.query)) })));
   router.get('/business/workspace', requireUser, asyncHandler(async () => { throw new (require('../domain/errors').DomainError)('Use /business/bootstrap, /business/overview and paginated /business/reports endpoints.', { status: 410, code: 'LEGACY_REPORT_RETIRED' }); }));
   router.get('/business/overview', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessRead.overview(req.userId, businessSchemas.reportQuery.parse(req.query)) })));

@@ -25,6 +25,7 @@ const tier = z
     name: text(160).min(1),
     description: text(5000).default(""),
     kind: z.enum(["ticket", "package", "reservation"]),
+    feeMode: z.enum(['inherit', 'buyer', 'absorbed']).default('inherit'),
     priceCents: z.number().int().min(0).max(100000000),
     inventoryMode: z.enum(["finite", "unlimited"]),
     quantityTotal: z.number().int().min(0).max(1000000).nullable(),
@@ -67,6 +68,7 @@ const eventEditor = z
     capacity: z.number().int().min(0).max(1000000).nullable(),
     status: z.enum(["draft", "published", "cancelled", "completed"]),
     isDiscoverable: z.boolean(),
+    feeMode: z.enum(['buyer', 'absorbed']).default('buyer'),
     location: location.optional(),
     offerings: z.array(tier).max(50),
   })
@@ -80,8 +82,12 @@ const eventEditor = z
       e.offerings.filter((t) => t.id).length,
     "Duplicate tier IDs",
   )
-  .refine((e) => e.organizationId || e.location, 'Independent events require a location')
+  .refine((e) => e.locationId || e.location || (e.organizationId && e.locationId === undefined), 'Select a saved venue or enter the event location')
   .superRefine((e, ctx) => {
+    const { editorPricingIssues } = require('../domain/editor-pricing-policy');
+    for (const issue of editorPricingIssues({ eventFeeMode: e.feeMode, offerings: e.offerings })) {
+      ctx.addIssue({ code: 'custom', path: ['offerings', issue.index, issue.field], message: issue.message });
+    }
     e.offerings.forEach((t, i) => {
       if (t.releaseAfterIndex == null) return;
       const previous = e.offerings[t.releaseAfterIndex];

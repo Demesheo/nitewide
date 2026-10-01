@@ -13,12 +13,12 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { editorDraft, eventPayload } from "@/lib/business";
-import { api } from "@/lib/api";
-import { useRecoverableEventDraft } from '@/hooks/useRecoverableEventDraft';
-import { readEventTemplates, removeEventTemplate, reusableDraft } from '@/lib/event-reuse';
+} from "./ui/dialog";
+import { Button } from "./ui/button";
+import { editorDraft, eventPayload } from "../lib/business";
+import { api } from "../lib/api";
+import { useRecoverableEventDraft } from '../hooks/useRecoverableEventDraft';
+import { readEventTemplates, removeEventTemplate, reusableDraft } from '../lib/event-reuse';
 import { EventEssentialsStep } from './event-editor/EventEssentialsStep';
 import { EventLocationStep } from './event-editor/EventLocationStep';
 import { EventOfferingsStep } from './event-editor/EventOfferingsStep';
@@ -37,6 +37,10 @@ export function EventEditor({
   onClose,
   onReloadLatest,
   onSaved,
+  audience = 'business',
+  request = api,
+  organizationPicker = null,
+  beforeSave = null,
 }) {
   const [initialDraft] = useState(() => { const initial = presetDraft || editorDraft(event, defaultOrganization, organizations, venues); initial.offerings = initial.offerings.map((t) => ({ ...t, clientKey: t.clientKey || t.id || crypto.randomUUID() })); return initial; });
   const { draft, setDraft, dirty, recovery, restore, discardRecovery, clear, persistNow } = useRecoverableEventDraft({ session, event, identity: duplicateSource ? `duplicate:${duplicateSource.id}` : null, initialDraft });
@@ -51,6 +55,7 @@ export function EventEditor({
   const [copyFailure, setCopyFailure] = useState(false);
   const [templates, setTemplates] = useState(() => event || duplicateSource ? [] : readEventTemplates(session.user.id));
   const [publishChecks, setPublishChecks] = useState({ schedule: false, venue: false, inventory: false, access: false });
+  const [adminReason, setAdminReason] = useState('');
   const organization = organizations.find((o) => o.id === draft.organizationId);
   const linkedVenues = venues.filter((venue) => venue.organizationId === draft.organizationId);
   const savedVenues = organization?.locationId && organization?.location && !linkedVenues.some((venue) => venue.locationIds.includes(organization.locationId))
@@ -72,7 +77,7 @@ export function EventEditor({
     setDraft((d) => ({
       ...d,
       offerings: [...d.offerings, {
-        clientKey, name: "", kind,
+        clientKey, name: "", kind, feeMode: 'inherit',
         price: Math.max(0, ...d.offerings.filter((t) => t.kind === kind).map((t) => Number(t.price) || 0)) + 10,
         quantityTotal: 50, inventoryMode: "finite", entriesPerUnit: kind === "package" ? 4 : 1,
         minPerOrder: 1, maxPerOrder: 10, isActive: true, visibility: "public", description: "",
@@ -89,8 +94,9 @@ export function EventEditor({
     if (uploading) return;
     setError("");
     setConflictError(false);
-    if (draft.organizationId && !draft.locationId) { setError('Select a saved venue before saving this event.'); return; }
-    if (!draft.organizationId && !draft.location.city.trim()) { setError('Add the independent event city before saving a draft.'); setStep(1); return; }
+    if ((draft.locationMode === 'saved' || organization?.canCreateEvents && !organization?.canManage && audience !== 'admin') && !draft.locationId) { setError('Choose a saved business venue before saving.'); setStep(1); return; }
+    if (!draft.locationId && !draft.location.city.trim()) { setError('Add the event city before saving a draft.'); setStep(1); return; }
+    if (audience === 'admin' && adminReason.trim().length < 10) { setError('Explain this administrative change in at least 10 characters.'); setStep(0); return; }
     setBusy(true);
     let savedIdThisAttempt = null;
     try {
@@ -100,13 +106,15 @@ export function EventEditor({
         if (duplicateSource && copyChoices?.copyImage) payload.reusedImageFromEventId = duplicateSource.id;
         delete payload.slug;
         delete payload.category;
-        saved = await api(`/business/events${event ? `/${event.id}` : ""}`, session, {
+        if (audience === 'admin') payload.adminReason = adminReason.trim();
+        if (beforeSave && await beforeSave(draft, payload) === false) return;
+        saved = await request(`/${audience}/events${event ? `/${event.id}` : ""}`, session, {
           method: event ? "PUT" : "POST", body: JSON.stringify(payload),
         });
         savedIdThisAttempt = saved.id;
         if (duplicateSource && copyChoices?.copyTeam) setCreatedDraftId(saved.id);
       }
-      if (duplicateSource && copyChoices?.copyTeam) await api(`/business/events/${saved.id}/copy-access`, session, {
+      if (duplicateSource && copyChoices?.copyTeam) await request(`/business/events/${saved.id}/copy-access`, session, {
         method: 'POST', body: JSON.stringify({ sourceEventId: duplicateSource.id, copyTeam: true,
           copyAllocations: Boolean(copyChoices.copyAllocations) }),
       });
@@ -177,9 +185,11 @@ export function EventEditor({
         <form onSubmit={submit}>
           <div className="editor-body">
             {step === 0 && <EventEssentialsStep draft={draft} event={event} session={session} organizations={organizations}
-              venues={venues} canCreateIndependent={canCreateIndependent} setDraft={setDraft} set={set} onUploading={setUploading}/>}
+              venues={venues} canCreateIndependent={canCreateIndependent} setDraft={setDraft} set={set} onUploading={setUploading}
+              request={request} organizationPicker={organizationPicker}/>}
+            {step === 0 && audience === 'admin' && <label className="field full" htmlFor="admin-event-reason"><span>Reason for this change</span><textarea id="admin-event-reason" name="adminReason" minLength={10} maxLength={500} required value={adminReason} onChange={(e) => setAdminReason(e.target.value)} rows={2}/></label>}
             {step === 1 && <EventLocationStep draft={draft} organization={organization} savedVenues={savedVenues}
-              setDraft={setDraft} set={set} loc={loc}/>}
+              setDraft={setDraft} set={set} loc={loc} session={session} request={request} audience={audience}/>}
             {step === 2 && <EventOfferingsStep draft={draft} event={event} duplicateSource={duplicateSource}
               addedTierKey={addedTierKey} publishChecks={publishChecks} setPublishChecks={setPublishChecks}
               addTier={addTier} tier={tier} setDraft={setDraft} set={set}/>}

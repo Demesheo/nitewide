@@ -48,6 +48,9 @@ Run `npm test` from the repository root, or `npm test --workspace @nitewide/api`
 - `business-integration.test.js`: authentication, organization isolation, checkout, sales, event creation/editing, and guestlist approvals through the REST boundary.
 - `business-reporting-integration.test.js`: deterministic Team, Overview, and Analytics reconciliation against real PostgreSQL queries and test-owned fixtures.
 - `admin-onboarding-lifecycle-integration.test.js`: role/lifecycle protections, onboarding, scoped edits, retained history, and admin management filtering.
+- `admin-business-access-integration.test.js`: secure accepted ownership, manager-led onboarding, finance permissions, concurrent ownership changes, last-owner guards, and generated business slugs.
+- `admin-report-support-integration.test.js`: canonical admin drill-downs, non-duplicated order fees, support cases, platform attention, and shared fee/commission editing constraints.
+- `venue-access-integration.test.js`: exclusive managed venue ownership, venue-specific roles, address/history protection, referral and invitation revocation/regrant, scoped reports/exports, and paged venue directories beyond 1,000 records.
 - `public-discovery-integration.test.js`: discovery cursor stability, filters, ordering, deep links, and collections larger than the former 100-event limit.
 - `customer-experience-integration.test.js`: customer identity confirmation, saved-event merging, guestlist state, attendee-only location privacy, and paged Connections/people results.
 - `abuse-session-integration.test.js`: shared account/IP limits, session revocation, and isolated security workflows.

@@ -58,7 +58,7 @@ test('event team includes the full active venue roster with zero activity withou
   const member = (userId, extra = {}) => ({ userId, user: { id:userId, displayName:userId, email:`${userId}@example.test`, isActive:true }, ...extra });
   const event = { id:'event', organizationId:'venue', endsAt:'2030-10-02', offerings:[], toJSON() { return {id:this.id,organizationId:this.organizationId,endsAt:this.endsAt}; } };
   const models = {
-    Event:{findByPk:async () => event}, Location:{}, Organization:{}, Offering:{}, OrderItem:{}, Ticket:{},
+    Event:{findByPk:async () => event}, Location:{}, Organization:{findByPk:async () => ({id:'venue',status:'active'})}, Offering:{}, OrderItem:{}, Ticket:{},
     User:{findByPk:async () => ({isActive:true})},
     OrganizationOwner:{findAll:async () => [member('owner',{role:'owner'}),member('manager',{role:'manager'})]},
     OrganizationEmployee:{findAll:async (query) => {
@@ -99,6 +99,45 @@ test('event team includes the full active venue roster with zero activity withou
     assert.deepEqual(report.candidates,[]);
   }
   await assert.rejects(service.detail('outsider','event'),{status:403});
+});
+
+test('legacy event detail hides an unrelated organization default venue from venue-only staff', async () => {
+  const event = { id:'event',organizationId:'org',locationId:'beta',endsAt:'2030-10-02',offerings:[],
+    toJSON:() => ({ id:'event',organizationId:'org',locationId:'beta',organization:{id:'org',locationId:'alpha'} }) };
+  const users = Object.fromEntries(['owner','manager','employee'].map(id => [id,{id,isActive:true,displayName:id,email:`${id}@example.test`} ]));
+  const models = {
+    Event:{findByPk:async () => event},User:{findByPk:async id => users[id]},Location:{findByPk:async () => ({id:'beta'})},Organization:{findByPk:async () => ({id:'org',status:'active'})},
+    OrganizationVenue:{findOne:async () => ({organizationId:'org',locationId:'beta'})},
+    VenueAccess:{findOne:async ({where}) => where.userId === 'owner' ? null : ({id:`grant-${where.userId}`,locationId:'beta',role:where.userId}),findAll:async () => []},
+    OrganizationOwner:{findAll:async () => [{userId:'owner',role:'owner',user:users.owner}],findOne:async ({where}) => where.userId === 'owner' ? {role:'owner'} : null},
+    OrganizationEmployee:{findAll:async () => [],findOne:async () => null},OrgAffiliate:{findAll:async () => [],findOne:async () => null},
+    EventAffiliate:{findAll:async () => [{id:'employee-affiliate',userId:'employee',user:users.employee,status:'active',accessScope:'venue',venueAccessId:'grant-employee'}]},
+    Order:{findAll:async () => []},GuestlistEntry:{findAll:async () => []},Offering:{},OrderItem:{},Ticket:{},
+  };
+  const service = createEventWorkspaceService({models,permissions:{canManageOrganization:async id => id === 'owner'},now:() => new Date('2030-10-01')});
+  assert.equal((await service.detail('owner','event')).event.organization.locationId,'alpha');
+  for (const actor of ['manager','employee']) {
+    const report = await service.detail(actor,'event');
+    assert.equal(report.event.organization.locationId,null);
+    assert.equal(report.event.locationId,'beta');
+    assert.equal(report.event.canManage,actor === 'manager');
+  }
+});
+
+test('legacy event detail rejects expired and future standalone access without deleting attributed history', async () => {
+  let window = {};
+  const event = { id:'event',organizationId:null,creatorUserId:'creator',endsAt:'2030-10-02',offerings:[],toJSON:() => ({id:'event'}) };
+  const models = {
+    Event:{findByPk:async () => event},User:{findByPk:async id => ({id,isActive:true})},
+    EventAffiliate:{findAll:async () => [{id:'affiliate',userId:'promoter',user:{displayName:'Promoter',email:'promoter@example.test'},status:'active',accessScope:'event',...window}]},
+    Order:{findAll:async () => []},GuestlistEntry:{findAll:async () => []},Location:{},Organization:{},Offering:{},OrderItem:{},Ticket:{},
+  };
+  const service = createEventWorkspaceService({models,permissions:{},now:() => new Date('2030-10-01')});
+  assert.equal((await service.detail('promoter','event')).scope,'own');
+  window = {endsAt:'2030-09-30'};
+  await assert.rejects(service.detail('promoter','event'),{code:'FORBIDDEN'});
+  window = {startsAt:'2030-10-02'};
+  await assert.rejects(service.detail('promoter','event'),{code:'FORBIDDEN'});
 });
 
 test('editor rejects cyclic, cross-kind and cheaper successor tiers', () => {

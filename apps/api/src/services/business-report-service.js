@@ -40,8 +40,9 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
     const values = { ...filter.values, since: range.since, until: range.until, timezone: range.timezone,
       search: `%${input.search.replace(/[\\%_]/g, '\\$&')}%`, regions: input.regions,
       hasPerson: Boolean(input.personId), personId: input.personId || null,
-      hasOffering: Boolean(input.offeringKind && input.offeringName), offeringKind: input.offeringKind || '',
-      offeringName: input.offeringName || '' };
+      hasOffering: Boolean(input.offeringId || (input.offeringKind && input.offeringName)), offeringKind: input.offeringKind || '',
+      offeringName: input.offeringName || '', hasOfferingId: Boolean(input.offeringId), offeringId: input.offeringId || null,
+      hasCustomer: Boolean(input.customerId), customerId: input.customerId || null };
     if (input.eventId) { conditions.push('AND e.id = :reportEventId'); values.reportEventId = input.eventId; }
     if (input.regions.length) conditions.push(`AND ${regionExpression} IN (:regions)`);
     if (input.search) conditions.push(`AND (e.title ILIKE :search ESCAPE '\\' OR e.summary ILIKE :search ESCAPE '\\'
@@ -66,17 +67,20 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
       WHERE ${includeHistorical && actor.isAdmin ? 'TRUE' : base} ${conditions.join(' ')}),
       eligible_orders AS MATERIALIZED (
         SELECT o.id, o.event_id, o.buyer_user_id, o.subtotal_cents, o.affiliate_commission_cents,
+          o.platform_fee_cents, o.total_cents, o.pricing_plan_snapshot, o.status, o.currency,
           o.event_affiliate_id, o.org_affiliate_id, o.paid_at
         FROM orders o JOIN scoped_events se ON se.id = o.event_id
         LEFT JOIN event_affiliates ea ON ea.id = o.event_affiliate_id
         LEFT JOIN org_affiliates oa ON oa.id = o.org_affiliate_id
         WHERE o.status = 'paid' AND o.currency = 'USD' AND o.paid_at >= :since AND o.paid_at < :until
-          AND (se.can_manage OR ea.user_id = :userId OR (o.event_affiliate_id IS NULL AND oa.user_id = :userId AND oa.status = 'active'))
-          AND (NOT :hasPerson OR COALESCE(ea.user_id, oa.user_id) = :personId)),
+          AND (:isAdmin OR se.can_manage OR ea.user_id = :userId OR (o.event_affiliate_id IS NULL AND oa.user_id = :userId AND oa.status = 'active'))
+          AND (NOT :hasPerson OR COALESCE(ea.user_id, oa.user_id) = :personId)
+          AND (NOT :hasCustomer OR o.buyer_user_id = :customerId)),
       visible_items AS MATERIALIZED (
-        SELECT oi.id, oi.order_id, oi.kind_snapshot, oi.name_snapshot, oi.quantity, oi.line_total_cents
+        SELECT oi.id, oi.order_id, oi.offering_id, oi.kind_snapshot, oi.name_snapshot, oi.quantity, oi.line_total_cents
         FROM order_items oi JOIN eligible_orders eo ON eo.id = oi.order_id
-        WHERE NOT :hasOffering OR (oi.kind_snapshot = :offeringKind AND oi.name_snapshot = :offeringName)),
+        WHERE NOT :hasOffering OR (:hasOfferingId AND oi.offering_id = :offeringId)
+          OR (NOT :hasOfferingId AND oi.kind_snapshot = :offeringKind AND oi.name_snapshot = :offeringName)),
       visible_orders AS MATERIALIZED (
         SELECT eo.*, CASE WHEN :hasOffering THEN COALESCE(item_totals.sales_cents,0) ELSE eo.subtotal_cents END AS report_sales_cents,
           CASE WHEN :hasOffering THEN NULL ELSE eo.affiliate_commission_cents END AS report_commission_cents
@@ -87,12 +91,13 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
         SELECT g.id, g.event_id, g.user_id, g.event_affiliate_id, g.party_size, g.status
         FROM guestlist_entries g JOIN scoped_events se ON se.id = g.event_id
         LEFT JOIN event_affiliates ea ON ea.id = g.event_affiliate_id
-        WHERE g.created_at >= :since AND g.created_at < :until AND (se.can_manage OR ea.user_id = :userId)
-          AND NOT :hasOffering AND (NOT :hasPerson OR ea.user_id = :personId)),
+        WHERE g.created_at >= :since AND g.created_at < :until AND (:isAdmin OR se.can_manage OR ea.user_id = :userId)
+          AND NOT :hasOffering AND (NOT :hasPerson OR ea.user_id = :personId)
+          AND (NOT :hasCustomer OR g.user_id = :customerId)),
       report_events AS MATERIALIZED (
-        SELECT se.* FROM scoped_events se WHERE (NOT :hasPerson AND NOT :hasOffering)
+        SELECT se.* FROM scoped_events se WHERE (NOT :hasPerson AND NOT :hasOffering AND NOT :hasCustomer)
           OR EXISTS (SELECT 1 FROM visible_orders vo WHERE vo.event_id = se.id)
-          OR (:hasPerson AND EXISTS (SELECT 1 FROM visible_guests vg WHERE vg.event_id = se.id)))`;
+          OR ((:hasPerson OR :hasCustomer) AND EXISTS (SELECT 1 FROM visible_guests vg WHERE vg.event_id = se.id)))`;
     return { cte, values, range };
   }
 
@@ -177,8 +182,8 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
     const event = result.event && { ...result.event, startsAt: result.event.startsAt ? new Date(result.event.startsAt) : null };
     const person = result.person;
     const summaryRow = { salesCents: number(financial.salesCents),
-      commissionCents: input.offeringKind ? null : number(financial.commissionCents),
-      commissionBasis: input.offeringKind ? 'unavailable_at_offering_level' : 'recorded_order',
+      commissionCents: input.offeringId || input.offeringKind ? null : number(financial.commissionCents),
+      commissionBasis: input.offeringId || input.offeringKind ? 'unavailable_at_offering_level' : 'recorded_order',
       directSalesCents: number(financial.directSalesCents), orders: financial.orders, customers: financial.customers,
       units: number(units.units), admissions: tickets.admissions, checkedIn: tickets.checkedIn + guests.checkedIn,
       guestlistPlaces: guests.guestlistPlaces, events: eventCount.events, activeEvents: activeEventCount.events,
@@ -274,7 +279,7 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
     },
     team: {
       base: `WITH managed_events AS (
-          SELECT se.* FROM report_events se WHERE se.can_manage),
+          SELECT se.* FROM report_events se WHERE :isAdmin OR se.can_manage),
         participants AS (
           SELECT oo.user_id, 5 AS priority FROM organization_owners oo JOIN managed_events se ON se.organization_id = oo.organization_id
             WHERE oo.lifecycle_state = 'active' AND oo.role = 'owner'
@@ -286,6 +291,9 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
             WHERE ea.status = 'active'
           UNION ALL SELECT oa.user_id, 1 FROM org_affiliates oa JOIN managed_events se ON se.organization_id = oa.organization_id
             WHERE oa.status = 'active'
+          UNION ALL SELECT va.user_id, CASE va.role WHEN 'manager' THEN 4 WHEN 'employee' THEN 3 ELSE 1 END
+            FROM venue_access va JOIN managed_events se ON se.organization_id=va.organization_id AND se.location_id=va.location_id
+            JOIN organization_venues ov ON ov.organization_id=va.organization_id AND ov.location_id=va.location_id WHERE va.status='active'
           UNION ALL SELECT ea.user_id, 1 FROM event_affiliates ea JOIN report_events se ON se.id = ea.event_id
             WHERE ea.user_id = :userId AND ea.status = 'active'
           UNION ALL SELECT oa.user_id, 1 FROM org_affiliates oa JOIN report_events se ON se.organization_id = oa.organization_id
@@ -360,8 +368,8 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
     const countSql = `${reportCte} SELECT COUNT(*)::integer AS total FROM report_rows${predicate}`;
     const mapRow = (row) => {
       const result = { ...row, salesCents: number(row.salesCents),
-        commissionCents: input.offeringKind ? null : number(row.commissionCents),
-        commissionBasis: input.offeringKind ? 'unavailable_at_offering_level' : 'recorded_order', units: number(row.units) };
+        commissionCents: input.offeringId || input.offeringKind ? null : number(row.commissionCents),
+        commissionBasis: input.offeringId || input.offeringKind ? 'unavailable_at_offering_level' : 'recorded_order', units: number(row.units) };
       if (kind === 'venues') result.id = venueKey({ organizationId: row.organizationId,
         creatorUserId: row.creatorUserId, location: { name: row.venueName, addressLine1: row.venueAddress,
           city: row.venueCity, region: row.venueRegion, countryCode: row.venueCountry } });

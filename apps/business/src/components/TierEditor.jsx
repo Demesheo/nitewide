@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "./ui/button";
 import { Field, SelectField } from "./controls";
-import { money, releaseOptions } from "@/lib/business";
+import { money, releaseOptions } from "../lib/business";
 
 // Reveal collapsed settings before the browser focuses an invalid input.
 function revealInvalidField(event) {
@@ -11,7 +11,7 @@ function revealInvalidField(event) {
   }
 }
 
-export function TierEditor({ tier: t, index: i, offerings, newlyAdded, onChange, onKindChange, onRemove }) {
+export function TierEditor({ tier: t, index: i, offerings, newlyAdded, onChange, onKindChange, onRemove, eventFeeMode = 'buyer' }) {
   const [confirmRemoval, setConfirmRemoval] = useState(false);
   const cardRef = useRef(null);
   useEffect(() => {
@@ -50,6 +50,10 @@ export function TierEditor({ tier: t, index: i, offerings, newlyAdded, onChange,
           <div className="full"><Field id={`tier-name-${i}`} label="Tier name" placeholder="e.g. Early bird or VIP table" required maxLength={160} value={t.name} onChange={(e) => onChange("name", e.target.value)} /></div>
           <SelectField id={`tier-kind-${i}`} label="Type" disabled={t.quantitySold > 0} value={t.kind} onChange={onKindChange} options={[["ticket", "Ticket"], ["package", "Package"], ["reservation", "Reservation"]]} />
           <Field id={`tier-price-${i}`} label="Price per unit ($)" type="number" min={0} max={1000000} step="0.01" required value={t.price} onChange={(e) => onChange("price", e.target.value)} />
+          <SelectField id={`tier-fee-mode-${i}`} label="Fee payment" value={t.feeMode || 'inherit'} onChange={(value) => onChange('feeMode', value)} options={[
+            ['inherit', `Use event default · ${eventFeeMode === 'absorbed' ? 'business absorbs' : 'customer pays'}`],
+            ['buyer', 'Customer pays added fees'], ['absorbed', 'Business absorbs fees'],
+          ]}/>
           <SelectField id={`tier-inventory-${i}`} label="Quantity available" value={t.inventoryMode} onChange={(v) => onChange("inventoryMode", v)} options={[["finite", "Limited"], ["unlimited", "Unlimited"]]} />
           {t.inventoryMode === "finite" && <Field id={`tier-quantity-${i}`} label="Total units" type="number" min={t.quantitySold || 0} max={1000000} required value={t.quantityTotal ?? ""} onChange={(e) => onChange("quantityTotal", e.target.value)} />}
           <Field id={`tier-admissions-${i}`} label="Guests per unit" type="number" min={1} max={100} required disabled={t.quantitySold > 0} value={t.entriesPerUnit} onChange={(e) => onChange("entriesPerUnit", e.target.value)} />

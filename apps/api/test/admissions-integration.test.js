@@ -85,12 +85,25 @@ test('admissions HTTP: permissions, QR integrity, concurrent scans, manual entry
       }
       for (const role of ['owner', 'manager', 'employee', 'promoter', 'admin']) {
         const list = await request(listPath, role);
-        assert.ok(!list.data.events.some((event) => event.id === ids.event), `${label} lifecycle excludes event from ${role} picker`);
+        assert.equal(list.data.events.some((event) => event.id === ids.event), model === m.Organization, `${label} lifecycle ${model === m.Organization ? 'retains existing admissions in' : 'excludes event from'} ${role} picker`);
       }
       for (const role of ['manager', 'admin']) {
-        assert.equal((await request(`${listPath}/${ids.event}`, role)).status, 403, `${label} lifecycle denies direct ${role} roster`);
-        const blockedScan = await scan(qrToken, ids.event, role);
-        assert.equal(blockedScan.status, 403, `${label} lifecycle denies direct ${role} scan`);
+        assert.equal((await request(`${listPath}/${ids.event}`, role)).status, model === m.Organization ? 200 : 403, `${label} lifecycle ${model === m.Organization ? 'honors existing admissions for' : 'denies direct'} ${role} roster`);
+        if (model !== m.Organization) {
+          const blockedScan = await scan(qrToken, ids.event, role);
+          assert.equal(blockedScan.status, 403, `${label} lifecycle denies direct ${role} scan`);
+        }
+      }
+      if (model === m.Organization) {
+        const pass = await request(`/customer/tickets/${ids.ticket}`, 'guest');
+        assert.equal(pass.status, 200, 'existing customer admission remains accessible during organization suspension');
+        const admission = await scan(qrToken);
+        assert.equal(admission.status, 201, 'organization suspension honors a previously purchased admission');
+        assert.equal(admission.data.checkIn.method, 'qr');
+        assert.equal(await m.CheckIn.count({ where: { eventId: ids.event } }), 1);
+        // Restore only this test-owned credential before the remaining cases.
+        await m.CheckIn.destroy({ where: { eventId: ids.event } });
+        await m.Ticket.update({ status: 'valid' }, { where: { id: ids.ticket } });
       }
       assert.equal(await m.CheckIn.count({ where: { eventId: ids.event } }), 0, `${label} lifecycle rejection writes no check-in`);
       if (model === m.Event) await model.update({ lifecycleState: 'active' }, { where });

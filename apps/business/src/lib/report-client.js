@@ -20,7 +20,7 @@ export function reportQuery({ days = '30', startDate = '', endDate = '', organiz
 }
 
 async function exportRequest(session, path) {
-  const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}${path}`, {
+  const response = await fetch(`${import.meta.env?.VITE_API_URL || '/api'}${path}`, {
     headers: { Authorization: `Bearer ${session.accessToken}` },
   });
   if (!response.ok) {
@@ -31,22 +31,24 @@ async function exportRequest(session, path) {
   }
   return response;
 }
-export async function downloadPreparedExport(session, id, filename = 'nitewide-business-report.csv') {
-  const response = await exportRequest(session, `/business/reports/exports/${encodeURIComponent(id)}/download`);
+export async function downloadPreparedExport(session, id, filename = 'nitewide-business-report.csv', { audience = 'business' } = {}) {
+  const prefix = audience === 'admin' ? 'admin' : 'business';
+  const response = await exportRequest(session, `/${prefix}/reports/exports/${encodeURIComponent(id)}/download`);
   return saveCsv(response, filename);
 }
 export async function downloadBusinessReport(session, query, { audience = 'business' } = {}) {
-  let response = await exportRequest(session, `/${audience === 'admin' ? 'admin' : 'business'}/reports/export.csv?${query}`);
+  const prefix = audience === 'admin' ? 'admin' : 'business';
+  const response = await exportRequest(session, `/${prefix}/reports/export.csv?${query}`);
   if (response.status === 202) {
     const { data: job } = await response.json();
     const ready = await waitForExport(job, {
-      getStatus: async (id) => (await (await exportRequest(session, `/business/reports/exports/${encodeURIComponent(id)}`)).json()).data,
-      onProgress: (value) => window.dispatchEvent(new CustomEvent('nitewide:export-progress', { detail: value })),
+      getStatus: async (id) => (await (await exportRequest(session, `/${prefix}/reports/exports/${encodeURIComponent(id)}`)).json()).data,
+      onProgress: (value) => window.dispatchEvent(new CustomEvent('nitewide:export-progress', { detail: { ...value, audience: prefix } })),
     });
-    return downloadPreparedExport(session, ready.id, ready.filename);
+    return downloadPreparedExport(session, ready.id, ready.filename, { audience: prefix });
   }
   const table = new URLSearchParams(query).get('exportTable');
-  const filename = `nitewide-business-${table ? `${table}-` : ''}${new Date().toISOString().slice(0, 10)}.csv`;
+  const filename = `nitewide-${prefix}-${table ? `${table}-` : ''}${new Date().toISOString().slice(0, 10)}.csv`;
   return saveCsv(response, filename);
 }
 export async function saveCsv(response, filename) {

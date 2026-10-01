@@ -6,6 +6,8 @@ const { assertActiveUser } = require('./lifecycle-service');
 const { authorizeEventWrite, assertDirectCapacity, persistOffering, recordEventMutation } = require('./event-mutation-policy');
 const { createEventWorkspaceService } = require('./event-workspace-service');
 const { fn, col } = require('sequelize');
+const { assertCommissionPricing } = require('../domain/editor-pricing-policy');
+const { createBusinessSlug } = require('../domain/business-slug');
 
 function createManagementService({ models, permissions, email = null, businessAppUrl = 'http://localhost:5174/app', customerAppUrl = 'http://localhost:5173' }) {
   const eventWorkspace = createEventWorkspaceService({ models, permissions, email, businessAppUrl });
@@ -20,7 +22,7 @@ function createManagementService({ models, permissions, email = null, businessAp
     createOrganization: async (userId, ids, input) => {
       const organization = await mutationTransaction(models.Organization.sequelize, async (transaction) => {
         assertActiveUser(await models.User.findByPk(userId, { transaction }));
-        const org = await models.Organization.create(input, { transaction });
+        const org = await models.Organization.create({ ...input, slug: createBusinessSlug(input.name) }, { transaction });
         await models.OrganizationOwner.create({ organizationId: org.id, userId: userId, role: 'owner' }, { transaction });
         await models.AuditLog.create({ actorUserId: userId, organizationId: org.id, entityType: 'Organization', entityId: org.id, action: 'organization.created', after: org.toJSON() }, { transaction });
         return org;
@@ -31,6 +33,7 @@ function createManagementService({ models, permissions, email = null, businessAp
       await permissions.assertManageOrganization(userId, ids.organizationId, transaction);
       await require('./lifecycle-service').assertActiveOrganization(models, ids.organizationId, transaction);
       assertActiveUser(await models.User.findByPk(input.userId, { transaction }));
+      await assertCommissionPricing({ models, organizationId: ids.organizationId, commissionBps: input.defaultCommissionBps ?? 0, transaction });
       const before = await models.OrgAffiliate.findOne({ where: { organizationId: ids.organizationId, userId: input.userId }, transaction, lock: transaction.LOCK.UPDATE });
       if (before?.status === 'active') throw conflict('This organization referrer is already active');
       const data = before ? await before.update({ ...input, status: 'active' }, { transaction }) : await models.OrgAffiliate.create({ ...input, organizationId: ids.organizationId }, { transaction });
@@ -44,7 +47,7 @@ function createManagementService({ models, permissions, email = null, businessAp
     }, { accessChange: true }); return data; },
     createEvent: async (userId, ids, input) => {
       const data = await mutationTransaction(models.Event.sequelize, async (transaction) => {
-      await authorizeEventWrite({ models, permissions, userId, organizationId: input.organizationId, transaction });
+      await authorizeEventWrite({ models, permissions, userId, organizationId: input.organizationId, locationId: input.locationId, transaction });
       let locationId = input.locationId;
       if (input.organizationId) {
         const org = await models.Organization.findByPk(input.organizationId, { transaction });

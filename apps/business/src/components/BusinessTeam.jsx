@@ -6,6 +6,8 @@ import { browserReportTimezone } from '@/lib/report-client';
 import { usePagedResource } from '@/hooks/usePagedResource';
 import { ServerPager } from './ServerPager';
 import { LoadingState } from './LoadingState';
+import { ManagerFinancePermission } from './ManagerFinancePermission';
+import BusinessVenueWorkspace from './BusinessVenueWorkspace';
 import { Choice } from './controls';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -65,13 +67,14 @@ export function BusinessTeam({ session, organizations, onUnauthorized }) {
   const chooseRoles = (next) => { setSelectedRoles(next); setUrlPage(1); writeWorkspaceLocation({ teamRoles: next, teamPage: 1 }); };
   const chooseSearch = (next) => { setSearch(next); setUrlPage(1);
     writeWorkspaceLocation({ teamSearch: next, teamPage: 1 }, { replace: true }); };
-  const roster = usePagedResource(organizationId ? `/business/organizations/${organizationId}/team-page?${query}` : null, session,
+  const roster = usePagedResource(canManage && organizationId ? `/business/organizations/${organizationId}/team-page?${query}` : null, session,
     { pageSize, initialPage: urlPage, onPageChange: (value) => { setUrlPage(value); writeWorkspaceLocation({ teamPage: value }); },
       refreshToken: refresh, onUnauthorized });
-  const invites = usePagedResource(organizationId ? `/business/organizations/${organizationId}/invitations-page` : null, session,
+  const invites = usePagedResource(canManage && organizationId ? `/business/organizations/${organizationId}/invitations-page` : null, session,
     { pageSize: invitationPageSize, initialPage: invitationPage, onPageChange: (value) => { setInvitationPage(value); writeWorkspaceLocation({ teamInvitationPage: value }); },
       refreshToken: refresh, onUnauthorized });
   const refreshAll = () => setRefresh((value) => value + 1);
+  useEffect(() => { if (roster.loading) return; setSelected((member) => member ? roster.result?.items.find((row) => row.id === member.id) || member : null); }, [roster.result, roster.loading]);
   async function mutate(path, options, after) {
     setBusy(true); setError('');
     try { const result = await api(path, session, options); await after?.(result); refreshAll(); return result; }
@@ -96,7 +99,7 @@ export function BusinessTeam({ session, organizations, onUnauthorized }) {
     {organizations.length > 1 && <label>Organization<select value={organizationId} onChange={(event) => { const id = event.target.value;
       setOrganizationId(id); setSelected(null); setInviteLink(''); setUrlPage(1); setInvitationPage(1);
       writeWorkspaceLocation({ teamOrganizationId: id, teamPage: 1, teamInvitationPage: 1 }); }}>{organizations.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>}
-    <section className="panel team-invite-summary"><div><span className="eyebrow">TEAM ACCESS</span><h2>Build your team</h2><p>Invite managers, employees and promoters into this organization.</p></div><Button onClick={() => { setError(''); setInviteOpen(true); }}>Invite team member</Button></section>
+    {canManage && <><section className="panel team-invite-summary"><div><span className="eyebrow">TEAM ACCESS</span><h2>Build your team</h2><p>Invite managers, employees and promoters into this organization.</p></div><Button onClick={() => { setError(''); setInviteOpen(true); }}>Invite team member</Button></section>
     <section ref={rosterRef} className="panel team-roster" aria-busy={roster.loading}><h2>Current team</h2><p className="team-caption">Showing referred paid sales from the last 30 days. Click a member for details.</p>
         <div className="team-roster-filters"><MultiSelect label="Roles" options={roles} selected={selectedRoles} onChange={chooseRoles}/></div>
       <MobileTableSort columns={sortColumns.map(([key, label]) => ({ key, label }))} value={sortKey} descending={descending}
@@ -132,9 +135,14 @@ export function BusinessTeam({ session, organizations, onUnauthorized }) {
         {canManage && selected.role !== 'Owner' && selected.id !== session.user.id && editingMember && <div className="team-role-editor team-role-editor-open"><div className="team-role-field"><span>Role</span><Choice label="Team member role" value={editRole} onChange={setEditRole} options={[["manager", "Manager"], ["employee", "Employee"], ["affiliate", "Promoter"]]}/></div>
           <div className="team-role-edit-actions"><div className="team-role-edit-primary"><Button disabled={busy || editRole === roleValue(selected.role)} onClick={saveRole}>{busy ? 'Saving…' : 'Save role'}</Button><Button variant="outline" disabled={busy} onClick={() => { setEditRole(roleValue(selected.role)); setEditingMember(false); setError(''); }}>Cancel</Button></div><div className="team-role-edit-danger"><Button variant="destructive" disabled={busy} onClick={() => setConfirmRemove(true)}>Remove member</Button></div></div></div>}
         {selected.role === 'Owner' && <p className="hint">Ownership cannot be changed here.</p>}
+        <ManagerFinancePermission organizationId={organizationId} member={selected} canGrantFinance={roster.result?.canGrantFinance}
+          organizationVersion={roster.result?.organizationVersion} session={session} disabled={busy || roster.loading} onUnauthorized={onUnauthorized}
+          onRefresh={refreshAll} onSaved={refreshAll}/>
         {error && <p role="alert" className="error">{error}</p>}<DialogFooter><DialogClose asChild><Button variant="outline">Close</Button></DialogClose></DialogFooter></DialogContent>}
     </Dialog>
     <Dialog open={confirmRemove} onOpenChange={setConfirmRemove}><DialogContent><DialogHeader><DialogTitle>Remove this member?</DialogTitle><DialogDescription>{selected?.name} will lose organization access. Event-only promoter assignments remain separate.</DialogDescription></DialogHeader>
       <DialogFooter><Button variant="destructive" disabled={busy} onClick={removeMember}>Confirm removal</Button><Button variant="outline" onClick={() => setConfirmRemove(false)}>Keep member</Button></DialogFooter></DialogContent></Dialog>
+    </>}
+    {organization && <BusinessVenueWorkspace key={organization.id} session={session} business={organization} onUnauthorized={onUnauthorized}/>}
   </div>;
 }

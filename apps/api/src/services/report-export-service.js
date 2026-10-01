@@ -1,4 +1,4 @@
-const { randomUUID } = require('node:crypto');
+const { randomUUID,createHash } = require('node:crypto');
 const { QueryTypes, Transaction } = require('sequelize');
 const { DomainError, notFound, forbidden, conflict } = require('../domain/errors');
 const { base } = require('./business-read-service');
@@ -11,22 +11,31 @@ function createReportExportService({ models, businessRead, reports, historicalRe
   const db = models.Event?.sequelize;
   const select = (sql, replacements = {}, transaction) => db.query(sql, { replacements, transaction, type: QueryTypes.SELECT });
   let active = null; let stopping = false;
-  async function authorizationStamp(userId, transaction) {
+  async function authorizationStamp(userId, transaction, audience = 'business') {
     if (!transaction) return db.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ }, async (snapshot) => {
       await select("SELECT set_config('jit','off',true)", {}, snapshot);
-      return authorizationStamp(userId, snapshot);
+      return authorizationStamp(userId, snapshot, audience);
     });
+    if (audience === 'admin') {
+      const admin = await historicalReports.authorize(userId,transaction);
+      // Global report access does not depend on the business membership graph.
+      // Versioning invalidates an old export after role revocation/regrant,
+      // without hashing every platform event on each download/status request.
+      return createHash('sha256').update(JSON.stringify(['admin',userId,admin.internalAdminRole || 'platform_owner',admin.version ?? 0])).digest('hex');
+    }
     const actor = await businessRead.actor(userId, { transaction });
     // Conservatively invalidate exports when effective access changes. Order,
     // payment and check-in activity deliberately do not change this stamp.
-    const [result] = await select(`SELECT encode(digest(jsonb_build_array(:isAdmin,
+    const [result] = await select(`SELECT encode(digest(jsonb_build_array(:isAdmin,:reportRole,
       (SELECT COALESCE(jsonb_agg(jsonb_build_array(e.id,e.lifecycle_state,e.status,e.organization_id,e.location_id)
         ORDER BY e.id),'[]') FROM events e WHERE ${base}),
       (SELECT COALESCE(jsonb_agg(jsonb_build_array(oo.id,oo.organization_id,oo.role,oo.lifecycle_state) ORDER BY oo.id),'[]') FROM organization_owners oo WHERE oo.user_id = :userId),
       (SELECT COALESCE(jsonb_agg(jsonb_build_array(oe.id,oe.organization_id,oe.status) ORDER BY oe.id),'[]') FROM organization_employees oe WHERE oe.user_id = :userId),
       (SELECT COALESCE(jsonb_agg(jsonb_build_array(oa.id,oa.organization_id,oa.status,oa.starts_at,oa.ends_at) ORDER BY oa.id),'[]') FROM org_affiliates oa WHERE oa.user_id = :userId),
-      (SELECT COALESCE(jsonb_agg(jsonb_build_array(ea.id,ea.event_id,ea.status,ea.access_scope,ea.source_org_affiliate_id) ORDER BY ea.id),'[]') FROM event_affiliates ea WHERE ea.user_id = :userId)
-    )::text,'sha256'),'hex') AS stamp`, actor, transaction);
+      (SELECT COALESCE(jsonb_agg(jsonb_build_array(ea.id,ea.event_id,ea.status,ea.access_scope,ea.source_org_affiliate_id,ea.venue_access_id,ea.starts_at,ea.ends_at) ORDER BY ea.id),'[]') FROM event_affiliates ea WHERE ea.user_id = :userId),
+      (SELECT COALESCE(jsonb_agg(jsonb_build_array(va.id,va.organization_id,va.location_id,va.role,va.status,va.version,ov.id) ORDER BY va.id),'[]')
+        FROM venue_access va LEFT JOIN organization_venues ov ON ov.organization_id=va.organization_id AND ov.location_id=va.location_id WHERE va.user_id=:userId)
+    )::text,'sha256'),'hex') AS stamp`, { ...actor, reportRole: 'business' }, transaction);
     return result.stamp;
   }
   function publicJob(job) {
@@ -34,17 +43,20 @@ function createReportExportService({ models, businessRead, reports, historicalRe
       progress: job.status === 'ready' ? 100 : job.snapshot_at && Number(job.total_rows) ? Math.floor(Number(job.processed_rows) / Number(job.total_rows) * 100) : 0,
       snapshotAt: job.snapshot_at, createdAt: job.created_at, expiresAt: job.expires_at,
       filename: job.metadata.filename || null, error: job.last_error,
-      statusUrl: `/business/reports/exports/${job.id}`, downloadUrl: `/business/reports/exports/${job.id}/download` };
+      audience: job.input.audience || 'business',
+      statusUrl: `/${job.input.audience === 'admin' ? 'admin' : 'business'}/reports/exports/${job.id}`, downloadUrl: `/${job.input.audience === 'admin' ? 'admin' : 'business'}/reports/exports/${job.id}/download` };
   }
   async function owned(userId, id, { verify = true, transaction } = {}) {
     const [job] = await select('SELECT * FROM report_export_jobs WHERE id=:id AND user_id=:userId AND expires_at>NOW()', { id, userId }, transaction);
     if (!job) throw notFound('Export');
-    if (verify && job.auth_stamp !== await authorizationStamp(userId, transaction)) throw forbidden('Your access changed. Create a new export using your current access.');
+    if (verify && job.auth_stamp !== await authorizationStamp(userId, transaction, job.input.audience)) throw forbidden('Your access changed. Create a new export using your current access.');
     return job;
   }
-  async function list(userId) {
+  async function list(userId, audience) {
     await businessRead.actor(userId);
-    const rows = await select('SELECT * FROM report_export_jobs WHERE user_id=:userId AND expires_at>NOW() ORDER BY created_at DESC,id DESC LIMIT 20', { userId });
+    if (audience === 'admin') await historicalReports.authorize(userId);
+    const rows = await select(`SELECT * FROM report_export_jobs WHERE user_id=:userId AND expires_at>NOW()
+      ${audience ? "AND COALESCE(input->>'audience','business')=:audience" : ''} ORDER BY created_at DESC,id DESC LIMIT 20`, { userId, audience });
     return rows.map(publicJob);
   }
   async function status(userId, id) { return publicJob(await owned(userId, id)); }
@@ -62,7 +74,7 @@ function createReportExportService({ models, businessRead, reports, historicalRe
   }
   async function plans(userId, input, transaction) {
     const reportService = input.audience === 'admin' ? historicalReports : reports;
-    const kinds = input.exportTable ? [input.exportTable] : ['events', 'offerings', 'team'];
+    const kinds = input.exportTable ? [input.exportTable] : input.audience === 'admin' ? ['businesses','events','offerings','purchases','team'] : ['events', 'offerings', 'team'];
     const prepared = [];
     let fixedInput = input;
     for (const kind of kinds) {
@@ -75,7 +87,7 @@ function createReportExportService({ models, businessRead, reports, historicalRe
   async function capture(job, transaction, prepared, status = 'rendering') {
     await select("SELECT set_config('jit','off',true)", {}, transaction);
     await select("SELECT set_config('statement_timeout','120000',true)", {}, transaction);
-    if (job.auth_stamp !== await authorizationStamp(job.user_id, transaction)) throw forbidden('Export access changed before the snapshot was captured.');
+    if (job.auth_stamp !== await authorizationStamp(job.user_id, transaction, job.input.audience)) throw forbidden('Export access changed before the snapshot was captured.');
     const input = job.input;
     const definitions = prepared || await plans(job.user_id, input, transaction);
     const reportService = input.audience === 'admin' ? historicalReports : reports;
@@ -83,7 +95,8 @@ function createReportExportService({ models, businessRead, reports, historicalRe
     const fixedInput = { ...input, startDate: range.startDate, endDate: range.endDate };
     const summary = !input.exportTable || input.exportTable === 'team' ? await reportService.summary(job.user_id, fixedInput, { transaction }) : null;
     const metadata = { selected: input.exportTable || null, range, salesCents: summary?.summary.salesCents || 0,
-      offering: Boolean(input.offeringKind), filename: `nitewide-business-${input.exportTable ? `${input.exportTable}-` : ''}${range.startDate}-${range.endDate}.csv` };
+      offering: Boolean(input.offeringId || input.offeringKind), audience: input.audience || 'business', financial: summary?.financial || null,
+      filename: `nitewide-${input.audience === 'admin' ? 'admin' : 'business'}-${input.exportTable ? `${input.exportTable}-` : ''}${range.startDate}-${range.endDate}.csv` };
     let offset = 0;
     for (const definition of definitions) {
       const [count] = await select(`WITH inserted AS (INSERT INTO report_export_rows(job_id,sequence,section,payload)
@@ -124,7 +137,7 @@ function createReportExportService({ models, businessRead, reports, historicalRe
     const job = await admitExport(async (transaction) => {
       await select("SELECT set_config('jit','off',true)", {}, transaction);
       await select("SELECT set_config('statement_timeout','30000',true)", {}, transaction);
-      const authStamp = await authorizationStamp(userId, transaction);
+      const authStamp = await authorizationStamp(userId, transaction, input.audience);
       const prepared = await plans(userId, input, transaction);
       let count = 0;
       for (const plan of prepared) {

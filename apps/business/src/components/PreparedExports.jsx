@@ -4,20 +4,22 @@ import { api } from '../lib/api';
 import { downloadPreparedExport } from '../lib/report-client';
 import { Button } from './ui/button';
 
-export function PreparedExports({ session, request = api, className = 'panel' }) {
+export function PreparedExports({ session, request = api, className = 'panel', audience = 'business' }) {
+  const prefix = audience === 'admin' ? 'admin' : 'business';
   const [jobs, setJobs] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
   useEffect(() => {
     if (!session?.accessToken) return;
+    setJobs([]);
     let active = true;
-    const refresh = () => request('/business/reports/exports', session).then((value) => { if (active) setJobs(value); }).catch(() => {});
-    const progress = (event) => { if (active && event.detail?.id) setJobs((current) => [event.detail, ...current.filter((job) => job.id !== event.detail.id)].slice(0,20)); };
+    const refresh = () => request(`/${prefix}/reports/exports`, session).then((value) => { if (active) setJobs(value); }).catch(() => {});
+    const progress = (event) => { if (active && event.detail?.id && (event.detail.audience || 'business') === prefix) setJobs((current) => [event.detail, ...current.filter((job) => job.id !== event.detail.id)].slice(0,20)); };
     refresh();
     const timer = setInterval(refresh, 15000);
     window.addEventListener('nitewide:export-progress', progress);
     return () => { active = false; clearInterval(timer); window.removeEventListener('nitewide:export-progress', progress); };
-  }, [session?.accessToken, request]);
+  }, [session?.accessToken, request, prefix]);
   if (!jobs.length) return null;
   return <details className={className} data-testid="prepared-exports"><summary>Prepared exports · {jobs.length}</summary>
     <p className="muted">Downloads stay available for 24 hours. Access is checked again before download.</p>
@@ -30,8 +32,8 @@ export function PreparedExports({ session, request = api, className = 'panel' })
       {['ready', 'failed'].includes(job.status) && <Button variant="outline" disabled={busy === job.id} onClick={async () => {
         setBusy(job.id); setError('');
         try {
-          if (job.status === 'ready') await downloadPreparedExport(session, job.id, job.filename);
-          else { await request(`/business/reports/exports/${job.id}/retry`, session, { method: 'POST' }); setJobs(await request('/business/reports/exports', session)); }
+          if (job.status === 'ready') await downloadPreparedExport(session, job.id, job.filename, { audience: prefix });
+          else { await request(`/${prefix}/reports/exports/${job.id}/retry`, session, { method: 'POST' }); setJobs(await request(`/${prefix}/reports/exports`, session)); }
         } catch (err) { setError(err.message); }
         finally { setBusy(null); }
       }}>{job.status === 'ready' ? <><ArrowDownToLine size={16}/>Download</> : <><RefreshCw size={16}/>Retry</>}</Button>}

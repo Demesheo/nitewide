@@ -7,6 +7,7 @@ function initOffering(sequelize) {
     name: { type: DataTypes.STRING(160), allowNull: false }, description: DataTypes.TEXT,
     kind: { type: DataTypes.ENUM('ticket', 'package', 'reservation'), allowNull: false, defaultValue: 'ticket' },
     priceCents: cents(false, 0), currency: { type: DataTypes.STRING(3), allowNull: false, defaultValue: 'USD' },
+    feeMode: { type: DataTypes.STRING(16),allowNull: false,defaultValue: 'inherit',validate: { isIn: [['inherit','buyer','absorbed']] } },
     inventoryMode: { type: DataTypes.ENUM('finite', 'unlimited'), allowNull: false, defaultValue: 'finite' },
     quantityTotal: { type: DataTypes.INTEGER, validate: { min: 0 } }, quantitySold: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0, validate: { min: 0 } },
     entriesPerUnit: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1, validate: { min: 1 } },

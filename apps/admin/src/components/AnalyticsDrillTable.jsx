@@ -1,62 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ChevronRight } from 'lucide-react';
-import { api } from '../lib/api';
+import { useState } from 'react';
+import { useAdminResource } from '../hooks/useAdminResource';
+import { reportKinds, reportPath, reportRequest, reportRecord, nextReportKind } from '../lib/report-state';
+import { formatMoney, formatDate } from '../lib/admin';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { TablePager } from './TablePager';
-import { formatMoney } from '../lib/admin';
+import { ResourceState, Pager } from './ResourceState';
+import SortControls from './SortControls';
 
-const columns = [
-  { label: 'Name', value: (row) => row.label, render: (row) => <><strong>{row.label}</strong>{row.email && <small className="block text-muted-foreground">{row.email}</small>}{row.kind && <small className="block text-muted-foreground">{row.kind}</small>}</> },
-  { label: 'Events', value: (row) => row.events, render: (row) => row.events ?? '—' },
-  { label: 'Sales', value: (row) => row.orders, render: (row) => row.orders },
-  { label: 'Sales value', value: (row) => row.salesCents, render: (row) => formatMoney(row.salesCents) },
-  { label: 'Customers', value: (row) => row.customers, render: (row) => row.customers ?? '—' },
-  { label: 'Units', value: (row) => row.units, render: (row) => row.units },
-  { label: 'Admissions', value: (row) => row.admissions, render: (row) => row.admissions ?? '—' },
-  { label: 'Avg. order', value: (row) => row.averageOrderCents, render: (row) => formatMoney(row.averageOrderCents ?? (row.orders ? row.salesCents / row.orders : 0)) },
-];
-
-const kinds = ['regions', 'venues', 'events', 'customers'];
-const titles = ['Regions', 'Venues', 'Events', 'Customers'];
-const sortFields = ['name', 'events', 'orders', 'sales', 'customers', 'units', 'admissions', 'average'];
-export default function AnalyticsDrillTable({ request, path, setPath }) {
-  const [sortIndex, setSortIndex] = useState(3);
-  const [descending, setDescending] = useState(true);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState('');
-  const kind = kinds[path.length];
-  const query = useMemo(() => {
-    const params = new URLSearchParams(request);
-    for (const row of path) {
-      if (row.kind === 'regions') { params.delete('regions'); params.append('regions', row.label); }
-      if (row.kind === 'venues') { params.delete('venueIds'); params.append('venueIds', row.id); }
-      if (row.kind === 'events') params.set('eventId', row.id);
-    }
-    params.set('page', String(page)); params.set('pageSize', String(pageSize));
-    params.set('sort', `${sortFields[sortIndex]}_${descending ? 'desc' : 'asc'}`);
-    return params.toString();
-  }, [request, path, page, pageSize, sortIndex, descending]);
-  const key = `${kind}:${query}`;
-  const current = result?.key === key ? result.data.items : [];
-  const data = result?.key === key ? result.data : null;
-  useEffect(() => {
-    let active = true;
-    const controller = new AbortController();
-    setError('');
-    api(`/admin/reports/${kind}?${query}`, { signal: controller.signal }).then((value) => {
-      if (active) setResult({ key, data: value });
-    }).catch((err) => { if (active && err.name !== 'AbortError') setError(err.message); });
-    return () => { active = false; controller.abort(); };
-  }, [key, kind, query]);
-  const navigate = (nextPath) => { setPath(nextPath); setPage(1); setSortIndex(3); setDescending(true); };
-  const total = data?.total || 0;
-  const pager = { total, from: total ? (page - 1) * pageSize + 1 : 0, to: Math.min(page * pageSize, total),
-    currentPage: page, pages: Math.max(1, Math.ceil(total / pageSize)), pageSize, setPage,
-    setPageSize: (value) => { setPageSize(value); setPage(1); } };
-  const sortable = (index) => !(kind === 'customers' && [1, 4, 6, 7].includes(index)) && !(kind === 'events' && index === 1);
-  return <Card className="overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-5"><div><p className="eyebrow">DRILL-DOWN</p><h3 className="text-lg font-semibold">{titles[path.length]}</h3><p className="text-xs text-muted-foreground">Select a row to move from region to venue, event, and customer.</p></div>{path.length > 0 && <Button variant="outline" size="sm" onClick={() => navigate(path.slice(0, -1))}><ArrowLeft size={14}/> Back</Button>}</div><div className="flex flex-wrap gap-1 border-b border-border p-3 text-xs"><Button variant="ghost" size="sm" onClick={() => navigate([])}>All regions</Button>{path.map((row, index) => <Button key={row.id} variant="ghost" size="sm" onClick={() => navigate(path.slice(0, index + 1))}><ChevronRight size={12}/>{row.label}</Button>)}</div><div className="table-wrap"><Table><TableHeader><TableRow>{columns.map((column, index) => <TableHead key={column.label}><button className="table-sort" disabled={!sortable(index)} onClick={() => { setPage(1); if (index === sortIndex) setDescending(!descending); else { setSortIndex(index); setDescending(index !== 0); } }}>{column.label} {index === sortIndex ? (descending ? '↓' : '↑') : '↕'}</button></TableHead>)}</TableRow></TableHeader><TableBody>{current.map((row) => <TableRow key={row.id}>{columns.map((column, index) => <TableCell key={column.label}>{index === 0 && kind !== 'customers' ? <button className="table-drill" onClick={() => navigate([...path, { id: row.id, label: row.label, kind }])}>{column.render(row)} <ChevronRight size={14}/></button> : column.render(row)}</TableCell>)}</TableRow>)}</TableBody></Table></div>{error ? <p className="error" role="alert">{error}</p> : !data ? <p className="loading" role="status">Loading report rows…</p> : !current.length ? <p className="p-8 text-center text-sm text-muted-foreground">No matching records in this range.</p> : <TablePager pager={pager}/>}</Card>;
+const titles = { businesses: 'Businesses', events: 'Events', offerings: 'Offerings', purchases: 'Purchases', customers: 'Customers', team: 'Team', regions: 'Regions', venues: 'Venues' };
+export default function AnalyticsDrillTable({ params, onUpdate, onOpenRecord, refresh }) {
+  const [retry, setRetry] = useState(0);
+  const path = reportPath(params); const last = path.at(-1); const kind = last ? nextReportKind(last.kind) || 'purchases' : reportKinds.includes(params.get('reportKind')) ? params.get('reportKind') : 'businesses';
+  const query = reportRequest(params, { includePaging: true });
+  const result = useAdminResource(`/admin/reports/${kind}?${query}`, `${refresh}:${retry}`);
+  const navigate = (drill) => onUpdate({ drill: drill.length ? JSON.stringify(drill) : '', reportPage: 1, reportSort: 'sales_desc' }, false);
+  const drill = (row) => navigate([...path, { id: row.id, label: row.label, kind }]);
+  const financial = ['businesses', 'events', 'purchases'].includes(kind);
+return <Card className="report-table"><div className="report-table-heading"><div><p className="eyebrow">REPORT DRILL-DOWN</p><h2>{titles[kind]}</h2><p>{path.length ? 'Explore this selection or view an individual record.' : 'Business → Event → Offering → Purchase. Customer, team and location views are direct entry points.'}</p></div><div className="report-table-controls"><label htmlFor="report-entry">Start with<select id="report-entry" value={params.get('reportKind') || 'businesses'} onChange={(event) => onUpdate({ reportKind: event.target.value, drill: '', reportPage: 1, reportSort: 'sales_desc' }, false)}>{reportKinds.map((item) => <option key={item} value={item}>{titles[item]}</option>)}</select></label><SortControls label="Sort report" single><label htmlFor="report-sort">Sort by<select id="report-sort" value={params.get('reportSort') || 'sales_desc'} onChange={(event) => onUpdate({ reportSort: event.target.value, reportPage: 1 })}>{[['sales_desc', 'Sales · highest first'], ['sales_asc', 'Sales · lowest first'], ['name_asc', 'Name · A to Z'], ['name_desc', 'Name · Z to A'], ['orders_desc', 'Purchases · highest first']].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></SortControls></div></div><div className="report-breadcrumb" aria-label="Report path"><Button variant="ghost" size="sm" onClick={() => navigate([])}>All {titles[params.get('reportKind') || 'businesses']?.toLowerCase()}</Button>{path.map((row, index) => <Button key={`${row.kind}:${row.id}`} variant="ghost" size="sm" onClick={() => navigate(path.slice(0, index + 1))}>› {row.label}</Button>)}{path.length > 0 && <Button variant="outline" size="sm" onClick={() => navigate(path.slice(0, -1))}>Back one level</Button>}</div><ResourceState {...result} onRetry={() => setRetry((value) => value + 1)}>{result.data && <><div className="table-wrap"><table className="analytics-table"><caption className="sr-only">{titles[kind]} report. View record opens canonical records; explore changes report scope.</caption><thead><tr><th>Name</th>{kind === 'purchases' && <th>Paid</th>}<th>Paid purchases</th><th>Face-value sales</th><th>Units</th>{financial && <><th>Added buyer fees</th><th>Business-absorbed fees</th><th>Combined fees</th><th>Business proceeds before provider</th><th>Processing estimate</th></>}<th>Actions</th></tr></thead><tbody>{result.data.items.map((row) => { const record = reportRecord(kind, row); return <tr key={row.id}><td><strong>{row.label}</strong>{row.email && <small>{row.email}</small>}{row.kind && <small>{row.kind}</small>}{row.eventTitle && <small>{row.eventTitle}</small>}{row.historicalNames?.length > 1 && <small>Historical names: {row.historicalNames.join(', ')}</small>}{row.items && <details><summary>Purchased offerings</summary>{row.items.map((item) => <small key={item.id}>{item.quantity} × {item.name} · {formatMoney(item.salesCents)}</small>)}</details>}</td>{kind === 'purchases' && <td>{formatDate(row.paidAt, true)}</td>}<td>{row.orders ?? '—'}</td><td>{formatMoney(row.salesCents)}</td><td>{row.units ?? '—'}</td>{financial && <><td>{row.addedBuyerFeesCents == null ? 'Unavailable' : formatMoney(row.addedBuyerFeesCents)}</td><td>{row.businessAbsorbedFeesCents == null ? 'Unavailable' : formatMoney(row.businessAbsorbedFeesCents)}</td><td>{row.combinedFeesCents == null ? 'Unavailable' : formatMoney(row.combinedFeesCents)}</td><td>{row.businessProceedsBeforeProviderCents == null ? 'Unavailable' : formatMoney(row.businessProceedsBeforeProviderCents)}</td><td>{row.modeledProcessingCents == null ? 'Unavailable' : formatMoney(row.modeledProcessingCents)}</td></>}<td><div className="report-row-actions">{nextReportKind(kind) && <Button size="sm" variant="outline" onClick={() => drill(row)}>Explore {titles[nextReportKind(kind)].toLowerCase()}</Button>}{record && <Button size="sm" variant="ghost" onClick={() => onOpenRecord(...record)}>View record</Button>}</div></td></tr>; })}</tbody></table></div>{!result.data.items.length && <p className="empty">No matching records in this range.</p>}<div className="report-table-footer"><label htmlFor="report-page-size">Rows per page<select id="report-page-size" value={params.get('reportPageSize') || '10'} onChange={(event) => onUpdate({ reportPageSize: event.target.value, reportPage: 1 })}>{[10, 25, 50].map((value) => <option key={value}>{value}</option>)}</select></label><Pager result={result.data} onPage={(page) => onUpdate({ reportPage: page }, false)}/></div></>}</ResourceState></Card>;
 }

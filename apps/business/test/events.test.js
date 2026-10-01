@@ -58,6 +58,15 @@ test('venue editor uses saved venue location and maps chained tiers to request i
   const existing = editorDraft({organizationId:'org',location:{city:'Orlando',name:'Existing venue',timezone:'America/New_York'}},'org',[{id:'org',location:{city:'Tampa',timezone:'America/New_York'}}]);
   assert.equal(existing.location.city,'Orlando','editing preserves the selected venue instead of the organization default');
 });
+
+test('saved venue lookup outside the bootstrap page retains its canonical identity; UI mode is not an API field', () => {
+  const event = { organizationId: 'org', locationId: 'venue-1001', isManagedVenue: true, location: { city: 'Orlando', timezone: 'America/New_York' }, offerings: [] };
+  const draft = editorDraft(event, 'org', [{ id: 'org' }], []);
+  assert.equal(draft.locationId, 'venue-1001');
+  const payload = eventPayload({ ...draft, locationMode: 'saved' });
+  assert.equal(payload.locationId, 'venue-1001');
+  assert.equal(Object.hasOwn(payload, 'locationMode'), false);
+});
 test('business editor builds a three-step GA ladder, supports windows, manual close, and package ladders', () => {
   const draft = editorDraft(null, 'org', [{id:'org',location:{city:'Orlando',timezone:'America/New_York'}}]);
   const base = {...draft.offerings[0], clientKey:'ga-10', name:'GA first 50',price:10,quantityTotal:50};

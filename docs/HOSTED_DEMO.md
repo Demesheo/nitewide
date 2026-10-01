@@ -199,6 +199,26 @@ Expected: HTTP 200 with `{"status":"ok","service":"nitewide-api"}`. Test custome
 gateway or injected floating banner; normal account permissions remain enforced.
 The mock checkout and QR demo safeguards remain in place.
 
+Entry HTML for all three apps uses `Cache-Control: no-store` so a fresh navigation
+receives the current release's module URLs. Fingerprinted JavaScript/CSS can be
+cached immutably; unversioned assets must revalidate. Missing assets return an
+uncached 404, never SPA HTML. Preserve this distinction if a CDN or separate
+frontend host is added; do not apply an HTML-cache-everything rule.
+
+Business retains a static opening/reload instruction if its entry script cannot
+download. Once React boots, a top-level boundary catches workspace module and
+render failures with an accessible recovery screen and a manual **Reload page**
+action. It keeps the current URL and stored session, never exposes raw errors,
+and does not auto-reload. Reload can require re-entering unsaved information.
+The tested WebKit runtime can retain a failed module after reload; a persistent
+failure keeps the recovery screen visible and advises reopening the browser,
+with sign-in potentially required again. Do not promise automatic Safari recovery.
+These safeguards reduce blank-page failures but do not guarantee availability
+when the origin, network, or browser itself is unavailable. A previously open
+tab can still reference a retired chunk after deployment; manual reload requests
+the latest uncached HTML. Run the startup-failure browser and cache-policy HTTP
+regressions before releasing changes to the bootstrap or hosting configuration.
+
 Email, notification fan-out and large CSV exports now run in a separate worker
 process supervised alongside the API in the free demo container. Startup applies
 the worker migrations; no reseed or paid resource is needed. A worker failure

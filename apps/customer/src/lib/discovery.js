@@ -132,7 +132,7 @@ export function availableQuantity(offering, now = new Date()) {
   return maximum < (offering.minPerOrder || 1) ? 0 : maximum;
 }
 export function offeringAvailabilityLabel(offering, offerings = []) {
-  if (availableQuantity(offering)) return '+ fees';
+  if (availableQuantity(offering)) return offering.effectiveFeeMode === 'absorbed' ? 'Fees included' : '+ fees';
   if (offering.saleState === 'waiting_for_tier') {
     const previous = offerings.find((item) => item.id === offering.releaseAfterOfferingId);
     return previous ? `Opens when ${previous.name} sells out or closes` : 'Opens when the earlier tier sells out or closes';
@@ -142,8 +142,8 @@ export function offeringAvailabilityLabel(offering, offerings = []) {
   if (offering.saleState === 'closed') return 'Sales closed';
   return 'Unavailable';
 }
-export function checkoutTotal(priceCents, quantity, currency = 'USD') {
-  const quote = checkoutQuote(priceCents, quantity, currency);
+export function checkoutTotal(priceCents, quantity, currency = 'USD', feeMode = 'buyer') {
+  const quote = checkoutQuote(priceCents, quantity, currency, feeMode);
   return { subtotal: quote.subtotalCents, fee: quote.feeCents, total: quote.totalCents,
     eligible: quote.eligible, discount: quote.discountCents || 0, floorAdjusted: Boolean(quote.floorAdjusted),
     standardCeilingExceeded: Boolean(quote.standardCeilingExceeded) };

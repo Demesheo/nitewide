@@ -2,20 +2,22 @@ const { QueryTypes } = require('sequelize');
 const { forbidden, notFound } = require('../domain/errors');
 const { activeUser } = require('./lifecycle-service');
 const { eventFinished, offeringSaleState } = require('../domain/event-policy');
-const { base, orderAccess, guestAccess, pageResult } = require('./business-read-service');
+const { base, organizationMember,manages,orderAccess, guestAccess, pageResult } = require('./business-read-service');
+const { hasInternalPermission } = require('./internal-admin-permissions');
 
 function createBusinessEventReadService({ models, now = () => new Date() }) {
   const select = (sql, replacements) => models.Event.sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
   async function scope(userId, eventId) {
     const user = await models.User.findByPk(userId);
     if (!activeUser(user)) throw forbidden('An active account is required');
-    const replacements = { userId, eventId, isAdmin: Boolean(user.isInternalAdmin) };
-    const rows = await select(`SELECT e.id, e.organization_id AS "organizationId", e.creator_user_id AS "creatorUserId",
-      (:isAdmin OR (e.organization_id IS NULL AND e.creator_user_id = :userId) OR EXISTS
-        (SELECT 1 FROM organization_owners oo WHERE oo.organization_id = e.organization_id AND oo.user_id = :userId AND oo.lifecycle_state = 'active')) AS "canManage"
+    const replacements = { userId, eventId, isAdmin: hasInternalPermission(user, 'events.manage'),canManageEvents: hasInternalPermission(user, 'events.manage') };
+    const rows = await select(`SELECT e.id, e.organization_id AS "organizationId",e.location_id AS "locationId",e.creator_user_id AS "creatorUserId",
+      EXISTS (SELECT 1 FROM organization_venues ov WHERE ov.organization_id=e.organization_id AND ov.location_id=e.location_id) AS "isManagedVenue",
+      (:isAdmin OR ${organizationMember}) AS "organizationWideAccess",
+      ${manages} AS "canManage"
       FROM events e WHERE e.id = :eventId AND ${base}`, replacements);
     if (!rows.length) throw notFound('Event');
-    return { ...replacements, canManage: rows[0].canManage, organizationId: rows[0].organizationId };
+    return { ...replacements, canManage: rows[0].canManage, organizationWideAccess: rows[0].organizationWideAccess,organizationId: rows[0].organizationId,locationId: rows[0].locationId,isManagedVenue: rows[0].isManagedVenue };
   }
   const scopedOrders = `SELECT o.* FROM orders o JOIN events e ON e.id = o.event_id
     WHERE o.event_id = :eventId AND o.status = 'paid' AND o.currency = 'USD' AND ${orderAccess}`;
@@ -29,6 +31,7 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
       { model: models.Offering, as: 'offerings' } ] });
     const offerings = [...event.offerings].sort((a, b) => a.sortOrder - b.sortOrder);
     const serialized = event.toJSON();
+    if (serialized.organization && !auth.organizationWideAccess) serialized.organization.locationId = null;
     serialized.offerings = offerings.map((offering) => {
       const { accessCodeHash, ...tier } = offering.toJSON();
       if (!auth.canManage) delete tier.quantitySold;
@@ -70,7 +73,7 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
       SELECT id, name, "salesCents" FROM ranked WHERE rank <= 6
       UNION ALL SELECT 'direct', name, "salesCents" FROM sales WHERE id IS NULL
       UNION ALL SELECT 'other','Other referrals',SUM("salesCents")::bigint FROM ranked WHERE rank > 6 HAVING COUNT(*) > 0`, auth);
-    return { event: { ...serialized, canManage: auth.canManage, canEdit: auth.canManage && !eventFinished(event, now()) },
+    return { event: { ...serialized, canManage: auth.canManage,isManagedVenue: Boolean(auth.isManagedVenue),canEdit: auth.canManage && !eventFinished(event, now()) },
       scope: auth.canManage ? 'event' : 'own',
       summary: { salesCents: Number(sales.salesCents), commissionCents: Number(sales.commissionCents),
         orders: sales.orders, customers: sales.customers, admissions: tickets.admissions,
@@ -184,13 +187,15 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
         UNION SELECT user_id FROM organization_owners WHERE organization_id = :organizationId AND lifecycle_state = 'active'
         UNION SELECT user_id FROM organization_employees WHERE organization_id = :organizationId AND status = 'active'
         UNION SELECT user_id FROM org_affiliates WHERE organization_id = :organizationId AND status = 'active'
+        UNION SELECT va.user_id FROM venue_access va JOIN organization_venues ov ON ov.organization_id=va.organization_id AND ov.location_id=va.location_id
+          WHERE va.organization_id=:organizationId AND va.location_id=:locationId AND va.status='active'
         UNION SELECT :userId WHERE :organizationId IS NULL AND :canManage),
       members AS (SELECT u.id, u.display_name AS name, u.email, ea.id AS "assignmentId", ea.code,
         ea.status, COALESCE(ea.commission_bps, rate_oa.default_commission_bps, 0) AS "commissionBps", oa.id AS "orgAffiliateId",
-        (oo.id IS NOT NULL OR oe.id IS NOT NULL OR oa.id IS NOT NULL OR
+        (oo.id IS NOT NULL OR oe.id IS NOT NULL OR oa.id IS NOT NULL OR va.id IS NOT NULL OR
           (u.id = :userId AND :organizationId IS NULL AND :canManage)) AS "isCurrentMember",
-        CASE WHEN oo.role = 'owner' THEN 'Owner' WHEN oo.id IS NOT NULL THEN 'Manager'
-          WHEN oe.id IS NOT NULL THEN 'Employee' WHEN u.id = :userId AND :organizationId IS NULL AND :canManage THEN 'Creator'
+        CASE WHEN oo.role = 'owner' THEN 'Owner' WHEN oo.id IS NOT NULL OR va.role='manager' THEN 'Manager'
+          WHEN oe.id IS NOT NULL OR va.role='employee' THEN 'Employee' WHEN u.id = :userId AND :organizationId IS NULL AND :canManage THEN 'Creator'
           ELSE 'Promoter' END AS role
         FROM member_ids mi JOIN users u ON u.id = mi.id
         LEFT JOIN event_affiliates ea ON ea.event_id = :eventId AND ea.user_id = u.id
@@ -198,6 +203,8 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
         LEFT JOIN organization_employees oe ON oe.organization_id = :organizationId AND oe.user_id = u.id AND oe.status = 'active'
         LEFT JOIN org_affiliates oa ON oa.organization_id = :organizationId AND oa.user_id = u.id AND oa.status = 'active'
         LEFT JOIN org_affiliates rate_oa ON rate_oa.id = ea.org_affiliate_id
+        LEFT JOIN venue_access va ON va.organization_id=:organizationId AND va.location_id=:locationId AND va.user_id=u.id AND va.status='active'
+          AND EXISTS (SELECT 1 FROM organization_venues ov WHERE ov.organization_id=va.organization_id AND ov.location_id=va.location_id)
         WHERE (:canManage OR u.id = :userId))`;
     values.roles = roles;
     const predicate = `WHERE true ${search ? `AND (m.name ILIKE :search ESCAPE '\\' OR m.email ILIKE :search ESCAPE '\\')` : ''} ${roles.length ? 'AND m.role IN (:roles)' : ''}`;

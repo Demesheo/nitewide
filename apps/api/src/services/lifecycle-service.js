@@ -3,7 +3,7 @@ const { Op } = require('sequelize');
 
 const active = (record) => Boolean(record) && (!record.lifecycleState || record.lifecycleState === 'active');
 const activeUser = (user) => active(user) && user.isActive !== false && !user.onboardingPending;
-function activeEventScope(models, { locationAttributes = [] } = {}) {
+function activeEventScope(models, { locationAttributes = [], admission = false } = {}) {
   return {
     where: {
       lifecycleState: 'active',
@@ -14,7 +14,7 @@ function activeEventScope(models, { locationAttributes = [] } = {}) {
       ],
     },
     include: [
-      { model: models.Organization, as: 'organization', attributes: [], where: { lifecycleState: 'active', status: 'active' }, required: false },
+      { model: models.Organization, as: 'organization', attributes: [], where: { lifecycleState: admission ? { [Op.in]: ['active', 'suspended'] } : 'active', status: admission ? { [Op.in]: ['active', 'suspended'] } : 'active' }, required: false },
       { model: models.Location, as: 'location', attributes: locationAttributes, where: { lifecycleState: 'active' }, required: false },
       { model: models.User, as: 'creator', attributes: [], where: { lifecycleState: 'active', isActive: true, onboardingPending: false }, required: false },
     ],
@@ -39,6 +39,25 @@ async function assertActiveEvent(models, event, transaction) {
   if (creator && !activeUser(creator)) throw forbidden('The event creator is unavailable');
   return event;
 }
+// Suspending a merchant pauses new commerce, not already issued admission.
+// Event cancellation/archive and unavailable physical venues still stop entry.
+async function assertAdmissionEvent(models, event, transaction) {
+  if (!event) throw notFound('Event');
+  if (!active(event)) throw forbidden('This event is suspended or archived');
+  if (event.organizationId) {
+    const organization = await models.Organization.findByPk(event.organizationId, { transaction, ...(transaction ? { lock: transaction.LOCK.SHARE || 'SHARE' } : {}) });
+    if (!organization || organization.lifecycleState === 'archived' || organization.status === 'closed') throw forbidden('This organization is archived');
+  }
+  if (event.locationId) {
+    const location = await models.Location.findByPk(event.locationId, { transaction, ...(transaction ? { lock: transaction.LOCK.SHARE || 'SHARE' } : {}) });
+    if (!active(location)) throw forbidden('This venue is suspended or archived');
+  }
+  if (!event.organizationId && event.creatorUserId) {
+    const creator = await models.User.findByPk(event.creatorUserId, { transaction, ...(transaction ? { lock: transaction.LOCK.SHARE || 'SHARE' } : {}) });
+    if (creator && !activeUser(creator)) throw forbidden('The event creator is unavailable');
+  }
+  return event;
+}
 async function assertOrganizationVenue(models, organization, locationId, transaction) {
   if (!locationId) throw conflict('Select a saved venue for the event', 'ORGANIZATION_LOCATION_REQUIRED');
   if (models.OrganizationVenue) {
@@ -49,4 +68,4 @@ async function assertOrganizationVenue(models, organization, locationId, transac
   if (!active(location)) throw conflict('Select an active venue', 'VENUE_INACTIVE');
   return location;
 }
-module.exports = { active, activeUser, activeEventScope, assertActiveUser, assertActiveOrganization, assertActiveEvent, assertOrganizationVenue };
+module.exports = { active, activeUser, activeEventScope, assertActiveUser, assertActiveOrganization, assertActiveEvent, assertAdmissionEvent, assertOrganizationVenue };

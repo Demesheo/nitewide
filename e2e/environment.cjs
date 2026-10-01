@@ -15,10 +15,15 @@ function isolatedEnvironment(databaseUrl, source = process.env) {
     NITEWIDE_API_PROXY: urls.api, CORS_ORIGINS: [urls.customer, urls.business, urls.admin].join(','),
   };
 }
+function frontendBuildEnvironment(source = process.env) {
+  // Vite uses NODE_ENV as well as build mode when choosing production React
+  // and optimizing bundles. The API/database harness still runs in test mode.
+  return { ...isolatedEnvironment('postgres://test:test@127.0.0.1:1/nitewide_unused', source), NODE_ENV: 'production' };
+}
 function databaseSettings(source = process.env, nonce = require('node:crypto').randomUUID()) {
   const name = assertGeneratedDatabaseName(`nitewide_test_${nonce.replaceAll('-', '')}`);
   const adminUrl = maintenanceUrl(source);
   const url = postgresUrl(adminUrl); url.pathname = `/${name}`;
   return { name, adminUrl, databaseUrl: url.toString() };
 }
-module.exports = { urls, controlToken, isolatedEnvironment, databaseSettings };
+module.exports = { urls, controlToken, isolatedEnvironment, frontendBuildEnvironment, databaseSettings };

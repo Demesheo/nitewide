@@ -73,6 +73,7 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
 
     const orgInvite = await request('/admin/onboarding', ids.admin, 'POST', {
       kind: 'organization',
+      confirmedAuthority: true,
       recipient: { email: 'fixture-owner@example.test', displayName: 'Fixture Owner' },
       organization: { name: 'Fixture Multi Venue Org', slug: `fixture-${crypto.randomUUID()}`, planTier: 'free' },
       venues: [
@@ -132,7 +133,7 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     ids.locationA = organization.locationId;
     ids.locationB = organizationLinks.find((link) => link.locationId !== ids.locationA).locationId;
     const creatorInvite = await request('/admin/onboarding', ids.admin, 'POST', {
-      kind: 'independent_creator', recipient: { email: 'independent-creator@example.test', displayName: 'Independent Creator' }, reason: 'Onboard an independent creator',
+      kind: 'independent_creator', confirmedAuthority: true, recipient: { email: 'independent-creator@example.test', displayName: 'Independent Creator' }, organization: { name: 'Independent Creator Workspace', slug: `creator-${crypto.randomUUID()}` }, reason: 'Onboard an independent creator',
     });
     assert.equal(creatorInvite.status, 201, JSON.stringify(creatorInvite.body));
     const creatorSetup = emailMessages.find(({ message }) => message.template === 'nitewide-account-setup' && message.to === 'independent-creator@example.test');
@@ -140,7 +141,9 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     const creatorAccept = await request('/auth/onboarding/accept', null, 'POST', { token: creatorToken, password: 'IndependentCreator123', confirmPassword: 'IndependentCreator123' });
     assert.equal(creatorAccept.status, 200, JSON.stringify(creatorAccept.body));
     const independentCreator = await models.User.findByPk(creatorAccept.body.data.userId);
-    assert.equal(independentCreator.independentCreator, true);
+    assert.equal(independentCreator.independentCreator, false);
+    assert.ok(creatorInvite.body.data.organizationId);
+    assert.equal(await models.OrganizationOwner.count({ where: { organizationId: creatorInvite.body.data.organizationId, userId: independentCreator.id, role: 'owner' } }), 1);
     assert.equal(await models.Event.count({ where: { creatorUserId: independentCreator.id } }), 0, 'onboarding creates creator access without seeding any events');
     const soleOwnerDemotion = await request(`/admin/management/users/${owner.id}/scoped-role`, ids.admin, 'POST', {
       organizationId: ids.org, role: 'employee', reason: 'Reject demotion of the only active owner', version: owner.version,
@@ -164,10 +167,12 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     assert.equal(venueList.status, 200, JSON.stringify(venueList.body));
     assert.ok(venueList.body.data.items.some((row) => row.id === ids.locationA));
     assert.ok(venueList.body.data.items.some((row) => row.id === ids.locationB));
-    const badSingleVenueEdit = await request(`/admin/management/organizations/${ids.org}`, ids.admin, 'PATCH', { businessType: 'venue', reason: 'Cannot collapse multiple venues implicitly', version: orgBefore.version });
-    assert.equal(badSingleVenueEdit.status, 409);
-    assert.equal(badSingleVenueEdit.body.error.code, 'SINGLE_VENUE_REQUIRED');
-    const organizationEdit = await request(`/admin/management/organizations/${ids.org}`, ids.admin, 'PATCH', { name: 'Fixture Multi Venue Org Reviewed', venueIds: [ids.locationA, ids.locationB], reason: 'Confirm existing venue links', version: orgBefore.version });
+    const retiredBusinessType = await request(`/admin/management/organizations/${ids.org}`, ids.admin, 'PATCH', { businessType: 'venue', reason: 'Legacy classification is no longer editable', version: orgBefore.version });
+    assert.equal(retiredBusinessType.status, 422);
+    const retiredBulkVenues = await request(`/admin/management/organizations/${ids.org}`, ids.admin, 'PATCH', { venueIds: [ids.locationA, ids.locationB], reason: 'Manage venues individually instead', version: orgBefore.version });
+    assert.equal(retiredBulkVenues.status, 409);
+    assert.equal(retiredBulkVenues.body.error.code, 'VENUE_MANAGEMENT_REQUIRED');
+    const organizationEdit = await request(`/admin/management/organizations/${ids.org}`, ids.admin, 'PATCH', { name: 'Fixture Multi Venue Org Reviewed', reason: 'Confirm reviewed business profile', version: orgBefore.version });
     assert.equal(organizationEdit.status, 200, JSON.stringify(organizationEdit.body));
     const staleOrgEdit = await request(`/admin/management/organizations/${ids.org}`, ids.admin, 'PATCH', { name: 'Stale name', reason: 'Reject stale update', version: orgBefore.version });
     assert.equal(staleOrgEdit.status, 409);
@@ -195,14 +200,28 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     const guest = await models.GuestlistEntry.create({ eventId: ids.event, userId: ids.buyer, source: 'event', partySize: 2, status: 'confirmed', qrTokenHash: crypto.createHash('sha256').update(crypto.randomUUID()).digest('hex'), reviewedByUserId: owner.id, reviewedAt: new Date() });
     ids.guest = guest.id;
 
-    const badEventVenue = await request(`/admin/management/events/${ids.event}`, ids.admin, 'PATCH', { locationId: ids.foreignLocation, reason: 'Reject a venue from another business', version: event.version });
+    const loadedEditor = await request(`/admin/events/${ids.event}/editor`, ids.admin);
+    assert.equal(loadedEditor.status, 200, JSON.stringify(loadedEditor.body));
+    const editorEvent = loadedEditor.body.data.event;
+    const editorInput = {
+      version: editorEvent.version, organizationId: editorEvent.organizationId, locationId: editorEvent.locationId,
+      imageAssetId: editorEvent.imageAssetId, title: editorEvent.title, slug: editorEvent.slug,
+      summary: editorEvent.summary || '', description: editorEvent.description || '', category: editorEvent.category,
+      startsAt: editorEvent.startsAt, endsAt: editorEvent.endsAt, guestlistCapacity: editorEvent.guestlistCapacity,
+      capacity: editorEvent.capacity, status: editorEvent.status, isDiscoverable: editorEvent.isDiscoverable,
+      offerings: editorEvent.offerings.map((tier) => ({ id: tier.id, name: tier.name, description: tier.description || '', kind: tier.kind,
+        priceCents: tier.priceCents, inventoryMode: tier.inventoryMode, quantityTotal: tier.quantityTotal,
+        entriesPerUnit: tier.entriesPerUnit, minPerOrder: tier.minPerOrder, maxPerOrder: tier.maxPerOrder,
+        isActive: tier.isActive, visibility: tier.visibility, salesStartAt: tier.salesStartAt, salesEndAt: tier.salesEndAt })),
+    };
+    const badEventVenue = await request(`/admin/events/${ids.event}`, ids.admin, 'PUT', { ...editorInput, locationId: ids.foreignLocation, adminReason: 'Reject a venue from another business' });
     assert.equal(badEventVenue.status, 409);
     assert.equal(badEventVenue.body.error.code, 'VENUE_PARENT_MISMATCH');
-    const capacityEdit = await request(`/admin/management/events/${ids.event}`, ids.admin, 'PATCH', { capacity: 0, reason: 'Cannot erase issued admissions', version: event.version });
+    const capacityEdit = await request(`/admin/events/${ids.event}`, ids.admin, 'PUT', { ...editorInput, capacity: 0, adminReason: 'Cannot erase issued admissions' });
     assert.equal(capacityEdit.status, 409);
-    const guestCapacityEdit = await request(`/admin/management/events/${ids.event}`, ids.admin, 'PATCH', { guestlistCapacity: 1, reason: 'Cannot erase approved guests', version: event.version });
+    const guestCapacityEdit = await request(`/admin/events/${ids.event}`, ids.admin, 'PUT', { ...editorInput, guestlistCapacity: 1, adminReason: 'Cannot erase approved guests' });
     assert.equal(guestCapacityEdit.status, 409);
-    const validVenueEdit = await request(`/admin/management/events/${ids.event}`, ids.admin, 'PATCH', { locationId: ids.locationB, reason: 'Move event to linked venue', version: event.version });
+    const validVenueEdit = await request(`/admin/events/${ids.event}`, ids.admin, 'PUT', { ...editorInput, locationId: ids.locationB, adminReason: 'Move event to linked venue' });
     assert.equal(validVenueEdit.status, 200, JSON.stringify(validVenueEdit.body));
     const venueChangeEmail = emailMessages.find(({ message }) => message.template === 'nitewide-event-venue-change' || message.variables?.OLD_VENUE);
     assert.ok(venueChangeEmail, 'material venue change queues an existing event update notification');
@@ -315,7 +334,7 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     assert.ok(historyAudit >= 2, 'onboarding and lifecycle actions remain in audit history');
 
     const roleStartVersion = owner.version;
-    const toEmployee = await request(`/admin/management/users/${owner.id}/scoped-role`, ids.admin, 'POST', { organizationId: ids.org, role: 'employee', reason: 'Change business-specific role', version: roleStartVersion });
+    const toEmployee = await request(`/admin/businesses/${ids.org}/ownership/${owner.id}/remove`, ids.admin, 'POST', { outgoingRole: 'employee', reason: 'Change business-specific role with an explicit ownership action', version: (await models.Organization.findByPk(ids.org)).version });
     assert.equal(toEmployee.status, 200, JSON.stringify(toEmployee.body));
     assert.equal((await models.User.findByPk(owner.id)).isActive, true, 'scoped role changes never suspend the global user');
     assert.equal(await models.OrganizationOwner.count({ where: { organizationId: ids.org, userId: owner.id } }), 0, 'former owner is excluded from active membership');
@@ -328,7 +347,7 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     const staleRole = await request(`/admin/management/users/${owner.id}/scoped-role`, ids.admin, 'POST', { organizationId: ids.org, role: 'customer', reason: 'Reject stale role change', version: roleStartVersion });
     assert.equal(staleRole.status, 409, JSON.stringify({ roleStartVersion, responseVersion: toEmployee.body.data.version, persistedVersion: (await models.User.findByPk(owner.id)).version, staleRole: staleRole.body }));
     assert.equal(staleRole.body.error.code, 'STALE_VERSION');
-    const toPromoter = await request(`/admin/management/users/${owner.id}/scoped-role`, ids.admin, 'POST', { organizationId: ids.org, role: 'promoter', reason: 'Switch scoped access', version: toEmployee.body.data.version });
+    const toPromoter = await request(`/admin/management/users/${owner.id}/scoped-role`, ids.admin, 'POST', { organizationId: ids.org, role: 'promoter', reason: 'Switch scoped access', version: (await models.User.findByPk(owner.id)).version });
     assert.equal(toPromoter.status, 200, JSON.stringify(toPromoter.body));
     assert.equal(await models.OrganizationEmployee.count({ where: { organizationId: ids.org, userId: owner.id, status: 'active' } }), 0);
     assert.equal(await models.OrgAffiliate.count({ where: { organizationId: ids.org, userId: owner.id, status: 'active' } }), 1);

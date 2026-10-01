@@ -323,7 +323,7 @@ export default function App() {
   const weekRange = submitted.date ? upcomingWeekRange(submitted.date) : null;
   const weeklyEvents = previewEvents;
   const offering = selected?.offerings?.find((o) => o.id === offeringId);
-  const totals = checkoutTotal(offering?.priceCents || 0, quantity, offering?.currency || 'USD');
+  const totals = checkoutTotal(offering?.priceCents || 0, quantity, offering?.currency || 'USD', offering?.effectiveFeeMode || 'buyer');
   function openEvent(event, { fromRoute = false } = {}) {
     setSelected(event);
     if (!fromRoute) { rememberScroll(); updateCustomerRoute({ eventId: event.id }, { eventEntry: true }); }

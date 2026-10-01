@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { ImagePlus, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { api, mediaSrc } from "@/lib/api";
-export function ImageUpload({ value, session, onChange, onBusy }) {
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { api, mediaSrc } from "../lib/api";
+export function ImageUpload({ value, session, onChange, onBusy, request = api }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function upload(e) {
@@ -23,7 +23,7 @@ export function ImageUpload({ value, session, onChange, onBusy }) {
     try {
       const body = new FormData();
       body.append("image", file);
-      const image = await api("/business/uploads/image", session, {
+      const image = await request("/business/uploads/image", session, {
         method: "POST",
         body,
       });

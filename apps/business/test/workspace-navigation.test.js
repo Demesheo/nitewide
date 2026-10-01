@@ -43,6 +43,18 @@ test('event deep links retain only their list context and detail parameters', as
   });
 });
 
+test('venue management state belongs only to Team and clears on section navigation', async () => {
+  await withLocation('/app?section=team&teamOrganizationId=org-a', (window) => {
+    writeWorkspaceLocation({ managedVenueBusinessId: 'org-a', managedVenueId: 'venue-a', managedVenueTab: 'team', venueSearch: 'North', venuesPage: 2, venueTeamPage: 3 });
+    assert.equal(new URLSearchParams(window.location.search).get('managedVenueId'), 'venue-a');
+    assert.equal(new URLSearchParams(window.location.search).get('venuesPage'), '2');
+    writeWorkspaceLocation({ section: 'analytics' });
+    assert.equal(window.location.search, '?section=analytics');
+    writeWorkspaceLocation({ venueSearch: 'stale', managedVenueId: 'stale' }, { replace: true });
+    assert.equal(window.location.search, '?section=analytics');
+  });
+});
+
 test('Back and Forward restore each section’s own state and no-op writes add no history', async () => {
   await withLocation('/app?section=analytics&reportSearch=Rew1nd&reportTable=events', async (window) => {
     writeWorkspaceLocation({ section: 'events' });

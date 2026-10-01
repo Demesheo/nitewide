@@ -79,6 +79,13 @@ test('business workflows preserve scope, navigation, delivery confirmation, and 
         capabilities: { emailConfigured: true, instructions: true, deliveryTrackingConfigured: true },
         scope: { canCreateIndependent: false, isInternalAdmin: false },
       };
+    } else if (/^\/api\/business\/organizations\/[^/]+\/venues(?:\/[^/]+)?$/.test(url.pathname)) {
+      const south = url.pathname.includes(orgB);
+      const rows = (south ? [
+        { id: '20000000-0000-4000-8000-000000000002', name: 'South Room', addressLine1: '2 Test Way', city: 'Orlando', region: 'FL', postalCode: '32801', countryCode: 'US', privacy: 'public', timezone: 'America/Chicago' },
+        { id: '20000000-0000-4000-8000-000000000003', name: 'Studio West', addressLine1: '3 Test Way', city: 'Denver', region: 'CO', postalCode: '80202', countryCode: 'US', privacy: 'public', timezone: 'America/Denver' },
+      ] : [{ id: '20000000-0000-4000-8000-000000000001', name: 'North Room', addressLine1: '1 Test Way', city: 'Orlando', region: 'FL', timezone: 'America/New_York' }]).map((row) => ({ ...row, lifecycleState: 'active', canManage: true, canManageTeam: true }));
+      data = url.pathname.endsWith('/venues') ? { items: rows, total: rows.length, page: 1, pageSize: 25, hasMore: false, canCreate: true, organizationVersion: 0 } : rows.find((row) => url.pathname.endsWith(row.id));
     } else if (url.pathname === '/api/business/overview') {
       data = { summary: { salesCents: 0, orders: 0, checkedIn: 0, admissions: 0, guestlistPlaces: 0, commissionCents: 0 }, daily: [], range: { days: 30 } };
     } else if (url.pathname === '/api/business/overview/needs-attention') {
@@ -294,8 +301,8 @@ test('business workflows preserve scope, navigation, delivery confirmation, and 
     await user.clear(title);
     await user.type(title, 'Recovered South Hall Night');
     await user.click(screen.getByRole('button', { name: 'Continue' }));
-    await user.click(screen.getByRole('combobox', { name: 'Saved venue' }));
-    await user.click(await screen.findByRole('option', { name: 'Studio West' }));
+    await screen.findByRole('option', { name: 'Studio West · Denver, CO' });
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Saved venue' }), '20000000-0000-4000-8000-000000000003');
     assert.match(screen.getByText(/Uses the saved venue address/).textContent, /Changing venue keeps the local times/);
     assert.equal(screen.queryByText(/America\/Denver/), null, 'the venue zone affects conversion without being printed in the editor');
     await user.click(screen.getByRole('button', { name: 'Back' }));

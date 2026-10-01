@@ -12,8 +12,7 @@ const BUSINESS_URL = 'https://business.nitewide.example/app';
 const CUSTOMER_URL = 'https://nitewide.example/';
 const future = (hours) => new Date(Date.now() + hours * 3600000).toISOString();
 const address = (label, run) => `delivered+business-${label}-${run}@resend.dev`;
-const transaction = { LOCK: { UPDATE: 'UPDATE' } };
-const sequelize = { transaction: async (options, work) => typeof options === 'function' ? options(transaction) : work(transaction) };
+const sequelize = { transaction: async (options, work) => (typeof options === 'function' ? options : work)({ LOCK: { UPDATE: 'UPDATE', SHARE: 'SHARE' } }), query: async () => [{ rate: 0 }] };
 const row = (values) => ({ ...values, async update(changes) { Object.assign(this, changes); return this; },
   async destroy() { this.status = 'destroyed'; }, toJSON() { return { ...this }; } });
 const BUSINESS_TEMPLATES = new Set([
@@ -147,6 +146,7 @@ async function collectBusinessWorkflowMessages(run) {
       Location: { findByPk: async (id) => locations.get(id) || null,
         create: async (values) => { const location = { id: `new-location-${kind}-${run}`, ...values }; locations.set(location.id, location); return location; } },
       GuestlistEntry: { sum: async () => 0, findAll: async () => [] },
+      Ticket: { count: async () => 0 },
       Order: { findAll: async () => [] },
       User: { findAll: async () => [manager], findByPk: async () => manager },
       EventAffiliate: { findAll: async () => [] },

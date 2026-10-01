@@ -10,6 +10,7 @@ test('search supports direct and derived nested fields', () => {
 });
 
 test('display helpers are deterministic', () => {
-  assert.equal(formatMoney(12345), '$123');
+  assert.equal(formatMoney(12345), '$123.45');
+  assert.equal(formatMoney(1), '$0.01');
   assert.equal(initials('Nitewide Admin'), 'NA');
 });

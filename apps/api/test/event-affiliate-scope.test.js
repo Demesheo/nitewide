@@ -13,3 +13,8 @@ test('organization assignments require current membership and survive permitted 
   assert.deepEqual((await activeEventAffiliates(models,assignments,[],[{organizationId:'venue'}])).map((item)=>item.id),['staff','leader','promoter']);
   assert.deepEqual((await activeEventAffiliates(models,assignments,[{organizationId:'venue'}],[])).map((item)=>item.id),['staff','leader','promoter']);
 });
+
+test('standalone assignments also require a current period before the no-organization fast path', async () => {
+  const assignments = [{id:'active'},{id:'expired',endsAt:new Date(Date.now()-1000)},{id:'future',startsAt:new Date(Date.now()+86400000)}];
+  assert.deepEqual((await activeEventAffiliates({},assignments,[],[])).map(item => item.id),['active']);
+});

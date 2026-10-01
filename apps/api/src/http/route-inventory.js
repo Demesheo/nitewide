@@ -1,6 +1,27 @@
 // Closed inventory: route registration fails if a new operation lacks review.
 // Generated artifact parity tests also detect removals or schema drift.
 const routeInventory = [
+  { method: 'get', path: '/admin/businesses/:id/ownership', successStatuses: [200] },
+  { method: 'post', path: '/admin/businesses/:id/ownership/invitations', successStatuses: [201] },
+  { method: 'post', path: '/admin/businesses/:id/ownership/:userId/remove', successStatuses: [200] },
+  { method: 'post', path: '/admin/businesses/:id/ownership/recovery', successStatuses: [200] },
+  { method: 'put', path: '/admin/businesses/:id/finance/:userId', successStatuses: [200] },
+  { method: 'put', path: '/business/organizations/:id/members/:userId/finance', successStatuses: [200] },
+  { method: 'get', path: '/admin/events/:id/editor', successStatuses: [200] },
+  { method: 'get', path: '/admin/businesses/:id/editor-options', successStatuses: [200] },
+  { method: 'get', path: '/admin/reports/exports', successStatuses: [200] },
+  { method: 'get', path: '/admin/reports/exports/:id', successStatuses: [200] },
+  { method: 'get', path: '/admin/reports/exports/:id/download', successStatuses: [200] },
+  { method: 'post', path: '/admin/reports/exports/:id/retry', successStatuses: [200] },
+  { method: 'get', path: '/admin/events/:id/notification-preview', successStatuses: [200] },
+  { method: 'post', path: '/admin/events', successStatuses: [201] },
+  { method: 'put', path: '/admin/events/:id', successStatuses: [200] },
+  { method: 'get', path: '/admin/support/cases', successStatuses: [200] },
+  { method: 'post', path: '/admin/support/cases', successStatuses: [201] },
+  { method: 'get', path: '/admin/support/cases/:id', successStatuses: [200] },
+  { method: 'get', path: '/admin/support/cases/:id/history', successStatuses: [200] },
+  { method: 'patch', path: '/admin/support/cases/:id', successStatuses: [200] },
+  { method: 'get', path: '/admin/overview/needs-attention', successStatuses: [200] },
   {
     "method": "get",
     "path": "/admin/analytics",
@@ -875,4 +896,11 @@ const routeInventory = [
     ]
   }
 ];
+for (const prefix of ['/admin/businesses/:id/venues', '/business/organizations/:id/venues']) {
+  for (const path of [prefix, `${prefix}/:locationId`, `${prefix}/:locationId/team`, `${prefix}/:locationId/candidates`]) routeInventory.push({ method: 'get', path, successStatuses: [200] });
+  routeInventory.push({ method: 'post', path: prefix, successStatuses: [201] });
+  routeInventory.push({ method: 'patch', path: `${prefix}/:locationId`, successStatuses: [200] });
+  routeInventory.push({ method: 'put', path: `${prefix}/:locationId/team/:userId`, successStatuses: [200] });
+  for (const action of ['archive', 'suspend', 'restore']) routeInventory.push({ method: 'post', path: `${prefix}/:locationId/${action}`, successStatuses: [200] });
+}
 module.exports = { routeInventory };

@@ -2,6 +2,7 @@ const { randomUUID } = require('node:crypto');
 const { DomainError } = require('../domain/errors');
 const { accessScope, currentOrganizationMembership } = require('./event-affiliate-access');
 const { activeUser } = require('./lifecycle-service');
+const { venueAssignmentCurrent } = require('./venue-access-policy');
 
 const employeeReferralCode = (membershipId) => `STAFF-${membershipId}`;
 const leaderReferralCode = (membershipId) => `LEAD-${membershipId}`;
@@ -66,6 +67,7 @@ async function resolveAffiliate(models, { event, code, now = new Date(), transac
   if (!referrerId || !activeUser(await models.User.findByPk(referrerId, common))) throw invalidCode();
   if (eventAffiliate && accessScope(eventAffiliate) === 'organization' &&
       !await currentOrganizationMembership(models, event.organizationId, eventAffiliate.userId, transaction, now)) throw invalidCode();
+  if (eventAffiliate && accessScope(eventAffiliate) === 'venue' && !await venueAssignmentCurrent(models, eventAffiliate, event, transaction)) throw invalidCode();
   return {
     eventAffiliate,
     orgAffiliate,

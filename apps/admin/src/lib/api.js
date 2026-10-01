@@ -4,7 +4,8 @@ export const readSession = () => { try { return JSON.parse(sessionStorage.getIte
 export const clearSession = () => sessionStorage.removeItem(KEY);
 export async function api(path, options = {}) {
   const session = readSession();
-  const response = await fetch(`${API}${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}), ...options.headers } });
+  const multipart = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  const response = await fetch(`${API}${path}`, { ...options, headers: { ...(!multipart ? { 'Content-Type': 'application/json' } : {}), ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}), ...options.headers } });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) { if (response.status === 401) clearSession(); const error = new Error(payload.error?.message || 'Unable to complete the request'); error.status = response.status; throw error; }
   return payload.data;

@@ -16,11 +16,20 @@ const DEMO_COSTS = Object.freeze({ version: 'demo-us-domestic-card', currency: '
   reserveBps: 0, reserveCents: 0, verifiedForLive: false });
 const bps = (cents, rate) => Math.round(cents * rate / 10000);
 const safe = value => Number.isSafeInteger(value) && value >= 0;
+const MINIMUM_FEE_ELIGIBLE_SUBTOTAL_CENTS = 1000;
+function effectiveFeeMode(eventMode = 'buyer', offeringMode = 'inherit') {
+  if (!['buyer','absorbed'].includes(eventMode) || !['inherit','buyer','absorbed'].includes(offeringMode)) throw new RangeError('Invalid fee mode');
+  return offeringMode === 'inherit' ? eventMode : offeringMode;
+}
 
-function quoteOrder({ items, currency = 'USD', costs = DEMO_COSTS, now = new Date(), benchmark = BENCHMARK }) {
+function quoteOrder({ items, currency = 'USD', costs = DEMO_COSTS, now = new Date(), benchmark = BENCHMARK, feeMode = 'buyer', commissionBps = 0 }) {
   if (!Array.isArray(items) || !items.length) throw new RangeError('Items are required');
+  if (!['buyer','absorbed'].includes(feeMode)) throw new RangeError('Invalid fee mode');
+  if (!Number.isSafeInteger(commissionBps) || commissionBps < 0 || commissionBps > 4000) throw new RangeError('Invalid commission');
   let subtotalCents = 0, ceilingFeeCents = 0, poshFeeCents = 0, eventbriteServiceCents = 0;
-  for (const { unitPriceCents, quantity } of items) {
+  let buyerCeilingFeeCents = 0,hasAbsorbed = false,hasBuyer = false;
+  for (const { unitPriceCents, quantity, feeMode: itemMode = feeMode } of items) {
+    if (!['buyer','absorbed'].includes(itemMode)) throw new RangeError('Invalid fee mode');
     if (!safe(unitPriceCents) || !Number.isSafeInteger(quantity) || quantity < 1)
       throw new RangeError('Items require integer prices and positive integer quantities');
     // Bound intermediate multiplication as well as totals to preserve exact cents.
@@ -28,7 +37,10 @@ function quoteOrder({ items, currency = 'USD', costs = DEMO_COSTS, now = new Dat
       throw new RangeError('Unsafe monetary amount');
     subtotalCents += unitPriceCents * quantity;
     if (unitPriceCents) {
-      ceilingFeeCents += (bps(unitPriceCents, POLICY.percentageBps) + POLICY.perPaidUnitCents) * quantity;
+      const unitFees = (bps(unitPriceCents, POLICY.percentageBps) + POLICY.perPaidUnitCents) * quantity;
+      ceilingFeeCents += unitFees;
+      if (itemMode === 'absorbed') hasAbsorbed = true;
+      else { hasBuyer = true; buyerCeilingFeeCents += unitFees; }
       poshFeeCents += (bps(unitPriceCents, 1000) + 99) * quantity;
       eventbriteServiceCents += (bps(unitPriceCents, 370) + 179) * quantity;
     }
@@ -39,6 +51,7 @@ function quoteOrder({ items, currency = 'USD', costs = DEMO_COSTS, now = new Dat
   const unavailable = reason => ({ eligible: false, reason, subtotalCents, ceilingFeeCents,
     feeCents: null, totalCents: null, preferredContributionCents, policyVersion: POLICY.version });
   if (currency !== 'USD') return unavailable('UNSUPPORTED_CURRENCY');
+  if (hasAbsorbed && subtotalCents < MINIMUM_FEE_ELIGIBLE_SUBTOTAL_CENTS) return unavailable('ABSORBED_MINIMUM_SUBTOTAL');
   if (!subtotalCents) return { eligible: true, subtotalCents: 0, ceilingFeeCents: 0, feeCents: 0,
     totalCents: 0, discountCents: 0, processingCents: 0, otherCostCents: 0, reserveCents: 0,
     contributionCents: 0, preferredContributionCents: 0, preferredMarginMet: true, policyVersion: POLICY.version };
@@ -55,8 +68,14 @@ function quoteOrder({ items, currency = 'USD', costs = DEMO_COSTS, now = new Dat
   // service line. Round down so the discount is at least 2%, never less.
   const competitiveCapCents = Math.floor(benchmarkFeeCents * (10000 - POLICY.competitorDiscountBps) / 10000);
   const targetFeeCents = benchmarkCurrent ? Math.min(ceilingFeeCents, competitiveCapCents) : ceilingFeeCents;
+  // Allocate the combined modeled fee once using each line's standard fee
+  // weight. Absorbed portions reduce business proceeds; only buyer portions
+  // increase the amount charged. Current demo processing remains platform-paid.
+  const buyerWeight = ceilingFeeCents ? buyerCeilingFeeCents / ceilingFeeCents : 0;
+  const buyerFeeAt = fee => !hasAbsorbed ? fee : !hasBuyer ? 0
+    : Number((BigInt(fee)*BigInt(buyerCeilingFeeCents)*2n+BigInt(ceilingFeeCents))/(BigInt(ceilingFeeCents)*2n));
   const costsAt = fee => {
-    const total = subtotalCents + fee;
+    const total = subtotalCents + buyerFeeAt(fee);
     return bps(total, costs.processorBps) + costs.processorFixedCents
       + bps(total, costs.otherCostBps) + costs.otherCostCents
       + Math.ceil(subtotalCents * costs.reserveBps / 10000) + costs.reserveCents;
@@ -69,19 +88,24 @@ function quoteOrder({ items, currency = 'USD', costs = DEMO_COSTS, now = new Dat
     const rate = costs.processorBps + costs.otherCostBps;
     const fixed = costs.processorFixedCents + costs.otherCostCents
       + Math.ceil(subtotalCents * costs.reserveBps / 10000) + costs.reserveCents;
-    const estimate = Math.ceil((subtotalCents * rate / 10000 + fixed + 100) / (1 - rate / 10000));
+    const estimate = Math.ceil((subtotalCents * rate / 10000 + fixed + 100) / (1 - buyerWeight * rate / 10000));
     if (!safe(estimate * 10000)) return unavailable('COSTS_UNAVAILABLE');
     // Independent rounding adds at most one cent. Search near the analytic
     // root, rather than assume independently rounded costs are monotonic.
-    feeCents = Math.max(targetFeeCents, Math.floor(estimate - 2 / (1 - rate / 10000)));
+    feeCents = Math.max(targetFeeCents, Math.floor(estimate - 2 / (1 - buyerWeight * rate / 10000)));
     while (feeCents - costsAt(feeCents) < POLICY.minimumContributionCents) feeCents++;
   }
-  const totalCents = subtotalCents + feeCents;
+  const buyerFeeCents = buyerFeeAt(feeCents),businessFeeCents = feeCents-buyerFeeCents;
+  const totalCents = subtotalCents + buyerFeeCents;
   const processingCents = bps(totalCents, costs.processorBps) + costs.processorFixedCents;
   const otherCostCents = bps(totalCents, costs.otherCostBps) + costs.otherCostCents;
   const reserveCents = Math.ceil(subtotalCents * costs.reserveBps / 10000) + costs.reserveCents;
   const contributionCents = feeCents - processingCents - otherCostCents - reserveCents;
   if (![processingCents, otherCostCents, reserveCents].every(safe)) return unavailable('COSTS_UNAVAILABLE');
+  const commissionEligible = subtotalCents >= MINIMUM_FEE_ELIGIBLE_SUBTOTAL_CENTS;
+  const commissionCents = commissionEligible ? bps(subtotalCents,commissionBps) : 0;
+  const businessProceedsCents = subtotalCents-businessFeeCents-commissionCents;
+  if (businessProceedsCents <= 0) return unavailable('NON_POSITIVE_BUSINESS_PROCEEDS');
   const eligible = true;
   return { eligible, reason: null, subtotalCents, ceilingFeeCents,
     feeCents, totalCents,
@@ -93,14 +117,16 @@ function quoteOrder({ items, currency = 'USD', costs = DEMO_COSTS, now = new Dat
     preferredContributionCents, preferredMarginMet: contributionCents >= preferredContributionCents,
     poshFeeCents, eventbriteServiceCents, eventbriteProcessingCents, eventbriteFeeCents,
     benchmarkFeeCents, benchmarkProvider: poshFeeCents <= eventbriteFeeCents ? 'Posh' : 'Eventbrite',
-    policyVersion: POLICY.version, benchmarkVersion: benchmarkCurrent ? benchmark.version : null, costsVersion: costs.version };
+    policyVersion: POLICY.version, benchmarkVersion: benchmarkCurrent ? benchmark.version : null, costsVersion: costs.version,
+    feeMode: hasAbsorbed ? hasBuyer ? 'mixed' : 'absorbed' : 'buyer',buyerFeeCents,businessFeeCents,businessProceedsCents,
+    commissionEligible,commissionCents,commissionEligibilityBasis: 'order_subtotal_after_discounts_before_taxes_and_fees',economicsBasis: 'modeled_demo_costs' };
 }
 
 // Public views never return platform contribution, reserves or processor costs.
 function publicQuote(quote) {
   const { eligible, reason, subtotalCents, ceilingFeeCents, feeCents, totalCents, discountCents, policyVersion,
     floorAdjusted, standardCeilingExceeded, competitiveTargetMet, benchmarkCurrent } = quote;
-  return { eligible, reason, subtotalCents, ceilingFeeCents, feeCents, totalCents, discountCents, policyVersion,
+  return { eligible, reason, subtotalCents, ceilingFeeCents, feeCents: quote.buyerFeeCents ?? feeCents, totalCents, discountCents, policyVersion,
     floorAdjusted, standardCeilingExceeded, competitiveTargetMet, benchmarkCurrent };
 }
-module.exports = { POLICY, BENCHMARK, DEMO_COSTS, quoteOrder, publicQuote, bps };
+module.exports = { POLICY, BENCHMARK, DEMO_COSTS, quoteOrder, publicQuote, bps,effectiveFeeMode,MINIMUM_FEE_ELIGIBLE_SUBTOTAL_CENTS };

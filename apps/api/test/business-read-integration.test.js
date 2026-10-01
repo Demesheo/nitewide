@@ -597,7 +597,8 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     await t.test('team copying accepts completed sources but not cross-workspace or member access', async () => {
     const reuseIds = { sourceEvent: randomUUID(), targetEvent: randomUUID(), otherOrganization: randomUUID(), otherTarget: randomUUID(), sourceOrder: randomUUID() };
     const pastStartsAt = new Date(now.getTime() - 30 * 86_400_000);
-    await m.Organization.create({ id: reuseIds.otherOrganization, name: 'Other Reuse Workspace', slug: `reuse-other-${reuseIds.otherOrganization}`, locationId: ids.location });
+    const otherLocation = await m.Location.create({ name: 'Other Reuse Venue', city: 'Test City',timezone: 'America/New_York' });
+    await m.Organization.create({ id: reuseIds.otherOrganization, name: 'Other Reuse Workspace', slug: `reuse-other-${reuseIds.otherOrganization}`, locationId: otherLocation.id });
     await m.OrganizationOwner.create({ organizationId: reuseIds.otherOrganization, userId: ids.manager, role: 'admin' });
     await m.Event.bulkCreate([
       { id: reuseIds.sourceEvent, creatorUserId: ids.manager, organizationId: ids.organization, locationId: ids.location,
@@ -606,7 +607,7 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
       { id: reuseIds.targetEvent, creatorUserId: ids.manager, organizationId: ids.organization, locationId: ids.location,
         title: 'New Draft', slug: `reuse-target-${reuseIds.targetEvent}`, category: 'music', status: 'draft',
         startsAt, endsAt, capacity: 100, guestlistCapacity: 20, isDiscoverable: false },
-      { id: reuseIds.otherTarget, creatorUserId: ids.manager, organizationId: reuseIds.otherOrganization, locationId: ids.location,
+      { id: reuseIds.otherTarget, creatorUserId: ids.manager, organizationId: reuseIds.otherOrganization, locationId: otherLocation.id,
         title: 'Other Workspace Draft', slug: `reuse-target-${reuseIds.otherTarget}`, category: 'music', status: 'draft',
         startsAt, endsAt, capacity: 100, guestlistCapacity: 20, isDiscoverable: false },
     ]);

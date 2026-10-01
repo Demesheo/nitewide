@@ -43,7 +43,8 @@ function verifyToken(token, secret, now = () => new Date()) {
 }
 
 function publicUser(user) {
-  return { id: user.id, email: user.email, displayName: user.displayName, phone: user.phone, marketingConsentAt: user.marketingConsentAt, transactionalSmsConsentAt: user.transactionalSmsConsentAt, marketingSmsConsentAt: user.marketingSmsConsentAt, phoneVerifiedAt: user.phoneVerifiedAt, emailVerifiedAt: user.emailVerifiedAt };
+  return { id: user.id, email: user.email, displayName: user.displayName, phone: user.phone, marketingConsentAt: user.marketingConsentAt, transactionalSmsConsentAt: user.transactionalSmsConsentAt, marketingSmsConsentAt: user.marketingSmsConsentAt, phoneVerifiedAt: user.phoneVerifiedAt, emailVerifiedAt: user.emailVerifiedAt,
+    ...(user.isInternalAdmin ? { isInternalAdmin: true, internalAdminRole: user.internalAdminRole || 'platform_owner' } : {}) };
 }
 
 function createAuthService({ sequelize, models, tokenSecret, invitations = null, email = null, customerAppUrl = 'http://localhost:5173', now = () => new Date() }) {
@@ -74,19 +75,20 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
     return queued ? record.id : null;
   }
   async function rolesFor(user) {
-    const [memberships, employeeCount, orgAffiliateCount, eventAffiliateCount, createdEventCount] = await Promise.all([
+    const [memberships, employeeCount, orgAffiliateCount, eventAffiliateCount, createdEventCount, venueMemberships] = await Promise.all([
       models.OrganizationOwner.findAll({ where: { userId: user.id, lifecycleState: 'active' }, attributes: ['role'] }),
       models.OrganizationEmployee.count({ where: { userId: user.id, status: 'active' } }),
       models.OrgAffiliate.count({ where: { userId: user.id, status: 'active' } }),
       models.EventAffiliate.count({ where: { userId: user.id, status: 'active' } }),
       models.Event.count({ where: { creatorUserId: user.id } }),
+      models.VenueAccess ? models.VenueAccess.findAll({ where: { userId: user.id, status: 'active' }, attributes: ['role'] }) : [],
     ]);
     const roles = ['customer'];
     if (user.isInternalAdmin) roles.push('internal_admin');
     if (memberships.some((membership) => membership.role === 'owner')) roles.push('organization_owner');
-    if (memberships.some((membership) => membership.role === 'admin')) roles.push('venue_manager');
-    if (employeeCount) roles.push('employee');
-    if (orgAffiliateCount || eventAffiliateCount) roles.push('promoter');
+    if (memberships.some((membership) => membership.role === 'admin') || venueMemberships.some((membership) => membership.role === 'manager')) roles.push('venue_manager');
+    if (employeeCount || venueMemberships.some((membership) => membership.role === 'employee')) roles.push('employee');
+    if (orgAffiliateCount || eventAffiliateCount || venueMemberships.some((membership) => membership.role === 'promoter')) roles.push('promoter');
     if (user.independentCreator) roles.push('event_creator');
     return roles;
   }

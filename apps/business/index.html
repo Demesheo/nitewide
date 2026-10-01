@@ -11,7 +11,17 @@
     <title>Nitewide Business — Your business, in focus</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Remains usable if the entry script itself cannot download. React
+           replaces this surface on startup; no reload timer or session reset. -->
+      <main aria-labelledby="business-startup-title" style="min-height:100svh;display:grid;place-items:center;padding:24px;box-sizing:border-box;background:#111018;color:#f7f2fb;font-family:system-ui,sans-serif">
+        <section style="width:100%;max-width:30rem;padding:28px;box-sizing:border-box;border:1px solid #51445e;border-radius:16px;background:#211b29">
+          <h1 id="business-startup-title" style="font-size:28px;line-height:1.2">Opening Nitewide Business…</h1>
+          <p role="status" style="color:#d4cadd;line-height:1.6">If this page doesn’t open, check your connection and reload this page. Your stored sign-in session will remain.</p>
+          <noscript><p>JavaScript must be enabled to use Nitewide Business.</p></noscript>
+        </section>
+      </main>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

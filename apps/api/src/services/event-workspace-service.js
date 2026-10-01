@@ -3,10 +3,13 @@ const { Op } = require('sequelize');
 const { randomUUID } = require('node:crypto');
 const { forbidden, notFound, conflict } = require('../domain/errors');
 const { assertEventEditable, eventFinished, offeringSaleState } = require('../domain/event-policy');
-const { activeUser } = require('./lifecycle-service');
+const { activeUser, assertActiveEvent } = require('./lifecycle-service');
+const { hasInternalPermission } = require('./internal-admin-permissions');
+const { assertCommissionPricing } = require('../domain/editor-pricing-policy');
 const { employeeReferralCode, leaderReferralCode } = require('./affiliate-service');
 const { queueEventTermsChanged, percent } = require('./business-email-events');
-const { accessScope, currentOrganizationMembership } = require('./event-affiliate-access');
+const { accessScope, accessWindowCurrent, currentOrganizationMembership } = require('./event-affiliate-access');
+const { currentVenueMembership } = require('./venue-access-policy');
 
 function summarizeEvent({ orders, offerings, people, guests }) {
   const tiers = new Map(offerings.map((o) => [o.id, { id: o.id, name: o.name, kind: o.kind, units: 0, salesCents: 0, admissions: 0 }]));
@@ -85,10 +88,20 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
     const members = new Map();
     for (const [records, type] of [[leaders, 'leader'], [employees, 'Employee'], [promoters, 'Promoter']]) {
       for (const row of records) {
-        if (!row.user?.isActive) continue;
+        if (!row.user?.isActive || (type === 'Promoter' && !accessWindowCurrent(row, now()))) continue;
         const old = members.get(row.userId);
         if (old) { if (type === 'Promoter') old.orgAffiliateId = row.id; if (type === 'Employee') old.defaultReferralCode ||= employeeReferralCode(row.id); continue; }
         members.set(row.userId, { userId: row.userId, name: row.user.displayName, email: row.user.email, role: type === 'leader' ? row.role === 'owner' ? 'Owner' : 'Manager' : type, orgAffiliateId: type === 'Promoter' ? row.id : null, defaultReferralCode: type === 'leader' ? leaderReferralCode(row.id) : type === 'Employee' ? employeeReferralCode(row.id) : null });
+      }
+    }
+    if (m.VenueAccess && event.locationId) {
+      const grants = await m.VenueAccess.findAll({ where: { organizationId: event.organizationId, locationId: event.locationId, status: 'active' } });
+      for (const grant of grants) {
+        if (members.has(grant.userId)) continue;
+        const user = await m.User.findByPk(grant.userId);
+        if (!activeUser(user)) continue;
+        members.set(grant.userId, { userId: grant.userId, name: user.displayName, email: user.email,
+          role: grant.role === 'manager' ? 'Manager' : grant.role === 'employee' ? 'Employee' : 'Promoter', venueAccessId: grant.id, orgAffiliateId: null, defaultReferralCode: null });
       }
     }
     return [...members.values()];
@@ -97,12 +110,14 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
     const event = await m.Event.findByPk(eventId, { include: [{ model: m.Location, as: 'location' }, { model: m.Organization, as: 'organization' }, { model: m.Offering, as: 'offerings' }] });
     if (!event) throw notFound('Event');
     const user = await m.User.findByPk(userId);
-    if (!user?.isActive) throw forbidden();
-    const canManage = Boolean(user.isInternalAdmin || (!event.organizationId && event.creatorUserId === userId) || (event.organizationId && await permissions.canManageOrganization(userId, event.organizationId)));
+    if (!activeUser(user)) throw forbidden();
+    if (!hasInternalPermission(user, 'events.manage')) await assertActiveEvent(m, event);
+    const venueMember = await currentVenueMembership(m, event, userId);
+    const canManage = Boolean(hasInternalPermission(user, 'events.manage') || (!event.organizationId && event.creatorUserId === userId) || (event.organizationId && await permissions.canManageOrganization(userId, event.organizationId)) || venueMember?.role === 'manager');
     const members = await roster(event);
     const assignments = await m.EventAffiliate.findAll({ where: { eventId }, include: [{ model: m.User, as: 'user', attributes: ['id', 'displayName', 'email'] }, { model: m.OrgAffiliate, as: 'orgAffiliate' }] });
     const ownAssignments = assignments.filter((a) => a.userId === userId).map((a) => a.id);
-    const activeAssignment = assignments.some((a) => a.userId === userId && a.status === 'active' && accessScope(a) === 'event');
+    const activeAssignment = assignments.some((a) => a.userId === userId && a.status === 'active' && accessWindowCurrent(a, now()) && (accessScope(a) === 'event' || (accessScope(a) === 'venue' && a.venueAccessId === venueMember?.id)));
     const ownOrg = event.organizationId ? await m.OrgAffiliate.findOne({ where: { organizationId: event.organizationId, userId, status: 'active' } }) : null;
     if (!canManage && !members.some((p) => p.userId === userId) && !activeAssignment) throw forbidden('Event access required');
     const allPeople = assignments.map((a) => ({ id: a.id, userId: a.userId, name: a.user.displayName, email: a.user.email, role: members.find((p) => p.userId === a.userId)?.role || (a.userId === event.creatorUserId && !event.organizationId ? 'Creator' : 'Promoter'), orgAffiliateId: a.orgAffiliateId, status: a.status, code: a.code, commissionBps: a.commissionBps ?? a.orgAffiliate?.defaultCommissionBps ?? 0 }));
@@ -121,6 +136,8 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
     const offerings = [...event.offerings].sort((a, b) => a.sortOrder - b.sortOrder);
     const report = summarizeEvent({ orders, offerings, people, guests });
     const serialized = event.toJSON();
+    if (serialized.organization && !hasInternalPermission(user, 'events.manage') && !await currentOrganizationMembership(m, event.organizationId, userId, undefined, now())) serialized.organization.locationId = null;
+    serialized.isManagedVenue = Boolean(event.organizationId && event.locationId && m.OrganizationVenue && await m.OrganizationVenue.findOne({ where: { organizationId: event.organizationId, locationId: event.locationId } }));
     serialized.offerings = offerings.map((o) => { const { accessCodeHash, ...tier } = o.toJSON(); if (!canManage) delete tier.quantitySold; return { ...tier, saleState: offeringSaleState(o, offerings, now()) }; });
     const purchases = orders.map((order) => ({ id: order.id, customer: order.buyer?.displayName || 'Customer', items: order.items.map((item) => `${item.quantity} × ${item.nameSnapshot}`).join(', '), salesCents: order.subtotalCents, referredBy: people.find((person) => person.id === order.eventAffiliateId)?.name || 'Direct', paidAt: order.paidAt, demo: order.pricingPlanSnapshot?.demo === true }));
     return { event: { ...serialized, canManage, canEdit: canManage && !eventFinished(event, now()) }, scope: canManage ? 'event' : 'own', candidates: canManage ? members : [], purchases, ...report };
@@ -136,18 +153,30 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
       const membership = event.organizationId
         ? await currentOrganizationMembership(m, event.organizationId, person.id, transaction, now())
         : null;
+      const venueMembership = await currentVenueMembership(m, event, person.id, transaction);
       const members = await roster(event);
-      const member = membership ? members.find((p) => p.userId === person.id) : null;
+      const member = membership || venueMembership ? members.find((p) => p.userId === person.id) : null;
       if (event.organizationId && !member && !assignment && !legacyCreate) throw forbidden('Invite this promoter to the event first.');
       if (!assignment && input.status === 'inactive' && !member?.defaultReferralCode) throw notFound('Event referrer');
       const before = assignment?.toJSON() || null;
-      let scope = assignment ? accessScope(assignment) : event.organizationId && member ? 'organization' : 'event';
+      let scope = assignment ? accessScope(assignment) : membership ? 'organization' : venueMembership ? 'venue' : 'event';
       const eventRegrant = assignment?.status === 'inactive' && input.status === 'active' && scope === 'organization' && !member;
       if (assignment?.status === 'active' && input.status === 'active' && scope === 'organization' && !member) {
         throw forbidden('Invite this promoter to the event first.');
       }
       if (eventRegrant) scope = 'event';
       const values = { commissionBps: input.commissionBps, status: input.status, accessScope: scope };
+      if (scope === 'venue') {
+        const currentBinding = venueMembership && (!assignment || assignment.venueAccessId === venueMembership.id);
+        if (input.status === 'active' && !currentBinding) {
+          // Only an explicit standalone grant may replace a revoked venue grant.
+          // Ordinary terms edits (including an inactive record) cannot silently
+          // resurrect access outside the recipient's current exact venue.
+          if (!legacyCreate || assignment?.status !== 'inactive') throw forbidden('Invite this promoter to the event first. Their venue access is no longer current.');
+          values.accessScope = 'event';
+          values.venueAccessId = null;
+        } else if (!assignment) values.venueAccessId = venueMembership.id;
+      }
       if (legacyCreate && !assignment) {
         if (input.orgAffiliateId) {
           const parent = await m.OrgAffiliate.findByPk(input.orgAffiliateId, { transaction, lock: transaction.LOCK.UPDATE });
@@ -184,7 +213,8 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
           }
         }
       }
-      if (eventRegrant) values.sourceOrgAffiliateId = null;
+      if (eventRegrant) { values.sourceOrgAffiliateId = null; values.venueAccessId = null; }
+      if (m.Offering && input.status === 'active') await assertCommissionPricing({ models: m, eventId, commissionBps: input.commissionBps, transaction, now: now() });
       if (assignment) await assignment.update(values, { transaction });
       else assignment = await m.EventAffiliate.create({ eventId, userId: person.id, orgAffiliateId: member?.orgAffiliateId || null,
         code: legacyCreate ? input.code : `NW-${randomUUID()}`, guestlistAllocation: 0, ...values }, { transaction });

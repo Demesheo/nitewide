@@ -9,6 +9,7 @@ const { assertActiveUser, assertActiveEvent } = require('./lifecycle-service');
 const { createHash } = require('node:crypto');
 const { QueryTypes } = require('sequelize');
 const { mutationTransaction } = require('./mutation-transaction');
+const { effectiveFeeMode } = require('@nitewide/pricing');
 
 function canonicalCart(eventId, items) {
   if (!Array.isArray(items) || !items.length) throw new DomainError('At least one item is required', { code: 'EMPTY_ORDER' });
@@ -70,7 +71,8 @@ function createCheckoutService({ sequelize, models, now = () => new Date(), envi
       }
       const affiliate = await resolveAffiliate(models, { event, code: input.affiliateCode, now: current, transaction, lock: transaction.LOCK.UPDATE });
       if (affiliate.eventAffiliate?.userId === input.buyerUserId || affiliate.orgAffiliate?.userId === input.buyerUserId) throw new DomainError('Self-referrals do not earn commission', { code: 'SELF_REFERRAL' });
-      const pricing = calculatePricing({ subtotalCents, items: lines.map(({ offering, quantity }) => ({ unitPriceCents: offering.priceCents, quantity })), currency: offerings[0].currency, now: current, planTier: organization?.planTier || 'free', commissionBps: affiliate.commissionBps });
+      const pricing = calculatePricing({ subtotalCents, items: lines.map(({ offering, quantity }) => ({ unitPriceCents: offering.priceCents, quantity,
+        feeMode: effectiveFeeMode(event.feeMode || 'buyer',offering.feeMode || 'inherit') })), currency: offerings[0].currency, now: current, planTier: organization?.planTier || 'free', commissionBps: affiliate.commissionBps });
       if (input.expectedTotalCents !== undefined && input.expectedTotalCents !== pricing.totalCents)
         throw conflict('Pricing changed. Review the updated total before confirming.', 'PRICE_CHANGED');
       const demo = hostedDemo || input.payment?.provider === 'demo';

@@ -1,5 +1,7 @@
 const { mutationTransaction } = require('./mutation-transaction');
 const { randomUUID } = require('node:crypto');
+const { Op } = require('sequelize');
+const { assertEditorPricing } = require('../domain/editor-pricing-policy');
 const { assertEventEditable } = require('../domain/event-policy');
 const { activeUser, assertActiveEvent, assertActiveOrganization, assertOrganizationVenue } = require('./lifecycle-service');
 const { authorizeEventWrite, assertDirectCapacity, persistOffering, recordEventMutation } = require('./event-mutation-policy');
@@ -150,7 +152,7 @@ function createBusinessService({
       details: { replacements: ['/business/bootstrap', '/business/events', '/business/reports/summary', '/business/reports/:table'] },
     });
   }
-  async function saveEvent(userId, eventId, input) {
+  async function saveEvent(userId, eventId, input, { adminReason = null, creatorUserId = null } = {}) {
     return mutationTransaction(models.Event.sequelize,
       async (transaction) => {
         // Lock every involved event in UUID order, including image reuse, before
@@ -164,7 +166,12 @@ function createBusinessService({
             })
           : null;
         if (eventId && !event) throw notFound("Event");
-        await authorizeEventWrite({ models, permissions, userId, event, organizationId: input.organizationId, transaction, now: now() });
+        const actor = await authorizeEventWrite({ models, permissions, userId, event, organizationId: input.organizationId, locationId: input.locationId, transaction, now: now() });
+        if (!event && creatorUserId) {
+          const creator = await models.User.findByPk(creatorUserId, { transaction, lock: transaction.LOCK.SHARE || 'SHARE' });
+          const membership = await models.OrganizationOwner.findOne({ where: { organizationId: input.organizationId, userId: creatorUserId, lifecycleState: 'active' }, transaction, lock: transaction.LOCK.SHARE || 'SHARE' });
+          if (!activeUser(creator) || !membership) throw conflict('The business contact changed. Refresh before creating the event.', 'BUSINESS_CONTACT_CHANGED');
+        }
         if (input.endsAt <= now() || input.status === 'completed') throw conflict('Create or edit events with a future end time. Past events are read-only.');
         if (event && event.organizationId !== input.organizationId)
           throw forbidden("Event organization cannot be changed");
@@ -181,6 +188,7 @@ function createBusinessService({
             })
           : [];
         const byId = new Map(existing.map((o) => [o.id, o]));
+        await assertEditorPricing({ models, eventId, organizationId: input.organizationId, eventFeeMode: input.feeMode || 'buyer', offerings: input.offerings, transaction, now: now() });
         for (const tier of input.offerings) {
           if (tier.id && !byId.has(tier.id))
             throw forbidden("Tier does not belong to this event");
@@ -216,7 +224,14 @@ function createBusinessService({
             "TIER_HAS_SALES",
           );
         }
-        if (event) await assertDirectCapacity({ models, eventId, capacity: input.guestlistCapacity, transaction });
+        if (event) {
+          await assertDirectCapacity({ models, eventId, capacity: input.guestlistCapacity, transaction });
+          if (input.capacity != null) {
+            const tickets = await models.Ticket.count({ where: { eventId, status: { [Op.in]: ['valid', 'checked_in', 'transferred'] } }, transaction });
+            const approved = Number(await models.GuestlistEntry.sum('partySize', { where: { eventId, status: { [Op.in]: ['confirmed', 'checked_in'] } }, transaction })) || 0;
+            if (input.capacity < tickets + approved) throw conflict('Capacity cannot fall below ticket and approved guestlist admissions', 'EVENT_CAPACITY');
+          }
+        }
         if (input.imageAssetId && input.imageAssetId !== event?.imageAssetId) {
           const asset = await models.MediaAsset.findByPk(input.imageAssetId, {
             transaction,
@@ -242,19 +257,28 @@ function createBusinessService({
         const before = event
           ? { ...event.toJSON(), offerings: existing.map((o) => o.toJSON()) }
           : null;
-        // Venue addresses are controlled by the organization, never by editor input.
+        // A saved venue remains controlled by its workspace. An event-only
+        // address is copied on write and never grants venue ownership/access.
         let venueLocation;
         if (input.organizationId) {
           const organization = await models.Organization.findByPk(input.organizationId, { transaction });
-          const venueLocationId = input.locationId || event?.locationId || organization?.locationId;
-          await assertOrganizationVenue(models, organization, venueLocationId, transaction);
-          venueLocation = venueLocationId ? await models.Location.findByPk(venueLocationId, { transaction }) : null;
-          if (!venueLocation) throw conflict('This organization needs a saved venue address before creating an event.');
+          // Omitted selection preserves older clients' default venue; explicit
+          // null means an event-only address in the new editor.
+          const selectedId = input.locationId === undefined ? event?.locationId || organization?.locationId : input.locationId;
+          // Managing the current event does not grant permission to move it to
+          // another venue, or create an unlinked address outside a venue scope.
+          if (!actor.isInternalAdmin && permissions.assertCreateEvent) await permissions.assertCreateEvent(userId, input.organizationId, selectedId, transaction);
+          if (selectedId) {
+            const linked = models.OrganizationVenue ? await models.OrganizationVenue.findOne({ where: { organizationId: input.organizationId, locationId: selectedId }, transaction }) : organization?.locationId === selectedId;
+            if (linked) venueLocation = await assertOrganizationVenue(models, organization, selectedId, transaction);
+            else if (selectedId !== event?.locationId) throw conflict('Select a saved venue belonging to this business, or enter an event address.', 'VENUE_PARENT_MISMATCH');
+          }
         }
         // Independent locations are copied on write to preserve other events.
         const previousLocation = event?.locationId ? await models.Location.findByPk(event.locationId, { transaction }) : null;
         const sameAddress = previousLocation && input.location && ['addressLine1', 'city', 'region', 'postalCode', 'countryCode'].every((key) => (previousLocation[key] || '') === (input.location[key] || ''));
         const coordinates = sameAddress ? { addressLine2: previousLocation.addressLine2, latitude: previousLocation.latitude, longitude: previousLocation.longitude, geo: previousLocation.geo } : {};
+        if (!venueLocation && !input.location?.city?.trim()) throw conflict('Enter the event city or select a saved venue.', 'EVENT_LOCATION_REQUIRED');
         const location = venueLocation || await models.Location.create({ ...input.location, ...coordinates }, {
           transaction,
         });
@@ -273,20 +297,20 @@ function createBusinessService({
               { transaction },
             )
           : await models.Event.create(
-              { ...fields, creatorUserId: userId, locationId: location.id },
+              { ...fields, creatorUserId: creatorUserId || userId, locationId: location.id },
               { transaction },
             );
         const savedTiers = [];
         for (const [sortOrder, tier] of offerings.entries()) {
           const { id, releaseAfterIndex, ...values } = tier;
           values.releaseAfterOfferingId = releaseAfterIndex == null ? null : savedTiers[releaseAfterIndex].id;
-          savedTiers.push(await persistOffering({ models, eventId: saved.id, values: { ...values, sortOrder, currency: 'USD' }, previous: id ? byId.get(id) : null, transaction }));
+          savedTiers.push(await persistOffering({ models, eventId: saved.id, values: { ...values, sortOrder, currency: 'USD' }, previous: id ? byId.get(id) : null, transaction, pricingValidated: true }));
         }
         // Re-link retained tiers first, then delete only verified unsold tiers.
         if (removedTiers.length) await models.Offering.destroy({
           where: { id: removedTiers.map((tier) => tier.id), eventId: saved.id }, transaction,
         });
-        await recordEventMutation({ models, email, userId, saved, before, offerings, location, previousLocation, customerAppUrl, businessAppUrl, transaction });
+        await recordEventMutation({ models, email, userId, saved, before, offerings, location, previousLocation, customerAppUrl, businessAppUrl, transaction, adminReason });
         return saved;
       },
     );

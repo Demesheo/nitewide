@@ -1,59 +1,86 @@
-# Nitewide Admin frontend
+# Nitewide Admin
 
-The Management page provides versioned granular editing, scoped role changes, and suspend/archive/restore controls. Permanent admin deletion is disabled; purchases, admissions, and audit history remain intact. See [Internal admin management](ADMIN_MANAGEMENT.md) for resource capabilities and API details.
-
-Nitewide Admin is the internal operations console at `http://127.0.0.1:5175`. It is intentionally separate from the Customer and Business applications and every API operation independently requires an authenticated `isInternalAdmin` user.
+Admin is the internal operations console at `http://localhost:5175`. It uses Business-style dark surfaces, lavender controls, responsive tables and the shared event editor. Every API request checks the active internal identity and the capability required for that operation; hiding a button is not authorization.
 
 ## Local access
 
-Run the database, API, and Admin app:
+Start PostgreSQL, apply migrations, then start API and Admin:
 
-```bash
+```sh
 docker compose up -d postgres
 npm run db:migrate
-npm run db:seed
 npm run dev:api
 npm run dev:admin
 ```
 
-Sign in with `admin@nitewide.test` and `NitewideDemo!2026`. The UI stores the 12-hour development bearer session in session storage, verifies it on reload, and removes it on sign-out or an unauthorized response. The development `x-user-id` shortcut is not used by this app.
+Seed only when deliberately preparing a demo database (`npm run db:seed`), not as a routine restart. Existing demo admin: `admin@nitewide.test` / `NitewideDemo!2026`. Admin verifies its bearer session on reload. Temporary network/server failures retain the stored session for a retry without exposing the workspace until verification succeeds; authentication denial clears it. No development identity-header shortcut is used by the frontend.
 
-## Current capabilities
+## Navigation
 
-- Overview of paid volume, platform fees, organizations, published events, failed payments, pending guestlists, check-ins, and operational alerts.
-- Analytics explorer with 7-, 30-, 90-, and 365-day presets or an inclusive custom start/end date (up to 366 days), multi-select region and organization filters, blanket search, CSV export, and region → organization/independent creator → event → customer drill-down.
-- Paid-sales pace, top-region, experience-category, and ticket/package visualizations. Drill rows show event count, paid checkouts, face-value sales, unique customers, units, admissions, and average order.
-- Server-searchable users, organizations, events, orders/payments, and audit history in Management, with authoritative counts, allowlisted sorting/status filters, and 25-row pages. Overview and analytics CSV exports remain available; Management record lists do not yet export the entire filtered result. Analytics tables page at 10 rows by default with 25/50 options.
-- Audited overrides for reasonable operational fields: user access/display data, organization plan/status/profile, and event schedule/content/status/capacity/discoverability.
-- Guided onboarding for a multi-venue organization, a single-venue business, or an independent event creator. The recipient confirms their email and sets their own password; an existing account signs in before accepting scoped access. Setup links are never returned to administrators.
-- Strict, versioned editing of users, organizations, events, locations, and organization/event role assignments; archived records remain inspectable by internal admins.
-- Creation of real demo identities for customer, internal administrator, organization owner, venue manager, employee/host, organization promoter, event promoter, and independent event creator workflows.
+| Section | Purpose |
+| --- | --- |
+| Overview | Financial/performance metrics and admin-specific attention items. |
+| Businesses | Searchable, paginated organization directory, profile, ownership/finance and venue management. |
+| Events | Inspect the flyer, edit with the full shared creator editor, cancel/archive with history retained. |
+| People | Inspect identities, access and bookings; invite, edit, suspend/archive within staff permissions. |
+| Support | Cases, record links, priorities, status, assignment and audited history. |
+| Analytics | SQL-backed drill-down and stable full-result CSV exports. |
+| Audit | Paginated retained platform history. |
 
-Demo role assignments are implemented through the platform's actual data model. Owners and managers receive `OrganizationOwner` membership, employees receive separate `OrganizationEmployee` membership, promoters receive `OrgAffiliate` or `EventAffiliate`, and an event creator receives a private independent draft fixture. Organization/event roles require selecting their scope. Demo passwords are salted with scrypt and never returned by the API. The demo-user endpoint is disabled in production.
+Detail pages have related tabs and contextual actions. Returning preserves directory/report filters and pagination. Small edits use dialogs; event edits use the full Business editor. Significant time/venue changes and cancellation preview the attendee count and enqueue the same notices as business changes. Queued is not proof of delivery; refunds are not automatic. Flyers render proportionally with missing/unavailable fallbacks.
 
-## Guardrails
+## Organizations and venues
 
-Admin pages are not a substitute for a payments provider dashboard. Admins cannot edit credential secrets, QR hashes, provider references, payment status, or financial amounts. A changed user email is unverified, invalidates active credentials/tokens, and queues a verification message only when email delivery is configured. Event capacity cannot fall below ticket and approved guestlist admissions. Every supported change requires a reason and audit entry; high-risk edits require the current version. An administrator cannot remove their own admin access, the last active administrator, or the last active owner of an active organization. Suspension/archive blocks new activity at the server; restore does not republish cancelled events or issue refunds.
+All new businesses use one organization workspace, including solo creators and promotion groups. Organizations can have zero, one or many exclusive managed venues. Business type, server-generated slugs and the legacy default-location pointer are not normal editing controls. Existing stored classifications/identities remain compatibility data. Events may use their own physical name/address without claiming ownership of that location.
 
-Admin schedule overrides show UTC explicitly. The Business editor remains the venue-time-zone-aware flow for routine scheduling. The legacy Overview snapshot still includes at most 100 recent rows per resource, but the focused Management and Operations lists search and paginate against the full authorized server-side dataset. Analytics now uses scoped SQL aggregation and server-paginated drilldowns.
+Onboarding accepts an initial owner or manager. The contact verifies email and sets their own password, or signs into the matching existing account before accepting access. Admin never chooses or receives the password or setup token. Secure ownership additions/transfers activate only after acceptance; transfers explicitly retain the outgoing owner as manager/employee or remove access. Manager finance permission is separate.
 
-Analytics uses `GET /api/admin/reports/summary`, `/api/admin/reports/:table` and `/api/admin/reports/bootstrap`; the old `/api/admin/analytics` returns `410`. Dates are based on paid-order `paidAt` in UTC; the current day is included. Region means the event location's city/region/country, with an “Unspecified region” bucket. Sales are paid USD order subtotals (face value), not settlements, profit, or total customer charges. Orders count checkouts, units count offering quantities, and admissions count valid/checked-in ticket records; checked-in counts represent door admissions. Search selects matching events (including matching customers/referrers), then aggregates their authorized paid orders. Region and organization choices are OR within each field and AND across fields. Archived events remain available to internal reporting, and a No event location venue group keeps missing-location history reachable. Tables paginate against SQL; the former event/order caps are removed. CSVs use stable snapshots, with background preparation and download/retry progress for more than 1,000 rows. Customer names/emails and CSVs are sensitive operational data. See [SQL reporting and snapshot exports](REPORTING_EXPORTS.md).
+Venue lists and team choices are searchable and server-paginated. Venue-only assignments do not create organization-wide membership or grant another venue's operations/finance access. Physical event-location snapshots remain distinct from managed-venue ownership. See [Internal admin management](ADMIN_MANAGEMENT.md) for boundaries.
 
-Before production, add multi-factor authentication, short-lived secure-cookie sessions, password recovery, role-change notifications, step-up authentication for high-risk actions, pagination/server-side query search, Stripe reconciliation, dispute tooling, and a second-person approval policy for financial corrections.
+## Analytics and exports
 
-## Components and styling
+Primary path: Business → Event → Offering → Purchase, with direct Customer/Team views and optional Region/Venue exploration. Canonical links open individual records without losing report context. Reporting retains archived history. Custom dates use the selected IANA timezone and inclusive end date; Region means event location, not headquarters.
 
-The Admin app uses the same shadcn/ui approach as the other Nitewide apps: local, editable primitives built from Radix UI, class-variance-authority, Tailwind CSS, and Lucide icons. Current primitives live in `apps/admin/src/components/ui` and include Button, Input, Badge, Card, Table, and Dialog. It shares the Customer and Business nightlife tokens (retro blue, deep violet, velvety burgundy, hot pink, and light magenta), with Business's dark surfaces and lavender controls in a denser operations layout. Amber and pink remain reserved for warning and risk states.
+Face-value sales, buyer-added fees, business-absorbed fees, combined fees, commissions, business proceeds and modeled Nitewide contribution are separate metrics. Order-level fees and unique customers are not counted once per offering. Cost/contribution figures are modeled snapshots, not provider-confirmed settlement or accounting profit; this phase has no live Stripe reconciliation.
 
-Prefer adding a shadcn primitive under `components/ui` before creating a one-off interactive control. Keep focus rings, labels, keyboard behavior, Dialog focus management, responsive tables, and reduced information density on mobile.
+Tables paginate in SQL. CSVs include the full authorized filtered result, not the visible page. Small exports are immediate; large exports prepare a stable snapshot with progress, download, retry and expiry. Staff capability is rechecked on export access. See [Reporting and snapshot exports](REPORTING_EXPORTS.md).
+
+## Guardrails and later work
+
+No permanent-delete UI/API. Suspension/archive retain IDs, bookings, admissions and audit. Organization suspension blocks new sales, invitations and business changes while honoring existing passes/admissions; event cancellation is separate. Credential/QR hashes, provider identifiers, encrypted email payloads and storage keys are not editable. Contact-change, last-owner/admin, capacity and pricing protections are enforced server-side.
+
+Platform owner has full access; operations manages events and reads reports; support manages cases and inspects directories; read-only inspects directories/reports/cases/audit. Ownership, finance and staff access changes remain platform-owner controls. Future self-service business applications, customer/business support intake, Stripe Connect, reconciliation, disputes/refunds and step-up controls are separate phases.
 
 ## Verification
 
-```bash
-npm test --workspace @nitewide/admin
-node --test apps/api/test/admin-service.test.js
-node --test apps/api/test/analytics-service.test.js
-npm run build --workspace @nitewide/admin
+```sh
+npm test
+npm run test:e2e
+npm run build
 ```
 
-The default `npm test` includes isolated migrated PostgreSQL integration suites and mocked email checks. See [Testing](TESTING.md); no live provider messages are sent.
+Default tests use mocks or generated disposable databases and consume zero email quota. Rebuild browser coverage runs in iPhone/WebKit and desktop/Chromium; the obsolete admin browser spec stays inactive. See [Testing](TESTING.md) and [Automated browser testing](UI_TESTING.md).
+
+## Responsive admin design standard
+
+### Human operator first
+
+This is a console for a human platform owner/operator, not a database browser. Design from the operator's question or task: find a person or business, understand an event or purchase, resolve an issue, inspect performance, and take an authorized action. Primary navigation opens the relevant human-facing directory or workflow. Do not make the operator choose database record types from a generic “Records” dropdown before they can work.
+
+Find memberships, invitations, referrals, purchases and admission activity by opening the related person, business, event or purchase. Use clear contextual tabs and labels; preserve search, date filters, pagination and return context. Surface identity, status, important dates, location and the next useful actions first. Keep IDs, versions, storage/provider fields and audit mechanics secondary or internal. Retain the underlying granular capabilities and server authorization; simpler presentation must not remove operational controls or require bulk loading.
+
+Review every future admin change against this principle, in addition to the mobile/desktop requirements below. This standard remains in force until the platform owner changes it.
+
+Every admin UI change must work at both a 390px phone viewport and a 1440px desktop viewport. Start with a readable single-column mobile layout, then use CSS Grid to group related information and make productive use of desktop space. Desktop is a required design target, not a stretched mobile stack. Avoid unexplained empty space, repeated record titles or raw database-field lists.
+
+Record headers put the identity, state and essential context together. Event headers include a proportional thumbnail, local date/time and physical location, with contextual controls alongside on desktop and within reach on mobile. Flyers stay compact and uncropped; missing or unavailable artwork has a clear fallback. Description, admission settings, related records and administrative metadata are separate groups. IDs, versions and history timestamps are secondary, not the dominant content.
+
+Use semantic headings, associated form labels, visible keyboard focus, meaningful image alternatives and at least 44px touch targets on mobile. Preserve reading order when introducing desktop columns. Text and controls must wrap without page-level horizontal overflow; large tables may scroll inside their own labeled container. Loading, empty, error and retry states must remain usable at both sizes.
+
+Directories and relationship choices use searchable server pagination. Do not replace a paged directory with an enormous selector or download all relationships into the browser. Canonical record navigation retains the originating report or parent-record context. Keep Business styling and shared creator capabilities intact, and verify interactions plus responsive geometry in both iPhone/WebKit and desktop/Chromium coverage. This standard does not authorize new service-worker or offline behavior.
+
+Search is explicit: typing updates a draft only; click Search or press Enter to apply it and return to page one. This applies to directories, analytics, support, related records and choices inside forms. Enter inside a choice search must not submit its enclosing edit/onboarding form. People search supports name, email, phone (ignoring punctuation) and an exact user ID. Status filters are multiselects wherever offered, including Businesses, Events, People and Support cases; selected states are combined with OR, and clearing the selection shows all states. Editing an individual record still chooses one status.
+
+Businesses, Events and People use the same desktop search input/button widths, search icon and placeholder styling, with Businesses as the reference. Status sits above the search, left-aligned. Search and Sort by/Direction share a desktop row; sorting is right-aligned. Events groups compact Start/End dates beside sorting on the right, wrapping safely on narrower screens. Selecting or clearing a valid date applies immediately without applying or discarding a pending text-search draft. There are no Apply dates or Reset dates buttons. Mobile controls remain readable, at least 44px tall, and free of horizontal overflow.
+
+Motion should clarify changes, not delay operation: use short dialog/content transitions and clear loading feedback. Honor `prefers-reduced-motion`, avoid animating large tables or every row, and preserve form state, focus, touch-target sizes and layout stability throughout transitions.

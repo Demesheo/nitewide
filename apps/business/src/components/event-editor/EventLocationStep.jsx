@@ -1,17 +1,27 @@
+import { useEffect, useState } from 'react';
 import { MapPin } from 'lucide-react';
 import { Field, SelectField } from '../controls';
+import AsyncVenuePicker from '../AsyncVenuePicker';
 
-export function EventLocationStep({ draft, organization, savedVenues, setDraft, set, loc }) {
+export function EventLocationStep({ draft, organization, setDraft, set, loc, session, request, audience }) {
+  const venueOnly = organization?.canCreateEvents && !organization?.canManage && audience !== 'admin';
+  const [mode, setMode] = useState(draft.locationId || venueOnly || draft.locationMode === 'saved' ? 'saved' : 'address');
+  useEffect(() => setMode(draft.locationId || venueOnly || draft.locationMode === 'saved' ? 'saved' : 'address'), [draft.organizationId, venueOnly]);
+  const savedMode = Boolean(draft.organizationId && (mode === 'saved' || venueOnly));
+  function chooseVenue(venue) {
+    const location = Object.fromEntries(['name', 'addressLine1', 'addressLine2', 'city', 'region', 'postalCode', 'countryCode', 'timezone', 'privacy', 'latitude', 'longitude'].map((key) => [key, venue[key]]));
+    setDraft((current) => ({ ...current, locationMode: 'saved', locationId: venue.id, location }));
+  }
   return <div className="form-grid">
-    {draft.organizationId ? <>
-      <div className="full"><SelectField id="event-saved-venue" label="Saved venue"
-        value={savedVenues.find((venue) => venue.locationIds.includes(draft.locationId))?.id || ''}
-        onChange={(id) => { const selected = savedVenues.find((venue) => venue.id === id);
-          if (selected) setDraft((current) => ({ ...current, locationId: selected.locationIds[0], location: { ...selected.location } })); }}
-        options={savedVenues.map((venue) => [venue.id, venue.label])}/></div>
-      <div className="venue-address-card full"><MapPin size={22}/><div><strong>{draft.location.name || organization?.name}</strong>
+    {draft.organizationId && !venueOnly && <div className="full"><SelectField id="event-location-mode" label="Event location"
+      value={mode} onChange={(value) => { setMode(value); setDraft((current) => ({ ...current, locationMode: value, locationId: null })); }}
+      options={[["address", "Enter a venue name and address"], ["saved", "Use a saved business venue"]]}/></div>}
+    {savedMode ? <>
+      <div className="full"><AsyncVenuePicker organizationId={draft.organizationId} session={session} request={request} audience={audience}
+        value={draft.locationId} onSelect={chooseVenue}/></div>
+      {draft.locationId && <div className="venue-address-card full"><MapPin size={22}/><div><strong>{draft.location.name || organization?.name}</strong>
         <p>{draft.location.addressLine1}</p><p>{[draft.location.city, draft.location.region, draft.location.postalCode].filter(Boolean).join(', ')}</p>
-        <small>Uses the saved venue address. Changing venue keeps the local times entered for this event.</small></div></div>
+        <small>Uses the saved venue address. Changing venue keeps the local times entered for this event.</small></div></div>}
     </> : <>
       <Field id="venue-name" label="Venue / location name" value={draft.location.name || ''}
         onChange={(event) => loc('name', event.target.value)} maxLength={180}/>

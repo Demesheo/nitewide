@@ -13,6 +13,7 @@ import { MultiSelect } from './MultiSelect';
 import { searchRows } from '@/lib/table-search';
 import { Choice } from './controls';
 import { LoadingState } from './LoadingState';
+import { ManagerFinancePermission } from './ManagerFinancePermission';
 
 const teamColumns = [['name', 'Name'], ['role', 'Role'], ['email', 'Email'], ['status', 'Status'], ['salesCents', 'Referred sales'], ['orders', 'Orders'], ['customers', 'Customers']].map(([key, label]) => ({ key, label }));
 
@@ -173,6 +174,11 @@ export function Team({ session, organizations, onUnauthorized }) {
         {canManageTeam && selected.role !== 'Owner' && selected.id !== session.user.id && !editingMember && <div className="team-role-editor"><Button variant="outline" onClick={() => { setEditingMember(true); setRoleError(''); }}>Edit member</Button></div>}
         {canManageTeam && selected.role !== 'Owner' && selected.id !== session.user.id && editingMember && <div className="team-role-editor team-role-editor-open"><div className="team-role-field"><span>Role</span><Choice label="Team member role" value={editRole} onChange={setEditRole} options={[["manager", "Manager"], ["employee", "Employee"], ["affiliate", "Promoter"]]} /></div><div className="team-role-edit-actions"><div className="team-role-edit-primary"><Button disabled={roleSaving || (selected.role === 'Manager' ? editRole === 'manager' : selected.role === 'Employee' ? editRole === 'employee' : editRole === 'affiliate')} onClick={saveRole}>{roleSaving ? 'Saving…' : 'Save role'}</Button><Button variant="outline" disabled={roleSaving || memberRemoving} onClick={() => { setEditingMember(false); setConfirmRemove(false); setRoleError(''); }}>Cancel</Button></div><div className="team-role-edit-danger"><Button variant="destructive" disabled={memberRemoving} onClick={() => { setRoleError(''); setConfirmRemove(true); }}>Remove member</Button></div></div></div>}
         {selected.role === 'Owner' && <p className="team-role-note">Ownership is managed separately and can’t be changed here.</p>}
+        <ManagerFinancePermission organizationId={organizationId} member={selected} canGrantFinance={roster?.canGrantFinance}
+          organizationVersion={roster?.organizationVersion} session={session} disabled={roleSaving || memberRemoving} onUnauthorized={onUnauthorized}
+          onRefresh={() => api(`/business/organizations/${organizationId}/team`, session).then(setRoster).catch((err) => { if (err.status === 401) onUnauthorized(); else setRoleError(err.message); })}
+          onSaved={(result) => setRoster((current) => ({ ...current, organizationVersion: result.version,
+            people: current.people.map((member) => member.id === result.userId ? { ...member, financeAuthorized: result.financeAuthorized } : member) }))}/>
         {roleError && <p role="alert" className="error">{roleError}</p>}
         <DialogFooter><DialogClose asChild><Button variant="outline">Close</Button></DialogClose></DialogFooter>
       </DialogContent>}

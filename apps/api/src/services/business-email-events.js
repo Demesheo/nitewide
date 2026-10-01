@@ -1,6 +1,7 @@
 const { TEMPLATES } = require('./email-templates');
 const { accessScope } = require('./event-affiliate-access');
 const { activeUser } = require('./lifecycle-service');
+const { venueAssignmentCurrent, currentVenueMembership } = require('./venue-access-policy');
 
 const name = (user) => user?.displayName?.trim() || 'there';
 const percent = (bps) => `${(Number(bps || 0) / 100).toFixed(2).replace(/\.00$/, '')}%`;
@@ -71,7 +72,7 @@ async function queueBusinessEventStatus({ email, models, event, change, details,
   const leaders = event.organizationId && models.OrganizationOwner?.findAll
     ? await models.OrganizationOwner.findAll({ where: { organizationId: event.organizationId }, attributes: ['userId'], transaction }) : [];
   const team = models.EventAffiliate?.findAll
-    ? await models.EventAffiliate.findAll({ where: { eventId: event.id, status: 'active' }, attributes: ['userId', 'code', 'accessScope', 'orgAffiliateId', 'sourceOrgAffiliateId'], transaction }) : [];
+    ? await models.EventAffiliate.findAll({ where: { eventId: event.id, status: 'active' }, attributes: ['userId', 'code', 'accessScope', 'orgAffiliateId', 'sourceOrgAffiliateId', 'venueAccessId'], transaction }) : [];
   let eligibleTeam = team;
   if (event.organizationId && team.some((member) => accessScope(member) === 'organization')) {
     const staff = models.OrganizationEmployee?.findAll ? await models.OrganizationEmployee.findAll({ where: { organizationId: event.organizationId, status: 'active' }, attributes: ['userId'], transaction }) : [];
@@ -80,9 +81,15 @@ async function queueBusinessEventStatus({ email, models, event, change, details,
     const staffIds = new Set(staff.map((member) => member.userId));
     const current = new Date();
     const promoterIds = new Set(promoters.filter((member) => (!member.startsAt || member.startsAt <= current) && (!member.endsAt || member.endsAt >= current)).map((member) => member.userId));
-    eligibleTeam = team.filter((member) => accessScope(member) === 'event' || leaderIds.has(member.userId) || staffIds.has(member.userId) || promoterIds.has(member.userId));
+    eligibleTeam = team.filter((member) => accessScope(member) !== 'organization' || leaderIds.has(member.userId) || staffIds.has(member.userId) || promoterIds.has(member.userId));
   }
-  const ids = [...new Set([...(event.organizationId ? [] : [event.creatorUserId]), ...leaders.map((row) => row.userId), ...eligibleTeam.map((row) => row.userId)].filter(Boolean))];
+  const scopedTeam = [];
+  for (const member of eligibleTeam) if (accessScope(member) !== 'venue' || await venueAssignmentCurrent(models, member, event, transaction)) scopedTeam.push(member);
+  const venueManagers = event.organizationId && event.locationId && models.VenueAccess ? await models.VenueAccess.findAll({
+    where: { organizationId: event.organizationId, locationId: event.locationId, role: 'manager', status: 'active' }, transaction }) : [];
+  const managerIds = [];
+  for (const manager of venueManagers) if (await currentVenueMembership(models, event, manager.userId, transaction)) managerIds.push(manager.userId);
+  const ids = [...new Set([...(event.organizationId ? [] : [event.creatorUserId]), ...leaders.map((row) => row.userId), ...scopedTeam.map((row) => row.userId), ...managerIds].filter(Boolean))];
   if (!ids.length) return 0;
   const users = await models.User.findAll({ where: { id: ids, isActive: true }, transaction });
   const recipients = users.filter(activeUser);

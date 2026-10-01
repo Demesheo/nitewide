@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { databaseSettings, isolatedEnvironment, urls } = require('../../../e2e/environment.cjs');
+const { databaseSettings, isolatedEnvironment, frontendBuildEnvironment, urls } = require('../../../e2e/environment.cjs');
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 const { validateArguments } = require('../../../e2e/run.cjs');
 
@@ -33,6 +33,28 @@ test('Playwright database guards reject mismatched or non-generated targets', ()
   const databaseUrl = 'postgres://test:fake@127.0.0.1:5433/nitewide_test_00000000000040008000000000000099';
   assert.throws(() => assertManagedTestDatabase({ ...isolatedEnvironment(databaseUrl, {}), DATABASE_URL: 'postgres://test:fake@localhost/nitewide' }));
   assert.throws(() => assertManagedTestDatabase(isolatedEnvironment('postgres://test:fake@localhost/nitewide', {})));
+});
+
+test('browser frontends build in production mode without production credentials or API/database targets', () => {
+  const source = { NODE_ENV: 'test', DATABASE_URL: 'postgres://live:secret@production.example/nitewide',
+    RESEND_API_KEY: 'never-send', RESEND_UNKNOWN_KEY: 'never-use', R2_ACCESS_KEY_ID: 'never-write', R2_SECRET_ACCESS_KEY: 'never-write',
+    MEDIA_STORAGE_DRIVER: 'r2', MEDIA_CLEANUP_ENABLED: 'true', HOSTED_DEMO: 'true', NITEWIDE_API_PROXY: 'https://live.example', VITE_API_URL: 'https://live.example/api' };
+  const build = frontendBuildEnvironment(source);
+  const runtime = isolatedEnvironment('postgres://test:fake@127.0.0.1:5433/nitewide_test_00000000000040008000000000000099', source);
+  assert.equal(build.NODE_ENV, 'production');
+  assert.equal(runtime.NODE_ENV, 'test');
+  assert.equal(source.NODE_ENV, 'test', 'creating the build environment must not mutate the runtime source');
+  assert.equal(new URL(build.DATABASE_URL).hostname, '127.0.0.1');
+  assert.equal(new URL(build.DATABASE_URL).port, '1', 'builds cannot accidentally use the test or developer database');
+  assert.equal(build.TEST_DATABASE_URL, build.DATABASE_URL);
+  assert.equal(build.VITE_API_URL, '/api');
+  assert.equal(build.NITEWIDE_API_PROXY, urls.api);
+  assert.equal(build.HOSTED_DEMO, 'false');
+  assert.equal(build.MEDIA_STORAGE_DRIVER, 'local');
+  assert.equal(build.MEDIA_CLEANUP_ENABLED, 'false');
+  for (const [key, value] of Object.entries(build)) if (key.startsWith('RESEND_') && key !== 'RESEND_TEST_MODE') assert.equal(value, '', key);
+  assert.equal(build.R2_ACCESS_KEY_ID, '');
+  assert.equal(build.R2_SECRET_ACCESS_KEY, '');
 });
 
 test('Playwright runner preserves target and sequential fixture isolation', () => {

@@ -1,21 +1,54 @@
 # Internal admin management
 
-Management is restricted to active, completed internal administrators. Its searchable, paginated resource picker covers operational records and retained system history. Backend metadata drives supported forms and lifecycle actions.
+Admin is the platform operations/support application. Every endpoint requires an active, completed internal identity and an operation-specific permission. Server-paginated directories and canonical detail pages replace bulk record dumps. Admin access never authorizes silent historical-payment edits.
 
-| Resource | Admin controls | History boundary |
-| --- | --- | --- |
-| Users | Invite new accounts without an admin-set password; edit confirmed contact/profile/admin/independent-creator access; change organization-scoped role; suspend, archive, restore | Pending accounts cannot sign in. Self/last-admin and sole active owner are protected. No permanent deletion. |
-| Organizations and venues | Guided multi-venue organization or single-venue onboarding; versioned profile, plan, default and associated venue edits; suspend, archive, restore | The legacy default location pointer remains. Linked venues own the organization relationship, and events can use only associated venues. History prevents unlinking a venue in use. |
-| Independent creators | Guided invitation with explicit creator capability, without a dummy event or venue | Revocation blocks new independent events, not historical event inspection. |
-| Events and locations | Versioned content, schedule, capacity, ownership/venue (before historical activity), and address/privacy edits; suspend, archive, restore. Event cancellation is separate. | Event status stays draft/published/cancelled/completed. Restore never republishes, fabricates refunds, or removes sales/admissions. |
-| Owners, managers, employees, promoters | Scoped role-change workflow retains memberships and revokes derived affiliate grants; direct supported edits are versioned | Last active, completed owner cannot be demoted. Inactive grants confer no business access. There is no new venue-scoped staff model. |
-| Guestlist, invitations, offerings, boosts and notifications | Existing domain transitions and capacity/token/admission workflows | Confirmed admissions and financial history are retained. |
-| Orders, payments, tickets, check-ins, attribution, audit and system records | Safe read-only context and existing guarded unpaid-order/unused-ticket actions | No manual payment rewrite, provider refund, historical purge, or object-storage delete. |
+| Resource | Controls and boundaries |
+| --- | --- |
+| People | Secure invitations, confirmed profile/contact edits, scoped roles, suspend/archive/restore. No admin-set passwords or permanent delete. Self/last-admin and last-owner protection. |
+| Businesses | One organization model, optional venues, profile/plan and lifecycle actions. Hidden server-generated slugs; no editable business type. |
+| Venues | Organization-scoped, searchable/paginated create, rename/edit, lifecycle and team actions. One owner organization per managed venue. |
+| Ownership/finance | Secure invitations and atomic accepted transfers, explicit outgoing role, audited recovery and last-owner protection. Manager finance grants are separate. |
+| Events | Full shared editor: flyer/content, venue-local schedule, offerings and publication. Preview affected attendees for material changes. Preserve sold offerings and admissions. |
+| Support | Cases, priority/status/assignee, canonical business/event/person/purchase links and paginated audit. Platform alerts are not routine business guestlist tasks. |
+| Performance | SQL drill-down and stable full CSV snapshots. Fees/proceeds/modelled contribution are distinct; order metrics are not multiplied by offering rows. |
+| Purchases/payments/tickets/check-ins/audit | Read-only context and existing guarded domain transitions. No provider refund, payment rewrite, historical purge or storage-object deletion. |
 
-Every administrative edit and lifecycle action requires a reason. Granular edits and lifecycle actions require the current version, use allowlisted schemas, and are audited inside transactions. Password hashes, setup token hashes, QR hashes, encrypted email variables, provider identifiers and storage keys are excluded from management responses. Internal hard-delete and delete-preview routes have been removed. Suspension/archive preserves IDs and histories while blocking fresh activity at auth, business, checkout, guestlist, invitation and discovery boundaries; internal admins can inspect retained records.
+## Onboarding and ownership
 
-Onboarding uses POST /admin/onboarding with a recipient, kind (user, organization, venue or independent_creator), optional business profile, validated venues and audit reason. A multi-venue organization requires at least one venue; a single-venue business requires exactly one. It creates a pending account if needed, profile/venue links, a hashed expiring invitation and an encrypted transactional outbox entry when delivery is configured. The response reports queued or unavailable, never a raw token or setup link. Queued is not proof of delivery. POST /admin/onboarding/:id/resend rotates the link with a persisted rate limit; POST /admin/onboarding/:id/revoke disables it. Both require reason and version.
+`POST /admin/onboarding` accepts recipient, organization profile, optional initial venues, authority confirmation and audit reason. Initial contact may be owner or manager; manager-led setup does not imply ownership/finance. Response reports queued/unavailable, never a raw setup token/link. Resend/revoke require reason and version. No separate independent-creator capability is granted to new businesses; legacy access remains compatibility data.
 
-Recipient GET /auth/onboarding/preview?token=... is non-consuming and redacted. POST /auth/onboarding/accept requires matching password/confirmPassword for a new account, or an authenticated matching existing account without credential overwrite. Acceptance locks and consumes the token once, marks email verified, clears onboarding pending, and grants the specified scope. Expired, revoked, replayed, mismatched, inactive-scope and stale-inviter links fail. The configured business/customer URL is used for setup mail. Tests disable real delivery.
+Onboarding preview is non-consuming/redacted. Acceptance requires password confirmation for a new account or an authenticated matching existing account without credential overwrite. It rechecks inviter, scope/account/membership versions, consumes once and grants the chosen role. Expired/revoked/replayed/stale invitations fail atomically.
 
-Management APIs: GET /admin/management/resources; GET|POST /admin/management/:resource; GET|PATCH /admin/management/:resource/:id; POST /admin/management/:resource/:id/actions/:action; POST /admin/management/users/:id/scoped-role. Lists accept bounded `page`, `pageSize` (max 100), `search` (max 120), and resource-allowlisted `status`, `sort`, and `direction`. Results contain authoritative `total`, `items`, and `hasMore`; filters/search run before pagination. Users, organizations, events, orders, and audit navigation use these server-backed lists instead of the latest-100 workspace samples. Page controls return to the top of the containing card. Legacy /admin/users|organizations|events/:id PATCH is disabled so it cannot bypass version/lifecycle rules. Published-event cancellation, significant time and venue changes enqueue attendee notices; refunds are not automatic.
+Ownership controls use `/admin/businesses/:organizationId/access`. Adding an owner preserves co-owners. Transfers explicitly identify outgoing owner and manager/employee/removal outcome, activating atomically after incoming acceptance. Retained managers do not inherit finance permission. Recovery requires separate confirmation/reason. Business owners can separately grant/revoke manager finance permission.
+
+## Venue identity and scale
+
+`OrganizationVenue` establishes managed ownership; its location ID is exclusive across organizations. `Location` also holds event-address snapshots, so matching name/city/address does not establish ownership. Venue-only manager/employee/promoter grants are distinct from organization-wide roles and imply no finance permission. Venue event writes require the exact linked organization/location; moving an event rechecks destination authority.
+
+Manage venues individually through scoped routes. Generic organization edits cannot replace all venue links or edit the internal default pointer. Search/filter before pagination with authoritative totals. Organization detail returns a venue count, not every venue ID. Conflicting legacy ownership causes an explicit migration failure, never silent reassignment.
+
+## API patterns and retention
+
+Support-case lists accept repeated `statuses` query parameters (`open`,
+`in_progress`, `resolved`, `closed`) with OR semantics, at most eight values,
+and no duplicate rows. A single value is accepted; omission or an empty
+selection shows all. Search, category and identity/business scopes still combine
+with AND before count and pagination. Legacy `status` remains supported, but a
+non-`all` legacy status together with nonempty `statuses` returns 422 rather
+than choosing an ambiguous filter.
+
+Management metadata: `GET /admin/management/resources`. Directories: `GET /admin/management/:resource` with bounded page/pageSize (max 100), search, allowlisted sort/status/direction and supported canonical scope filters. Detail: `GET .../:id`. Safe PATCH edits require version/reason. Actions use `POST .../:id/actions/:action`; unsupported operations fail explicitly.
+
+People search accepts name, email, normalized phone or exact UUID. Repeated `statuses=active&statuses=suspended` values use OR and combine with the search/scope; an empty selection means all statuses. Do not combine `status` with `statuses`. Event directory dates use `startDate`, `endDate` and an IANA `timezone`; bounds are inclusive local calendar dates and are applied before SQL pagination.
+
+Person-context related lists accept `userId`. Purchases use buyer identity, tickets use holder identity, and attendance uses the ticket/guestlist subject—not the scanner. Team and guestlist invitations add `relation=sent` or `relation=received` (received is the default); received matches accepted identity or current email/normalized phone. Venue assignments are inspected through `venue_access` and changed through venue team controls, not arbitrary record patches. Related rows resolve names in bounded batch queries; scoped search matches relevant person, business, venue and event context without downloading full directories.
+
+Events use `GET /admin/events/:id/editor`, `POST /admin/events` and `PUT /admin/events/:id`; generic record writes cannot bypass that workflow. Offering/commission writes share editor viability rules. Legacy organization creation also generates slugs server-side. See [OpenAPI](api/openapi.json) for executable schemas.
+
+Writes recheck authority within the transaction, follow locking/version rules and audit reasons. Sensitive credential/token/QR/email fields are excluded. Suspension preserves existing passes; archive/cancellation are distinct. Restore does not republish, refund or erase history. Payments remain modeled demo transactions until separately approved Stripe work.
+
+## Staff and tests
+
+Platform owner has all internal capabilities. Operations reads directories/reports and manages events/cases. Support inspects directories and manages cases, not financial reports/business access. Read-only inspects directories/reports/cases/audit without mutation. Ownership, finance and internal staff role changes require platform-owner authority.
+
+Required Node/Supertest/PostgreSQL suites cover acceptance/transfers, role/finance isolation, lifecycle, reporting, snapshots, support transactions and price safeguards. Browser interaction tests exercise the rebuilt admin at iPhone and desktop sizes. Tests clear provider credentials and use disposable fixtures; email simulations remain explicit opt-ins. See [Testing](TESTING.md).

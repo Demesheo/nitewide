@@ -3,6 +3,22 @@ const assert = require('node:assert/strict');
 const { createTeamService } = require('../src/services/team-service');
 const { forbidden } = require('../src/domain/errors');
 
+test('team reads separate owner finance grants from operational roles and internal staff', async () => {
+  const leaders = [
+    { userId: 'owner', role: 'owner', lifecycleState: 'active', user: { displayName: 'Owner' } },
+    { userId: 'manager', role: 'admin', lifecycleState: 'active', financeAuthorized: true, user: { displayName: 'Manager' } },
+  ];
+  const models = { Organization: { findByPk: async () => ({ id: 'org', version: 7 }) },
+    OrganizationOwner: { findAll: async () => leaders }, OrganizationEmployee: { findAll: async () => [] },
+    OrgAffiliate: { findAll: async () => [] }, TeamInvitation: { findAll: async () => [] }, User: {} };
+  const service = createTeamService({ models, permissions: { assertManageOrganization: async () => {} } });
+  for (const id of ['owner', 'manager', 'platform-admin']) {
+    const roster = await service.roster(id, 'org');
+    assert.equal(roster.canGrantFinance, id === 'owner'); assert.equal(roster.organizationVersion, 7);
+    assert.equal(roster.people.find((row) => row.id === 'manager').financeAuthorized, true);
+  }
+});
+
 test('managers can invite managers, employees, and promoters within their organizations', async () => {
   const writes = [];
   const models = {
@@ -73,4 +89,62 @@ test('event promoter invitations keep their optional contact phone on renewal', 
   assert.equal(saved.length, 1);
   assert.equal(renewed.phone, '+14075550123');
   assert.equal(pending.phone, '+14075550123');
+});
+
+function financeFixture({ lifecycleState = 'active', role = 'admin' } = {}) {
+  const membership = { id: 'membership', userId: 'member', role, lifecycleState, financeAuthorized: true, update: async function update(changes) { Object.assign(this, changes); return this; } };
+  const transaction = { LOCK: { UPDATE: 'UPDATE' } };
+  const sequelize = { transaction: async (...args) => args.at(-1)(transaction) };
+  const invitation = { id: 'invitation', role: 'manager', email: 'member@example.test', organizationId: 'organization', invitedByUserId: 'actor', expiresAt: new Date(Date.now() + 60000), update: async function update(changes) { Object.assign(this, changes); } };
+  const models = {
+    Organization: { sequelize, findByPk: async () => ({ id: 'organization', name: 'Fixture Business', status: 'active' }) },
+    OrganizationOwner: { unscoped() { return this; }, findOne: async () => membership },
+    OrganizationEmployee: { findOne: async () => null, create: async () => ({}) },
+    OrgAffiliate: { findOne: async () => null, create: async () => ({}) },
+    Event: { findAll: async () => [] },
+    EventAffiliate: { findAll: async () => [] },
+    User: { findByPk: async (id) => ({ id, email: 'member@example.test', isActive: true }) },
+    TeamInvitation: { sequelize, findOne: async () => invitation },
+    AuditLog: { create: async () => ({ id: 'audit' }) },
+  };
+  return { membership, service: createTeamService({ models, permissions: { assertManageOrganization: async () => {} } }) };
+}
+test('business role changes revoke manager finance before demotion or removal', async () => {
+  for (const role of ['employee', 'affiliate']) {
+    const { membership, service } = financeFixture();
+    await service.changeRole('actor', 'organization', 'member', role);
+    assert.equal(membership.financeAuthorized, false);
+    assert.equal(membership.lifecycleState, 'archived');
+  }
+  const { membership, service } = financeFixture();
+  await service.removeMember('actor', 'organization', 'member');
+  assert.equal(membership.financeAuthorized, false);
+});
+test('reinstating a manager through a role change or acceptance cannot resurrect an old finance grant', async () => {
+  const changed = financeFixture({ lifecycleState: 'archived' });
+  await changed.service.changeRole('actor', 'organization', 'member', 'manager');
+  assert.equal(changed.membership.financeAuthorized, false);
+  const accepted = financeFixture({ lifecycleState: 'archived' });
+  await accepted.service.accept('member', 'known-invitation');
+  assert.equal(accepted.membership.financeAuthorized, false);
+  const active = financeFixture();
+  await active.service.changeRole('actor', 'organization', 'member', 'manager');
+  assert.equal(active.membership.financeAuthorized, true, 'an unchanged active manager keeps an explicit grant');
+});
+
+test('event invitation commission terms cannot be prepared or activated for an infeasible absorbed offering', async () => {
+  let assignmentWrites = 0; let invitationWrites = 0;
+  const sequelize = { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: 'UPDATE' } }), query: async () => [{ eventFeeMode: 'absorbed', feeMode: 'inherit', name: 'Below minimum', priceCents: 500, currency: 'USD', minPerOrder: 1, maxPerOrder: 2, isActive: true }] };
+  const event = { id: 'event', status: 'published', endsAt: new Date(Date.now() + 86400000) };
+  const invitation = { id: 'invitation', eventId: event.id, invitedByUserId: 'actor', email: 'member@example.test', role: 'affiliate', commissionBps: 500, expiresAt: new Date(Date.now() + 60000), update: async () => { invitationWrites += 1; } };
+  const models = {
+    Event: { sequelize, findByPk: async () => event }, Offering: {},
+    User: { findByPk: async (id) => ({ id, email: invitation.email, isActive: true }) },
+    TeamInvitation: { sequelize, findOne: async () => invitation, create: async () => { invitationWrites += 1; } },
+    EventAffiliate: { findOrCreate: async () => { assignmentWrites += 1; } },
+  };
+  const service = createTeamService({ models, permissions: { assertManageEvent: async () => {} } });
+  await assert.rejects(service.inviteEvent('actor', event.id, { email: invitation.email, commissionBps: 500 }), { code: 'PRICING_EDITOR_INVALID' });
+  await assert.rejects(service.accept('member', 'known-hashed-invitation'), { code: 'PRICING_EDITOR_INVALID' });
+  assert.equal(invitationWrites, 0); assert.equal(assignmentWrites, 0);
 });

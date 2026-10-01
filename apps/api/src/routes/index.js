@@ -31,6 +31,7 @@ function createRouter(options) {
   const businessEventRead = createBusinessEventReadService({ models });
   const businessInstructionsRead = createBusinessInstructionsReadService({ models, permissions, email, deliveryTrackingConfigured });
   const admin = createAdminService({ models, permissions, email, customerAppUrl });
+  const adminSupport = require('../services/admin-support-service').createAdminSupportService({ models, permissions });
   const analytics = createAnalyticsService({ models, permissions });
   const team = createTeamService({ models, permissions, email, businessAppUrl });
   const eventWorkspace = createEventWorkspaceService({ models, permissions, email, businessAppUrl });
@@ -38,7 +39,7 @@ function createRouter(options) {
   const account = createCustomerAccountService({ models, tokenSecret: qrTokenSecret });
   const saved = createCustomerSavedService({ models });
   const admissions = createAdmissionsService({ models, permissions });
-  const context = { router, publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl, businessAppUrl, qrTokenSecret, deliveryTrackingConfigured, business, businessRead, businessReports, adminReports, reportExports, businessTeamRead, businessEventReuse, businessEventRead, businessInstructionsRead, admin, analytics, team, eventWorkspace, referralLinks, account, saved, admissions };
+  const context = { router, publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl, businessAppUrl, qrTokenSecret, deliveryTrackingConfigured, business, businessRead, businessReports, adminReports, reportExports, businessTeamRead, businessEventReuse, businessEventRead, businessInstructionsRead, admin, adminSupport, analytics, team, eventWorkspace, referralLinks, account, saved, admissions };
   require('./public').registerPublicRoutes(context);
   require('./account').registerAccountRoutes(context);
   require('./customer').registerCustomerRoutes(context);
@@ -46,6 +47,9 @@ function createRouter(options) {
   require('./reporting').registerReportingRoutes(context);
   require('./business').registerBusinessRoutes(context);
   require('./admin').registerAdminRoutes(context);
+  require('./admin-events').registerAdminEventRoutes(context);
+  require('./admin-support').registerAdminSupportRoutes(context);
+  require('./business-venues').registerVenueRoutes({ ...context, asyncHandler: require('./contract-router').asyncHandler });
   let openApi;
   router.get('/openapi.json', (_req, res) => {
     openApi ||= require('../http/api-contract').generateOpenApi(router.contracts);

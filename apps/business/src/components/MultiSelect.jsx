@@ -1,6 +1,6 @@
 import { ChevronDown } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
-import { Button } from '@/components/ui/button';
+import { Button } from './ui/button';
 
 export function MultiSelect({ label, options, selected, onChange }) {
   return <PopoverPrimitive.Root>

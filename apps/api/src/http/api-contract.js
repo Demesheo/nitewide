@@ -8,6 +8,9 @@ const publicQuery = require('./public-schemas');
 const managed = require('../services/admin-management-service');
 const editSchemas = require('../services/admin-edit-service').schemas;
 const { scopedRoleSchema } = require('../services/admin-role-service');
+const adminReports = require('./admin-report-schemas');
+const adminSupport = require('./admin-support-schemas');
+const { venuePageSchema } = require('../services/business-venue-service');
 
 const uuid = z.uuid();
 const count = z.number().int().nonnegative();
@@ -55,21 +58,27 @@ const queries = {
   '/business/reports/summary': business.reportDetailQuery,
   '/business/reports/:table': business.reportDetailQuery,
   '/business/reports/export.csv': business.reportDetailQuery,
-  '/admin/reports/summary': business.reportDetailQuery,
-  '/admin/reports/:table': business.reportDetailQuery,
-  '/admin/reports/export.csv': business.reportDetailQuery,
+  '/admin/reports/summary': adminReports.reportDetailQuery,
+  '/admin/reports/:table': adminReports.reportDetailQuery,
+  '/admin/reports/export.csv': adminReports.reportDetailQuery,
+  '/admin/support/cases': adminSupport.caseQuery,
+  '/admin/support/cases/:id/history': adminSupport.historyQuery,
+  '/admin/overview/needs-attention': adminSupport.attentionQuery,
   '/business/analytics': analyticsQuery, '/admin/analytics': analyticsQuery,
   '/admin/workspace': admin.reportQuery, '/admin/operations': admin.operationsQuery,
   '/admin/management/:resource': managed.querySchema,
 };
 for (const suffix of ['purchases', 'attendees', 'attendees/:attendeeId', 'people-page', 'guestlist-page', 'guestlist-settings-page']) queries[`/business/events/:eventId/${suffix}`] = business.eventPageQuery;
+for (const prefix of ['/admin/businesses/:id/venues', '/business/organizations/:id/venues']) {
+  for (const path of [prefix, `${prefix}/:locationId/team`, `${prefix}/:locationId/candidates`]) queries[path] = venuePageSchema;
+}
 
 function paramsFor(path) {
   const shape = {};
   for (const match of path.matchAll(/:([A-Za-z]+)/g)) {
     const name = match[1];
     shape[name] = name === 'token' ? z.string().min(20).max(200)
-      : name === 'table' ? z.enum(['regions', 'venues', 'events', 'offerings', 'team', 'customers'])
+      : name === 'table' ? (path.startsWith('/admin/') ? adminReports.reportTables : z.enum(['regions', 'venues', 'events', 'offerings', 'team', 'customers']))
         : name === 'resource' ? z.enum(Object.keys(require('../services/admin-management-service').registry))
           : name === 'action' ? z.string().min(1).max(80) : uuid;
   }
@@ -77,6 +86,10 @@ function paramsFor(path) {
 }
 
 function responseFor(method, path) {
+  if (/^\/(admin\/businesses|business\/organizations)\/:id\/venues/.test(path)) {
+    if (method === 'get' && (path.endsWith('/venues') || path.endsWith('/team') || path.endsWith('/candidates'))) return page(entity);
+    return entity;
+  }
   if (path === '/openapi.json') return record;
   if (['/auth/register', '/auth/sign-in'].includes(path)) return session;
   if (path === '/auth/me') return z.object({ user, roles });
@@ -140,14 +153,14 @@ function contractFor({ method, path, authenticated, requestSchema }) {
     requestSchema = z.object({ reason: managed.reasonSchema }).passthrough();
   }
   if (path === '/admin/management/:resource/:id' && method === 'patch') resourceSchemas = editSchemas;
-  if (path === '/admin/management/:resource/:id/actions/:action') resourceSchemas = { suspend: managed.lifecycleActionSchema, archive: managed.lifecycleActionSchema, restore: managed.lifecycleActionSchema, other: managed.actionReasonSchema };
+  if (path === '/admin/management/:resource/:id/actions/:action') resourceSchemas = { suspend: managed.lifecycleActionSchema, archive: managed.lifecycleActionSchema, restore: managed.lifecycleActionSchema, cancel_event: managed.lifecycleActionSchema, other: managed.actionReasonSchema };
   const data = responseFor(method, path);
   const statuses = routeInventory.find((route) => route.method === method && route.path === path).successStatuses;
   const responseSchemas = Object.fromEntries(statuses.map((status) => [status,
     path.endsWith('/export.csv') && status === 202 ? envelope(exportJob) : path === '/openapi.json' ? data : envelope(data)]));
   return { method, path, authenticated, requestSchema, resourceSchemas, querySchema, paramsSchema, responseSchemas,
     csv: path.endsWith('/export.csv') || path.endsWith('/exports/:id/download'),
-    deprecated: path === '/business/workspace' || path === '/business/analytics' || path === '/admin/analytics' || /^\/admin\/(users|organizations|events)\/:id$/.test(path),
+    deprecated: path === '/business/workspace' || path === '/business/analytics' || path === '/admin/analytics' || method === 'patch' && /^\/admin\/(users|organizations|events)\/:id$/.test(path),
     tag: path.startsWith('/admin') ? 'admin' : path.includes('/reports') || path.includes('/analytics') ? 'reporting'
       : path.startsWith('/auth') ? 'account' : path.includes('/admissions') || path === '/check-ins' ? 'admissions'
         : path.startsWith('/business') || path.startsWith('/organizations') || path.startsWith('/team') ? 'business'

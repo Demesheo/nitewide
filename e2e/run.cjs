@@ -1,6 +1,6 @@
 const { spawn } = require('node:child_process');
 const path = require('node:path');
-const { isolatedEnvironment } = require('./environment.cjs');
+const { isolatedEnvironment, frontendBuildEnvironment } = require('./environment.cjs');
 const root = path.resolve(__dirname, '..');
 const environment = isolatedEnvironment('postgres://test:test@127.0.0.1:1/nitewide_unused');
 function validateArguments(args) {
@@ -9,9 +9,9 @@ function validateArguments(args) {
   }
   return args;
 }
-function run(command, args) {
+function run(command, args, { buildFrontend = false } = {}) {
   return new Promise((resolve, reject) => {
-    const handle = spawn(command, args, { cwd: root, env: environment, stdio: 'inherit' });
+    const handle = spawn(command, args, { cwd: root, env: buildFrontend ? frontendBuildEnvironment() : environment, stdio: 'inherit' });
     const stop = signal => handle.kill(signal);
     const interrupt = () => stop('SIGINT'), terminate = () => stop('SIGTERM');
     process.once('SIGINT', interrupt); process.once('SIGTERM', terminate);
@@ -22,7 +22,7 @@ function run(command, args) {
     });
   });
 }
-async function build() { await run(process.env.npm_execpath ? process.execPath : 'npm', process.env.npm_execpath ? [process.env.npm_execpath, 'run', 'build'] : ['run', 'build']); }
+async function build() { await run(process.env.npm_execpath ? process.execPath : 'npm', process.env.npm_execpath ? [process.env.npm_execpath, 'run', 'build'] : ['run', 'build'], { buildFrontend: true }); }
 if (require.main === module) (async () => {
   const args = validateArguments(process.argv.slice(2));
   await build();

@@ -1,15 +1,17 @@
 const { QueryTypes } = require('sequelize');
 const { pageResult } = require('./business-read-service');
 const { resolvePaidRange } = require('./business-report-period');
+const { notFound } = require('../domain/errors');
 
 const membersSql = `WITH team AS (
-  SELECT DISTINCT ON (user_id) user_id, role, status, joined FROM (
+  SELECT DISTINCT ON (user_id) user_id, role, status, joined, finance_authorized FROM (
     SELECT user_id, CASE WHEN role = 'owner' THEN 'Owner' ELSE 'Manager' END AS role,
-      'active' AS status, created_at AS joined, CASE WHEN role = 'owner' THEN 1 ELSE 2 END AS priority
+      'active' AS status, created_at AS joined, CASE WHEN role = 'owner' THEN 1 ELSE 2 END AS priority,
+      CASE WHEN role = 'owner' THEN true ELSE finance_authorized END AS finance_authorized
       FROM organization_owners WHERE organization_id = :organizationId AND lifecycle_state = 'active'
-    UNION ALL SELECT user_id, 'Employee', 'active', created_at, 3 FROM organization_employees
+    UNION ALL SELECT user_id, 'Employee', 'active', created_at, 3, false FROM organization_employees
       WHERE organization_id = :organizationId AND status = 'active'
-    UNION ALL SELECT user_id, 'Promoter', 'active', created_at, 4 FROM org_affiliates
+    UNION ALL SELECT user_id, 'Promoter', 'active', created_at, 4, false FROM org_affiliates
       WHERE organization_id = :organizationId AND status = 'active' AND code NOT LIKE '%-STAFF'
   ) roles ORDER BY user_id, priority ASC
 ), sales AS (
@@ -24,6 +26,7 @@ const membersSql = `WITH team AS (
   GROUP BY credited.user_id
 ), rows AS (
   SELECT team.user_id AS id, u.display_name AS name, u.email, team.role, team.status, team.joined,
+    team.finance_authorized AS "financeAuthorized",
     COALESCE(sales.orders,0)::integer AS orders, COALESCE(sales."salesCents",0)::bigint AS "salesCents",
     COALESCE(sales."commissionCents",0)::bigint AS "commissionCents", COALESCE(sales.customers,0)::integer AS customers
   FROM team JOIN users u ON u.id = team.user_id LEFT JOIN sales ON sales.user_id = team.user_id
@@ -44,6 +47,11 @@ function createBusinessTeamReadService({ models, permissions, now = () => new Da
   const select = (sql, replacements) => models.Organization.sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
   async function page(userId, organizationId, input) {
     await permissions.assertManageOrganization(userId, organizationId);
+    const [organization, owner] = await Promise.all([
+      models.Organization.findByPk(organizationId),
+      models.OrganizationOwner.findOne({ where: { userId, organizationId, role: 'owner', lifecycleState: 'active' } }),
+    ]);
+    if (!organization) throw notFound('Organization');
     const range = await resolvePaidRange(select, { days: 30, timezone: input.timezone }, now());
     const selectedRoles = input.roles?.length ? input.roles : input.role !== 'all' ? [input.role] : [];
     const values = { organizationId, since: range.since, until: range.until, roles: selectedRoles.length ? selectedRoles : ['Owner', 'Manager', 'Employee', 'Promoter'],
@@ -52,7 +60,7 @@ function createBusinessTeamReadService({ models, permissions, now = () => new Da
     const [count] = await select(`SELECT COUNT(*)::integer AS total FROM (${membersSql}) team_rows`, values);
     const rows = await select(`SELECT * FROM (${membersSql}) team_rows ORDER BY ${sorts[input.sort]} LIMIT :pageSize OFFSET :offset`, values);
     return { ...pageResult(rows.map((row) => ({ ...row, salesCents: Number(row.salesCents), commissionCents: Number(row.commissionCents) })),
-      count.total, input.page, input.pageSize), range };
+      count.total, input.page, input.pageSize), range, organizationVersion: organization.version, canGrantFinance: Boolean(owner) };
   }
   async function invitations(userId, organizationId, input) {
     await permissions.assertManageOrganization(userId, organizationId);

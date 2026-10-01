@@ -20,6 +20,7 @@ function initUser(sequelize) {
     notificationPreferences: { type: DataTypes.JSONB, allowNull: false, defaultValue: { reviewRequests: true, salesActivity: true, inventoryAlerts: true } },
     isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     isInternalAdmin: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    internalAdminRole: { type: DataTypes.STRING(24), allowNull: true, validate: { isIn: [['platform_owner', 'support', 'operations', 'read_only']] } },
   }, { sequelize, modelName: 'User', tableName: 'users', version: true });
   return User;
 }

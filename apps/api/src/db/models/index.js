@@ -1,6 +1,7 @@
 const initializers = [
   require('./AuthSession').initAuthSession, require('./AuthSession').initAbuseBucket,
   require('./OrganizationVenue').initOrganizationVenue,
+  require('./VenueAccess').initVenueAccess,
   require('./OnboardingInvitation').initOnboardingInvitation,
   require('./MediaAsset').initMediaAsset,
   require('./User').initUser, require('./UserCredential').initUserCredential, require('./Organization').initOrganization, require('./OrganizationOwner').initOrganizationOwner,
@@ -18,6 +19,7 @@ const initializers = [
   require('./EmailOutbox').initEmailOutbox,
   require('./EmailDeliveryEvent').initEmailDeliveryEvent,
   require('./SavedEvent').initSavedEvent,
+  require('./SupportCase').initSupportCase,
 ];
 
 function initModels(sequelize) {

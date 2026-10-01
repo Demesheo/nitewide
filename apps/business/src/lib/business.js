@@ -62,6 +62,7 @@ export const defaultTiers = () =>
   ].map(([name, kind, price, quantityTotal, entriesPerUnit]) => ({
     name,
     kind,
+    feeMode: 'inherit',
     price,
     quantityTotal,
     entriesPerUnit,
@@ -94,12 +95,13 @@ export function editorDraft(event, organizationId = null, organizations = [], ve
   const defaultVenue = venues.find((venue) => venue.organizationId === selectedOrganizationId);
   const venueLocation = event?.location || organization?.location || defaultVenue?.location;
   const timezone = venueLocation?.timezone || event?.location?.timezone || "America/New_York";
+  const savedEventLocation = event?.locationId && (event.isManagedVenue || organization?.locationId === event.locationId || venues.some((venue) => venue.organizationId === selectedOrganizationId && venue.locationIds?.includes(event.locationId)));
   const start = new Date();
   start.setDate(start.getDate() + 1);
   start.setHours(22, 0, 0, 0);
   return {
     organizationId: selectedOrganizationId,
-    locationId: event?.locationId || organization?.locationId || defaultVenue?.locationIds?.[0] || null,
+    locationId: event ? (savedEventLocation ? event.locationId : null) : organization?.locationId || defaultVenue?.locationIds?.[0] || null,
     imageAssetId: event?.imageAssetId || null,
     imageUrl: event?.imageUrl || null,
     title: event?.title || "",
@@ -108,6 +110,7 @@ export function editorDraft(event, organizationId = null, organizations = [], ve
     description: event?.description || "",
     category: event?.category || "nightlife",
     status: event?.status || "draft",
+    feeMode: event?.feeMode || 'buyer',
     isDiscoverable: event?.isDiscoverable ?? true,
     capacity: event?.capacity ?? "",
     guestlistCapacity: event?.guestlistCapacity ?? 50,
@@ -132,6 +135,7 @@ export function editorDraft(event, organizationId = null, organizations = [], ve
       event?.offerings?.map((t) => ({
         ...t,
         clientKey: t.id,
+        feeMode: t.feeMode || 'inherit',
         releaseAfterKey: t.releaseAfterOfferingId || '',
         price: t.priceCents / 100,
         salesStartAt: t.salesStartAt ? dateInput(t.salesStartAt, timezone) : "",
@@ -140,8 +144,9 @@ export function editorDraft(event, organizationId = null, organizations = [], ve
   };
 }
 export function eventPayload(draft, version) {
+  const { locationMode: _locationMode, ...fields } = draft;
   return {
-    ...draft,
+    ...fields,
     version,
     startsAt: zonedISO(draft.startsAt, draft.location.timezone),
     endsAt: zonedISO(draft.endsAt, draft.location.timezone),

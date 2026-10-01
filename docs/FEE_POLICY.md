@@ -1,4 +1,4 @@
-# Current fee policy — September 23, 2026
+# Current fee policy — October 1, 2026
 
 This replaces the earlier fixed-rate and reject-infeasible-purchase drafts. The owner's latest instruction prioritizes completing paid purchases with a **hard $1 contribution after modeled transaction costs**, with **5% of face value as a preferred target**, not a rejection threshold.
 
@@ -10,6 +10,14 @@ This replaces the earlier fixed-rate and reject-infeasible-purchase drafts. The 
 4. If that fee leaves less than **$1 after processor, other variable costs and configured reserve**, increase it to the smallest cent amount that meets $1. This overrides the standard rate and competitive target. **Never reject a valid purchase merely for missing the margin/discount target.**
 5. Track preferred contribution of max($1, 5% of face value) privately. Competitive discounts may reduce contribution below 5%, but never below $1 under the configured cost model.
 6. If competitor benchmarks expire or are unavailable, use standard pricing plus the floor, without a savings guarantee. Invalid inputs, unknown costs and unsupported currencies still require correction, not invented prices.
+
+## Buyer-paid and business-absorbed fees
+
+Each event defaults to buyer-paid fees. An offering can inherit that default or explicitly use buyer-paid/business-absorbed fees. For absorbed fees, the advertised offering price is inclusive: the buyer pays that price, and the modeled service fee is deducted from business proceeds. The same competitive target and hard $1 contribution floor apply; free offerings remain exempt. Mixed carts retain each offering's fee mode and charge processor costs once per order.
+
+Absorbed-fee purchases and commission-eligible purchases require at least $10 in paid order subtotal. Editors validate an offering's price times its minimum order quantity, so a $5 offering can qualify with a minimum quantity of two. Commission-setting workflows also validate the relevant paid offerings. Infeasible configurations are rejected at editing, not published with a pricing policy that would later reject a valid customer's purchase. Absorbed proceeds must remain positive after the modeled costs and commission obligations.
+
+These checks are shared by the business editor, admin editor, and legacy offering/commission mutations. They use the configured cost model; future live Stripe integration must validate the actual currency, merchant configuration, payment method, and fees before enabling them. It must not assume today's domestic-card model covers all processing costs.
 
 Free orders and free guestlists stay free and do not incur a $1 fee. Nitewide covers routine processing without a second customer surcharge or venue processing deduction. Free core use is $0. Premium remains optional at $249/month without a transaction-fee discount. The planned 10% promoter reward service fee is separate and is not used to subsidize checkout margin.
 

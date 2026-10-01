@@ -69,3 +69,25 @@ test('another active organization owner permits the access change, but inactive 
     }));
   }
 });
+
+test('lifecycle suspension applies the same last-owner guard as account deactivation', async () => {
+  const models = {
+    OrganizationOwner: { findAll: async ({ where }) => where.userId === USER ? [{ organizationId: 'org-1' }] : [] },
+    Organization: { findByPk: async () => ({ id: 'org-1', status: 'active', name: 'Owner Workspace' }) },
+    User: { count: async () => 0 },
+  };
+  await assert.rejects(assertUserAccessChange({ models, actorUserId: 'admin-actor', user: { id: USER, isActive: true }, changes: { lifecycleState: 'suspended' } }), { code: 'LAST_ORGANIZATION_OWNER' });
+});
+
+test('last platform owner cannot be downgraded while ordinary internal staff still exist', async () => {
+  let query;
+  const models = { User: { rawAttributes: { internalAdminRole: {}, lifecycleState: {} }, count: async (options) => { query = options.where; return 1; } } };
+  await assert.rejects(assertUserAccessChange({ models, actorUserId: 'different-admin', user: { id: USER, isActive: true, isInternalAdmin: true, internalAdminRole: 'platform_owner' }, changes: { internalAdminRole: 'read_only' } }), { code: 'LAST_ADMIN' });
+  assert.equal(query.isInternalAdmin, true);
+  assert.ok(Object.getOwnPropertySymbols(query).length);
+});
+
+test('an already inactive platform administrator can be downgraded without counting as the last active one', async () => {
+  const models = { User: { count: async () => { throw new Error('Inactive source must not query active administrator loss'); } } };
+  await assert.doesNotReject(assertUserAccessChange({ models, actorUserId: 'different-admin', user: { id: USER, isActive: true, isInternalAdmin: true, lifecycleState: 'suspended' }, changes: { internalAdminRole: 'read_only' } }));
+});

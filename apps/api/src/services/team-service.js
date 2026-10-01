@@ -7,13 +7,15 @@ const { activeUser, assertActiveEvent, assertActiveOrganization } = require('./l
 const { detachOrgAffiliateForStaffRole, setOrganizationAssignmentsActive } = require('./event-affiliate-transition');
 const { revokePendingGuestlistInvitations } = require('./guestlist-invitation-policy');
 const { mutationTransaction } = require('./mutation-transaction');
+const { assertCommissionPricing } = require('../domain/editor-pricing-policy');
+const { revokeOrganizationVenueAccess } = require('./venue-access-transition');
 
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 function rosterPeople(leaders, employees, promoters) {
   const people = new Map();
   const add = (entry, role) => {
     if (!entry.user || people.has(entry.userId)) return;
-    people.set(entry.userId, { id: entry.userId, name: entry.user.displayName || 'Unknown', email: entry.user.email || '', role, status: entry.status || 'active', joined: entry.createdAt });
+    people.set(entry.userId, { id: entry.userId, name: entry.user.displayName || 'Unknown', email: entry.user.email || '', role, status: entry.status || 'active', joined: entry.createdAt, financeAuthorized: role === 'Owner' || (role === 'Manager' && Boolean(entry.financeAuthorized)) });
   };
   for (const entry of leaders.filter((row) => row.role === 'owner')) add(entry, 'Owner');
   for (const entry of leaders.filter((row) => row.role !== 'owner')) add(entry, 'Manager');
@@ -29,7 +31,7 @@ function createTeamService({ models, permissions, email: emailService = null, bu
     return organization;
   }
   async function roster(userId, organizationId) {
-    await assertManager(userId, organizationId);
+    const organization = await assertManager(userId, organizationId);
     const [leaders, employees, affiliates, invitations] = await Promise.all([
       models.OrganizationOwner.findAll({ where: { organizationId }, include: [{ model: models.User, as: 'user', attributes: ['id', 'displayName', 'email'] }] }),
       models.OrganizationEmployee.findAll({ where: { organizationId }, include: [{ model: models.User, as: 'user', attributes: ['id', 'displayName', 'email'] }] }),
@@ -37,7 +39,8 @@ function createTeamService({ models, permissions, email: emailService = null, bu
       models.TeamInvitation.findAll({ where: { organizationId, acceptedAt: null, expiresAt: { [Op.gt]: new Date() } }, attributes: ['id', 'email', 'phone', 'role', 'expiresAt', 'createdAt'], order: [['createdAt', 'DESC']] }),
     ]);
     const promoters = affiliates.filter((affiliate) => affiliate.status === 'active' && !affiliate.code.endsWith('-STAFF'));
-    return { leaders, employees, affiliates: promoters, people: rosterPeople(leaders, employees, promoters), invitations };
+    return { leaders, employees, affiliates: promoters, people: rosterPeople(leaders, employees, promoters), invitations,
+      organizationVersion: organization.version, canGrantFinance: leaders.some((row) => row.userId === userId && row.role === 'owner' && row.lifecycleState !== 'archived' && row.lifecycleState !== 'suspended') };
   }
   async function invite(userId, organizationId, input) {
     return mutationTransaction(models.TeamInvitation.sequelize, async (transaction) => {
@@ -67,11 +70,11 @@ function createTeamService({ models, permissions, email: emailService = null, bu
       ]);
       if (!existingOwner && !employee && !affiliate) throw notFound('Organization team member');
       const before = existingOwner?.lifecycleState === 'active' ? 'manager' : employee?.status === 'active' ? 'employee' : affiliate?.status === 'active' ? 'affiliate' : 'removed';
-      if (existingOwner && nextRole !== 'manager') await existingOwner.update({ lifecycleState: 'archived' }, { transaction });
+      if (existingOwner && nextRole !== 'manager') await existingOwner.update({ lifecycleState: 'archived', financeAuthorized: false }, { transaction });
       if (employee?.status === 'active') await employee.update({ status: 'inactive' }, { transaction });
       if (nextRole === 'manager') {
-        if (existingOwner) await existingOwner.update({ role: 'admin', lifecycleState: 'active' }, { transaction });
-        else await models.OrganizationOwner.create({ organizationId, userId: memberUserId, role: 'admin' }, { transaction });
+        if (existingOwner) await existingOwner.update({ role: 'admin', lifecycleState: 'active', financeAuthorized: existingOwner.lifecycleState === 'active' && existingOwner.role === 'admin' && Boolean(existingOwner.financeAuthorized) }, { transaction });
+        else await models.OrganizationOwner.create({ organizationId, userId: memberUserId, role: 'admin', financeAuthorized: false }, { transaction });
       } else if (nextRole === 'employee') {
         if (employee) await employee.update({ status: 'active' }, { transaction });
         else await models.OrganizationEmployee.create({ organizationId, userId: memberUserId, status: 'active' }, { transaction });
@@ -109,10 +112,11 @@ function createTeamService({ models, permissions, email: emailService = null, bu
         employeeStatus: employee?.status || null,
         promoterStatus: affiliate?.status || null,
       };
-      if (owner && owner.lifecycleState === 'active') await owner.update({ lifecycleState: 'archived' }, { transaction });
+      if (owner && owner.lifecycleState === 'active') await owner.update({ lifecycleState: 'archived', financeAuthorized: false }, { transaction });
       if (employee?.status === 'active') await employee.update({ status: 'inactive' }, { transaction });
       if (affiliate?.status === 'active') await affiliate.update({ status: 'inactive' }, { transaction });
       await setOrganizationAssignmentsActive({ models, organizationId, userId: memberUserId, actorUserId, active: false, transaction });
+      await revokeOrganizationVenueAccess({ models, organizationId, userId: memberUserId, actorUserId, transaction });
       await revokePendingGuestlistInvitations({ models, organizationId, userId: memberUserId, actorUserId, transaction });
       const audit = await models.AuditLog.create({ actorUserId, organizationId, entityType: 'OrganizationTeamMember', entityId: memberUserId, action: 'team.member.removed', before, after: { status: 'inactive' } }, { transaction });
       await queueAccessChanged({ email: emailService, models, userId: memberUserId, organization,
@@ -135,6 +139,7 @@ function createTeamService({ models, permissions, email: emailService = null, bu
       const event = await models.Event.findByPk(eventId,{transaction,lock:transaction.LOCK.UPDATE});
       await permissions.assertManageEvent(userId,eventId,transaction);
       assertEventEditable(event);
+      if (models.Offering) await assertCommissionPricing({ models, eventId, commissionBps: input.commissionBps ?? 0, transaction });
       const email = input.email.trim().toLowerCase();
       const token = crypto.randomBytes(32).toString('base64url');
       const expiresAt = new Date(Math.min(Date.now()+7*86400000,new Date(event.endsAt).getTime()));
@@ -196,11 +201,12 @@ function createTeamService({ models, permissions, email: emailService = null, bu
         await assertActiveEvent(models, event, transaction);
         assertEventEditable(event);
         await permissions.assertManageEvent(row.invitedByUserId,row.eventId,transaction);
+        if (models.Offering) await assertCommissionPricing({ models, eventId: row.eventId, commissionBps: row.commissionBps ?? 0, transaction });
         const [assignment,created] = await models.EventAffiliate.findOrCreate({where:{eventId:row.eventId,userId},defaults:{code:`NW-${crypto.randomUUID()}`,commissionBps:row.commissionBps,guestlistAllocation:0,status:'active',accessScope:'event'},transaction});
         const before = created ? null : assignment.toJSON();
         if (!created) {
           const linked = assignment.orgAffiliateId ? await models.OrgAffiliate.findByPk(assignment.orgAffiliateId, { transaction }) : null;
-          const values = { status: 'active', commissionBps: row.commissionBps, accessScope: 'event', orgAffiliateId: null, sourceOrgAffiliateId: null };
+          const values = { status: 'active', commissionBps: row.commissionBps, accessScope: 'event', orgAffiliateId: null, sourceOrgAffiliateId: null, venueAccessId: null };
           if (linked) {
             if (assignment.guestlistAllocation === null) values.guestlistAllocation = linked.defaultGuestlistAllocation;
             if (linked.startsAt && (!assignment.startsAt || linked.startsAt > assignment.startsAt)) values.startsAt = linked.startsAt;
@@ -226,9 +232,9 @@ function createTeamService({ models, permissions, email: emailService = null, bu
         const staffRole = row.role !== 'affiliate';
         if (staffRole && affiliate) await detachOrgAffiliateForStaffRole({ models, orgAffiliate: affiliate,
           organizationId: row.organizationId, userId, actorUserId: row.invitedByUserId, transaction });
-        if (owner) await owner.update({ lifecycleState: row.role === 'manager' ? 'active' : 'archived',
+        if (owner) await owner.update({ lifecycleState: row.role === 'manager' ? 'active' : 'archived', financeAuthorized: row.role === 'manager' && owner.lifecycleState === 'active' && owner.role === 'admin' && Boolean(owner.financeAuthorized),
           ...(row.role === 'manager' && !(owner.role === 'owner' && owner.lifecycleState === 'active') ? { role: 'admin' } : {}) }, { transaction });
-        else if (row.role === 'manager') await models.OrganizationOwner.create({ ...where, role: 'admin' }, { transaction });
+        else if (row.role === 'manager') await models.OrganizationOwner.create({ ...where, role: 'admin', financeAuthorized: false }, { transaction });
         if (employee) await employee.update({ status: row.role === 'employee' ? 'active' : 'inactive' }, { transaction });
         else if (row.role === 'employee') await models.OrganizationEmployee.create({ ...where, status: 'active' }, { transaction });
         if (affiliate) await affiliate.update({ status: row.role === 'affiliate' ? 'active' : 'inactive' }, { transaction });

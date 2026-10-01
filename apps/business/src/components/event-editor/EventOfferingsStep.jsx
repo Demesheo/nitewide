@@ -2,17 +2,22 @@ import { Plus } from 'lucide-react';
 import { Button } from '../ui/button';
 import { SelectField } from '../controls';
 import { TierEditor } from '../TierEditor';
-import { removeOffering } from '@/lib/business';
+import { removeOffering } from '../../lib/business';
 
 export function EventOfferingsStep({ draft, event, duplicateSource, addedTierKey, publishChecks, setPublishChecks,
   addTier, tier, setDraft, set }) {
   return <>
+    <SelectField id="event-fee-mode" label="Default fee payment" value={draft.feeMode || 'buyer'}
+      onChange={(value) => set('feeMode', value)} options={[
+        ['buyer', 'Customer pays added fees'], ['absorbed', 'Business absorbs fees'],
+      ]}/>
+    <p className="hint">Override this per offering if needed. Absorbed-fee purchases require at least $10 before taxes. Prices and commissions must leave positive business proceeds and cover the modeled $1 platform contribution; free admission is exempt. Payment processing is still simulated.</p>
     <div className="section-heading tier-ladder-heading"><div><h3>Build your ticket ladder</h3>
       <p>Set your prices and quantities. Sell tiers together, or link them to open one after another. Tap a tier to edit it.</p></div>
       <Button className="add-offering-button" type="button" variant="outline" size="sm"
         disabled={draft.offerings.length >= 50} onClick={() => addTier('ticket')}><Plus/>Add offering</Button></div>
     {draft.offerings.map((offering, index) => <TierEditor key={offering.clientKey} tier={offering} index={index}
-      offerings={draft.offerings} newlyAdded={offering.clientKey === addedTierKey}
+      offerings={draft.offerings} newlyAdded={offering.clientKey === addedTierKey} eventFeeMode={draft.feeMode || 'buyer'}
       onChange={(key, value) => tier(index, key, value)}
       onKindChange={(kind) => setDraft((current) => ({ ...current,
         offerings: current.offerings.map((item, at) => at === index ? { ...item, kind, releaseAfterKey: '' } : item),

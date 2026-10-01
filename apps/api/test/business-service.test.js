@@ -168,7 +168,7 @@ test("empty report and unattributed sales are represented honestly", () => {
     1000,
   );
 });
-function harness({ denied = false, sold = 4, orderHistory = 0 } = {}) {
+function harness({ denied = false, sold = 4, orderHistory = 0, tickets = 4 } = {}) {
   const calls = [];
   const event = {
     id: "e",
@@ -204,6 +204,7 @@ function harness({ denied = false, sold = 4, orderHistory = 0 } = {}) {
     Event: {
       sequelize: {
         transaction: async (_opts, fn) => fn({ LOCK: { UPDATE: "UPDATE" } }),
+        query: async () => [{ rate: 0 }],
       },
       findByPk: async () => event,
     },
@@ -230,6 +231,7 @@ function harness({ denied = false, sold = 4, orderHistory = 0 } = {}) {
       },
     },
     GuestlistEntry: { sum: async () => 5 },
+    Ticket: { count: async () => tickets },
     AuditLog: { create: async () => calls.push("audit") },
   };
   const permissions = {
@@ -238,7 +240,7 @@ function harness({ denied = false, sold = 4, orderHistory = 0 } = {}) {
       return event;
     },
   };
-  return { service: createBusinessService({ models, permissions }), calls };
+  return { service: createBusinessService({ models, permissions, now: () => new Date('2026-09-30T12:00:00Z') }), calls };
 }
 test("unauthorized users cannot edit events even with a valid payload", async () => {
   const h = harness({ denied: true });
@@ -320,6 +322,11 @@ test("direct guestlist cannot shrink below approved guests", async () => {
       h.service.saveEvent("owner", "e", { ...input(), guestlistCapacity: 4 }),
     /approved guests/,
   );
+});
+test('event capacity cannot erase paid or approved admissions through either editor', async () => {
+  const h = harness();
+  await assert.rejects(h.service.saveEvent('owner', 'e', { ...input(), capacity: 8 }), { code: 'EVENT_CAPACITY' });
+  assert.deepEqual(h.calls, []);
 });
 test("valid venue save reuses the organization location and updates event, tier and audit atomically", async () => {
   const h = harness();
