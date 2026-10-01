@@ -140,6 +140,18 @@ export function BusinessAnalytics({ session, ownOnly = false, organizations = []
     writeWorkspaceLocation({ reportOfferingKind: kind, reportOfferingName: name,
       reportTable: 'customers', reportSort: nextSort, reportPage: 1 }); };
   const backToEvents = () => changeTable('events');
+  const resetReport = () => {
+    // Reset report navigation, not the operator's chosen reporting dates.
+    const nextTable = ownOnly ? 'events' : 'regions';
+    setOrganizationIds([]); setVenueIds([]); setRegion(''); setRegions([]);
+    setReportEvent(''); setEventHint(null); setReportPerson(''); setPersonHint(null);
+    setReportOfferingKind(''); setReportOfferingName(''); setSearch(''); setDraftSearch('');
+    setTable(nextTable); setSort('sales_desc'); setReportPage(1);
+    writeWorkspaceLocation({ organizationIds: [], venueIds: [], reportRegion: null, reportRegions: [],
+      reportEvent: null, reportPerson: null, reportOfferingKind: null, reportOfferingName: null,
+      reportSearch: null, reportTable: nextTable, reportSort: 'sales_desc', reportPage: 1,
+      reportTeamPage: 1, reportTeamSearch: null, reportTeamRoles: [], reportTeamSort: 'sales_desc' });
+  };
   const backToEventOfferings = () => { if (!reportPerson && !reportOfferingKind && table === 'offerings') return;
     const nextSort = tableSort('offerings', sort); setReportPerson(''); setPersonHint(null);
     setReportOfferingKind(''); setReportOfferingName(''); setTable('offerings'); setSort(nextSort); setReportPage(1);
@@ -206,8 +218,7 @@ export function BusinessAnalytics({ session, ownOnly = false, organizations = []
     ? [['offerings', 'Tickets & packages'], ['customers', 'Customers']]
     : reportEvent
     ? [['offerings', 'Tickets & packages'], ['team', 'Team'], ['customers', 'Customers']]
-    : ownOnly ? [] : [...(rootTable === 'regions' ? [['regions', 'Regions']] : []),
-      ['venues', 'Venues'], ['events', 'Events'], ['team', 'Team']];
+    : ownOnly ? [] : [['venues', 'Venues'], ['events', 'Events'], ['team', 'Team'], ['customers', 'Customers']];
   const categories = categoryChoices.map(([id, label]) => ({ id, label, active: table === id,
     onClick: () => changeTable(id) }));
   const visuals = summary && { ...summary, options: { regions: regionOptions }, hierarchy: regionOptions.length > 1 ? summary.regionalMix || [] : summary.eventMix.map((row) => ({ ...row, level: 'event' })) };
@@ -241,7 +252,7 @@ export function BusinessAnalytics({ session, ownOnly = false, organizations = []
             reportSort: nextSort, reportPage: 1, reportTeamPage: 1 }); }}/>}
     </div>;
   const tableControls = <div className="analytics-table-controls flex flex-wrap items-end gap-3 border-t border-border px-5 py-4" aria-label="Analytics table controls">
-      <AnalyticsReportNavigation breadcrumbs={breadcrumbs} categories={categories} navigationRef={eventHeading}/>
+      <AnalyticsReportNavigation breadcrumbs={breadcrumbs} categories={categories} navigationRef={eventHeading} onReset={resetReport}/>
       <label className="text-xs text-muted-foreground">Start date<Input className="mt-1" type="date" value={startDate} max={endDate || undefined} onChange={(event) => updateDate('reportStart', event.target.value, setStartDate)}/></label>
       <label className="text-xs text-muted-foreground">End date<Input className="mt-1" type="date" value={endDate} min={startDate || undefined} onChange={(event) => updateDate('reportEnd', event.target.value, setEndDate)}/></label>
       <form className="analytics-search-form flex min-w-0 flex-1 items-center gap-2" onSubmit={submitSearch} role="search">

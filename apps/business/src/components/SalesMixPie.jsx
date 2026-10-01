@@ -1,5 +1,6 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { money } from '@/lib/business';
+import { chartTooltipStyles } from '@/lib/chart-display';
 
 const mixColors = ['#b9a9ff', '#fe6ef0', '#0446ef', '#f10393', '#8b85c5', '#8b0535', '#706b80'];
 
@@ -14,7 +15,7 @@ export function SalesMixPie({ slices }) {
             <Pie data={slices.map((row) => ({ ...row, name: `${row.name}${row.dateLabel ? ` · ${row.dateLabel}` : ''}` }))} dataKey="salesCents" nameKey="name" innerRadius={53} outerRadius={78} paddingAngle={2} stroke="none" isAnimationActive={false}>
               {slices.map((row, index) => <Cell key={row.id} fill={mixColors[index % mixColors.length]}/>)}
             </Pie>
-            <Tooltip formatter={(value) => money(value)} contentStyle={{ background: '#20202c', border: '1px solid #3b394d', borderRadius: 12, color: '#fafafa' }}/>
+            <Tooltip formatter={(value) => money(value)} {...chartTooltipStyles}/>
           </PieChart>
         </ResponsiveContainer>
         <span className="mix-pie-center"><strong>{money(total)}</strong><small>face-value sales</small></span>

@@ -722,6 +722,9 @@ nav[aria-label="Report drill-down"] [data-slot="button"] {
 .mix-legend-date { flex: none; white-space: nowrap; color: #aaa1b9; }
 .mix-legend strong { font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .analytics-mix .mix-visual { padding: 0 0 16px; }
+.analytics-mix .mix-legend > div, .analytics-mix .mix-legend strong { font-size: 12px; }
+.analytics-mix .mix-legend-name { white-space: normal; overflow-wrap: anywhere; }
+.analytics-mix .mix-pie-center small { font-size: 10px; color: #c4b8d6; }
 .analytics-sort { color: inherit; font: inherit; text-align: left; white-space: nowrap; }
 .analytics-sort:hover, .analytics-drill:hover { color: #fe6ef0; }
 .analytics-sort:focus-visible, .analytics-drill:focus-visible { outline: 2px solid #b9a9ff; outline-offset: 3px; border-radius: 3px; }

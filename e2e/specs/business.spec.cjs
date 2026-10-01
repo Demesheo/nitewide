@@ -196,6 +196,64 @@ test('manager referral and personal pool support a ten-spot private invitation',
   await expect(dialog.getByLabel('Guestlist invitation link')).toHaveValue(/guestlistInvite=/);
 });
 
+test('analytics chart labels are readable and tooltips show Sales instead of the internal cents field', async ({ page, fixture }, testInfo) => {
+  // Keep real report values, but exercise a name that would overflow a
+  // character-count truncation rule. No database records are changed.
+  const longName = 'WWWWWWWWWWWWWWWWWWWW — exceptionally long event name';
+  await page.route('**/api/business/reports/summary?**', async route => {
+    const response = await route.fetch();
+    const json = await response.json();
+    if (json.data?.eventMix) json.data.eventMix = json.data.eventMix.map(row => ({ ...row, label: longName }));
+    await route.fulfill({ response, json });
+  });
+  await login(page, fixture, 'business');
+  await businessSection(page, 'Analytics');
+  for (const title of ['Sales pace', 'Top events']) {
+    const chart = page.locator('section').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+    const surface = chart.getByRole('application');
+    await expect(surface).toBeVisible();
+    // Keyboard activation exposes the actual Recharts tooltip in both
+    // browsers, without depending on tiny point coordinates or hover support.
+    await surface.focus();
+    await surface.press('ArrowRight');
+    const tooltip = chart.locator('.recharts-tooltip-wrapper');
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip.locator('.recharts-tooltip-item-name')).toHaveText('Sales');
+    await expect(tooltip.locator('.recharts-tooltip-item-value')).toHaveText(/^\$[\d,]+\.\d{2}$/);
+    await expect(tooltip).not.toContainText('salesCents');
+    await expect(tooltip.locator('.recharts-default-tooltip')).toHaveCSS('background-color', 'rgb(32, 32, 44)');
+    await expect(tooltip.locator('.recharts-tooltip-item')).toHaveCSS('color', 'rgb(250, 250, 250)');
+    if (title === 'Top events') await expect(tooltip).toContainText(longName);
+    const tooltipBox = await tooltip.boundingBox();
+    expect(tooltipBox.x).toBeGreaterThanOrEqual(0);
+    expect(tooltipBox.x + tooltipBox.width).toBeLessThanOrEqual(page.viewportSize().width);
+    const axes = await chart.locator('.recharts-cartesian-axis-tick-labels').evaluateAll(elements => elements.map(axis => {
+      const svg = axis.closest('svg').getBoundingClientRect();
+      const labels = [...axis.querySelectorAll('text')].map(text => {
+        const rect = text.getBoundingClientRect();
+        const style = getComputedStyle(text);
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, fontSize: style.fontSize, fill: style.fill };
+      });
+      return { horizontal: axis.classList.contains('recharts-xAxis-tick-labels'), svg: { left: svg.left, right: svg.right, top: svg.top, bottom: svg.bottom }, labels };
+    }));
+    for (const { horizontal, svg, labels } of axes) {
+      expect(labels.length).toBeGreaterThan(0);
+      for (const label of labels) {
+        expect(label.fontSize).toBe('12px');
+        expect(label.fill).toBe('rgb(216, 209, 225)');
+        expect(label.left).toBeGreaterThanOrEqual(svg.left - 1);
+        expect(label.right).toBeLessThanOrEqual(svg.right + 1);
+      }
+      const ordered = labels.toSorted((a, b) => horizontal ? a.left - b.left : a.top - b.top);
+      for (let index = 1; index < ordered.length; index += 1) {
+        expect(horizontal ? ordered[index].left : ordered[index].top).toBeGreaterThanOrEqual(horizontal ? ordered[index - 1].right : ordered[index - 1].bottom);
+      }
+    }
+    await page.screenshot({ path: testInfo.outputPath(`${title.toLowerCase().replaceAll(' ', '-')}.png`) });
+  }
+  await expectNoOverflow(page);
+});
+
 test('analytics search is explicit, drills to purchases and customers, and exports every event', async ({ page, fixture }) => {
   // Exercise the standard download fallback, not an OS-native file-picker.
   await page.addInitScript(() => { delete window.showSaveFilePicker; });
@@ -213,6 +271,22 @@ test('analytics search is explicit, drills to purchases and customers, and expor
   await page.getByRole('table', { name: 'offerings report' }).getByRole('button', { name: 'General Admission', exact: true }).click();
   await expect(page).toHaveURL(/reportTable=customers/);
   await expect(page.getByRole('table', { name: 'customers report' })).toContainText('Jordan Customer');
+  const startDate = await page.getByLabel('Start date', { exact: true }).inputValue();
+  const endDate = await page.getByLabel('End date', { exact: true }).inputValue();
+  await page.getByRole('button', { name: 'Reset', exact: true }).click();
+  await expect(page.getByRole('table', { name: 'regions report' })).toBeVisible();
+  await expect(page).not.toHaveURL(/reportEvent=|reportOffering|reportSearch=|reportPerson=|venueIds=/);
+  await expect(page.getByLabel('Start date', { exact: true })).toHaveValue(startDate);
+  await expect(page.getByLabel('End date', { exact: true })).toHaveValue(endDate);
+  await expect(search).toHaveValue('');
+  const views = page.getByRole('group', { name: 'Analytics report views', exact: true });
+  await expect(views.getByRole('button', { name: 'Regions', exact: true })).toHaveCount(0);
+  await expect(views.getByRole('button', { name: 'Customers', exact: true })).toBeVisible();
+  await views.getByRole('button', { name: 'Customers', exact: true }).click();
+  await expect(page.getByRole('table', { name: 'customers report' })).toContainText('Jordan Customer');
+  await expect(views.getByRole('button', { name: 'Customers', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page).not.toHaveURL(/reportEvent=|reportOffering|reportPerson=/);
+  await expectNoOverflow(page);
   await page.goto('/app?section=analytics&reportTable=events');
   await expect(page.getByRole('table', { name: 'events report' })).toBeVisible();
   const download = page.waitForEvent('download');

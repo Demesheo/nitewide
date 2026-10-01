@@ -1,15 +1,24 @@
 import { Fragment, useEffect, useState } from 'react';
-import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Text, Tooltip, XAxis, YAxis } from 'recharts';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TablePagination, useTablePagination } from '@/components/TablePagination';
 import { money } from '@/lib/business';
+import { chartMoneyLabel, chartTick, chartTooltipStyles } from '@/lib/chart-display';
 import { explorerView, hasMultipleRegions, sortExplorerRows } from '@/lib/analytics-explorer';
 
 const levelNames = { region: 'Regions', entity: 'Venues & creators', event: 'Events', customer: 'Customers' };
 const firstColumn = { region: 'Region', entity: 'Venue / creator', event: 'Event', customer: 'Customer' };
 const emptyText = { region: 'No locations in this selection.', entity: 'No venues or creators in this selection.', event: 'No events in this selection.', customer: 'No paid customers for this event and date range.' };
 const eventColors = ['#b9a9ff', '#fe6ef0', '#0446ef', '#f10393', '#8b85c5', '#8b0535'];
+
+function ContributionLabel({ x, y, payload }) {
+  const label = String(payload.value);
+  // Measure truncation by available space, not character count. Long names
+  // remain available in the title and tooltip without spilling into other rows.
+  return <g><title>{label}</title><Text x={x - 6} y={y} verticalAnchor="middle" textAnchor="end"
+    width={118} maxLines={1} {...chartTick} style={{ fontSize: '12px', fontWeight: 400, letterSpacing: 0, fontFamily: 'Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>{label}</Text></g>;
+}
 
 function SortHead({ label, value, sortKey, descending, onSort }) {
   return <th scope="col"><button type="button" className="analytics-sort" onClick={() => onSort(value)} aria-label={`Sort by ${label}${sortKey === value ? (descending ? ', descending' : ', ascending') : ''}`}>{label}<span aria-hidden="true">{sortKey === value ? (descending ? ' ↓' : ' ↑') : ' ↕'}</span></button></th>;
@@ -19,7 +28,7 @@ export function ContributionChart({ data }) {
   const multipleRegions = hasMultipleRegions(data);
   const type = multipleRegions ? 'region' : 'event';
   const rows = data.hierarchy.filter((row) => row.level === type && row.salesCents > 0).sort((a, b) => b.salesCents - a.salesCents).slice(0, 6);
-  return <section className="rounded-xl border border-border bg-card p-5"><h3 className="font-semibold">{multipleRegions ? 'Regional contribution' : 'Top events'}</h3><p className="mb-4 text-xs text-muted-foreground">{multipleRegions ? 'Selected sales by event location' : 'Highest face-value sales in this selection'}</p>{rows.length ? <div className="h-56"><ResponsiveContainer width="100%" height="100%"><BarChart data={rows} layout="vertical"><CartesianGrid horizontal={false} stroke="#353040"/><XAxis type="number" tickFormatter={(value) => `$${Math.round(value / 100)}`} tick={{ fill: '#a5a5b8', fontSize: 10 }}/><YAxis dataKey="label" type="category" width={135} tickFormatter={(value) => value.length > 18 ? `${value.slice(0, 17)}…` : value} tick={{ fill: '#c4b8d6', fontSize: 10 }}/><Tooltip formatter={(value) => money(value)} contentStyle={{ background: '#20202c', border: '1px solid #3b394d', borderRadius: 12 }}/><Bar dataKey="salesCents" radius={[0, 4, 4, 0]} isAnimationActive={false}>{rows.map((row, index) => <Cell key={row.id} fill={eventColors[index % eventColors.length]}/>)}</Bar></BarChart></ResponsiveContainer></div> : <p className="py-16 text-center text-sm text-muted-foreground">No paid sales in this period.</p>}</section>;
+  return <section className="rounded-xl border border-border bg-card p-5"><h3 className="font-semibold">{multipleRegions ? 'Regional contribution' : 'Top events'}</h3><p className="mb-4 text-xs text-muted-foreground">{multipleRegions ? 'Selected sales by event location' : 'Highest face-value sales in this selection'}</p>{rows.length ? <div className="h-56"><ResponsiveContainer width="100%" height="100%"><BarChart data={rows} layout="vertical" margin={{ top: 8, right: 16, bottom: 8, left: 0 }}><CartesianGrid horizontal={false} stroke="#353040"/><XAxis type="number" tickFormatter={chartMoneyLabel} tick={chartTick} axisLine={false} tickLine={false} minTickGap={24} interval="preserveStartEnd"/><YAxis dataKey="label" type="category" width={140} tick={<ContributionLabel/>} axisLine={false} tickLine={false}/><Tooltip position={{ x: 0 }} formatter={(value) => money(value)} {...chartTooltipStyles} cursor={{ fill: '#b9a9ff12' }}/><Bar name="Sales" dataKey="salesCents" radius={[0, 4, 4, 0]} isAnimationActive={false}>{rows.map((row, index) => <Cell key={row.id} fill={eventColors[index % eventColors.length]}/>)}</Bar></BarChart></ResponsiveContainer></div> : <p className="py-16 text-center text-sm text-muted-foreground">No paid sales in this period.</p>}</section>;
 }
 
 export function ExplorerTable({ data }) {

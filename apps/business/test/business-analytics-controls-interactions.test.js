@@ -92,7 +92,7 @@ test('analytics table controls stay with the active table and preserve URL scope
       logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { BusinessAnalytics } = await vite.ssrLoadModule('/src/components/BusinessAnalytics.jsx');
     const React = await import('react');
-    const { act, render, screen, waitFor } = await import('@testing-library/react');
+    const { act, render, screen, waitFor, within } = await import('@testing-library/react');
     const user = (await import('@testing-library/user-event')).default.setup({ document: dom.window.document });
     const view = render(React.createElement(BusinessAnalytics, {
       session: { accessToken: 'fixture-token' }, organizations: [{ id: 'org-a', name: 'North Hall' }, { id: 'org-b', name: 'South Hall' }],
@@ -156,7 +156,7 @@ test('analytics table controls stay with the active table and preserve URL scope
     assert.equal(toolbar().length, 1, 'the controls remain mounted for an incomplete custom range');
     assert.ok(toolbar()[0].closest('.report-table-panel'));
     assert.equal(screen.queryByLabelText('Sales period'), null);
-    assert.equal(screen.queryByRole('button', { name: 'Reset' }), null);
+    assert.ok(screen.getByRole('button', { name: 'Reset' }), 'report navigation stays resettable even when dates are incomplete');
     const summaryCount = requests.filter((url) => url.pathname === '/api/business/reports/summary').length;
     await new Promise((resolve) => setTimeout(resolve, 280));
     assert.equal(requests.filter((url) => url.pathname === '/api/business/reports/summary').length, summaryCount,
@@ -453,6 +453,25 @@ test('analytics table controls stay with the active table and preserve URL scope
       assert.equal(params.get('reportStart'), '2026-09-01');
       assert.equal(params.get('reportEnd'), '2026-09-30');
     });
+    await user.click(screen.getByRole('button', { name: 'Reset', exact: true }));
+    await screen.findByRole('heading', { name: 'Regions', exact: true });
+    const resetParams = new URLSearchParams(dom.window.location.search);
+    for (const key of ['organizationIds', 'venueIds', 'reportRegion', 'reportRegions', 'reportEvent', 'reportPerson',
+      'reportOfferingKind', 'reportOfferingName', 'reportSearch', 'reportTeamSearch', 'reportTable', 'reportSort', 'reportPage']) {
+      assert.equal(resetParams.has(key), false, `Reset clears ${key} (defaults stay implicit)`);
+    }
+    assert.equal(resetParams.get('reportStart'), '2026-09-01');
+    assert.equal(resetParams.get('reportEnd'), '2026-09-30');
+    assert.equal(screen.getByRole('textbox', { name: 'Search business analytics' }).value, '');
+    assert.ok(!within(screen.getByRole('group', { name: 'Analytics report views' })).queryByRole('button', { name: 'Regions', exact: true }),
+      'Reset replaces the Regions category button, not the multi-region filter');
+    await user.click(screen.getByRole('button', { name: 'Customers', exact: true }));
+    await screen.findByRole('heading', { name: 'Customers', exact: true });
+    await screen.findByText('Buyer A');
+    await waitFor(() => assert.ok(requests.some(url => url.pathname === '/api/business/reports/customers' &&
+      !url.searchParams.has('eventId') && !url.searchParams.has('personId') && !url.searchParams.has('offeringName') &&
+      !url.searchParams.has('venueIds') && !url.searchParams.has('regions') && url.searchParams.get('startDate') === '2026-09-01')));
+    assert.equal(screen.getByRole('button', { name: 'Customers', pressed: true }).textContent, 'Customers');
   } finally {
     finishExport?.(new Response('Name,Sales\n', { status: 200, headers: { 'content-type': 'text/csv' } }));
     try { unmount?.(); } catch {}
