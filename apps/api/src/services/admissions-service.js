@@ -1,6 +1,7 @@
 const { Op, QueryTypes } = require('sequelize');
 const { forbidden } = require('../domain/errors');
 const { ADMISSION_WINDOW_MS, assertAdmissionOpen } = require('../domain/admission-policy');
+const { orderAdmissionSql } = require('../domain/order-admission-policy');
 const { activeEventScope, activeUser } = require('./lifecycle-service');
 const { hasInternalPermission } = require('./internal-admin-permissions');
 const { activeEventAffiliates } = require('./event-affiliate-scope');
@@ -51,7 +52,7 @@ function createAdmissionsService({ models: m, permissions, now = () => new Date(
         i.name_snapshot AS offering, 1 AS spots, t.status, t.checked_in_at AS "checkedInAt"
       FROM tickets t JOIN users u ON u.id = t.holder_user_id
       JOIN order_items i ON i.id = t.order_item_id JOIN orders o ON o.id = i.order_id
-      WHERE t.event_id = :eventId AND o.status = 'paid' AND t.status IN ('valid', 'checked_in')
+      WHERE t.event_id = :eventId AND ${orderAdmissionSql('o')} AND t.status IN ('valid', 'checked_in')
       UNION ALL
       SELECT g.id, 'guestlist', u.display_name, u.email, 'Guest list entry', g.party_size, g.status, g.checked_in_at
       FROM guestlist_entries g JOIN users u ON u.id = g.user_id

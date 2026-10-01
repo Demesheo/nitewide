@@ -1,4 +1,5 @@
 const initializers = [
+  require('./PaymentAccount').initPaymentAccount, require('./StripeWebhookReceipt').initStripeWebhookReceipt, require('./Refund').initRefund,
   require('./AuthSession').initAuthSession, require('./AuthSession').initAbuseBucket,
   require('./OrganizationVenue').initOrganizationVenue,
   require('./VenueAccess').initVenueAccess,

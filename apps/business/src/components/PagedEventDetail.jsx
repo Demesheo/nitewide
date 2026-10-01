@@ -14,6 +14,7 @@ import { EventTeam } from './EventTeam';
 import { Guestlists } from './Guestlists';
 import { EventInstructions } from './EventInstructions';
 import { EventReuseActions } from './EventReuseActions';
+import { EventPaymentAccount } from './PaymentAccounts';
 
 function Metric({ label, value, detail, icon: Icon }) {
   return <div className="event-metric"><div><span>{label}</span><Icon size={18}/></div><strong>{value}</strong>{detail && <small>{detail}</small>}</div>;
@@ -56,6 +57,7 @@ export function PagedEventDetail({ eventId, session, capabilities, refreshToken,
       {event.summary && <p className="event-detail-summary">{event.summary}</p>}
     </section>
     {notice && <p className="notice" role="status">{notice}</p>}
+    <EventPaymentAccount key={`${event.id}:${event.paymentAccountId || ''}`} event={event} session={session} onSaved={saved} />
     {event.canManage && <EventInstructions event={event} session={session} capabilities={capabilities} onUnauthorized={onUnauthorized} onQueued={saved}/>}
     {event.canManage && <EventReuseActions event={event} session={session} onDuplicate={onDuplicate} onSaved={setNotice}/>}
     {phase !== 'past' && <ReferralLink event={event} session={session} revision={revision} onUnauthorized={onUnauthorized} onInvited={() => saved('Guestlist invitation created.')}/>}

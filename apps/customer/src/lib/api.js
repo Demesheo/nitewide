@@ -26,6 +26,7 @@ export async function api(path, { token, body, signal, ...options } = {}) {
       payload.error?.message || "Something went wrong. Please try again.",
     );
     error.status = response.status;
+    error.code = payload.error?.code;
     throw error;
   }
   return customerPresentation(path, payload.data);

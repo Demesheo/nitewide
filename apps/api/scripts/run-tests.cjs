@@ -9,6 +9,9 @@ const { offlineEnvironment, maintenanceUrl, postgresUrl, assertLoopbackUrl, asse
 const apiRoot = path.resolve(__dirname, '..');
 const INTEGRATION_TESTS = ['business-access-request-integration.test.js', 'abuse-session-integration.test.js', 'admissions-integration.test.js', 'business-integration.test.js', 'business-reporting-integration.test.js', 'business-read-integration.test.js', 'admin-onboarding-lifecycle-integration.test.js', 'admin-business-access-integration.test.js', 'admin-report-support-integration.test.js', 'venue-access-integration.test.js', 'public-discovery-integration.test.js', 'customer-experience-integration.test.js', 'referral-reactivation-integration.test.js', 'mutation-concurrency-integration.test.js', 'report-export-integration.test.js', 'notification-worker-integration.test.js', 'email-worker-integration.test.js', 'media-storage-integration.test.js', 'production-diagnostics-integration.test.js', 'api-domain-contract-integration.test.js'];
 INTEGRATION_TESTS.push('password-change-integration.test.js');
+INTEGRATION_TESTS.push('payment-safety-integration.test.js');
+INTEGRATION_TESTS.push('stripe-checkout-integration.test.js');
+INTEGRATION_TESTS.push('business-payment-account-integration.test.js');
 const DEMO_TESTS = ['orlando-seed-integration.test.js', 'posh-importer-integration.test.js', 'seed-cleanup-integration.test.js', 'seed-guestlists-integration.test.js', 'venue-selection-integration.test.js'];
 let activeChild = null; let interrupted = null;
 

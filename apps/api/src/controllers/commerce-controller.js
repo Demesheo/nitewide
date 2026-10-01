@@ -4,12 +4,20 @@ const { guestlistQuery } = require('../http/schemas');
 function customerOrder(order) {
   const data = order.toJSON ? order.toJSON() : { ...order };
   delete data.requestFingerprint;
+  for (const field of ['paymentAccountId', 'stripeAccountId', 'applicationFeeCents', 'checkoutSessionId', 'providerMode',
+    'providerVerificationStatus', 'stripePaymentIntentId', 'stripeChargeId', 'reservationExpiresAt', 'reservationReleasedAt']) delete data[field];
   const { tier, monthlyFeeCents, percentageBps, perPaidUnitCents, processingPaidBy, version, demo } = data.pricingPlanSnapshot || {};
   return { ...data, pricingPlanSnapshot: { tier, monthlyFeeCents, percentageBps, perPaidUnitCents, processingPaidBy, version, demo } };
 }
 function createCommerceController({ checkout, requestGuestlist, reviewGuestlist, checkIn, permissions, models }) {
   return {
     checkout: async (req, res) => { const result = await checkout({ ...req.body, buyerUserId: req.userId }); res.status(result.replayed ? 200 : 201).json({ data: { ...result, order: customerOrder(result.order) } }); },
+    getCheckoutAttempt: async (req, res) => {
+      const idempotencyKey = require('zod').z.string().min(8).max(100).parse(req.params.idempotencyKey);
+      const order = await models.Order.findOne({ where: { buyerUserId: req.userId, idempotencyKey }, attributes: ['id', 'status'] });
+      if (!order) throw require('../domain/errors').notFound('Checkout attempt');
+      res.json({ data: { orderId: order.id, status: order.status } });
+    },
     getOrder: async (req, res) => { const order = await models.Order.findOne({ where: { id: req.params.orderId, buyerUserId: req.userId }, include: [{ model: models.OrderItem, as: 'items', include: [{ model: models.Ticket, as: 'tickets', attributes: { exclude: ['qrTokenHash'] } }] }] }); if (!order) throw require('../domain/errors').notFound('Order'); res.json({ data: customerOrder(order) }); },
     requestGuestlist: async (req, res) => { const result = await requestGuestlist({ ...req.body, eventId: req.params.eventId, userId: req.userId }); res.status(202).json({ data: result }); },
     listGuestlistRequests: async (req, res) => {

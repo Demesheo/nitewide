@@ -5,6 +5,7 @@ const { assertEditorPricing } = require('../domain/editor-pricing-policy');
 const { assertEventEditable } = require('../domain/event-policy');
 const { activeUser, assertActiveEvent, assertActiveOrganization, assertOrganizationVenue } = require('./lifecycle-service');
 const { authorizeEventWrite, assertDirectCapacity, persistOffering, recordEventMutation } = require('./event-mutation-policy');
+const { assertPaidPublication } = require('./payment-readiness-service');
 const {
   forbidden,
   conflict,
@@ -145,6 +146,9 @@ function createBusinessService({
   customerAppUrl = 'http://localhost:5173',
   businessAppUrl = 'http://localhost:5174/app',
   now = () => new Date(),
+  environment = process.env.NODE_ENV || 'development',
+  hostedDemo = false,
+  stripe = null,
 }) {
   async function workspace() {
     throw new DomainError('This bulk workspace has been retired. Use /business/bootstrap, /business/events, and /business/reports/summary with paginated /business/reports/:table.', {
@@ -188,6 +192,7 @@ function createBusinessService({
             })
           : [];
         const byId = new Map(existing.map((o) => [o.id, o]));
+        await assertPaidPublication({ models, event: { ...input, paymentAccountId: event?.paymentAccountId }, offerings: input.offerings, environment, hostedDemo, stripe, transaction });
         await assertEditorPricing({ models, eventId, organizationId: input.organizationId, eventFeeMode: input.feeMode || 'buyer', offerings: input.offerings, transaction, now: now() });
         for (const tier of input.offerings) {
           if (tier.id && !byId.has(tier.id))
@@ -195,10 +200,10 @@ function createBusinessService({
           const old = byId.get(tier.id);
           if (
             tier.inventoryMode === "finite" &&
-            tier.quantityTotal < (old?.quantitySold || 0)
+            tier.quantityTotal < (old?.quantitySold || 0) + (old?.quantityReserved || 0)
           )
             throw conflict(
-              `${tier.name}: inventory cannot be less than units already sold`,
+              `${tier.name}: inventory cannot be less than units already sold or reserved`,
             );
           if (
             old?.quantitySold &&
@@ -210,6 +215,7 @@ function createBusinessService({
             );
           if (old && old.currency !== "USD")
             throw conflict("This editor supports USD tiers only");
+          if (old?.quantityReserved && ['priceCents','kind','entriesPerUnit'].some(key=>tier[key] !== old[key])) throw conflict('Wait for pending checkout attempts to finish before changing reserved offering terms.', 'OFFERING_RESERVED');
           if (tier.visibility === "password" && !old?.accessCodeHash)
             throw conflict("Password tiers require an existing access code");
         }
@@ -217,7 +223,7 @@ function createBusinessService({
         for (const removed of removedTiers) {
           // Keep historical orders even if a refunded tier's counter reaches zero.
           // The event + offering locks also serialize this check with checkout.
-          if (removed.quantitySold > 0 || await models.OrderItem.count({
+          if (removed.quantitySold > 0 || removed.quantityReserved > 0 || await models.OrderItem.count({
             where: { offeringId: removed.id }, transaction,
           })) throw conflict(
             `${removed.name}: tiers with sales or order history cannot be removed. Turn off sales instead.`,
@@ -304,13 +310,13 @@ function createBusinessService({
         for (const [sortOrder, tier] of offerings.entries()) {
           const { id, releaseAfterIndex, ...values } = tier;
           values.releaseAfterOfferingId = releaseAfterIndex == null ? null : savedTiers[releaseAfterIndex].id;
-          savedTiers.push(await persistOffering({ models, eventId: saved.id, values: { ...values, sortOrder, currency: 'USD' }, previous: id ? byId.get(id) : null, transaction, pricingValidated: true }));
+          savedTiers.push(await persistOffering({ models, eventId: saved.id, values: { ...values, sortOrder, currency: 'USD' }, previous: id ? byId.get(id) : null, transaction, pricingValidated: true, paymentValidated: true }));
         }
         // Re-link retained tiers first, then delete only verified unsold tiers.
         if (removedTiers.length) await models.Offering.destroy({
           where: { id: removedTiers.map((tier) => tier.id), eventId: saved.id }, transaction,
         });
-        await recordEventMutation({ models, email, userId, saved, before, offerings, location, previousLocation, customerAppUrl, businessAppUrl, transaction, adminReason });
+        await recordEventMutation({ models, email, userId, saved, before, offerings, location, previousLocation, customerAppUrl, businessAppUrl, transaction, adminReason, paymentValidated: true });
         return saved;
       },
     );

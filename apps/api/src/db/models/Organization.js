@@ -6,6 +6,7 @@ class Organization extends Model {}
 function initOrganization(sequelize) {
   Organization.init({
     id: id(),
+    defaultPaymentAccountId: { type: DataTypes.UUID, allowNull: true },
     lifecycleState: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'active', validate: { isIn: [['active', 'suspended', 'archived']] } },
     businessType: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'organization', validate: { isIn: [['organization', 'venue', 'independent_creator']] } },
     onboardingEstablished: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },

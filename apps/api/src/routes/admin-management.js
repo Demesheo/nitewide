@@ -2,8 +2,8 @@ const { createAdminManagementService } = require('../services/admin-management-s
 const { scopedRoleSchema } = require('../services/admin-role-service');
 const { validate } = require('./contract-router');
 
-function registerAdminManagement({ router, models, permissions, email, customerAppUrl, businessAppUrl, requireUser, asyncHandler }) {
-  const service = createAdminManagementService({ models, permissions, email, customerAppUrl, businessAppUrl });
+function registerAdminManagement({ router, models, permissions, email, customerAppUrl, businessAppUrl, requireUser, asyncHandler, environment, hostedDemo, stripe }) {
+  const service = createAdminManagementService({ models, permissions, email, customerAppUrl, businessAppUrl, environment, hostedDemo, stripe });
   const roles = require('../services/admin-role-service').createAdminRoleService({ models, permissions });
   const send = (handler) => asyncHandler(async (req, res) => res.json({ data: await handler(req) }));
   router.get('/admin/management/resources', requireUser, send((req) => service.metadata(req.userId)));

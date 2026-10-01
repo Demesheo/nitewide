@@ -9,7 +9,7 @@ const { fn, col } = require('sequelize');
 const { assertCommissionPricing } = require('../domain/editor-pricing-policy');
 const { createBusinessSlug } = require('../domain/business-slug');
 
-function createManagementService({ models, permissions, email = null, businessAppUrl = 'http://localhost:5174/app', customerAppUrl = 'http://localhost:5173' }) {
+function createManagementService({ models, permissions, email = null, businessAppUrl = 'http://localhost:5174/app', customerAppUrl = 'http://localhost:5173', environment = process.env.NODE_ENV || 'development', hostedDemo = false, stripe = null }) {
   const eventWorkspace = createEventWorkspaceService({ models, permissions, email, businessAppUrl });
   const eventMutation = (userId, eventId, work, accessChange = false) => mutationTransaction(models.Event.sequelize, async (transaction) => {
     await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
@@ -62,12 +62,12 @@ function createManagementService({ models, permissions, email = null, businessAp
         if (!location || location.lifecycleState !== 'active') throw conflict('Select an active venue', 'VENUE_INACTIVE');
       }
       const saved = await models.Event.create({ ...input, locationId, creatorUserId: userId }, { transaction });
-      await recordEventMutation({ models, email, userId, saved, before: null, customerAppUrl, businessAppUrl, transaction });
+      await recordEventMutation({ models, email, userId, saved, before: null, customerAppUrl, businessAppUrl, transaction, environment, hostedDemo,stripe });
       return saved;
       }); return data;
     },
     addOffering: async (userId, ids, input) => eventMutation(userId, ids.eventId, async (event, transaction) => {
-      const data = await persistOffering({ models, eventId: event.id, values: input, transaction });
+      const data = await persistOffering({ models, eventId: event.id, values: input, transaction, environment, hostedDemo,stripe });
       await models.AuditLog.create({ actorUserId: userId, organizationId: event.organizationId, entityType: 'Offering', entityId: data.id, action: 'offering.created', after: data.toJSON() }, { transaction });
       return data;
     }),

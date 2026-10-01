@@ -24,7 +24,7 @@ test('durable checkout notification worker: rollback, leases, preferences, revoc
       currency: 'USD', inventoryMode: 'finite', quantityTotal: 1, quantitySold: 0, entriesPerUnit: 1, minPerOrder: 1, maxPerOrder: 1 });
     const checkout = createCheckoutService({ sequelize: db, models: m, email: null, notificationJobs: worker });
     const input = { eventId: ids.event, buyerUserId: ids.guest, idempotencyKey: randomUUID(), affiliateCode: affiliate.code,
-      items: [{ offeringId: offering.id, quantity: 1 }], payment: { provider: 'test', reference: randomUUID(), status: 'succeeded' } };
+      items: [{ offeringId: offering.id, quantity: 1 }], payment: { provider: 'demo', reference: randomUUID(), status: 'succeeded' } };
     let result;
     await t.test('checkout commits one job, no fanout writes, and rollback never leaves a queued job', async () => {
       const rejecting = createCheckoutService({ sequelize: db, models: m, notificationJobs: { enqueueCheckout: async (payload, transaction) => {

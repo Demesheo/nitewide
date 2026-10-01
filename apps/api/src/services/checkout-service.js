@@ -1,10 +1,9 @@
 const { calculatePricing } = require('../domain/pricing');
-const { createQrToken } = require('../domain/qr');
+const { fulfillCheckout } = require('./checkout-fulfillment');
 const { DomainError, notFound, conflict } = require('../domain/errors');
 const { resolveAffiliate } = require('./affiliate-service');
 const { eventFinished, offeringSaleState } = require('../domain/event-policy');
 const { createNotificationJobService } = require('./notification-job-service');
-const { queuePurchaseEmail } = require('./email-events');
 const { assertActiveUser, assertActiveEvent } = require('./lifecycle-service');
 const { createHash } = require('node:crypto');
 const { QueryTypes } = require('sequelize');
@@ -65,7 +64,7 @@ function createCheckoutService({ sequelize, models, now = () => new Date(), envi
         if (!Number.isInteger(quantity) || quantity < offering.minPerOrder || quantity > offering.maxPerOrder) throw new DomainError(`Invalid quantity for ${offering.name}`, { code: 'INVALID_QUANTITY' });
         const saleState = offeringSaleState(offering, prerequisites, current);
         if (!['on_sale', 'sold_out'].includes(saleState)) throw new DomainError(`${offering.name} is not currently available`, { code: 'OFFERING_NOT_ON_SALE' });
-        if (offering.inventoryMode === 'finite' && offering.quantitySold + quantity > offering.quantityTotal) throw conflict(`${offering.name} does not have enough inventory`, 'INSUFFICIENT_INVENTORY');
+        if (offering.inventoryMode === 'finite' && offering.quantitySold + (offering.quantityReserved || 0) + quantity > offering.quantityTotal) throw conflict(`${offering.name} does not have enough inventory`, 'INSUFFICIENT_INVENTORY');
         subtotalCents += offering.priceCents * quantity;
         lines.push({ offering, quantity, lineTotalCents: offering.priceCents * quantity });
       }
@@ -76,35 +75,21 @@ function createCheckoutService({ sequelize, models, now = () => new Date(), envi
       if (input.expectedTotalCents !== undefined && input.expectedTotalCents !== pricing.totalCents)
         throw conflict('Pricing changed. Review the updated total before confirming.', 'PRICE_CHANGED');
       const demo = hostedDemo || input.payment?.provider === 'demo';
-      if (demo && environment === 'production' && !hostedDemo) throw new DomainError('Demo checkout is disabled in production', { code: 'DEMO_DISABLED' });
-      const isPaid = pricing.totalCents > 0 && input.payment?.status === 'succeeded';
+      if (demo && !hostedDemo && !['development', 'test'].includes(environment)) throw new DomainError('Demo checkout is disabled in this environment', { code: 'DEMO_DISABLED' });
+      // A browser claim is never proof of a provider charge. Real paid sales stay
+      // closed until server verification, durable webhooks and refunds are ready.
+      if (pricing.totalCents > 0 && !demo) throw new DomainError('Paid checkout is unavailable until secure payment processing is enabled', { code: 'PAYMENTS_NOT_ENABLED', status: 503 });
+      const isPaid = pricing.totalCents > 0 && demo && input.payment?.status === 'succeeded';
       if (pricing.totalCents > 0 && !isPaid) throw new DomainError('Successful payment confirmation is required', { code: 'PAYMENT_REQUIRED', status: 402 });
       const order = await models.Order.create({
         buyerUserId: input.buyerUserId, eventId: event.id, status: 'paid', currency: offerings[0].currency,
         subtotalCents, ...pricing, pricingPlanSnapshot: { ...pricing.pricingPlanSnapshot, commissionBps: affiliate.commissionBps, demo }, orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id,
         idempotencyKey: input.idempotencyKey, requestFingerprint, paidAt: current,
       }, { transaction });
-      const soldOutOfferings = lines.filter(({ offering, quantity }) => offering.inventoryMode === 'finite' && offering.quantitySold + quantity === offering.quantityTotal).map(({ offering }) => ({ id: offering.id, name: offering.name }));
-      const credentials = [];
-      for (const line of lines) {
-        const item = await models.OrderItem.create({ orderId: order.id, offeringId: line.offering.id, nameSnapshot: line.offering.name, kindSnapshot: line.offering.kind, quantity: line.quantity, entriesPerUnitSnapshot: line.offering.entriesPerUnit, unitPriceCents: line.offering.priceCents, lineTotalCents: line.lineTotalCents }, { transaction });
-        await line.offering.increment('quantitySold', { by: line.quantity, transaction });
-        const count = line.quantity * line.offering.entriesPerUnit;
-        for (let index = 0; index < count; index += 1) {
-          const qr = createQrToken();
-          const ticket = await models.Ticket.create({ eventId: event.id, orderItemId: item.id, holderUserId: input.buyerUserId, qrTokenHash: qr.hash }, { transaction });
-          credentials.push({ ticketId: ticket.id, qrToken: qr.token });
-        }
-      }
-      await models.Payment.create({ orderId: order.id, provider: input.payment?.provider || 'free', providerReference: input.payment?.reference || `free-${order.id}`, status: 'succeeded', amountCents: pricing.totalCents, currency: offerings[0].currency, processedAt: current }, { transaction });
-      await models.AffiliateAttribution.create({ eventId: event.id, userId: input.buyerUserId, orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id, action: 'purchase', orderId: order.id, occurredAt: current }, { transaction });
-      await models.AuditLog.create({ actorUserId: input.buyerUserId, organizationId: event.organizationId, entityType: 'Order', entityId: order.id, action: demo ? 'order.demo' : 'order.paid', after: { totalCents: pricing.totalCents, demo } }, { transaction });
-      await queuePurchaseEmail({ email, models, order, event, lines, demo, buyerUserId: input.buyerUserId, customerAppUrl, transaction });
-      await notificationJobs.enqueueCheckout({ orderId: order.id, eventId: event.id, eventTitle: event.title,
-        buyerUserId: input.buyerUserId, referrerUserId: affiliate.eventAffiliate?.userId || affiliate.orgAffiliate?.userId || null,
-        eventAffiliateId: affiliate.eventAffiliate?.id || null, orgAffiliateId: affiliate.orgAffiliate?.id || null,
-        names: lines.map(({ offering, quantity }) => `${quantity} × ${offering.name}`).join(', '),
-        subtotalCents, commissionCents: pricing.affiliateCommissionCents || 0, demo, soldOutOfferings }, transaction);
+      const credentials = await fulfillCheckout({ models, order, event, lines, affiliate, demo,
+        provider: pricing.totalCents === 0 ? 'free' : 'demo',
+        providerReference: pricing.totalCents === 0 ? `free-${order.id}` : input.payment?.reference || `demo-${order.id}`,
+        current, transaction, email, customerAppUrl, notificationJobs });
       return { order, credentials, replayed: false };
     });
   };

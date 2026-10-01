@@ -14,10 +14,12 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
     const rows = await select(`SELECT e.id, e.organization_id AS "organizationId",e.location_id AS "locationId",e.creator_user_id AS "creatorUserId",
       EXISTS (SELECT 1 FROM organization_venues ov WHERE ov.organization_id=e.organization_id AND ov.location_id=e.location_id) AS "isManagedVenue",
       (:isAdmin OR ${organizationMember}) AS "organizationWideAccess",
-      ${manages} AS "canManage"
+      ${manages} AS "canManage",
+      EXISTS (SELECT 1 FROM organization_owners finance WHERE finance.organization_id=e.organization_id AND finance.user_id=:userId AND finance.lifecycle_state='active' AND (finance.role='owner' OR finance.role='admin' AND finance.finance_authorized)) AS "canManageFinance",
+      NOT EXISTS (SELECT 1 FROM orders merchant_order WHERE merchant_order.event_id=e.id AND merchant_order.status IN ('pending','paid','refunded')) AS "canChangePaymentAccount"
       FROM events e WHERE e.id = :eventId AND ${base}`, replacements);
     if (!rows.length) throw notFound('Event');
-    return { ...replacements, canManage: rows[0].canManage, organizationWideAccess: rows[0].organizationWideAccess,organizationId: rows[0].organizationId,locationId: rows[0].locationId,isManagedVenue: rows[0].isManagedVenue };
+    return { ...replacements, canManage: rows[0].canManage, canManageFinance: rows[0].canManageFinance, canChangePaymentAccount: rows[0].canChangePaymentAccount, organizationWideAccess: rows[0].organizationWideAccess,organizationId: rows[0].organizationId,locationId: rows[0].locationId,isManagedVenue: rows[0].isManagedVenue };
   }
   const scopedOrders = `SELECT o.* FROM orders o JOIN events e ON e.id = o.event_id
     WHERE o.event_id = :eventId AND o.status = 'paid' AND o.currency = 'USD' AND ${orderAccess}`;
@@ -73,7 +75,7 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
       SELECT id, name, "salesCents" FROM ranked WHERE rank <= 6
       UNION ALL SELECT 'direct', name, "salesCents" FROM sales WHERE id IS NULL
       UNION ALL SELECT 'other','Other referrals',SUM("salesCents")::bigint FROM ranked WHERE rank > 6 HAVING COUNT(*) > 0`, auth);
-    return { event: { ...serialized, canManage: auth.canManage,isManagedVenue: Boolean(auth.isManagedVenue),canEdit: auth.canManage && !eventFinished(event, now()) },
+    return { event: { ...serialized, canManage: auth.canManage,canManageFinance: Boolean(auth.canManageFinance),canChangePaymentAccount: Boolean(auth.canChangePaymentAccount && auth.canManageFinance),isManagedVenue: Boolean(auth.isManagedVenue),canEdit: auth.canManage && !eventFinished(event, now()) },
       scope: auth.canManage ? 'event' : 'own',
       summary: { salesCents: Number(sales.salesCents), commissionCents: Number(sales.commissionCents),
         orders: sales.orders, customers: sales.customers, admissions: tickets.admissions,

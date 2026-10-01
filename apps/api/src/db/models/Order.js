@@ -4,6 +4,10 @@ class Order extends Model {}
 function initOrder(sequelize) {
   Order.init({
     id: id(), buyerUserId: { type: DataTypes.UUID, allowNull: false }, eventId: { type: DataTypes.UUID, allowNull: false },
+    paymentAccountId: DataTypes.UUID, stripeAccountId: DataTypes.STRING(160), applicationFeeCents: cents(false, 0),
+    checkoutSessionId: { type: DataTypes.STRING(160), unique: true }, reservationExpiresAt: DataTypes.DATE, reservationReleasedAt: DataTypes.DATE,
+    providerMode: { type: DataTypes.STRING(8), allowNull: true }, providerVerificationStatus: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'pending' },
+    stripePaymentIntentId: DataTypes.STRING(160), stripeChargeId: DataTypes.STRING(160),
     status: { type: DataTypes.ENUM('pending', 'paid', 'cancelled', 'refunded'), allowNull: false, defaultValue: 'pending' },
     currency: { type: DataTypes.STRING(3), allowNull: false, defaultValue: 'USD' },
     subtotalCents: cents(false, 0), platformFeeCents: cents(false, 0), totalCents: cents(false, 0), affiliateCommissionCents: cents(false, 0),

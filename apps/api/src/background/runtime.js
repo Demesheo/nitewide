@@ -8,18 +8,23 @@ const { createAdminReportService } = require('../services/admin-report-service')
 const { createReportExportService } = require('../services/report-export-service');
 const { createMediaStorage } = require('../storage/media-storage');
 const { createMediaCleanupService } = require('../services/media-cleanup-service');
+const { createPaymentServices } = require('../payments/services');
+const { createPaymentReconciliationLane } = require('./payment-reconciliation');
 
 function backgroundServices({ sequelize, models, config }) {
   const permissions = createPermissionService(models);
   const businessRead = createBusinessReadService({ models });
   const reports = createBusinessReportService({ models, businessRead });
   const historicalReports = createAdminReportService({ models, permissions, businessRead }).reports;
+  const notifications = createNotificationJobService({ sequelize, models, concurrency: config.NOTIFICATION_WORKER_CONCURRENCY });
+  const payments = createPaymentServices({ sequelize, models, config, permissions, notificationJobs: notifications });
   return {
     email: createEmailService({ sequelize, models, apiKey: config.RESEND_API_KEY, from: config.RESEND_FROM_EMAIL,
       encryptionKey: config.EMAIL_ENCRYPTION_KEY, testMode: config.resendTestMode,
       concurrency: config.EMAIL_WORKER_CONCURRENCY, batchSize: config.EMAIL_WORKER_BATCH_SIZE,
       requestIntervalMs: config.EMAIL_REQUEST_INTERVAL_MS }),
-    notifications: createNotificationJobService({ sequelize, models, concurrency: config.NOTIFICATION_WORKER_CONCURRENCY }),
+    notifications,
+    payments: createPaymentReconciliationLane({ ...payments, enabled: payments.stripe?.enabled === true }),
     exports: Array.from({ length: config.EXPORT_WORKER_CONCURRENCY }, () => createReportExportService({ models, businessRead, reports, historicalReports })),
     media: createMediaCleanupService({ models, storage: createMediaStorage({ config }), enabled: config.MEDIA_CLEANUP_ENABLED === 'true', intervalMs: config.MEDIA_CLEANUP_INTERVAL_MS }),
   };
@@ -30,25 +35,25 @@ function backgroundServices({ sequelize, models, config }) {
 function createWorkerRuntime({ sequelize, services, pollIntervalMs = 2000, log = console, diagnostics = sequelize.diagnostics, id = randomUUID() }) {
   let stopping = false, started = false, active = [], stoppingPromise;
   const sleepers = new Set();
-  async function pause() {
+  async function pause(intervalMs = pollIntervalMs) {
     if (stopping) return;
     await new Promise(resolve => {
       const done = () => { clearTimeout(timer); sleepers.delete(done); resolve(); };
-      const timer = setTimeout(done, pollIntervalMs); sleepers.add(done);
+      const timer = setTimeout(done, intervalMs); sleepers.add(done);
     });
   }
   async function heartbeat(status = 'running') {
     await sequelize.query(`INSERT INTO background_workers(id,status,heartbeat_at,details) VALUES(:id,:status,NOW(),CAST(:details AS jsonb))
       ON CONFLICT(id) DO UPDATE SET status=EXCLUDED.status,heartbeat_at=EXCLUDED.heartbeat_at,details=EXCLUDED.details`,
-    { replacements: { id, status, details: JSON.stringify({ emailEnabled: services.email.enabled, exportConcurrency: services.exports.length, mediaCleanupEnabled: Boolean(services.media?.enabled) }) } });
+    { replacements: { id, status, details: JSON.stringify({ emailEnabled: services.email.enabled, exportConcurrency: services.exports.length, mediaCleanupEnabled: Boolean(services.media?.enabled), paymentReconciliationEnabled: Boolean(services.payments?.enabled) }) } });
   }
-  async function loop(name, fn) {
+  async function loop(name, fn, intervalMs) {
     while (!stopping) {
       try { await fn(); } catch (error) {
         if (diagnostics) diagnostics.log('worker_job_failed', { lane: name, outcome: 'error' }, 'error');
         else log.error(`Background ${name} failed:`, error.code || error.name);
       }
-      await pause();
+      await pause(intervalMs);
     }
   }
   async function start() {
@@ -58,12 +63,13 @@ function createWorkerRuntime({ sequelize, services, pollIntervalMs = 2000, log =
     active = [loop('email', () => services.email.drain()), loop('notifications', () => services.notifications.drain()),
       ...services.exports.map(service => loop('exports', () => service.drain())), loop('heartbeat', () => heartbeat())];
     if (services.media) active.push(loop('media cleanup', () => services.media.drain()));
+    if (services.payments?.enabled) active.push(loop('payments', () => services.payments.drain(), services.payments.intervalMs || 30000));
   }
   function stop() {
     if (stoppingPromise) return stoppingPromise;
     stopping = true; for (const wake of sleepers) wake();
     stoppingPromise = (async () => {
-      const results = await Promise.allSettled([services.email.stop(), services.notifications.stop(), ...services.exports.map(service => service.stop()), services.media?.stop()]);
+      const results = await Promise.allSettled([services.email.stop(), services.notifications.stop(), ...services.exports.map(service => service.stop()), services.media?.stop(), services.payments?.stop()]);
       await Promise.allSettled(active); await heartbeat('stopped');
       const failed = results.find(result => result.status === 'rejected');
       if (failed) throw failed.reason;

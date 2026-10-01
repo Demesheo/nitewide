@@ -1,6 +1,7 @@
 const test = require('node:test'); const assert = require('node:assert/strict'); const { createCheckoutService } = require('../src/services/checkout-service');
-function fixture({ sold = 0, total = 5, environment = 'development', hostedDemo = false } = {}) {
+function fixture({ sold = 0, total = 5, environment = 'development', hostedDemo = false, priceCents = 2000 } = {}) {
   let increments = 0; const offering = { id: '50000000-0000-4000-8000-000000000001', eventId: 'e1', name: 'GA', kind: 'ticket', priceCents: 2000, currency: 'USD', inventoryMode: 'finite', quantityTotal: total, quantitySold: sold, entriesPerUnit: 1, minPerOrder: 1, maxPerOrder: 4, isActive: true, increment: async (_field, { by }) => { increments += by; } };
+  offering.priceCents = priceCents;
   const created = { tickets: 0, payment: null, notificationJobs: [], userReads: 0 }; const tx = { LOCK: { UPDATE: 'UPDATE' } };
   const models = {
     User: { findByPk: async () => { created.userReads += 1; return { id: 'u1', isActive: true }; } },
@@ -17,7 +18,7 @@ function fixture({ sold = 0, total = 5, environment = 'development', hostedDemo 
   return { checkout: createCheckoutService({ sequelize, models, environment, hostedDemo, notificationJobs }), getIncrements: () => increments, created };
 }
 test('checkout snapshots a sale, increments inventory, and creates credentials', async () => {
-  const f = fixture(); const result = await f.checkout({ buyerUserId: 'u1', eventId: 'e1', idempotencyKey: 'unique-key', items: [{ offeringId: '50000000-0000-4000-8000-000000000001', quantity: 2 }], payment: { provider: 'test', reference: 'pay-1', status: 'succeeded' } });
+  const f = fixture(); const result = await f.checkout({ buyerUserId: 'u1', eventId: 'e1', idempotencyKey: 'unique-key', items: [{ offeringId: '50000000-0000-4000-8000-000000000001', quantity: 2 }], payment: { provider: 'demo', reference: 'pay-1', status: 'succeeded' } });
   assert.equal(result.order.subtotalCents, 4000); assert.equal(result.order.platformFeeCents, 480); assert.equal(result.order.totalCents, 4480); assert.equal(result.order.pricingPlanSnapshot.processingPaidBy, 'platform'); assert.equal(f.created.payment.amountCents, 4480); assert.equal(f.getIncrements(), 2); assert.equal(result.credentials.length, 2);
   assert.equal(f.created.notificationJobs.length, 1);
   assert.equal(f.created.notificationJobs[0].orderId, result.order.id);
@@ -53,4 +54,28 @@ test('hosted demo rejects claimed live payments before any transaction writes', 
   await assert.rejects(() => f.checkout({ payment: { provider: 'stripe', status: 'succeeded' } }), { code: 'DEMO_ONLY' });
   assert.equal(f.getIncrements(), 0);
   assert.equal(f.created.payment, null);
+});
+test('caller-supplied success cannot fulfill paid sales in any runtime', async () => {
+  for (const environment of ['development', 'test', 'production']) {
+    for (const payment of [undefined, { provider: 'stripe', reference: 'pi_claimed', status: 'succeeded' }, { provider: 'test', reference: 'claimed', status: 'succeeded' }]) {
+      const f = fixture({ environment });
+      await assert.rejects(() => f.checkout({ buyerUserId: 'u1', eventId: 'e1', idempotencyKey: 'unverified-key', items: [{ offeringId: '50000000-0000-4000-8000-000000000001', quantity: 1 }], payment }), { code: 'PAYMENTS_NOT_ENABLED' });
+      assert.equal(f.getIncrements(), 0);
+      assert.equal(f.created.tickets, 0);
+      assert.equal(f.created.payment, null);
+      assert.deepEqual(f.created.notificationJobs, []);
+    }
+  }
+});
+test('truly free production checkout issues admission without a payment account or provider claim', async () => {
+  const f = fixture({ environment: 'production', priceCents: 0 });
+  const result = await f.checkout({ buyerUserId: 'u1', eventId: 'e1', idempotencyKey: 'free-key', items: [{ offeringId: '50000000-0000-4000-8000-000000000001', quantity: 1 }], payment: { provider: 'stripe', reference: 'fake', status: 'succeeded' } });
+  assert.equal(result.order.totalCents, 0);
+  assert.equal(f.created.payment.provider, 'free');
+  assert.equal(f.created.payment.providerReference, 'free-order-1');
+  assert.equal(result.credentials.length, 1);
+});
+test('demo checkout requires an explicit development, test, or hosted-demo mode', async () => {
+  const f = fixture({ environment: 'staging' });
+  await assert.rejects(() => f.checkout({ buyerUserId: 'u1', eventId: 'e1', idempotencyKey: 'demo-staging', items: [{ offeringId: '50000000-0000-4000-8000-000000000001', quantity: 1 }], payment: { provider: 'demo', reference: 'demo', status: 'succeeded' } }), { code: 'DEMO_DISABLED' });
 });

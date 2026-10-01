@@ -2,6 +2,7 @@ const { hashQrToken } = require('../domain/qr');
 const { verifyWalletToken, verifyGuestlistWalletToken } = require('../domain/wallet-qr');
 const { DomainError } = require('../domain/errors');
 const { assertAdmissionOpen } = require('../domain/admission-policy');
+const { orderAdmissionEligible } = require('../domain/order-admission-policy');
 const { mutationTransaction } = require('./mutation-transaction');
 const { createPermissionService } = require('./permission-service');
 
@@ -29,7 +30,7 @@ function createCheckInService({ sequelize, models, permissions = createPermissio
           const item = await models.OrderItem.findByPk(credential.orderItemId, { transaction });
           const order = item && await models.Order.findByPk(item.orderId, { transaction, lock });
           offering = item?.nameSnapshot || 'Ticket';
-          if (!order || order.status !== 'paid' || (environment === 'production' && !hostedDemo && order.pricingPlanSnapshot?.demo)) throw invalid();
+          if (!orderAdmissionEligible(order) || (environment === 'production' && !hostedDemo && order.pricingPlanSnapshot?.demo)) throw invalid();
         }
       }
       if (!credential && (!manual || kind === 'guestlist') && !walletId) {

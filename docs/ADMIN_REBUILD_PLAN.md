@@ -64,7 +64,7 @@ Start support intake with admin-created cases and automatic platform alerts. Pri
 
 Retain Contact support and Report an issue forms in the Customer and Business apps as a later feature. Do not add those forms in the initial rebuild merely because the idea is recorded here.
 
-When refunds are integrated, use merchant approval by default with a separately authorized and audited admin override. Application-fee refund policy remains an open decision.
+When refunds are integrated, use merchant approval by default with a separately authorized and audited admin override. For a cancelled event, refund the entire customer payment, including Nitewide's application fee. The merchant bears any Stripe processing fee Stripe does not return.
 
 ## Future payment integration
 

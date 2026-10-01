@@ -168,7 +168,7 @@ test("empty report and unattributed sales are represented honestly", () => {
     1000,
   );
 });
-function harness({ denied = false, sold = 4, orderHistory = 0, tickets = 4 } = {}) {
+function harness({ denied = false, sold = 4, orderHistory = 0, tickets = 4, environment = 'test' } = {}) {
   const calls = [];
   const event = {
     id: "e",
@@ -190,6 +190,7 @@ function harness({ denied = false, sold = 4, orderHistory = 0, tickets = 4 } = {
     kind: "ticket",
     entriesPerUnit: 1,
     currency: "USD",
+    priceCents: 2000,
     toJSON() {
       return { id: this.id, priceCents: this.priceCents };
     },
@@ -240,8 +241,28 @@ function harness({ denied = false, sold = 4, orderHistory = 0, tickets = 4 } = {
       return event;
     },
   };
-  return { service: createBusinessService({ models, permissions, now: () => new Date('2026-09-30T12:00:00Z') }), calls };
+  return { service: createBusinessService({ models, permissions, environment, now: () => new Date('2026-09-30T12:00:00Z') }), calls };
 }
+test('production editor rejects paid publication before writing but accepts paid drafts', async () => {
+  const h = harness({ environment: 'production' });
+  await assert.rejects(h.service.saveEvent('owner', 'e', { ...input(), status: 'published' }), { code: 'PAYMENTS_NOT_READY' });
+  assert.deepEqual(h.calls, []);
+  await h.service.saveEvent('owner', 'e', input());
+  assert.ok(h.calls.includes('update'));
+});
+test('production editor validates the complete replacement draft when paid tiers become free', async () => {
+  const h = harness({ environment: 'production' });
+  const draft = input();
+  draft.status = 'published';
+  draft.offerings = draft.offerings.map((offering) => ({ ...offering, priceCents: 0 }));
+  await h.service.saveEvent('owner', 'e', draft);
+  assert.ok(h.calls.includes('update'));
+});
+test('production guestlist-only event publishes without a payment account', async () => {
+  const h = harness({ environment: 'production', sold: 0, orderHistory: 0 });
+  await h.service.saveEvent('owner', 'e', { ...input(), status: 'published', offerings: [] });
+  assert.ok(h.calls.includes('update'));
+});
 test("unauthorized users cannot edit events even with a valid payload", async () => {
   const h = harness({ denied: true });
   await assert.rejects(() => h.service.saveEvent("outsider", "e", input()), {

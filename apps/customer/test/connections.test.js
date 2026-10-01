@@ -36,7 +36,9 @@ test('multi-select applies explicitly and Booking with appears above the purchas
   assert.match(filter, /onClick=\{\(\) => changeOpen\(false\)\}>Cancel/);
   assert.match(filter, /disabled=\{!all && !draft\.length\}/);
   const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  assert.match(app, /className="connection-context">Booking with <strong>\{referral.referrerName\}<\/strong><\/p>\}\s*<Button className="primary-action dark-glass-action" onClick=\{completeDemo\}/);
+  const review = app.slice(app.indexOf('<div className="checkout-review">'));
+  assert.ok(review.indexOf('className="connection-context">Booking with') < review.indexOf('<StripeCheckout'));
+  assert.ok(review.indexOf('className="connection-context">Booking with') < review.indexOf('onClick={completeDemo}'));
   assert.doesNotMatch(app, /Referred by/);
 });
 test('shared connection links round-trip the chosen referral and are scoped to the new event', () => {
@@ -74,7 +76,8 @@ test('booking attribution is plain text with breathing room immediately before c
   const css = await readFile(new URL('../src/noir-theme.css', import.meta.url), 'utf8');
   const checkout = app.slice(app.indexOf('className="checkout-review"'));
   assert.ok(checkout.indexOf('className="order-summary"') < checkout.indexOf('className="connection-context"'));
-  assert.match(checkout, /className="connection-context">Booking with[^\n]+\n\s*<Button className="primary-action dark-glass-action" onClick=\{completeDemo\}/);
+  assert.ok(checkout.indexOf('className="connection-context">Booking with') < checkout.indexOf('<StripeCheckout'));
+  assert.ok(checkout.indexOf('className="connection-context">Booking with') < checkout.indexOf('onClick={completeDemo}'));
   const context = css.match(/\.connection-context\s*\{([^}]+)\}/)[1];
   for (const rule of ['margin: 12px 0', 'padding: 0', 'border: 0', 'background: none', 'box-shadow: none']) assert.ok(context.includes(rule), rule);
 });

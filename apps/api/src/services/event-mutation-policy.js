@@ -4,6 +4,7 @@ const { activeUser, assertActiveEvent, assertActiveOrganization } = require('./l
 const { queueEventEmail, formatTime, venueName } = require('./email-events');
 const { queueBusinessEventStatus } = require('./business-email-events');
 const { assertEditorPricing } = require('../domain/editor-pricing-policy');
+const { assertPaidPublication } = require('./payment-readiness-service');
 
 async function authorizeEventWrite({ models, permissions, userId, event, organizationId, locationId, transaction, now = new Date() }) {
   const actor = await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.SHARE || 'SHARE' });
@@ -31,18 +32,20 @@ async function assertDirectCapacity({ models, eventId, capacity, transaction }) 
   if (capacity < used) throw conflict(`Direct guestlist already has ${used} approved guests`);
 }
 
-async function persistOffering({ models, eventId, values, previous = null, transaction, pricingValidated = false }) {
-  if (values.inventoryMode === 'finite' && values.quantityTotal < (previous?.quantitySold || 0)) throw conflict(`${values.name}: inventory cannot be less than units already sold`);
+async function persistOffering({ models, eventId, values, previous = null, transaction, pricingValidated = false, paymentValidated = false, environment, hostedDemo, stripe }) {
+  if (values.inventoryMode === 'finite' && values.quantityTotal < (previous?.quantitySold || 0) + (previous?.quantityReserved || 0)) throw conflict(`${values.name}: inventory cannot be less than units already sold or reserved`);
+  if (previous?.quantityReserved && ['priceCents','kind','entriesPerUnit','currency'].some(key=>values[key] !== undefined && values[key] !== previous[key])) throw conflict('Wait for pending checkout attempts to finish before changing reserved offering terms.', 'OFFERING_RESERVED');
   if (previous?.quantitySold && (previous.kind !== values.kind || previous.entriesPerUnit !== values.entriesPerUnit)) throw conflict(`${values.name}: sold tier type and admission count cannot be changed`);
   if (values.maxPerOrder < values.minPerOrder) throw conflict('Maximum quantity must be at least the minimum');
   if (values.salesStartAt && values.salesEndAt && values.salesEndAt <= values.salesStartAt) throw conflict('Sales end must be after sales start');
   if (values.visibility === 'password' && !previous?.accessCodeHash) throw conflict('Password tiers require an existing access code');
-  if (!pricingValidated) {
+  if (!pricingValidated || !paymentValidated) {
     // Legacy and record-level offering writes use the same price protections as
     // the full editor. That editor validates its whole draft once, before writes.
     const event = await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
     if (!event) throw conflict('Select an existing event', 'EVENT_NOT_FOUND');
-    await assertEditorPricing({ models, eventId, organizationId: event.organizationId,
+    if (!paymentValidated) await assertPaidPublication({ models,event, offerings: [{ ...(previous?.toJSON ? previous.toJSON() : previous || {}), ...values }], environment, hostedDemo,stripe,transaction });
+    if (!pricingValidated) await assertEditorPricing({ models, eventId, organizationId: event.organizationId,
       eventFeeMode: event.feeMode || 'buyer', offerings: [{ ...(previous?.toJSON ? previous.toJSON() : previous || {}), ...values }], transaction });
   }
   return previous ? previous.update(values, { transaction }) : models.Offering.create({ ...values, eventId }, { transaction });
@@ -51,7 +54,11 @@ async function persistOffering({ models, eventId, values, previous = null, trans
 // Both API generations call this inside the transaction that saves the event.
 // The outbox, audit and lifecycle-sensitive publication rules cannot diverge.
 async function recordEventMutation({ models, email, userId, saved, before, offerings = [], location, previousLocation,
-  customerAppUrl, businessAppUrl, transaction, adminReason = null }) {
+  customerAppUrl, businessAppUrl, transaction, adminReason = null, paymentValidated = false, environment, hostedDemo,stripe }) {
+  if (!paymentValidated && saved.status === 'published') {
+    const currentOfferings = await models.Offering.findAll({ where: { eventId: saved.id }, transaction, lock: transaction.LOCK.UPDATE });
+    await assertPaidPublication({ models,event: saved, offerings: currentOfferings, environment, hostedDemo,stripe,transaction });
+  }
   await models.AuditLog.create({ actorUserId: userId, organizationId: saved.organizationId, entityType: 'Event', entityId: saved.id,
     action: `${adminReason ? 'admin.' : ''}${before ? 'event.updated' : 'event.created'}`, before,
     after: { ...saved.toJSON(), offerings, location, ...(adminReason ? { adminReason } : {}) } }, { transaction });

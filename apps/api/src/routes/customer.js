@@ -4,8 +4,9 @@ const schemas = require('../http/schemas');
 const { z } = require('zod');
 const { optionalPhone } = require('../domain/phone');
 
-function registerCustomerRoutes({ router, commerceController, requireUser, invitations, notifications, account, saved }) {
+function registerCustomerRoutes({ router, commerceController, paymentController, requireUser, invitations, notifications, account, saved }) {
   router.use('/customer', requireUser, (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+  router.get('/customer/checkout-attempts/:idempotencyKey', asyncHandler(paymentController?.lookup || commerceController.getCheckoutAttempt));
   router.get('/customer/bookings', asyncHandler(async (req, res) => res.json({ data: await account.bookings(req.userId, querySchemas.bookings.parse(req.query)) })));
   router.get('/customer/saved', asyncHandler(async (req, res) => res.json({ data: await saved.list(req.userId, querySchemas.saved.parse(req.query)) })));
   router.get('/customer/saved/ids', asyncHandler(async (req, res) => {

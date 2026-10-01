@@ -20,7 +20,11 @@ const { createBusinessEventReuseService } = require('../services/business-event-
 function createRouter(options) {
   const { publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', qrTokenSecret, deliveryTrackingConfigured = false } = options;
   const router = require('./contract-router').instrumentRouter(express.Router(), { requireUser, permissions });
-  const business = createBusinessService({ models, permissions, email, customerAppUrl, businessAppUrl });
+  const { environment = process.env.NODE_ENV || 'development', hostedDemo = false } = options;
+  const { stripe, paymentAccounts, paymentConfiguration = require('../payments/stripe-client').stripeConfiguration({ NODE_ENV: environment, hostedDemo }) } = options;
+  const unavailable = async () => { throw new (require('../domain/errors').DomainError)('Sandbox payments are not configured', { code: 'PAYMENTS_NOT_ENABLED', status: 503 }); };
+  const paymentController = options.paymentController || Object.fromEntries(['prepare', 'verify', 'cancel', 'refund', 'adminRefund'].map(name => [name, unavailable]));
+  const business = createBusinessService({ models, permissions, email, customerAppUrl, businessAppUrl, environment, hostedDemo, stripe });
   const businessRead = createBusinessReadService({ models, email, deliveryTrackingConfigured });
   const businessReports = createBusinessReportService({ models, businessRead });
   const adminReports = createAdminReportService({ models, permissions, businessRead, reports: businessReports });
@@ -39,15 +43,20 @@ function createRouter(options) {
   const account = createCustomerAccountService({ models, tokenSecret: qrTokenSecret });
   const saved = createCustomerSavedService({ models });
   const admissions = createAdmissionsService({ models, permissions });
-  const context = { router, publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl, businessAppUrl, qrTokenSecret, deliveryTrackingConfigured, business, businessRead, businessReports, adminReports, reportExports, businessTeamRead, businessEventReuse, businessEventRead, businessInstructionsRead, admin, adminSupport, analytics, team, eventWorkspace, referralLinks, account, saved, admissions };
+  const context = { router, publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl, businessAppUrl, qrTokenSecret, deliveryTrackingConfigured, business, businessRead, businessReports, adminReports, reportExports, businessTeamRead, businessEventReuse, businessEventRead, businessInstructionsRead, admin, adminSupport, analytics, team, eventWorkspace, referralLinks, account, saved, admissions, stripe, paymentAccounts, paymentController };
   require('./public').registerPublicRoutes(context);
   require('./account').registerAccountRoutes(context);
   require('./business-access').registerBusinessAccessRoutes(context);
+  // Publishable configuration contains no secret keys. Discovery can fetch it
+  // before sign-in; all order/account mutations below require a real session.
+  router.get('/customer/payment-config', (_req, res) => res.set('Cache-Control', 'no-store').json({ data: paymentConfiguration }));
   require('./customer').registerCustomerRoutes(context);
+  require('./payments').registerPaymentRoutes(context);
+  require('./business-payments').registerBusinessPaymentRoutes(context);
   require('./admissions').registerAdmissionsRoutes(context);
   require('./reporting').registerReportingRoutes(context);
   require('./business').registerBusinessRoutes(context);
-  require('./admin').registerAdminRoutes(context);
+  require('./admin').registerAdminRoutes({ ...context, environment, hostedDemo });
   require('./admin-events').registerAdminEventRoutes(context);
   require('./admin-support').registerAdminSupportRoutes(context);
   require('./business-venues').registerVenueRoutes({ ...context, asyncHandler: require('./contract-router').asyncHandler });

@@ -6,6 +6,7 @@ const { walletToken, guestlistWalletToken } = require('../domain/wallet-qr');
 const { createReferralLinkService } = require('./referral-link-service');
 const { redactLocation } = require('../controllers/public-controller');
 const { ADMISSION_WINDOW_MS } = require('../domain/admission-policy');
+const { orderAdmissionEligible } = require('../domain/order-admission-policy');
 const { assertActiveEvent, assertActiveUser, assertAdmissionEvent } = require('./lifecycle-service');
 const { connectionHistorySql, pagedConnections } = require('./customer-connections-page-service');
 
@@ -122,7 +123,7 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     const ticket = await models.Ticket.findOne({ where: { id: ticketId, holderUserId: userId }, include: [{ model: models.OrderItem, as: 'orderItem', include: [{ model: models.Order, as: 'order', include: [eventInclude] }] }] });
     if (!ticket) throw notFound('Ticket');
     const order = ticket.orderItem.order;
-    if (ticket.status !== 'valid' || order.status !== 'paid' || order.event.status !== 'published' || +new Date(order.event.endsAt) + ADMISSION_WINDOW_MS < +now() || !(await eventActiveForAdmission(order.event))) throw conflict('This ticket is not available for admission', 'TICKET_UNAVAILABLE');
+    if (ticket.status !== 'valid' || !orderAdmissionEligible(order) || order.event.status !== 'published' || +new Date(order.event.endsAt) + ADMISSION_WINDOW_MS < +now() || !(await eventActiveForAdmission(order.event))) throw conflict('This ticket is not available for admission', 'TICKET_UNAVAILABLE');
     const qrToken = walletToken(ticket, tokenSecret);
     const addressEvents = await attendeeLocationEventIds(userId, [order.eventId]);
     return { id: ticket.id, event: eventSummary(order.event, { canViewAttendeeAddress: addressEvents.has(order.eventId) }), offering: ticket.orderItem.nameSnapshot,
@@ -141,7 +142,7 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     const order = await models.Order.findOne({ where: { id: orderId, buyerUserId: userId }, include: [eventInclude,
       { model: models.OrderItem, as: 'items', include: [{ model: models.Ticket, as: 'tickets' }] }] });
     if (!order) throw notFound('Purchase');
-    const admissionAvailable = order.status === 'paid' && order.event.status === 'published' && +new Date(order.event.endsAt) + ADMISSION_WINDOW_MS >= +now() && await eventActiveForAdmission(order.event);
+    const admissionAvailable = orderAdmissionEligible(order) && order.event.status === 'published' && +new Date(order.event.endsAt) + ADMISSION_WINDOW_MS >= +now() && await eventActiveForAdmission(order.event);
     const tickets = [];
     for (const item of order.items) for (const credential of [...item.tickets].sort((a, b) => a.id.localeCompare(b.id))) {
       if (credential.holderUserId !== userId) continue;

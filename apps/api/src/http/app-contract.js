@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const { MAX_IMAGE_BYTES } = require('../services/media-service');
+const { webhookAcknowledgment } = require('./payment-schemas');
 
 const count = z.number().int().nonnegative();
 const duration = z.number().nonnegative();
@@ -39,6 +40,8 @@ const operations = [
   { method: 'post', path: '/api/business/uploads/image', authenticated: true, multipart: true, responses: { 201: envelope(image) } },
   { method: 'get', path: '/api/media/images/:assetId', authenticated: false, image: true, params: z.object({ assetId: z.uuid() }) },
   { method: 'post', path: '/api/webhooks/resend', authenticated: false, signedWebhook: true, responses: { 204: null } },
+  { method: 'post', path: '/api/webhooks/stripe', authenticated: false, signedWebhook: 'stripe', responses: { 200: webhookAcknowledgment } },
+  { method: 'post', path: '/api/webhooks/stripe/accounts', authenticated: false, signedWebhook: 'stripe-account', responses: { 200: webhookAcknowledgment } },
   { method: 'get', path: '/api/admin/background/workers', authenticated: true, responses: { 200: envelope(z.array(worker)) } },
   { method: 'get', path: '/api/admin/background/email', authenticated: true, query: emailJobQuery,
     responses: { 200: envelope(z.object({ items: z.array(emailJob), total: count, page: count, pageSize: count, status: z.string() })) } },
@@ -75,12 +78,23 @@ function supplementalPaths({ jsonSchema }) {
         properties: { image: { type: 'string', format: 'binary', 'x-maxBytes': MAX_IMAGE_BYTES } },
       } } } };
     }
-    if (metadata.signedWebhook) {
+    if (metadata.signedWebhook === true) {
       operation.description = 'Svix verifies the raw JSON bytes before parsing. Unknown event types are acknowledged without processing. No session bearer token is required.';
       for (const name of ['svix-id', 'svix-timestamp', 'svix-signature']) operation.parameters.push({ name, in: 'header', required: true, schema: { type: 'string', minLength: 1 } });
       operation.requestBody = { required: true, content: { 'application/json': { schema: {
         type: 'object', description: 'Signed Resend event. Supported delivery events require type, created_at, and data.email_id.',
         properties: { type: { type: 'string' }, created_at: { type: 'string', format: 'date-time' }, data: { type: 'object', properties: { email_id: { type: 'string' } }, additionalProperties: true } }, additionalProperties: true,
+      } } } };
+    }
+    if (typeof metadata.signedWebhook === 'string') {
+      const thin = metadata.signedWebhook === 'stripe-account';
+      operation.description = thin
+        ? 'Verify raw thin Accounts v2 notification bytes with STRIPE_ACCOUNT_WEBHOOK_SECRET, then independently retrieve the sandbox event and account. Your account event source; no bearer session.'
+        : 'Verify raw connected-account snapshot bytes with STRIPE_WEBHOOK_SECRET, then independently retrieve scoped sandbox checkout/refund evidence before fulfillment. Connected accounts event source; no bearer session.';
+      operation.parameters.push({ name: 'Stripe-Signature', in: 'header', required: true, schema: { type: 'string', minLength: 1 } });
+      operation.requestBody = { required: true, content: { 'application/json': { schema: {
+        type: 'object', description: thin ? 'Signed thin Accounts v2 event notification.' : 'Signed Stripe snapshot event.',
+        properties: { id: { type: 'string' }, type: { type: 'string' }, livemode: { const: false } }, additionalProperties: true,
       } } } };
     }
     for (const [status, schema] of Object.entries(metadata.responses || {})) operation.responses[status] = {

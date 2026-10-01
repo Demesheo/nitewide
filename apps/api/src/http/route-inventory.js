@@ -1,6 +1,19 @@
 // Closed inventory: route registration fails if a new operation lacks review.
 // Generated artifact parity tests also detect removals or schema drift.
 const routeInventory = [
+  { method: 'get', path: '/customer/payment-config', successStatuses: [200] },
+  { method: 'post', path: '/customer/payment-checkouts', successStatuses: [200] },
+  { method: 'post', path: '/customer/payment-checkouts/:orderId/verify', successStatuses: [200] },
+  { method: 'post', path: '/customer/payment-checkouts/:orderId/cancel', successStatuses: [200] },
+  { method: 'post', path: '/business/orders/:orderId/refunds', successStatuses: [200] },
+  { method: 'post', path: '/admin/orders/:orderId/refunds', successStatuses: [200] },
+  { method: 'get', path: '/business/organizations/:organizationId/payment-accounts', successStatuses: [200] },
+  { method: 'post', path: '/business/organizations/:organizationId/payment-accounts', successStatuses: [201] },
+  { method: 'post', path: '/business/organizations/:organizationId/payment-accounts/:accountId/onboarding', successStatuses: [200] },
+  { method: 'post', path: '/business/organizations/:organizationId/payment-accounts/:accountId/synchronize', successStatuses: [200] },
+  { method: 'put', path: '/business/organizations/:organizationId/payment-accounts/default', successStatuses: [200] },
+  { method: 'put', path: '/business/events/:eventId/payment-account', successStatuses: [200] },
+  { method: 'get', path: '/customer/checkout-attempts/:idempotencyKey', successStatuses: [200] },
   { method: 'post', path: '/auth/business/sign-in', successStatuses: [200] },
   { method: 'post', path: '/business/access-requests', successStatuses: [202] },
   { method: 'get', path: '/admin/business-access/requests', successStatuses: [200] },

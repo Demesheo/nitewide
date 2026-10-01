@@ -33,6 +33,11 @@ test('supplemental OpenAPI covers binary uploads, private redirects, signed webh
   assert.equal(paths['/media/images/{assetId}'].get.responses[200].content['image/webp'].schema.format, 'binary');
   assert.equal(paths['/webhooks/resend'].post.parameters.length, 3);
   assert.equal(paths['/webhooks/resend'].post.responses[204].content, undefined);
+  for (const path of ['/webhooks/stripe', '/webhooks/stripe/accounts']) {
+    assert.deepEqual(paths[path].post.parameters.map(parameter => parameter.name), ['Stripe-Signature']);
+    assert.deepEqual(paths[path].post.security, []);
+    assert.equal(paths[path].post.responses[200].content['application/json'].schema.properties.received.const, true);
+  }
   assert.deepEqual(paths['/health/ready'].get.servers, [{ url: '/' }]);
   assert.deepEqual(paths['/admin/diagnostics/metrics'].get.security, [{ bearerSession: [] }]);
   assert.equal(paths['/health/ready'].get.responses[503].content['application/json'].schema.properties.status.enum.includes('degraded'), true);

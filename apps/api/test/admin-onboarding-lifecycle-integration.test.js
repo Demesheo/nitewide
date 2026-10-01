@@ -51,7 +51,7 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
 
     const app = createApp({
       sequelize, models,
-      config: { ...config, NODE_ENV: 'production', MEDIA_UPLOAD_DIR: mediaDir },
+      config: { ...config, NODE_ENV: 'production', hostedDemo: true, MEDIA_UPLOAD_DIR: mediaDir }, // Production authentication with explicit simulated paid-event fixtures.
       services: { email },
     });
     server = app.listen(0, '127.0.0.1');

@@ -1,13 +1,13 @@
 const { asyncHandler, validate } = require('./contract-router');
 const adminSchemas = require('../http/admin-schemas');
 
-function registerAdminRoutes({ router, managementController, auth, requireUser, models, permissions, email, customerAppUrl, businessAppUrl, admin }) {
+function registerAdminRoutes({ router, managementController, auth, requireUser, models, permissions, email, customerAppUrl, businessAppUrl, admin, environment, hostedDemo, stripe }) {
   const onboardingService = require('./admin-onboarding').registerAdminOnboarding({ router, models, permissions, email, customerAppUrl, businessAppUrl, auth, requireUser, asyncHandler });
   const access = require('./admin-business-access');
   const businessAccess = access.registerAdminBusinessAccess({ router, models, permissions, onboardingService, requireUser, asyncHandler });
   access.registerBusinessFinanceAccess({ router, service: businessAccess, requireUser, asyncHandler });
   router.get('/admin/workspace', requireUser, asyncHandler(async (req, res) => res.json({ data: await admin.workspace(req.userId, adminSchemas.reportQuery.parse(req.query)) })));
-  require('./admin-management').registerAdminManagement({ router, models, permissions, email, customerAppUrl, businessAppUrl, requireUser, asyncHandler });
+  require('./admin-management').registerAdminManagement({ router, models, permissions, email, customerAppUrl, businessAppUrl, requireUser, asyncHandler, environment, hostedDemo, stripe });
   router.get('/admin/operations', requireUser, asyncHandler(async (req, res) => res.json({ data: await admin.operations(req.userId, adminSchemas.operationsQuery.parse(req.query)) })));
   for (const entity of ['users', 'organizations', 'events']) router.patch(`/admin/${entity}/:id`, requireUser, asyncHandler(async (req) => {
     await permissions.assertInternal(req.userId);

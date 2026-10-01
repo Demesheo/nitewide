@@ -4,6 +4,7 @@ class Offering extends Model {}
 function initOffering(sequelize) {
   Offering.init({
     id: id(), eventId: { type: DataTypes.UUID, allowNull: false },
+    quantityReserved: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0, validate: { min: 0 } },
     name: { type: DataTypes.STRING(160), allowNull: false }, description: DataTypes.TEXT,
     kind: { type: DataTypes.ENUM('ticket', 'package', 'reservation'), allowNull: false, defaultValue: 'ticket' },
     priceCents: cents(false, 0), currency: { type: DataTypes.STRING(3), allowNull: false, defaultValue: 'USD' },

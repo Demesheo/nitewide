@@ -230,6 +230,193 @@ test('pending guest can edit party size and withdraw without an admission QR', a
   await expect(page.getByRole('button', { name: /View guest list entry/ })).toHaveCount(0);
 });
 
+for (const recovery of ['reload', 'retry']) test(`checkout survives a committed order with a lost response and ${recovery} opens its exact passes`, async ({ page, fixture }) => {
+  await login(page, fixture, 'customer');
+  await page.goto(`/?event=${fixture.ids.event}`);
+  const details = page.getByTestId('customer-event-details');
+  await details.getByRole('button', { name: /VIP Package/ }).click();
+  await details.getByRole('button', { name: /^Continue ·/ }).click();
+  let orderId;
+  let posts = 0;
+  let releaseResponse;
+  const responseGate = new Promise(resolve => { releaseResponse = resolve; });
+  await page.route('**/api/orders', async route => {
+    posts += 1;
+    const response = await route.fetch();
+    orderId = (await response.json()).data.order.id;
+    await responseGate;
+    await route.abort('failed');
+  });
+  await details.getByRole('button', { name: 'Confirm demo booking', exact: true }).click();
+  await expect.poll(() => orderId).toBeTruthy();
+  await page.keyboard.press('Escape');
+  await expect(details).toBeVisible();
+  await expect(details.getByRole('button', { name: 'Back to tickets & tables' })).toBeDisabled();
+  await details.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(details).toBeVisible();
+  releaseResponse();
+  await expect(details.getByRole('button', { name: 'Check / retry booking' })).toBeEnabled();
+  if (recovery === 'reload') {
+    // A committed purchase remains recoverable when public discovery can no
+    // longer return the event (for example, after the host unpublishes it).
+    await page.route(`**/api/events/${fixture.ids.event}`, route => route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { message: 'Event unavailable' } }) }));
+    await page.reload();
+  }
+  else await details.getByRole('button', { name: 'Check / retry booking' }).click();
+  await expect(page).toHaveURL(new RegExp(`booking=purchase(?:%3A|:)${orderId}`));
+  await expect(page.getByRole('img', { name: 'QR code for ticket 1, VIP Package' })).toBeVisible();
+  expect(posts).toBe(1);
+  const pending = await page.evaluate(() => {
+    const session = JSON.parse(localStorage.getItem('nitewide.session'));
+    return localStorage.getItem(`nitewide.checkout.${session.user.id}`);
+  });
+  expect(pending).toBeNull();
+});
+
+test('pending checkout status preserves its key and never submits another order', async ({ page, fixture }) => {
+  await login(page, fixture, 'customer');
+  await page.goto(`/?event=${fixture.ids.event}`);
+  const details = page.getByTestId('customer-event-details');
+  await details.getByRole('button', { name: /VIP Package/ }).click();
+  await details.getByRole('button', { name: /^Continue ·/ }).click();
+  let posts = 0;
+  const keys = [];
+  await page.route('**/api/customer/checkout-attempts/*', route => {
+    keys.push(route.request().url().split('/').pop());
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { status: 'pending' } }) });
+  });
+  await page.route('**/api/orders', route => { posts += 1; return route.abort(); });
+  await details.getByRole('button', { name: 'Confirm demo booking', exact: true }).click();
+  await expect(details.getByRole('alert').filter({ hasText: 'still being checked' })).toBeVisible();
+  await details.getByRole('button', { name: 'Check / retry booking' }).click();
+  await expect(details.getByRole('button', { name: 'Check / retry booking' })).toBeEnabled();
+  expect(posts).toBe(0);
+  expect(keys).toHaveLength(2);
+  expect(keys[1]).toBe(keys[0]);
+});
+
+test('sandbox checkout checks server payment status and recovers exact passes without contacting Stripe', async ({ page, fixture }) => {
+  await page.route('https://js.stripe.com/**', route => route.abort());
+  await page.route('**/api/customer/payment-config', route => route.fulfill({ json: { data: { enabled: true, configured: true, mode: 'test', publishableKey: 'pk_test_fixture_offline', demoEnabled: false } } }));
+  await login(page, fixture, 'customer');
+  await page.goto(`/?event=${fixture.ids.event}`);
+  const details = page.getByTestId('customer-event-details');
+  await details.getByRole('button', { name: /VIP Package/ }).click();
+  await details.getByRole('button', { name: /^Continue ·/ }).click();
+  let key;
+  await page.route('**/api/customer/checkout-attempts/*', route => route.fulfill({ status: 404, json: { error: { message: 'Absent' } } }));
+  await page.route('**/api/customer/payment-checkouts', route => {
+    const body = route.request().postDataJSON();
+    key = body.idempotencyKey;
+    expect(body.payment).toBeUndefined();
+    return route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'pending', clientSecret: 'fixture_checkout_secret', stripeAccountId: 'acct_fixture', expiresAt: new Date(Date.now() + 300000).toISOString() } } });
+  });
+  await page.route(`**/api/customer/payment-checkouts/${fixture.ids.order}/verify`, route => route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'paid' } } }));
+  await details.getByRole('button', { name: 'Continue to payment', exact: true }).click();
+  await expect(details.getByRole('button', { name: 'Check booking', exact: true })).toBeVisible();
+  const saved = await page.evaluate(() => {
+    const user = JSON.parse(localStorage.getItem('nitewide.session')).user;
+    return localStorage.getItem(`nitewide.checkout.${user.id}`);
+  });
+  expect(saved).toContain(key); expect(saved).not.toContain('fixture_checkout_secret');
+  await details.getByRole('button', { name: 'Check booking', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`booking=purchase(?:%3A|:)${fixture.ids.order}`));
+  await expect(page.getByRole('img', { name: /QR code for ticket 1/ })).toBeVisible();
+  await expectNoOverflow(page);
+});
+
+test('incomplete sandbox configuration shows unavailable payments without falling back to demo', async ({ page, fixture }) => {
+  await page.route('**/api/customer/payment-config', route => route.fulfill({ json: { data: { enabled: false, configured: true, mode: 'test', publishableKey: null, demoEnabled: true } } }));
+  await login(page, fixture, 'customer');
+  await page.goto(`/?event=${fixture.ids.event}`);
+  const details = page.getByTestId('customer-event-details');
+  await details.getByRole('button', { name: /VIP Package/ }).click();
+  await details.getByRole('button', { name: /^Continue ·/ }).click();
+  await expect(details.getByRole('button', { name: 'Payments unavailable' })).toBeDisabled();
+  await expect(details.getByRole('button', { name: 'Confirm demo booking' })).toHaveCount(0);
+  await expect(details).toContainText('Paid booking will be available');
+  await expectNoOverflow(page);
+});
+
+test('sandbox payment review preserves the booking without retrying payment or opening passes', async ({ page, fixture }) => {
+  await page.route('https://js.stripe.com/**', route => route.abort());
+  await page.route('**/api/customer/payment-config', route => route.fulfill({ json: { data: { enabled: true, configured: true, mode: 'test', publishableKey: 'pk_test_fixture_offline', demoEnabled: false } } }));
+  await login(page, fixture, 'customer');
+  await page.goto(`/?event=${fixture.ids.event}`);
+  const details = page.getByTestId('customer-event-details');
+  await details.getByRole('button', { name: /VIP Package/ }).click();
+  await details.getByRole('button', { name: /^Continue ·/ }).click();
+  let prepares = 0;
+  let reviews = false;
+  await page.route('**/api/customer/checkout-attempts/*', route => reviews ? route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'pending', verificationStatus: 'review' } } }) : route.fulfill({ status: 404, json: { error: { message: 'Absent' } } }));
+  await page.route('**/api/customer/payment-checkouts', route => { prepares += 1; reviews = true; return route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'pending', verificationStatus: 'review' } } }); });
+  await page.route(`**/api/customer/payment-checkouts/${fixture.ids.order}/verify`, route => route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'pending', verificationStatus: 'review' } } }));
+  await details.getByRole('button', { name: 'Continue to payment' }).click();
+  await expect(details.getByRole('status')).toContainText('needs review');
+  await expect(details.getByRole('button', { name: 'Cancel payment attempt' })).toHaveCount(0);
+  await expect(details.getByRole('button', { name: /^Pay / })).toHaveCount(0);
+  await details.getByRole('button', { name: 'Check booking' }).click();
+  await expect(details.getByRole('alert')).toContainText('Contact the event host');
+  await page.route(`**/api/events/${fixture.ids.event}`, route => route.fulfill({ status: 404, json: { error: { message: 'Event unavailable' } } }));
+  await page.reload();
+  await expect(details.getByRole('status')).toContainText('needs review');
+  expect(prepares).toBe(1);
+  expect(await page.evaluate(() => localStorage.getItem(`nitewide.checkout.${JSON.parse(localStorage.getItem('nitewide.session')).user.id}`))).toBeTruthy();
+  await expect(page.getByRole('img', { name: /QR code for ticket/ })).toHaveCount(0);
+  await expectNoOverflow(page);
+});
+
+test('sandbox checkout cancellation retires its key only after server confirms cancellation', async ({ page, fixture }) => {
+  await page.route('https://js.stripe.com/**', route => route.abort());
+  await page.route('**/api/customer/payment-config', route => route.fulfill({ json: { data: { enabled: true, configured: true, mode: 'test', publishableKey: 'pk_test_fixture_offline', demoEnabled: false } } }));
+  await login(page, fixture, 'customer');
+  await page.goto(`/?event=${fixture.ids.event}`);
+  const details = page.getByTestId('customer-event-details');
+  await details.getByRole('button', { name: /VIP Package/ }).click();
+  await details.getByRole('button', { name: /^Continue ·/ }).click();
+  await page.route('**/api/customer/checkout-attempts/*', route => route.fulfill({ status: 404, json: { error: { message: 'Absent' } } }));
+  await page.route('**/api/customer/payment-checkouts', route => route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'pending', clientSecret: 'fixture_checkout_secret', stripeAccountId: 'acct_fixture' } } }));
+  let cancellation = 'pending';
+  await page.route(`**/api/customer/payment-checkouts/${fixture.ids.order}/cancel`, route => route.fulfill({ json: { data: { orderId: fixture.ids.order, status: cancellation } } }));
+  await details.getByRole('button', { name: 'Continue to payment' }).click();
+  await details.getByRole('button', { name: 'Cancel payment attempt' }).click();
+  await expect(details.getByRole('alert').filter({ hasText: 'still being checked' })).toBeVisible();
+  const pending = () => page.evaluate(() => localStorage.getItem(`nitewide.checkout.${JSON.parse(localStorage.getItem('nitewide.session')).user.id}`));
+  expect(await pending()).toBeTruthy();
+  cancellation = 'cancelled';
+  await details.getByRole('button', { name: 'Cancel payment attempt' }).click();
+  await expect(details.getByRole('button', { name: /^Continue ·/ })).toBeVisible();
+  expect(await pending()).toBeNull();
+  await expectNoOverflow(page);
+});
+
+test('definitive checkout rejection allows a reviewed new cart with a new key', async ({ page, fixture }) => {
+  await login(page, fixture, 'customer');
+  await page.goto(`/?event=${fixture.ids.event}`);
+  const details = page.getByTestId('customer-event-details');
+  await details.getByRole('button', { name: /VIP Package/ }).click();
+  await details.getByRole('button', { name: /^Continue ·/ }).click();
+  const keys = [];
+  let orderId;
+  await page.route('**/api/orders', async route => {
+    keys.push(route.request().postDataJSON().idempotencyKey);
+    if (keys.length === 1) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: { code: 'PRICE_CHANGED', message: 'Pricing changed.' } }) });
+    const response = await route.fetch();
+    orderId = (await response.json()).data.order.id;
+    await route.fulfill({ response });
+  });
+  await details.getByRole('button', { name: 'Confirm demo booking', exact: true }).click();
+  await expect(details.getByRole('alert')).toContainText('Booking was not completed');
+  await details.getByRole('button', { name: 'Back to tickets & tables' }).click();
+  await details.getByRole('button', { name: 'Increase quantity' }).click();
+  await details.getByRole('button', { name: /^Continue ·/ }).click();
+  await details.getByRole('button', { name: 'Confirm demo booking', exact: true }).click();
+  await expect.poll(() => orderId).toBeTruthy();
+  await expect(page).toHaveURL(new RegExp(`booking=purchase(?:%3A|:)${orderId}`));
+  expect(keys).toHaveLength(2);
+  expect(keys[1]).not.toBe(keys[0]);
+});
+
 test('demo VIP checkout creates passes, a receipt and an asynchronous booking notification', async ({ page, request, fixture }) => {
   await login(page, fixture, 'customer');
   await page.goto(`/?event=${fixture.ids.event}`);
@@ -239,9 +426,7 @@ test('demo VIP checkout creates passes, a receipt and an asynchronous booking no
   const checkout = page.waitForResponse(response => response.url().endsWith('/api/orders') && response.request().method() === 'POST');
   await details.getByRole('button', { name: 'Confirm demo booking', exact: true }).click();
   const orderId = (await (await checkout).json()).data.order.id;
-  await expect(details.getByRole('heading', { name: 'Your demo night is booked.' })).toBeVisible();
-  await details.getByRole('button', { name: 'View my bookings', exact: true }).click();
-  await page.getByRole('button', { name: /View tickets for Playwright Friday Night, 1 VIP Package/ }).click();
+  await expect(page).toHaveURL(new RegExp(`booking=purchase(?:%3A|:)${orderId}`));
   await expect(page.getByText('Pass 1 of 3', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Next pass' }).click();
   await expect(page.getByText('Pass 2 of 3', { exact: true })).toBeVisible();

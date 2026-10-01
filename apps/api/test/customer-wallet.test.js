@@ -61,13 +61,13 @@ test('unavailable tickets cannot generate wallet QR images', async () => {
     await assert.rejects(service.ticket(ticket.holderUserId, ticket.id), { code: 'TICKET_UNAVAILABLE' });
   }
 });
-function scanner({ status = 'paid', demo = false, environment = 'development', startsAt = '2026-09-22T00:00:00Z' } = {}) {
+function scanner({ status = 'paid', demo = false, environment = 'development', startsAt = '2026-09-22T00:00:00Z', provider = {} } = {}) {
   const row = { ...ticket, update: async (patch) => Object.assign(row, patch) };
   const service = createCheckInService({ permissions: { assertAdmitEvent: async () => {} }, tokenSecret: secret, environment, now: () => new Date('2026-09-22T12:00:00Z'),
     sequelize: { transaction: async (_opts, callback) => callback({ LOCK: { UPDATE: 'UPDATE' } }) },
     models: { User: { findByPk: async () => ({ displayName: 'Guest' }) }, Ticket: { findOne: async ({ where }) => where.eventId === row.eventId ? row : null },
       GuestlistEntry: { findOne: async () => null }, Event: { findByPk: async () => ({ status: 'published', startsAt, endsAt: '2026-09-23T00:00:00Z' }) },
-      OrderItem: { findByPk: async () => ({ orderId: 'order' }) }, Order: { findByPk: async () => ({ status, pricingPlanSnapshot: { demo } }) }, CheckIn: { create: async (value) => value } } });
+      OrderItem: { findByPk: async () => ({ orderId: 'order' }) }, Order: { findByPk: async () => ({ status, pricingPlanSnapshot: { demo }, ...provider }) }, CheckIn: { create: async (value) => value } } });
   return (token = walletToken(ticket, secret), eventId = ticket.eventId) => service({ qrToken: token, eventId, checkedInByUserId: 'staff' });
 }
 test('wallet QR uses the admission scanner and cannot be replayed or scanned for a different event', async () => {
@@ -81,6 +81,22 @@ test('check-in blocks early admission, unpaid/refunded orders and production dem
   await assert.rejects(scanner({ startsAt: '2026-09-24T00:00:00Z' })(), { code: 'EVENT_NOT_OPEN' });
   await assert.rejects(scanner({ status: 'refunded' })(), { code: 'INVALID_CREDENTIAL' });
   await assert.rejects(scanner({ demo: true, environment: 'production' })(), { code: 'INVALID_CREDENTIAL' });
+});
+const verifiedProvider = { providerMode: 'test', providerVerificationStatus: 'verified', paymentAccountId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', stripeAccountId: 'acct_test', stripePaymentIntentId: 'pi_test', stripeChargeId: 'ch_test' };
+test('provider review and missing binding cannot use scanner or customer wallet, while verified Stripe can', async () => {
+  for (const patch of [{}, { providerVerificationStatus: 'review' }, { providerVerificationStatus: 'pending' }, { providerVerificationStatus: null }, { providerMode: 'live' }, { stripeChargeId: null }, { stripePaymentIntentId: null }, { paymentAccountId: null }]) {
+    const provider = { ...verifiedProvider, ...patch };
+    const allowed = Object.keys(patch).length === 0;
+    if (allowed) assert.equal((await scanner({ provider })()).credential.status, 'checked_in');
+    else await assert.rejects(scanner({ provider })(), { code: 'INVALID_CREDENTIAL' });
+    const order = { ...provider, id: 'purchase', status: 'paid', event: { status: 'published', endsAt: '2099-01-01T00:00:00Z' }, items: [{ nameSnapshot: 'Ticket', tickets: [ticket] }] };
+    const service = createCustomerAccountService({ tokenSecret: secret, models: { Ticket: { findOne: async () => ({ ...ticket, orderItem: { order } }) }, Order: { findOne: async () => order } } });
+    if (allowed) assert.match((await service.ticket(ticket.holderUserId, ticket.id)).qrImage, /^data:image/);
+    else await assert.rejects(service.ticket(ticket.holderUserId, ticket.id), { code: 'TICKET_UNAVAILABLE' });
+    const purchase = await service.purchaseTickets(ticket.holderUserId, order.id);
+    assert.equal(Boolean(purchase.tickets[0].qrImage), allowed);
+    assert.equal(purchase.tickets[0].status, 'valid');
+  }
 });
 test('purchase ticket list includes individual entry states and hides other holders and unusable QR codes', async () => {
   const credentials = ['valid', 'checked_in', 'void', 'transferred'].map((status, index) => ({ ...ticket, id: `${ticket.id}-${index}`, status, checkedInAt: status === 'checked_in' ? new Date() : null }));

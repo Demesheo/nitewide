@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   ArrowRight,
@@ -47,6 +47,7 @@ import { useConnections } from './lib/use-connections';
 import { focusEventDialogStart, openEventDialogAtTop } from './lib/dialog-focus';
 import { detectCurrentCity } from "./discovery-defaults";
 import { api } from "./lib/api";
+import { readCheckoutAttempt, prepareCheckoutAttempt, clearCheckoutAttempt, checkCheckoutAttempt, submitCheckoutAttempt, resumePaymentCheckout, verifyPaymentCheckout, restoredCheckoutEvent } from './lib/checkout-attempt';
 import { businessLink } from './lib/business-link';
 import { referralCodeForEvent, referralFromSearch } from './lib/referral';
 import { eventShareUrl } from './lib/event-share';
@@ -72,6 +73,7 @@ const calendarLabel = (date) =>
     day: "numeric",
     year: "numeric",
   });
+const StripeCheckout = lazy(() => import('./components/stripe-checkout'));
 const Brand = () => (
   <a href="/" aria-label="Nitewide home" className="brand">
     nitewide
@@ -158,6 +160,19 @@ export default function App() {
   const [referral, setReferral] = useState(null);
   const [demoBusy, setDemoBusy] = useState(false);
   const [demoError, setDemoError] = useState('');
+  const [checkoutRecovering, setCheckoutRecovering] = useState(false);
+  const [paymentConfig, setPaymentConfig] = useState(null);
+  const [paymentCheckout, setPaymentCheckout] = useState(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    api('/customer/payment-config', { signal: controller.signal }).then(setPaymentConfig)
+      .catch(() => { if (!controller.signal.aborted) setPaymentConfig({ enabled: false, demoEnabled: false, mode: 'disabled' }); });
+    return () => controller.abort();
+  }, []);
+  const checkoutLock = useRef(false);
+  const recoveryBuyer = useRef(null);
+  const currentCheckoutBuyer = useRef(session?.user.id);
+  currentCheckoutBuyer.current = session?.user.id;
   const inviteClaimAttempted = useRef(false);
   const [selected, setSelected] = useState(null),
     [offeringId, setOfferingId] = useState(""),
@@ -190,6 +205,7 @@ export default function App() {
     window.history.replaceState({ ...window.history.state, nitewideScrollY: window.scrollY }, '', window.location.href);
   }
   function navigateView(next, { replace = false } = {}) {
+    if (checkoutLock.current) return;
     rememberScroll();
     setView(next);
     setSelected(null);
@@ -208,6 +224,7 @@ export default function App() {
   useEffect(() => {
     let active = true;
     const onPopState = () => {
+      if (checkoutLock.current) return;
       const route = parseCustomerRoute(window.location.search);
       setView(route.tab);
       setCity(route.city); setDate(route.date); setQuery(route.query); setShortcut(route.shortcut);
@@ -255,13 +272,13 @@ export default function App() {
         api(`/events/${encodeURIComponent(incoming.eventId)}`),
         api(`/events/${encodeURIComponent(incoming.eventId)}/referral-visits`, { body: { code: incoming.code, sessionKey } }),
       ]).then(([event, visit]) => {
-        if (!active) return;
+        if (!active || checkoutLock.current || parseCustomerRoute(window.location.search).eventId !== event.id) return;
         setReferral({ ...incoming, referrerName: visit.referrerName });
         openEvent(event, { fromRoute: true });
       }).catch(() => { if (active) setNotice('This referral link is no longer active. You can still browse events.'); });
     } else {
       api(`/events/${encodeURIComponent(eventId)}`)
-        .then((event) => { if (active) openEvent(event, { fromRoute: true }); })
+        .then((event) => { if (active && !checkoutLock.current && parseCustomerRoute(window.location.search).eventId === event.id) openEvent(event, { fromRoute: true }); })
         .catch(() => { if (active) setNotice('This event is no longer available. You can still browse events.'); });
     }
     return () => { active = false; };
@@ -324,7 +341,10 @@ export default function App() {
   const weeklyEvents = previewEvents;
   const offering = selected?.offerings?.find((o) => o.id === offeringId);
   const totals = checkoutTotal(offering?.priceCents || 0, quantity, offering?.currency || 'USD', offering?.effectiveFeeMode || 'buyer');
+  const demoCheckoutEnabled = Boolean(paymentConfig?.demoEnabled && paymentConfig.mode === 'disabled');
   function openEvent(event, { fromRoute = false } = {}) {
+    setCheckoutRecovering(false);
+    setPaymentCheckout(null);
     setSelected(event);
     if (!fromRoute) { rememberScroll(); updateCustomerRoute({ eventId: event.id }, { eventEntry: true }); }
     setShareFeedback('');
@@ -442,45 +462,124 @@ export default function App() {
     if (!session) {
       pendingAuth.current = "checkout";
       setAuthOpen(true);
-    } else setStage("checkout");
+    } else {
+      const pending = readCheckoutAttempt(session.user.id);
+      if (pending?.body.eventId === selected.id) {
+        setOfferingId(pending.body.items[0].offeringId); setQuantity(pending.body.items[0].quantity); setCheckoutRecovering(true);
+        setReferral(pending.body.affiliateCode ? { eventId: pending.body.eventId, code: pending.body.affiliateCode, referrerName: typeof pending.referrerName === 'string' ? pending.referrerName : 'Your host' } : null);
+      }
+      setStage("checkout");
+    }
   }
+  async function openPurchasedPasses(orderId, attempt, token = session.accessToken) {
+    const ticket = await api(`/customer/purchases/${encodeURIComponent(orderId)}/tickets`, { token });
+    if (currentCheckoutBuyer.current !== attempt.buyerId) return;
+    setSelected(null); setWalletOpen(false); setView('booked'); setBookingRoute(`purchase:${orderId}`);
+    setNotificationBooking({ ticket });
+    setPaymentCheckout(null);
+    updateCustomerRoute({ tab: 'booked', eventId: null, booking: `purchase:${orderId}` });
+    clearCheckoutAttempt(attempt.buyerId, attempt.body.idempotencyKey);
+    refreshConnections();
+    window.scrollTo({ top: 0 });
+  }
+  useEffect(() => {
+    if (!session) { recoveryBuyer.current = null; return; }
+    if (recoveryBuyer.current === session.user.id) return;
+    recoveryBuyer.current = session.user.id;
+    const attempt = readCheckoutAttempt(session.user.id);
+    if (!attempt) return;
+    checkoutLock.current = true; setDemoBusy(true); setCheckoutRecovering(true);
+    let active = true;
+    (async () => {
+      const resumed = attempt.mode === 'stripe' ? await resumePaymentCheckout(attempt, api, session.accessToken) : null;
+      const orderId = resumed ? (resumed.status === 'paid' ? resumed.orderId : null) : await checkCheckoutAttempt(attempt, api, session.accessToken);
+      if (!active) return;
+      if (orderId) { await openPurchasedPasses(orderId, attempt, session.accessToken); setCheckoutRecovering(false); return; }
+      let event;
+      try { event = await api(`/events/${encodeURIComponent(attempt.body.eventId)}`); }
+      catch (error) { event = restoredCheckoutEvent(attempt); if (!event) throw error; }
+      if (!active) return;
+      openEvent(event);
+      setOfferingId(attempt.body.items[0].offeringId); setQuantity(attempt.body.items[0].quantity); setStage('checkout'); setCheckoutRecovering(true);
+      setReferral(attempt.body.affiliateCode ? { eventId: attempt.body.eventId, code: attempt.body.affiliateCode, referrerName: typeof attempt.referrerName === 'string' ? attempt.referrerName : 'Your host' } : null);
+      if (resumed) setPaymentCheckout(resumed);
+      setDemoError(resumed?.verificationStatus === 'review' ? 'Your payment needs review. Contact the event host before making another payment.' : resumed ? '' : 'Your previous attempt has no confirmed booking yet. Retry to check and complete the same booking.');
+    })().catch((error) => { if (active) { if (error.terminalOrderId) { clearCheckoutAttempt(attempt.buyerId, attempt.body.idempotencyKey); setCheckoutRecovering(false); } setDemoError(`We couldn’t check your booking: ${error.message}`); setNotice(`We couldn’t check your booking: ${error.message}`); } })
+      .finally(() => { if (active) { checkoutLock.current = false; setDemoBusy(false); } });
+    return () => { active = false; checkoutLock.current = false; setDemoBusy(false); };
+  }, [session?.user.id]);
   async function completeDemo() {
+    if (checkoutLock.current) return;
     if (!session) {
       pendingAuth.current = "checkout";
       setAuthOpen(true);
       return;
     }
-    if (!offering || availableQuantity(offering) < quantity || !totals.eligible) return;
+    if (!offering || (!checkoutRecovering && (availableQuantity(offering) < quantity || !totals.eligible))) return;
+    checkoutLock.current = true;
     setDemoBusy(true);
     setDemoError('');
     try {
-    const result = await api('/orders', { token: session.accessToken, body: {
-      eventId: selected.id, idempotencyKey: crypto.randomUUID(),
+    const mode = totals.total === 0 ? 'free' : paymentConfig?.enabled && paymentConfig.mode === 'test' ? 'stripe' : demoCheckoutEnabled ? 'demo' : 'disabled';
+    if (mode === 'disabled' && !checkoutRecovering) throw new Error('Payment checkout is not ready yet. Please try again later.');
+    const attempt = checkoutRecovering ? readCheckoutAttempt(session.user.id) : prepareCheckoutAttempt(session.user.id, {
+      eventId: selected.id,
       expectedTotalCents: totals.total,
       affiliateCode: referralCodeForEvent(referral, selected.id),
       items: [{ offeringId: offering.id, quantity }],
-      payment: { provider: 'demo', reference: crypto.randomUUID(), status: 'succeeded' },
-    } });
-    const receipt = {
-      id: result.order.id,
-      userId: session.user.id,
-      event: {
-        title: selected.title,
-        startsAt: selected.startsAt,
-        location: selected.location,
-      },
-      offering: offering.name,
-      quantity,
-      total: result.order.totalCents,
-      currency: offering.currency,
-      createdAt: new Date().toISOString(),
-    };
-    setBooking(receipt);
-    setStage("complete");
-    refreshConnections();
-    await loadEvents();
+      ...(mode === 'demo' ? { payment: { provider: 'demo', reference: crypto.randomUUID(), status: 'succeeded' } } : {}),
+    }, undefined, undefined, mode, referralCodeForEvent(referral, selected.id) ? referral.referrerName : null, selected);
+    setCheckoutRecovering(true);
+    if (attempt.mode === 'stripe') {
+      const result = await resumePaymentCheckout(attempt, api, session.accessToken);
+      if (currentCheckoutBuyer.current !== attempt.buyerId) return;
+      if (result.status === 'paid') { await openPurchasedPasses(result.orderId, attempt); setCheckoutRecovering(false); }
+      else { setPaymentCheckout(result); setDemoError(''); }
+      return;
+    }
+    const orderId = await submitCheckoutAttempt(attempt, api, session.accessToken);
+    await openPurchasedPasses(orderId, attempt);
+    setCheckoutRecovering(false);
+    } catch (error) {
+      if (error.checkoutRejected || error.terminalOrderId) {
+        const rejected = readCheckoutAttempt(session.user.id);
+        if (rejected) clearCheckoutAttempt(session.user.id, rejected.body.idempotencyKey);
+        setCheckoutRecovering(false);
+        setDemoError(`Booking was not completed: ${error.message} Review your selection before trying again.`);
+      } else setDemoError(`We couldn’t confirm the result. Check or retry this same booking: ${error.message}`);
+    }
+    finally { checkoutLock.current = false; setDemoBusy(false); }
+  }
+  async function verifyBooking() {
+    if (!paymentCheckout || !session) return;
+    checkoutLock.current = true; setDemoBusy(true); setDemoError('');
+    try {
+      const attempt = readCheckoutAttempt(session.user.id);
+      const result = await verifyPaymentCheckout(paymentCheckout.orderId, api, session.accessToken);
+      if (attempt) await openPurchasedPasses(result.orderId, attempt);
+      setCheckoutRecovering(false); setPaymentCheckout(null);
+    } catch (error) {
+      if (error.paymentReview) setPaymentCheckout({ orderId: error.orderId, status: 'pending', verificationStatus: 'review' });
+      if (error.terminalOrderId) {
+        const attempt = readCheckoutAttempt(session.user.id);
+        if (attempt) clearCheckoutAttempt(session.user.id, attempt.body.idempotencyKey);
+        setCheckoutRecovering(false); setPaymentCheckout(null); setStage('details');
+      }
+      setDemoError(error.message);
+    }
+    finally { checkoutLock.current = false; setDemoBusy(false); }
+  }
+  async function cancelPaymentBooking() {
+    if (checkoutLock.current || !paymentCheckout) return;
+    checkoutLock.current = true; setDemoBusy(true); setDemoError('');
+    try {
+      const result = await api(`/customer/payment-checkouts/${encodeURIComponent(paymentCheckout.orderId)}/cancel`, { token: session.accessToken, method: 'POST' });
+      const attempt = readCheckoutAttempt(session.user.id);
+      if (result.status === 'paid') { if (attempt) await openPurchasedPasses(result.orderId, attempt); }
+      else if (result.status === 'cancelled') { if (attempt) clearCheckoutAttempt(session.user.id, attempt.body.idempotencyKey); setPaymentCheckout(null); setCheckoutRecovering(false); setStage('details'); }
+      else { setPaymentCheckout(result); setDemoError(result.verificationStatus === 'review' ? 'Your payment needs review. Contact the event host before making another payment. Your booking reference is saved.' : 'Your payment is still being checked. Your booking is saved; check again shortly.'); }
     } catch (error) { setDemoError(error.message); }
-    finally { setDemoBusy(false); }
+    finally { checkoutLock.current = false; setDemoBusy(false); }
   }
   async function requestGuestlist() {
     if (!session) {
@@ -762,7 +861,7 @@ export default function App() {
       <Dialog
         open={!!selected}
         onOpenChange={(open) => {
-          if (!open && !guestBusy && !referralBusy) closeEvent();
+          if (!open && !guestBusy && !referralBusy && !checkoutLock.current) closeEvent();
         }}
       >
         <DialogContent
@@ -902,7 +1001,7 @@ export default function App() {
                     </>
                   )}
                   <p className="demo-note">
-                    Demo checkout · No payment will be collected.
+                    {totals.total === 0 ? 'Free admission · No payment required.' : paymentConfig?.enabled ? 'Secure sandbox checkout · Test payments only.' : demoCheckoutEnabled ? 'Demo checkout · No payment will be collected.' : 'Payments are being prepared.'}
                   </p>
                 </TabsContent>
                 <TabsContent value="guestlist">
@@ -933,9 +1032,9 @@ export default function App() {
           )}
           {selected && stage === "checkout" && offering && (
             <div className="checkout-review">
-              <Badge variant="outline">DEMO CHECKOUT</Badge>
+              <Badge variant="outline">{totals.total === 0 ? 'FREE BOOKING' : paymentConfig?.enabled ? 'SANDBOX CHECKOUT' : demoCheckoutEnabled ? 'DEMO CHECKOUT' : 'PAYMENTS UNAVAILABLE'}</Badge>
               <p>
-                This creates a demo order and admission in local test data. No card details or charge; not valid for entry.
+                {totals.total === 0 ? 'Confirm your free admission. No card details are required.' : paymentConfig?.enabled ? 'Pay securely with Stripe in test mode. Use test payment details only; no real charge will be made.' : demoCheckoutEnabled ? 'This creates a demo order and admission in local test data. No card details or charge; not valid for entry.' : 'Paid booking will be available once secure payment setup is complete.'}
               </p>
               <div className="order-summary">
                 <h3>{offering.name}</h3>
@@ -965,11 +1064,13 @@ export default function App() {
               </p>
               {totals.floorAdjusted && <p className="fine-print">A minimum-cost adjustment is included in the service fee to cover this order. Processing is included; no additional processing charge applies.</p>}
               {demoError && <p role="alert">{demoError}</p>}
+              {paymentCheckout?.verificationStatus === 'review' && <p role="status" className="fine-print">Your payment needs review. Contact the event host for help before making another payment. Booking reference: {paymentCheckout.orderId}</p>}
               {referralCodeForEvent(referral, selected.id) && <p className="connection-context">Booking with <strong>{referral.referrerName}</strong></p>}
-              <Button className="primary-action dark-glass-action" onClick={completeDemo} disabled={demoBusy || !totals.eligible}>
-                {demoBusy ? <LoadingIndicator>Recording demo order…</LoadingIndicator> : <>Confirm demo booking <ArrowRight /></>}
-              </Button>
-              <Button variant="ghost" onClick={() => setStage("details")}>
+              {paymentCheckout?.clientSecret && paymentCheckout.verificationStatus !== 'review' && paymentConfig?.enabled && <Suspense fallback={<LoadingIndicator>Loading secure payment form…</LoadingIndicator>}><StripeCheckout key={paymentCheckout.orderId} config={paymentConfig} checkout={paymentCheckout} onVerify={verifyBooking} onBusyChange={busy => { checkoutLock.current = busy; setDemoBusy(busy); }} /></Suspense>}
+              {paymentCheckout ? <><Button className="primary-action dark-glass-action" disabled={demoBusy} onClick={verifyBooking}>{demoBusy ? <LoadingIndicator>Checking your booking…</LoadingIndicator> : 'Check booking'}</Button>{paymentCheckout.verificationStatus !== 'review' && <Button variant="outline" disabled={demoBusy} onClick={cancelPaymentBooking}>Cancel payment attempt</Button>}<p className="fine-print">You can close this window and return to the same booking.{paymentCheckout.verificationStatus !== 'review' && ' Cancellation is final only after the server confirms payment was not completed.'}</p></> : <Button className="primary-action dark-glass-action" onClick={completeDemo} disabled={demoBusy || (!checkoutRecovering && (!totals.eligible || (totals.total > 0 && !paymentConfig?.enabled && !demoCheckoutEnabled)))}>
+                {demoBusy ? <LoadingIndicator>{checkoutRecovering ? 'Checking your booking…' : 'Preparing your booking…'}</LoadingIndicator> : <>{checkoutRecovering ? 'Check / retry booking' : totals.total === 0 ? 'Confirm free booking' : paymentConfig?.enabled ? 'Continue to payment' : demoCheckoutEnabled ? 'Confirm demo booking' : 'Payments unavailable'} <ArrowRight /></>}
+              </Button>}
+              <Button variant="ghost" disabled={demoBusy || checkoutRecovering} onClick={() => setStage("details")}>
                 Back to tickets & tables
               </Button>
             </div>

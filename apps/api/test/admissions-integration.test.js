@@ -61,6 +61,15 @@ test('admissions HTTP: permissions, QR integrity, concurrent scans, manual entry
     assert.equal((await request(`${listPath}/${ids.otherEvent}`, 'promoter')).status, 403);
     const qrToken = walletToken(await m.Ticket.findByPk(ids.ticket), config.QR_TOKEN_SECRET);
     const scan = (token = qrToken, eventId = ids.event, role = 'manager') => request('/check-ins', role, { eventId, qrToken: token });
+    // A paid status is not enough for provider-marked tickets. Review retains
+    // purchase history and credential rows but removes QR/admission authority.
+    await m.Order.update({ providerMode: 'test', stripeAccountId: 'acct_fixture', stripePaymentIntentId: 'pi_fixture', stripeChargeId: 'ch_fixture', providerVerificationStatus: 'review' }, { where: { id: ids.order } });
+    assert.equal((await request(`${listPath}/${ids.event}`)).data.expected, 3, 'review tickets excluded from roster/headcounts');
+    assert.equal((await scan()).status, 422);
+    assert.equal((await request('/check-ins', 'manager', { eventId: ids.event, credentialId: ids.manualTicket, kind: 'ticket' })).status, 422);
+    assert.equal((await m.Ticket.findByPk(ids.ticket)).status, 'valid', 'review does not destroy credential history');
+    await m.Order.update({ providerMode: null, stripeAccountId: null, stripePaymentIntentId: null, stripeChargeId: null, providerVerificationStatus: 'pending' }, { where: { id: ids.order } });
+    assert.equal((await request(`${listPath}/${ids.event}`)).data.expected, 5, 'unmarked legacy admission preserved');
     // Lifecycle eligibility is enforced in both the selector and every direct
     // roster/scan request, for internal admins as well as the business team.
     for (const [model, where, changes, label] of [

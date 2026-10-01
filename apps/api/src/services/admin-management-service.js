@@ -105,7 +105,7 @@ registry.users.attributes.push('internalAdminRole');
 registry.users.fields.push(select('internalAdminRole', 'Internal access level', ['platform_owner', 'support', 'operations', 'read_only']));
 registry.onboarding_invitations = { model: 'OnboardingInvitation', label: 'Account onboarding invitations', title: 'email', search: ['email'], attributes: [...basics, 'userId', 'email', 'accountMode', 'expiresAt', 'acceptedAt', 'revokedAt', 'version'], fields: [], actions: [], delete: false, unavailable: 'Account setup links are delivered by email only. Pending invitations can be resent or revoked through onboarding controls.' };
 
-function createAdminManagementService({ models, permissions, email = null, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', guestlistService: suppliedGuestlistService = null, guestlistInvitationService: suppliedInvitationService = null, onboardingService: suppliedOnboardingService = null }) {
+function createAdminManagementService({ models, permissions, email = null, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', guestlistService: suppliedGuestlistService = null, guestlistInvitationService: suppliedInvitationService = null, onboardingService: suppliedOnboardingService = null, environment = process.env.NODE_ENV || 'development', hostedDemo = false, stripe = null }) {
   const edits = createAdminEditService({ models, permissions, email, customerAppUrl });
   const onboarding = suppliedOnboardingService || createAdminOnboardingService({ models, permissions, email, customerAppUrl, businessAppUrl });
   let guestlistService = suppliedGuestlistService; let invitationService = suppliedInvitationService;
@@ -364,7 +364,7 @@ function createAdminManagementService({ models, permissions, email = null, custo
         handoff = { url: url.toString(), message: queued ? 'Invitation email is queued for delivery.' : 'Email delivery is disabled. Share this link manually with the intended recipient.' };
         return { ...safe(config, record), handoff };
       }
-      const record = key === 'offerings' ? await persistOffering({ models, eventId: data.eventId, values: data, transaction }) : await models[config.model].create(data, { transaction });
+      const record = key === 'offerings' ? await persistOffering({ models, eventId: data.eventId, values: data, transaction, environment, hostedDemo,stripe }) : await models[config.model].create(data, { transaction });
       if (credentials) await models.UserCredential.create({ userId: record.id, ...credentials }, { transaction });
       if (ownerUserId) await models.OrganizationOwner.create({ organizationId: record.id, userId: ownerUserId, role: 'owner' }, { transaction });
       await audit(actor, config, record, 'created', null, reason, transaction);

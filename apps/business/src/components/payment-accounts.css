@@ -1,0 +1,12 @@
+.payment-accounts { display: grid; gap: 16px; }
+.payment-accounts .section-heading { align-items: flex-start; }
+.payment-accounts .section-heading a { white-space: nowrap; font-size: 13px; }
+.payment-profile-list { display: grid; gap: 12px; }
+.payment-profile { display: flex; gap: 16px; justify-content: space-between; padding: 16px; border: 1px solid var(--border, #303038); border-radius: 14px; }
+.payment-profile h3 { margin-bottom: 8px; }
+.payment-profile small { display: block; margin-top: 8px; }
+.payment-profile-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.payment-account-create { display: flex; align-items: end; gap: 12px; }
+.payment-account-create label { flex: 1; }
+.payment-accounts select { width: 100%; min-height: 44px; }
+@media (max-width: 640px) { .payment-profile, .payment-account-create, .payment-accounts .section-heading { display: flex; flex-direction: column; align-items: stretch; } .payment-profile-actions > button { flex: 1; } .payment-account-create > button { width: 100%; } }

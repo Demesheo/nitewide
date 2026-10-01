@@ -20,6 +20,9 @@ const { asyncHandler } = require('./http/middleware');
 const { DomainError } = require('./domain/errors');
 const { createDiagnostics } = require('./diagnostics/observability');
 const { createHealth } = require('./diagnostics/health');
+const { createPaymentServices } = require('./payments/services');
+const { stripeConfiguration } = require('./payments/stripe-client');
+const { createPaymentController } = require('./controllers/payment-controller');
 
 function createApp({ sequelize, models, config, healthCheck = () => sequelize.authenticate(), services = {}, staticRoot }) {
   const app = express(); app.disable('x-powered-by');
@@ -31,7 +34,15 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   // Path-style S3 URLs use this exact origin; no wildcard Cloudflare permission.
   const imageSources = ["'self'", 'data:'];
   if (config.R2_ACCOUNT_ID) imageSources.push(new URL(config.R2_ENDPOINT || `https://${config.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`).origin);
-  app.use(helmet({ contentSecurityPolicy: { directives: { imgSrc: imageSources } } }));
+  // Permit only Stripe's documented payment origins, without weakening script
+  // policies with unsafe-inline/unsafe-eval or allowing arbitrary frame hosts.
+  const paymentSources = stripeConfiguration(config).configured ? {
+    imgSrc: [...imageSources, 'https://*.stripe.com', 'https://*.link.com'],
+    scriptSrc: ["'self'", 'https://js.stripe.com', 'https://*.js.stripe.com', 'https://checkout.stripe.com'],
+    frameSrc: ["'self'", 'https://js.stripe.com', 'https://*.js.stripe.com', 'https://hooks.stripe.com', 'https://checkout.stripe.com', 'https://link.com', 'https://*.link.com'],
+    connectSrc: ["'self'", 'https://api.stripe.com', 'https://checkout.stripe.com', 'https://link.com', 'https://*.link.com'],
+  } : {};
+  app.use(helmet({ contentSecurityPolicy: { directives: { imgSrc: imageSources, ...paymentSources } } }));
   app.set('trust proxy', config.trustProxy ?? (config.hostedDemo ? 1 : false));
   app.get('/health/live', (_req, res) => res.set('Cache-Control', 'no-store').json({ status: 'ok', service: 'nitewide-api' }));
   app.get(['/health', '/health/ready'], async (req, res) => {
@@ -46,6 +57,18 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
     app.get('/demo-access', (_req, res) => res.redirect(302, '/'));
   }
   app.use(cors({ origin: (origin, callback) => callback(null, !origin || config.corsOrigins.includes(origin)), exposedHeaders: ['X-Request-Id', 'Retry-After'] }));
+  const permissions = services.permissions || createPermissionService(models);
+  const notificationJobs = services.notificationJobs || createNotificationJobService({ sequelize, models });
+  const email = services.email || createEmailService({ sequelize, models, apiKey: config.RESEND_API_KEY, from: config.RESEND_FROM_EMAIL, encryptionKey: config.EMAIL_ENCRYPTION_KEY, testMode: config.resendTestMode });
+  const checkout = services.checkout || createCheckoutService({ sequelize, models, notificationJobs, environment: config.NODE_ENV, hostedDemo: config.hostedDemo, email, customerAppUrl: config.CUSTOMER_APP_URL });
+  const payments = createPaymentServices({ sequelize, models, config, permissions, notificationJobs, checkout, services });
+  app.locals.payments = payments;
+  for (const [path, receive] of [['/api/webhooks/stripe', payments.stripeWebhooks.receive], ['/api/webhooks/stripe/accounts', payments.stripeWebhooks.receiveAccountNotification]]) {
+    app.post(path, express.raw({ type: 'application/json', limit: '256kb' }), asyncHandler(async (req, res) => {
+      if (!Buffer.isBuffer(req.body)) throw new DomainError('Expected a signed JSON event', { code: 'INVALID_WEBHOOK', status: 400 });
+      res.set('Cache-Control', 'no-store').json(await receive(req.body, req.get('Stripe-Signature')));
+    }));
+  }
   const webhook = createResendWebhookService({ models, secret: config.RESEND_WEBHOOK_SECRET });
   app.post('/api/webhooks/resend', express.raw({ type: 'application/json', limit: '256kb' }), async (req, res, next) => {
     try {
@@ -56,11 +79,8 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
     } catch (error) { next(error); }
   });
   app.use(express.json({ limit: '1mb' }));
-  const permissions = services.permissions || createPermissionService(models);
   const notifications = createNotificationService(models);
-  const email = services.email || createEmailService({ sequelize, models, apiKey: config.RESEND_API_KEY, from: config.RESEND_FROM_EMAIL, encryptionKey: config.EMAIL_ENCRYPTION_KEY, testMode: config.resendTestMode });
   app.locals.emailService = email;
-  const notificationJobs = services.notificationJobs || createNotificationJobService({ sequelize, models });
   app.locals.notificationJobs = notificationJobs;
   const invitations = createGuestlistInvitationService({ sequelize, models, permissions, email, customerAppUrl: config.CUSTOMER_APP_URL });
   const auth = services.auth || createAuthService({ sequelize, models, tokenSecret: config.AUTH_TOKEN_SECRET, invitations, email, customerAppUrl: config.CUSTOMER_APP_URL });
@@ -74,13 +94,15 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   app.use('/api', createMediaRouter({ models, requireUser, config, uploadDir: config.MEDIA_UPLOAD_DIR, storage: services.mediaStorage }));
   const guestlistService = services.requestGuestlist && services.reviewGuestlist ? null : createGuestlistService({ sequelize, models, permissions, email, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, reviewEmailsEnabled: config.businessGuestlistReviewEmails });
   const dependencies = {
-    models, permissions, auth, email,
-    checkout: services.checkout || createCheckoutService({ sequelize, models, notificationJobs, environment: config.NODE_ENV, hostedDemo: config.hostedDemo, email, customerAppUrl: config.CUSTOMER_APP_URL }),
+    models, permissions, auth, email, stripe: payments.stripe, environment: config.NODE_ENV, hostedDemo: config.hostedDemo,
+    checkout,
     requestGuestlist: services.requestGuestlist || guestlistService.request,
     reviewGuestlist: services.reviewGuestlist || guestlistService.review,
     checkIn: services.checkIn || createCheckInService({ sequelize, models, permissions, tokenSecret: config.QR_TOKEN_SECRET, environment: config.NODE_ENV, hostedDemo: config.hostedDemo }),
   };
-  const router = createRouter({ publicController: createPublicController(dependencies), managementController: createManagementController({ ...dependencies, businessAppUrl: config.businessAppUrl }), commerceController: createCommerceController(dependencies), authController: createAuthController(dependencies), auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, qrTokenSecret: config.QR_TOKEN_SECRET, deliveryTrackingConfigured: Boolean(config.RESEND_WEBHOOK_SECRET) });
+  const router = createRouter({ publicController: createPublicController(dependencies), managementController: createManagementController({ ...dependencies, businessAppUrl: config.businessAppUrl }), commerceController: createCommerceController(dependencies), authController: createAuthController(dependencies),
+    paymentController: createPaymentController(payments), paymentAccounts: payments.paymentAccounts, stripe: payments.stripe, paymentConfiguration: stripeConfiguration(config),
+    auth, requireUser, models, permissions, invitations, notifications, email, environment: config.NODE_ENV, hostedDemo: config.hostedDemo, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, qrTokenSecret: config.QR_TOKEN_SECRET, deliveryTrackingConfigured: Boolean(config.RESEND_WEBHOOK_SECRET) });
   app.locals.reportExports = router.reportExports;
   app.use('/api', router);
   app.use('/api/admin/background', requireUser, require('./routes/background-jobs').createBackgroundJobRouter({ sequelize, models, permissions, email, notificationJobs }));

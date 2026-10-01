@@ -9,12 +9,14 @@ const loopback = new Set(['localhost', '127.0.0.1', '[::1]']);
 function offlineEnvironment(source = process.env) {
   const environment = { ...source };
   for (const key of Object.keys(environment)) if (key.startsWith('RESEND_')) environment[key] = '';
+  for (const key of Object.keys(environment)) if (key.startsWith('STRIPE_')) environment[key] = '';
   // Blank credentials override dotenv without allowing an ambient cloud target.
   for (const key of ['R2_ACCOUNT_ID', 'R2_BUCKET', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_ENDPOINT']) environment[key] = '';
   return {
     ...environment,
     RESEND_API_KEY: '', RESEND_FROM_EMAIL: '', RESEND_TEST_READ_API_KEY: '',
     RESEND_TEST_MODE: 'false', BUSINESS_GUESTLIST_REVIEW_EMAILS: 'false',
+    STRIPE_MODE: 'disabled', STRIPE_SECRET_KEY: '', STRIPE_PUBLISHABLE_KEY: '', STRIPE_WEBHOOK_SECRET: '', STRIPE_ACCOUNT_WEBHOOK_SECRET: '',
     NODE_ENV: 'test', HOSTED_DEMO: 'false', LOG_LEVEL: source.LOG_LEVEL || 'silent',
     MEDIA_STORAGE_DRIVER: 'local', MEDIA_CLEANUP_ENABLED: 'false',
   };

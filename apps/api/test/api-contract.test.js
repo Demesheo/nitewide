@@ -30,6 +30,13 @@ test('request and query contracts retain the actual shared validators and canoni
   assert.equal(find('post', '/auth/password/change').requestSchema, schemas.passwordChange);
   assert.equal(find('post', '/auth/password/change').authenticated, true);
   assert.equal(find('post', '/orders').requestSchema, schemas.checkout);
+  const payments = require('../src/http/payment-schemas');
+  assert.equal(find('post', '/customer/payment-checkouts').requestSchema, payments.paymentCheckoutSchema);
+  assert.equal(find('post', '/business/orders/:orderId/refunds').requestSchema, payments.refundSchema);
+  assert.equal(find('get', '/customer/payment-config').authenticated, false);
+  for (const route of contracts.filter(value => value.path.includes('/payment-checkouts') || value.path.includes('/payment-accounts') || value.path.endsWith('/refunds'))) {
+    assert.equal(route.authenticated, true, `${route.path} requires a real session`);
+  }
   assert.equal(find('post', '/business/events').requestSchema, business.eventEditor);
   assert.equal(find('get', '/business/reports/:table').querySchema, business.reportDetailQuery);
   assert.equal(find('get', '/customer/bookings').querySchema, domain.bookings);

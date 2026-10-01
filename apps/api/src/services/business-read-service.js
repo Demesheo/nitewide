@@ -60,6 +60,7 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
     const rows = await select(`SELECT org.id, org.name, org.plan_tier AS "planTier",
       CASE WHEN ${broadAccess} THEN org.location_id ELSE NULL END AS "locationId",
       ${broadAccess} AS "organizationWideAccess",
+      EXISTS (SELECT 1 FROM organization_owners finance WHERE finance.organization_id=org.id AND finance.user_id=:userId AND finance.lifecycle_state='active' AND (finance.role='owner' OR finance.role='admin' AND finance.finance_authorized)) AS "canManageFinance",
       (:canManageEvents OR EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organization_id=org.id AND oo.user_id=:userId AND oo.lifecycle_state='active')
         OR EXISTS (SELECT 1 FROM venue_access va JOIN organization_venues ov ON ov.organization_id=va.organization_id AND ov.location_id=va.location_id
           JOIN locations venue_location ON venue_location.id=va.location_id AND venue_location.lifecycle_state='active'

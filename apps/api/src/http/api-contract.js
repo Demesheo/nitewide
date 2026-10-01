@@ -12,6 +12,7 @@ const adminReports = require('./admin-report-schemas');
 const adminSupport = require('./admin-support-schemas');
 const businessAccess = require('./business-access-schemas');
 const { venuePageSchema } = require('../services/business-venue-service');
+const payments = require('./payment-schemas');
 
 const uuid = z.uuid();
 const count = z.number().int().nonnegative();
@@ -54,6 +55,7 @@ const error = z.object({ error: z.object({ code: z.string(), message: z.string()
 // Dynamic management resources retain JSON extension fields by design.
 const responses = { entity, event, offering, user, session, guest, sales, reportRow, exportJob, accessRequest, onboardingInvitation, error, page, envelope };
 const queries = {
+  '/business/organizations/:organizationId/payment-accounts': payments.paymentAccountQuery,
   '/events': z.union([publicQuery.discoveryQuery, publicQuery.legacyDiscoveryQuery]), '/events/batch': publicQuery.batchQuery,
   '/customer/bookings': domainQuery.bookings, '/customer/saved': domainQuery.saved, '/customer/saved/ids': domainQuery.savedIds,
   '/customer/connections': domainQuery.connections, '/customer/connections/summary': domainQuery.connectionPeople, '/customer/connections/people': domainQuery.connectionPeople,
@@ -88,7 +90,7 @@ function paramsFor(path) {
   const shape = {};
   for (const match of path.matchAll(/:([A-Za-z]+)/g)) {
     const name = match[1];
-    shape[name] = name === 'token' ? z.string().min(20).max(200)
+    shape[name] = name === 'idempotencyKey' ? z.string().min(8).max(100) : name === 'token' ? z.string().min(20).max(200)
       : name === 'table' ? (path.startsWith('/admin/') ? adminReports.reportTables : z.enum(['regions', 'venues', 'events', 'offerings', 'team', 'customers']))
         : name === 'resource' ? z.enum(Object.keys(require('../services/admin-management-service').registry))
           : name === 'action' ? z.string().min(1).max(80) : uuid;
@@ -97,6 +99,15 @@ function paramsFor(path) {
 }
 
 function responseFor(method, path) {
+  if (path === '/customer/payment-config') return payments.paymentConfiguration;
+  if (path === '/customer/payment-checkouts') return payments.checkoutPreparation;
+  if (path.startsWith('/customer/payment-checkouts/')) return payments.checkoutSummary;
+  if (/^\/(business|admin)\/orders\/:orderId\/refunds$/.test(path)) return payments.refundSummary;
+  if (path === '/business/organizations/:organizationId/payment-accounts') return method === 'get' ? payments.paymentAccountPage : payments.paymentAccount;
+  if (path.endsWith('/payment-accounts/:accountId/synchronize')) return payments.paymentAccount;
+  if (path.endsWith('/payment-accounts/:accountId/onboarding')) return payments.onboardingLink;
+  if (path.endsWith('/payment-accounts/default')) return z.object({ defaultPaymentAccountId: uuid.nullable() }).strict();
+  if (path === '/business/events/:eventId/payment-account') return payments.selection;
   if (/^\/(admin\/businesses|business\/organizations)\/:id\/venues/.test(path)) {
     if (method === 'get' && (path.endsWith('/venues') || path.endsWith('/team') || path.endsWith('/candidates'))) return page(entity);
     return entity;
@@ -151,6 +162,7 @@ function responseFor(method, path) {
   if (path.includes('/guestlist/:entryId/decision')) return z.object({ entry: guest }).catchall(z.json());
   if (path === '/orders' && method === 'post') return z.object({ replayed: z.boolean(), order: entity, tickets: z.array(entity).optional() }).catchall(z.json());
   if (path === '/orders/:orderId') return entity;
+  if (path === '/customer/checkout-attempts/:idempotencyKey') return payments.checkoutSummary;
   if (path.endsWith('/affiliates') || path.endsWith('/guestlist-allocation') || path.endsWith('/people') && method === 'put') return entity;
   // Heterogeneous workflow responses (onboarding, dynamic admin editors,
   // bootstrap, legacy analytics) expose extensible JSON object/array contracts.

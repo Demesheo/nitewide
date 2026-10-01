@@ -131,6 +131,7 @@ test(
         config: {
           ...config,
           NODE_ENV: "production",
+          hostedDemo: true, // Retain production authentication while explicitly simulating paid sales.
           MEDIA_UPLOAD_DIR: mediaDir,
         },
       }); // Disables the development identity header.
@@ -175,15 +176,11 @@ test(
       const imageResponse = await httpRequest(server, artwork.body.data.url);
       assert.equal(imageResponse.status, 200);
       assert.equal(imageResponse.headers['content-type'], "image/webp");
-      assert.equal(
-        (
-          await req("/business/events", ids.owner, "POST", {
+      const sharedArtworkEvent = await req("/business/events", ids.owner, "POST", {
             ...input,
             slug: `shared-artwork-${randomUUID()}`,
-          })
-        ).status,
-        201,
-      );
+          });
+      assert.equal(sharedArtworkEvent.status, 201, JSON.stringify(sharedArtworkEvent.body));
       const ownerArtwork = await upload(ids.owner, png, "owner-flyer.png");
       assert.equal(ownerArtwork.status, 201);
       assert.equal((await req("/business/events", ids.manager, "POST", {
@@ -328,7 +325,7 @@ test(
         affiliateCode: eventAffiliate.code,
         items: [{ offeringId: tiers[0].id, quantity: 2 }],
         payment: {
-          provider: "test",
+          provider: 'demo',
           reference: randomUUID(),
           status: "succeeded",
         },
@@ -576,7 +573,7 @@ test(
       const updatedTiers = await m.Offering.findAll({where:{eventId:event.id},order:[['sortOrder','ASC']]});
       assert.equal(updatedTiers[1].releaseAfterOfferingId,tiers[0].id);
       assert.equal(updatedTiers[3].releaseAfterOfferingId,updatedTiers[1].id);
-      const buy = (offeringId, code = eventAffiliate.code) => req('/orders',ids.outsider,'POST',{eventId:event.id,idempotencyKey:randomUUID(),affiliateCode:code,items:[{offeringId,quantity:1}],payment:{provider:'test',reference:randomUUID(),status:'succeeded'}});
+      const buy = (offeringId, code = eventAffiliate.code) => req('/orders',ids.outsider,'POST',{eventId:event.id,idempotencyKey:randomUUID(),affiliateCode:code,items:[{offeringId,quantity:1}],payment:{provider: 'demo',reference:randomUUID(),status:'succeeded'}});
       assert.equal((await buy(updatedTiers[1].id)).body.error.code,'OFFERING_NOT_ON_SALE');
       assert.equal((await buy(updatedTiers[2].id)).body.error.code,'OFFERING_NOT_ON_SALE');
       assert.equal((await buy(updatedTiers[3].id)).body.error.code,'OFFERING_NOT_ON_SALE');
@@ -738,7 +735,7 @@ test(
       const employeeCode = employeeDetail.people[0].code;
       assert.match(employeeCode,/^STAFF-/);
       assert.equal(await m.EventAffiliate.count({where:{eventId:employeeEventId}}),0,'reading does not generate assignments');
-      const employeeBuy = () => req('/orders',ids.outsider,'POST',{eventId:employeeEventId,idempotencyKey:randomUUID(),affiliateCode:employeeCode,items:[{offeringId:employeeTier.id,quantity:1}],payment:{provider:'test',reference:randomUUID(),status:'succeeded'}});
+      const employeeBuy = () => req('/orders',ids.outsider,'POST',{eventId:employeeEventId,idempotencyKey:randomUUID(),affiliateCode:employeeCode,items:[{offeringId:employeeTier.id,quantity:1}],payment:{provider: 'demo',reference:randomUUID(),status:'succeeded'}});
       const firstStaffSale = await employeeBuy();
       assert.equal(firstStaffSale.status,201,JSON.stringify(firstStaffSale.body));
       assert.equal(firstStaffSale.body.data.order.affiliateCommissionCents,0);
@@ -798,7 +795,7 @@ test(
       assert.equal((await req(`/business/events/${inviteEventId}/people`,ids.manager,'PUT',{userId:ids.outsider,commissionBps:1500,status:'active'})).status,200,'event-only promoters can have their rates edited');
       const inviteTier = await m.Offering.findOne({where:{eventId:inviteEventId}});
       for (const affiliateCode of [eventOnlyRef.code,undefined]) {
-        const sale = await req('/orders',ids.manager,'POST',{eventId:inviteEventId,idempotencyKey:randomUUID(),affiliateCode,items:[{offeringId:inviteTier.id,quantity:1}],payment:{provider:'test',reference:randomUUID(),status:'succeeded'}});
+        const sale = await req('/orders',ids.manager,'POST',{eventId:inviteEventId,idempotencyKey:randomUUID(),affiliateCode,items:[{offeringId:inviteTier.id,quantity:1}],payment:{provider: 'demo',reference:randomUUID(),status:'succeeded'}});
         assert.equal(sale.status,201);
       }
       const ownDetail = (await req(`/business/events/${inviteEventId}/detail`,ids.outsider)).body.data;
@@ -840,7 +837,7 @@ test(
         const person = leaders.find((p)=>p.userId===leaderId);
         assert.equal(person.commissionBps,0);
         assert.match(person.code,/^LEAD-/);
-        const buyLeader = () => req('/orders',ids.outsider,'POST',{eventId:leadershipEventId,idempotencyKey:randomUUID(),affiliateCode:person.code,items:[{offeringId:leadershipTier.id,quantity:1}],payment:{provider:'test',reference:randomUUID(),status:'succeeded'}});
+        const buyLeader = () => req('/orders',ids.outsider,'POST',{eventId:leadershipEventId,idempotencyKey:randomUUID(),affiliateCode:person.code,items:[{offeringId:leadershipTier.id,quantity:1}],payment:{provider: 'demo',reference:randomUUID(),status:'succeeded'}});
         const first = await buyLeader();
         assert.equal(first.status,201,JSON.stringify(first.body));
         assert.equal(first.body.data.order.affiliateCommissionCents,0);
@@ -871,7 +868,7 @@ test(
         assert.equal(link.status, 200, `${actor.role} link: ${JSON.stringify(link.body)}`);
         const assignment = await m.EventAffiliate.findOne({ where: { eventId: matrixEvent.id, userId: actor.userId } });
         await assignment.update({ commissionBps: actor.rate, guestlistAllocation: 10 });
-        const purchase = await req('/orders', actor.buyerId, 'POST', { eventId: matrixEvent.id, idempotencyKey: randomUUID(), affiliateCode: link.body.data.code, items: [{ offeringId: matrixTier.id, quantity: 1 }], payment: { provider: 'test', reference: randomUUID(), status: 'succeeded' } });
+        const purchase = await req('/orders', actor.buyerId, 'POST', { eventId: matrixEvent.id, idempotencyKey: randomUUID(), affiliateCode: link.body.data.code, items: [{ offeringId: matrixTier.id, quantity: 1 }], payment: { provider: 'demo', reference: randomUUID(), status: 'succeeded' } });
         assert.equal(purchase.status, 201, `${actor.role} purchase: ${JSON.stringify(purchase.body)}`);
         assert.equal(purchase.body.data.order.affiliateCommissionCents, actor.rate / 10);
         const guestlist = await req(`/events/${matrixEvent.id}/guestlist`, actor.buyerId, 'POST', { partySize: 1, affiliateCode: link.body.data.code });
@@ -965,7 +962,7 @@ test(
       assert.equal((await req(`/business/events/${nextLink.event.id}/guestlist/${connectionGuestId}/decision`, ids.eventPromoter, 'POST', { decision: 'approve' })).status, 200);
       assert.ok((await req('/notifications', ids.matrixCustomer)).body.data.items.some((item) => item.kind === 'guestlist_approved' && item.eventId === nextLink.event.id));
       const nextTier = await m.Offering.findOne({ where: { eventId: nextNight.body.data.id } });
-      const repeatSale = await req('/orders', ids.matrixCustomer, 'POST', { eventId: nextNight.body.data.id, idempotencyKey: randomUUID(), affiliateCode: nextLink.code, items: [{ offeringId: nextTier.id, quantity: 1 }], payment: { provider: 'test', reference: randomUUID(), status: 'succeeded' } });
+      const repeatSale = await req('/orders', ids.matrixCustomer, 'POST', { eventId: nextNight.body.data.id, idempotencyKey: randomUUID(), affiliateCode: nextLink.code, items: [{ offeringId: nextTier.id, quantity: 1 }], payment: { provider: 'demo', reference: randomUUID(), status: 'succeeded' } });
       assert.equal(repeatSale.status, 201, JSON.stringify(repeatSale.body));
       assert.equal(repeatSale.body.data.order.affiliateCommissionCents, 250);
       const nextDetail = await req(`/business/events/${nextNight.body.data.id}/detail`, ids.manager);
@@ -1000,7 +997,7 @@ test(
       events.push(selloutEvent.body.data.id);
       locations.add(selloutEvent.body.data.locationId);
       const selloutTier = await m.Offering.findOne({ where: { eventId: selloutEvent.body.data.id } });
-      const sold = await req('/orders', ids.outsider, 'POST', { eventId: selloutEvent.body.data.id, idempotencyKey: randomUUID(), items: [{ offeringId: selloutTier.id, quantity: 1 }], payment: { provider: 'test', reference: randomUUID(), status: 'succeeded' } });
+      const sold = await req('/orders', ids.outsider, 'POST', { eventId: selloutEvent.body.data.id, idempotencyKey: randomUUID(), items: [{ offeringId: selloutTier.id, quantity: 1 }], payment: { provider: 'demo', reference: randomUUID(), status: 'succeeded' } });
       assert.equal(sold.status, 201, JSON.stringify(sold.body));
       await require('../src/services/notification-job-service').createNotificationJobService({ sequelize, models: m }).drain({ maxJobs: 100 });
       assert.ok((await req('/notifications', ids.owner)).body.data.items.some((item) => item.kind === 'offering_sold_out' && item.eventId === selloutEvent.body.data.id));
