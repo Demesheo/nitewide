@@ -270,6 +270,16 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
   async function connectionsPage(userId, { eventId = null, page = 1, pageSize = 9, city = '', query = '', personIds = [] } = {}) {
     return pagedConnections({ models, userId, eventId, page, pageSize, city, query, personIds, now, referralLinks });
   }
-  return { bookings, ticket, purchaseTickets, guestlistPass, guestlistStatus, updatePendingGuestlist, withdrawPendingGuestlist, updateProfile, updateIdentity, connections, connectionsPage, connectionHistory };
+  async function updateNotificationPreferences(userId, input) {
+    return mutationTransaction(models.User.sequelize, async (transaction) => {
+      const user = assertActiveUser(await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE }));
+      const before = user.notificationPreferences;
+      await user.update({ notificationPreferences: input }, { transaction });
+      await models.AuditLog.create({ actorUserId: userId, entityType: 'User', entityId: user.id,
+        action: 'account.notification_preferences.updated', before, after: input }, { transaction });
+      return user.notificationPreferences;
+    });
+  }
+  return { bookings, ticket, purchaseTickets, guestlistPass, guestlistStatus, updatePendingGuestlist, withdrawPendingGuestlist, updateProfile, updateIdentity, updateNotificationPreferences, connections, connectionsPage, connectionHistory };
 }
 module.exports = { createCustomerAccountService, profile, eventSummary };

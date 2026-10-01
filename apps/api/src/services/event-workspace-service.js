@@ -125,7 +125,7 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
     const purchases = orders.map((order) => ({ id: order.id, customer: order.buyer?.displayName || 'Customer', items: order.items.map((item) => `${item.quantity} × ${item.nameSnapshot}`).join(', '), salesCents: order.subtotalCents, referredBy: people.find((person) => person.id === order.eventAffiliateId)?.name || 'Direct', paidAt: order.paidAt, demo: order.pricingPlanSnapshot?.demo === true }));
     return { event: { ...serialized, canManage, canEdit: canManage && !eventFinished(event, now()) }, scope: canManage ? 'event' : 'own', candidates: canManage ? members : [], purchases, ...report };
   }
-  async function savePerson(userId, eventId, input) {
+  async function savePerson(userId, eventId, input, { legacyCreate = false } = {}) {
     return mutationTransaction(m.Event.sequelize, async (transaction) => {
       await permissions.assertManageEvent(userId, eventId, transaction);
       const event = await m.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
@@ -138,7 +138,7 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
         : null;
       const members = await roster(event);
       const member = membership ? members.find((p) => p.userId === person.id) : null;
-      if (event.organizationId && !member && !assignment) throw forbidden('Invite this promoter to the event first.');
+      if (event.organizationId && !member && !assignment && !legacyCreate) throw forbidden('Invite this promoter to the event first.');
       if (!assignment && input.status === 'inactive' && !member?.defaultReferralCode) throw notFound('Event referrer');
       const before = assignment?.toJSON() || null;
       let scope = assignment ? accessScope(assignment) : event.organizationId && member ? 'organization' : 'event';
@@ -148,6 +148,15 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
       }
       if (eventRegrant) scope = 'event';
       const values = { commissionBps: input.commissionBps, status: input.status, accessScope: scope };
+      if (legacyCreate && !assignment) {
+        if (input.orgAffiliateId) {
+          const parent = await m.OrgAffiliate.findByPk(input.orgAffiliateId, { transaction, lock: transaction.LOCK.UPDATE });
+          if (!parent || parent.userId !== person.id || parent.organizationId !== event.organizationId || parent.status !== 'active') throw conflict('Event referral organization scope does not match this active person');
+          values.orgAffiliateId = parent.id;
+          values.accessScope = 'organization';
+        }
+        values.guestlistAllocation = input.guestlistAllocation ?? null;
+      }
       let previousCommissionBps = before?.commissionBps ?? 0;
       if (assignment?.orgAffiliateId && input.status === 'active' && event.organizationId) {
         const linkedAffiliate = await m.OrgAffiliate.findByPk(assignment.orgAffiliateId, { transaction, lock: transaction.LOCK.UPDATE });
@@ -177,7 +186,8 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
       }
       if (eventRegrant) values.sourceOrgAffiliateId = null;
       if (assignment) await assignment.update(values, { transaction });
-      else assignment = await m.EventAffiliate.create({ ...values, eventId, userId: person.id, orgAffiliateId: member?.orgAffiliateId || null, code: `NW-${randomUUID()}`, guestlistAllocation: 0 }, { transaction });
+      else assignment = await m.EventAffiliate.create({ eventId, userId: person.id, orgAffiliateId: member?.orgAffiliateId || null,
+        code: legacyCreate ? input.code : `NW-${randomUUID()}`, guestlistAllocation: 0, ...values }, { transaction });
       if (input.status === 'inactive') await require('./guestlist-invitation-policy').revokePendingGuestlistInvitations({ models: m, eventAffiliateId: assignment.id, actorUserId: userId, transaction });
       const audit = await m.AuditLog.create({ actorUserId: userId, organizationId: event.organizationId, entityType: 'EventAffiliate', entityId: assignment.id, action: input.status === 'inactive' ? 'event.referrer.removed' : 'event.referrer.updated', before, after: assignment.toJSON() }, { transaction });
       if (before && input.status === 'active' && previousCommissionBps !== input.commissionBps) await queueEventTermsChanged({ email, models: m, userId: person.id, event,

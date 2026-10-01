@@ -9,6 +9,8 @@ const { active, activeUser } = require('./lifecycle-service');
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 const text = (max) => z.string().trim().min(1).max(max);
 const reason = text(500).min(3);
+const onboardingChangeSchema = z.object({ reason, version: z.number().int().min(0) }).strict();
+const onboardingAcceptSchema = z.object({ token: z.string().min(20).max(200), password: z.string().optional(), confirmPassword: z.string().optional() }).strict();
 const venueSchema = z.object({ name: text(180), addressLine1: text(180), addressLine2: z.string().trim().max(180).optional(), city: text(100), region: z.string().trim().max(100).optional(), postalCode: z.string().trim().max(24).optional(), countryCode: z.string().length(2).toUpperCase(), timezone: text(64).refine((value) => { try { new Intl.DateTimeFormat('en', { timeZone: value }); return true; } catch { return false; } }, 'Choose a valid IANA timezone'), privacy: z.enum(['public', 'attendees_only', 'private']).default('public') }).strict();
 const onboardingSchema = z.object({
   kind: z.enum(['user', 'organization', 'venue', 'independent_creator']),
@@ -109,7 +111,7 @@ function createAdminOnboardingService({ models, permissions, email = null, custo
     });
   }
   async function change(actor, id, body, resending) {
-    await permissions.assertInternal(actor); const input = z.object({ reason, version: z.number().int().min(0) }).strict().parse(body);
+    await permissions.assertInternal(actor); const input = onboardingChangeSchema.parse(body);
     return transaction(async (tx) => {
       await permissions.assertInternal(actor, tx);
       const row = await models.OnboardingInvitation.findByPk(z.string().uuid().parse(id), { transaction: tx, lock: tx.LOCK.UPDATE });
@@ -138,4 +140,4 @@ function createAdminOnboardingService({ models, permissions, email = null, custo
   }
   return { create, preview, accept, resend: (actor, id, body) => change(actor, id, body, true), revoke: (actor, id, body) => change(actor, id, body, false) };
 }
-module.exports = { createAdminOnboardingService, onboardingSchema, venueSchema };
+module.exports = { createAdminOnboardingService, onboardingSchema, onboardingChangeSchema, onboardingAcceptSchema, venueSchema };

@@ -15,6 +15,15 @@ const schema = z.object({
   BIND_HOST: z.enum(['127.0.0.1', '0.0.0.0']).optional(),
   DATABASE_URL: z.string().default('postgres://postgres:postgres@localhost:5432/nitewide'),
   DATABASE_SSL: z.enum(['true', 'false']).default('false'),
+  DATABASE_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(900000).default(120000),
+  DATABASE_LOCK_TIMEOUT_MS: z.coerce.number().int().min(100).max(120000).default(10000),
+  DATABASE_IDLE_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(1000).max(900000).default(120000),
+  DATABASE_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(100).max(60000).default(10000),
+  DATABASE_ACQUIRE_TIMEOUT_MS: z.coerce.number().int().min(100).max(120000).default(30000),
+  LOG_LEVEL: z.enum(['silent', 'error', 'warn', 'info']).optional(),
+  READINESS_TIMEOUT_MS: z.coerce.number().int().min(100).max(10000).default(3000),
+  API_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
+  HTTP_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300000).default(60000),
   MEDIA_UPLOAD_DIR: z.string().optional(),
   MEDIA_STORAGE_DRIVER: z.enum(['local', 'r2']).default('local'),
   R2_ACCOUNT_ID: optionalR2(z.string().regex(/^[a-f0-9]{32}$/i)),
@@ -95,6 +104,7 @@ function getConfig(environment = process.env) {
   }
   return {
     ...values,
+    LOG_LEVEL: values.LOG_LEVEL || (values.NODE_ENV === 'test' ? 'silent' : 'info'),
     bindHost: values.BIND_HOST || (values.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1'),
     hostedDemo: values.HOSTED_DEMO === 'true',
     trustProxy: values.TRUST_PROXY_HOPS ?? (values.HOSTED_DEMO === 'true' ? 1 : false),

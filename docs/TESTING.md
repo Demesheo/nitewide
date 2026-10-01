@@ -11,8 +11,10 @@ Run these commands from the repository root:
 | `npm test` | All workspace unit/component tests, mocked email tests, and required API/database regressions | Yes |
 | `npm run test:api` | API unit/mocked email tests and all required API/database regressions | Yes |
 | `npm run test:api:unit` | API unit tests, mock-backed HTTP contracts, hosted routes, and mocked emails | No |
-| `npm run test:api:integration` | All eleven required isolated database suites | Yes |
+| `npm run test:api:integration` | All sixteen required isolated database suites | Yes |
 | `npm run test:api:integration -- --suite admissions-integration.test.js` | One required database suite, with the same provisioning/cleanup protections | Yes |
+| `npm run api:contract` | Regenerate the committed OpenAPI document from route metadata and shared schemas | No |
+| `npm run api:contract:check` | Detect drift between the executable contract and committed document | No |
 
 Workspace equivalents are `npm run test:unit --workspace @nitewide/api` and `npm run test:integration --workspace @nitewide/api`. A focused suite must be one of the required filenames below; unknown options, conflicting modes, arbitrary paths, and demo-only filenames fail before connecting to PostgreSQL. The default `npm test` still runs every required suite; focused commands do not weaken CI coverage.
 
@@ -53,6 +55,13 @@ Run `npm test` from the repository root, or `npm test --workspace @nitewide/api`
 - `referral-reactivation-integration.test.js`: restored roles, referral access, and outstanding invitation lifecycle checks.
 - `mutation-concurrency-integration.test.js`: actual PostgreSQL authorization lock waits, both write/removal orderings, concurrent shared writes, invitation/audit/outbox rollback, and checkout cart conflicts without duplicate inventory or credentials.
 - `report-export-integration.test.js`: 1,205 events, 24,001 paid orders and 12,001 buyers; reconciled SQL totals, EXPLAIN ANALYZE/BUFFERS diagnostics, immediate and background CSVs, concurrent purchases, access revocation, expiry, checkpoint retries and competing workers. It creates only test-owned data in its disposable database.
+- `notification-worker-integration.test.js`: durable fan-out, leases, atomic checkpoints, access/preference rechecks, retries and competing workers.
+- `email-worker-integration.test.js`: leased outbox claims, mocked bounded delivery, retry visibility and graceful stop without provider sends.
+- `media-storage-integration.test.js`: normalized uploads, finalization, lifecycle permissions and orphan cleanup using mock/local storage.
+- `production-diagnostics-integration.test.js`: real database timeouts, readiness, request/query metrics and sanitized HTTP failures.
+- `api-domain-contract-integration.test.js`: executable response contracts and shared lifecycle/authorization rules across legacy and domain routes.
+
+See [API contract](API_CONTRACT.md) for adding domain operations and regenerating schemas, and [API diagnostics](API_DIAGNOSTICS.md) for error codes, operational metrics and timeout configuration. Unit regressions cover malformed JSON, oversized requests, unsupported operations and bounded API/worker shutdown. Contract and database regressions are part of the existing CI gate, not optional live-deployment tests.
 
 There is no opt-in flag for these suites. Each receives its own generated `nitewide_test_<UUID>` database on a PostgreSQL/PostGIS server. The runner migrates only that database, executes its suite, then drops that exact generated database. It does not seed, migrate, or inspect development/demo application data. Integration files reject direct execution without the runner's managed database URL and marker. Interrupting the runner stops its child process group and performs the same generated-database cleanup.
 

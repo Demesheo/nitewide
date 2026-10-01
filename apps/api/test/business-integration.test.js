@@ -166,10 +166,9 @@ test(
         (await upload(ids.manager, Buffer.from("fake image"))).status,
         422,
       );
-      assert.equal(
-        (await upload(ids.manager, Buffer.alloc(10 * 1024 * 1024 + 1))).status,
-        422,
-      );
+      const oversizedUpload = await upload(ids.manager, Buffer.alloc(10 * 1024 * 1024 + 1));
+      assert.equal(oversizedUpload.status, 413);
+      assert.equal(oversizedUpload.body.error.code, 'REQUEST_TOO_LARGE');
       const artwork = await upload(ids.manager, png);
       assert.equal(artwork.status, 201, JSON.stringify(artwork.body));
       input.imageAssetId = artwork.body.data.id;

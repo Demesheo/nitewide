@@ -109,15 +109,27 @@ test('durable email workers with mocked provider, leases, safe replay and intern
     });
     await t.test('standalone worker process starts without HTTP and handles SIGTERM cleanly with email disabled', { timeout: 10000 }, async () => {
       const child = spawn(process.execPath, [require.resolve('../src/worker')], {
-        env: { ...process.env, RESEND_API_KEY: '', RESEND_FROM_EMAIL: '', RESEND_TEST_MODE: 'false', WORKER_POLL_INTERVAL_MS: '250' },
+        env: { ...process.env, RESEND_API_KEY: '', RESEND_FROM_EMAIL: '', RESEND_TEST_MODE: 'false', WORKER_POLL_INTERVAL_MS: '250', LOG_LEVEL: 'info' },
         stdio: ['ignore','pipe','pipe'],
       });
       const closed = once(child, 'close'); let output = '';
       try {
         await new Promise((resolve, reject) => {
-          child.on('error', reject);
-          child.once('exit', code => reject(new Error(`Worker exited before startup (${code})`)));
-          child.stdout.on('data', data => { output += data; if (output.includes('background worker started')) resolve(); });
+          const deadline = setTimeout(() => finish(new Error('Worker did not emit its structured startup event within 8 seconds')), 8000);
+          let settled = false;
+          function finish(error) {
+            if (settled) return;
+            settled = true; clearTimeout(deadline);
+            if (error) reject(error); else resolve();
+          }
+          child.on('error', finish);
+          child.once('exit', code => finish(new Error(`Worker exited before startup (${code})`)));
+          child.stdout.on('data', data => {
+            output += data;
+            if (output.split('\n').some(line => {
+              try { return JSON.parse(line).event === 'worker_started'; } catch { return false; }
+            })) finish();
+          });
         });
         const active = await db.query("SELECT * FROM background_workers WHERE status='running'", { type: QueryTypes.SELECT });
         assert.equal(active.length, 1); assert.equal(active[0].details.emailEnabled, false);

@@ -10,6 +10,8 @@ Emails, checkout notification fan-out and large exports run in a [dedicated back
 
 Event artwork supports [private Cloudflare R2 storage](docs/MEDIA_STORAGE.md), verified upload finalization and worker-managed orphan cleanup. PostgreSQL stores stable asset IDs/keys; signed read URLs are generated on demand. Local storage remains the default until R2 runtime credentials are configured. Apply migrations before restarting; no reseed is needed. Existing local flyers are not automatically copied to R2.
 
+The API uses domain route modules and publishes a generated [OpenAPI contract](docs/API_CONTRACT.md). Error responses include a request ID, structured logs omit sensitive request data, and database waits and shutdown have deadlines. See [API diagnostics and health checks](docs/API_DIAGNOSTICS.md) for configuration, readiness/liveness, and protected metrics.
+
 This repository contains:
 
 - `apps/api` — Express, Sequelize, PostgreSQL, and PostGIS REST API
@@ -59,6 +61,9 @@ Open:
 - Business: <http://localhost:5174>
 - Admin: <http://localhost:5175>
 - API health: <http://localhost:4000/health>
+- API liveness: <http://localhost:4000/health/live>
+- API readiness: <http://localhost:4000/health/ready>
+- API contract: <http://localhost:4000/api/openapi.json>
 
 ### Local Vite cache and recovery
 
@@ -152,6 +157,10 @@ npm run test:api:unit
 npm run test:api:integration
 npm run test:api:integration -- --suite admissions-integration.test.js
 
+# Regenerate or verify the executable OpenAPI contract (no database needed)
+npm run api:contract
+npm run api:contract:check
+
 # Run either mocked email suite on its own (0 email sends)
 npm run test:email:customer:mocked
 npm run test:email:business:mocked
@@ -171,7 +180,7 @@ The API development process uses a normal Node process for compatibility with ma
 
 The assumptions, outputs, valuation sensitivities, and evidence gates behind the Florida model are documented in [docs/FLORIDA_50M_MODEL.md](docs/FLORIDA_50M_MODEL.md).
 
-`npm test` runs the unit/frontend tests and fourteen required real-PostgreSQL suites using Node's built-in test runner. Supertest exercises the Express HTTP boundary for authentication, permissions, customer/business/admin workflows, checkout replay/conflicts, admissions, uploads, CSV exports, and signed webhooks. Database suites also verify reporting, pagination, lifecycle protections, and concurrent authorization/write behavior. Each receives a fresh generated database, migrations, and deterministic fixtures; the runner removes that database afterward. No development/demo seed is required or modified, and email delivery is disabled. Missing PostgreSQL/PostGIS prerequisites fail with setup guidance rather than skipping coverage. `test:api:unit` needs no database; `test:api:integration` runs all required database suites or a single named suite. GitHub's existing `npm test` verification includes this coverage automatically. See [Testing](docs/TESTING.md) for commands, conventions, local/CI setup, and the separate demo-only command.
+`npm test` runs the unit/frontend tests and sixteen required real-PostgreSQL suites using Node's built-in test runner. Supertest exercises the Express HTTP boundary for authentication, permissions, customer/business/admin workflows, checkout replay/conflicts, admissions, uploads, CSV exports, and signed webhooks. Database suites also verify reporting, pagination, lifecycle protections, concurrent authorization/write behavior, database timeouts, and legacy/domain response contracts. Each receives a fresh generated database, migrations, and deterministic fixtures; the runner removes that database afterward. No development/demo seed is required or modified, and email delivery is disabled. Missing PostgreSQL/PostGIS prerequisites fail with setup guidance rather than skipping coverage. `test:api:unit` needs no database; `test:api:integration` runs all required database suites or a single named suite. GitHub's existing `npm test` verification includes this coverage automatically. See [Testing](docs/TESTING.md) for commands, conventions, local/CI setup, and the separate demo-only command.
 
 Business and Admin reports now share scoped SQL summaries and server-paginated tables; the legacy capped bulk report endpoints return `410`. CSV exports up to 1,000 rows download immediately from a stable snapshot. Larger exports prepare in a durable background queue, show progress and retry controls, and remain downloadable for 24 hours. Apply `npm run db:migrate` and restart the API; no reseed or new hosting service is required. See [SQL reporting and snapshot exports](docs/REPORTING_EXPORTS.md) for APIs, security, retention, measured EXPLAIN plans and the rollup decision.
 

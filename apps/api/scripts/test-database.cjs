@@ -15,7 +15,7 @@ function offlineEnvironment(source = process.env) {
     ...environment,
     RESEND_API_KEY: '', RESEND_FROM_EMAIL: '', RESEND_TEST_READ_API_KEY: '',
     RESEND_TEST_MODE: 'false', BUSINESS_GUESTLIST_REVIEW_EMAILS: 'false',
-    NODE_ENV: 'test', HOSTED_DEMO: 'false',
+    NODE_ENV: 'test', HOSTED_DEMO: 'false', LOG_LEVEL: source.LOG_LEVEL || 'silent',
     MEDIA_STORAGE_DRIVER: 'local', MEDIA_CLEANUP_ENABLED: 'false',
   };
 }

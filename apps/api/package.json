@@ -11,6 +11,8 @@
     "test:unit": "node scripts/run-tests.cjs --unit",
     "test:integration": "node scripts/run-tests.cjs --integration",
     "test:demo": "node scripts/run-tests.cjs --demo",
+    "api:contract": "node scripts/api-contract.cjs --write",
+    "api:contract:check": "node scripts/api-contract.cjs --check",
     "test:email:customer:mocked": "node --test email-tests/delivery-check.test.js email-tests/email-auth.test.js email-tests/email-events.test.js email-tests/email-service.test.js",
     "test:email:business:mocked": "node --test email-tests/business-workflows.test.js",
     "db:migrate": "sequelize-cli db:migrate",

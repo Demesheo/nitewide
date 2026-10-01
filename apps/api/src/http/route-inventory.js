@@ -1,0 +1,878 @@
+// Closed inventory: route registration fails if a new operation lacks review.
+// Generated artifact parity tests also detect removals or schema drift.
+const routeInventory = [
+  {
+    "method": "get",
+    "path": "/admin/analytics",
+    "successStatuses": []
+  },
+  {
+    "method": "post",
+    "path": "/admin/demo-users",
+    "successStatuses": [
+      201
+    ]
+  },
+  {
+    "method": "patch",
+    "path": "/admin/events/:id",
+    "successStatuses": []
+  },
+  {
+    "method": "get",
+    "path": "/admin/management/:resource",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/admin/management/:resource",
+    "successStatuses": [
+      201
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/admin/management/:resource/:id",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "patch",
+    "path": "/admin/management/:resource/:id",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/admin/management/:resource/:id/actions/:action",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/admin/management/resources",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/admin/management/users/:id/scoped-role",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/admin/onboarding",
+    "successStatuses": [
+      201
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/admin/onboarding/:id/resend",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/admin/onboarding/:id/revoke",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/admin/operations",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "patch",
+    "path": "/admin/organizations/:id",
+    "successStatuses": []
+  },
+  {
+    "method": "get",
+    "path": "/admin/overview",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/admin/reports/:table",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/admin/reports/bootstrap",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/admin/reports/export.csv",
+    "successStatuses": [
+      200,
+      202
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/admin/reports/summary",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "patch",
+    "path": "/admin/users/:id",
+    "successStatuses": []
+  },
+  {
+    "method": "get",
+    "path": "/admin/workspace",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/auth/email/resend",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/auth/email/verify",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/auth/logout",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/auth/me",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/auth/notification-preferences",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "patch",
+    "path": "/auth/notification-preferences",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/auth/onboarding/accept",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/auth/onboarding/preview",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/auth/password-reset/complete",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/auth/password-reset/request",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "patch",
+    "path": "/auth/profile",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/auth/register",
+    "successStatuses": [
+      201
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/auth/sessions",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "delete",
+    "path": "/auth/sessions/:sessionId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/auth/sessions/revoke-all",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/auth/sign-in",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/admissions/events",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/admissions/events/:eventId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/analytics",
+    "successStatuses": []
+  },
+  {
+    "method": "get",
+    "path": "/business/bootstrap",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/business/events",
+    "successStatuses": [
+      201
+    ]
+  },
+  {
+    "method": "put",
+    "path": "/business/events/:eventId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "patch",
+    "path": "/business/events/:eventId/affiliates/:eventAffiliateId/guestlist-allocation",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/analytics",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/attendees",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/attendees/:attendeeId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/business/events/:eventId/copy-access",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/detail",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/guestlist",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "patch",
+    "path": "/business/events/:eventId/guestlist-capacity",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/business/events/:eventId/guestlist-invitations",
+    "successStatuses": [
+      201
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/guestlist-invite-pools",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/guestlist-page",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/guestlist-page/:entryId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/guestlist-settings",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/guestlist-settings-page",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/business/events/:eventId/guestlist/:entryId/decision",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/business/events/:eventId/instructions",
+    "successStatuses": [
+      202
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/instructions/history",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/business/events/:eventId/instructions/preview",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/invitations",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/business/events/:eventId/invitations",
+    "successStatuses": [
+      201
+    ]
+  },
+  {
+    "method": "delete",
+    "path": "/business/events/:eventId/invitations/:invitationId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "put",
+    "path": "/business/events/:eventId/people",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/people-page",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/purchases",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/referral-link",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/summary",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/business/organizations/:organizationId/invitations",
+    "successStatuses": [
+      201
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/organizations/:organizationId/invitations-page",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "delete",
+    "path": "/business/organizations/:organizationId/invitations/:invitationId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/business/organizations/:organizationId/invitations/:invitationId/resend",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/organizations/:organizationId/team",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/organizations/:organizationId/team-page",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "delete",
+    "path": "/business/organizations/:organizationId/team/:userId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "patch",
+    "path": "/business/organizations/:organizationId/team/:userId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/overview",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/overview/needs-attention",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/reports/:table",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/reports/export.csv",
+    "successStatuses": [
+      200,
+      202
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/reports/exports",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/reports/exports/:id",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/reports/exports/:id/download",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/business/reports/exports/:id/retry",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/reports/summary",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/business/workspace",
+    "successStatuses": []
+  },
+  {
+    "method": "post",
+    "path": "/check-ins",
+    "successStatuses": [
+      201
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/customer/bookings",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/customer/connections",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/customer/connections/people",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/customer/connections/summary",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/customer/events/:eventId/guestlist",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "delete",
+    "path": "/customer/guestlists/:entryId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "patch",
+    "path": "/customer/guestlists/:entryId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/customer/guestlists/:id/pass",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "patch",
+    "path": "/customer/profile",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/customer/purchases/:id/tickets",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/customer/saved",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "delete",
+    "path": "/customer/saved/:eventId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "put",
+    "path": "/customer/saved/:eventId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/customer/saved/ids",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/customer/saved/merge",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/customer/tickets/:id",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/events",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/events",
+    "successStatuses": [
+      201
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/events/:eventId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/events/:eventId/affiliates",
+    "successStatuses": [
+      201
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/events/:eventId/guestlist",
+    "successStatuses": [
+      202
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/events/:eventId/offerings",
+    "successStatuses": [
+      201
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/events/:eventId/referral-visits",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/events/batch",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/guestlist-invitations/:token/claim",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "delete",
+    "path": "/notifications",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/notifications",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "delete",
+    "path": "/notifications/:id",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/notifications/:id/read",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/openapi.json",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/orders",
+    "successStatuses": [
+      200,
+      201
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/orders/:orderId",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/organizations",
+    "successStatuses": [
+      201
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/organizations/:organizationId/affiliates",
+    "successStatuses": [
+      201
+    ]
+  },
+  {
+    "method": "get",
+    "path": "/team/invitations/:token",
+    "successStatuses": [
+      200
+    ]
+  },
+  {
+    "method": "post",
+    "path": "/team/invitations/:token/accept",
+    "successStatuses": [
+      200
+    ]
+  }
+];
+module.exports = { routeInventory };

@@ -27,7 +27,7 @@ function backgroundServices({ sequelize, models, config }) {
 
 // Independent loops prevent a long export from delaying email, notifications
 // or heartbeat. A lane never overlaps its own drain invocation.
-function createWorkerRuntime({ sequelize, services, pollIntervalMs = 2000, log = console, id = randomUUID() }) {
+function createWorkerRuntime({ sequelize, services, pollIntervalMs = 2000, log = console, diagnostics = sequelize.diagnostics, id = randomUUID() }) {
   let stopping = false, started = false, active = [], stoppingPromise;
   const sleepers = new Set();
   async function pause() {
@@ -44,7 +44,10 @@ function createWorkerRuntime({ sequelize, services, pollIntervalMs = 2000, log =
   }
   async function loop(name, fn) {
     while (!stopping) {
-      try { await fn(); } catch (error) { log.error(`Background ${name} failed:`, error.code || error.name); }
+      try { await fn(); } catch (error) {
+        if (diagnostics) diagnostics.log('worker_job_failed', { lane: name, outcome: 'error' }, 'error');
+        else log.error(`Background ${name} failed:`, error.code || error.name);
+      }
       await pause();
     }
   }

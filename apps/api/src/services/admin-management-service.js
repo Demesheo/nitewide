@@ -19,6 +19,9 @@ const uuid = z.string().uuid();
 const optionalId = uuid.nullable().optional();
 const integer = (min = 0, max = 1000000) => z.coerce.number().int().min(min).max(max);
 const reasonSchema = text(500).min(3);
+const querySchema = z.object({ page: integer(1).default(1), pageSize: integer(1, 100).default(25), search: z.string().trim().max(120).default(''), status: z.string().trim().max(40).default(''), sort: z.string().trim().max(40).default('createdAt'), direction: z.enum(['asc', 'desc']).default('desc') });
+const actionReasonSchema = z.object({ reason: reasonSchema }).strict();
+const lifecycleActionSchema = actionReasonSchema.extend({ version: z.number().int().min(0) }).strict();
 const plain = (record) => record?.toJSON ? record.toJSON() : record;
 const field = (key, label, type = 'text', extra = {}) => ({ key, label, type, ...extra });
 const reference = (key, label, resource, required = true) => field(key, label, 'reference', { resource, required });
@@ -91,7 +94,6 @@ function createAdminManagementService({ models, permissions, email = null, custo
   const managedModel = (config) => models[config.model].unscoped ? models[config.model].unscoped() : models[config.model];
   const attributes = (config) => (config.attributes || Object.keys(models[config.model].rawAttributes).filter((key) => !/hash|token|password|secret|metadata|snapshot|storageKey|providerReference|idempotency/i.test(key))).filter((key) => models[config.model].rawAttributes[key]);
   const safe = (config, record) => { const value = plain(record); const result = Object.fromEntries(attributes(config).map((key) => [key, value[key]])); if (config.model === 'UserCredential') result.id = value.userId; return result; };
-  const querySchema = z.object({ page: integer(1).default(1), pageSize: integer(1, 100).default(25), search: z.string().trim().max(120).default(''), status: z.string().trim().max(40).default(''), sort: z.string().trim().max(40).default('createdAt'), direction: z.enum(['asc', 'desc']).default('desc') });
   const listOptions = {
     users: { statuses: { active: { isActive: true, lifecycleState: 'active' }, disabled: { isActive: false, lifecycleState: 'active' }, suspended: { lifecycleState: 'suspended' }, archived: { lifecycleState: 'archived' } }, sorts: ['createdAt', 'displayName', 'email'] },
     organizations: { statuses: { active: { status: 'active', lifecycleState: 'active' }, suspended: { [Op.or]: [{ status: 'suspended' }, { lifecycleState: 'suspended' }] }, closed: { status: 'closed' }, archived: { lifecycleState: 'archived' } }, sorts: ['createdAt', 'name', 'status'] },
@@ -232,7 +234,7 @@ function createAdminManagementService({ models, permissions, email = null, custo
   async function action(actor, key, id, actionId, body) {
     await authorize(actor); const config = resource(key);
     const lifecycle = ['suspend', 'archive', 'restore'].includes(actionId);
-    const input = (lifecycle ? z.object({ reason: reasonSchema, version: z.number().int().min(0) }).strict() : z.object({ reason: reasonSchema }).strict()).parse(body);
+    const input = (lifecycle ? lifecycleActionSchema : actionReasonSchema).parse(body);
     if (!config.actions.some((action) => action.id === actionId)) throw conflict('This transition is unavailable', 'UNSUPPORTED_TRANSITION');
     if (lifecycle) return mutationTransaction(models.User.sequelize, async (transaction) => {
       await authorize(actor, transaction);
@@ -319,4 +321,4 @@ function createAdminManagementService({ models, permissions, email = null, custo
   return { metadata, list, detail, create: mapConflict(create), update: mapConflict(edits.update), action: mapConflict(action), remove: mapConflict(remove) };
 }
 
-module.exports = { createAdminManagementService, registry };
+module.exports = { createAdminManagementService, registry, querySchema, reasonSchema, actionReasonSchema, lifecycleActionSchema };

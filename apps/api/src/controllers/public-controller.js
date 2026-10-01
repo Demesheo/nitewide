@@ -3,18 +3,7 @@ const { Op, QueryTypes } = require('sequelize');
 const { z } = require('zod');
 const { createHash } = require('node:crypto');
 const { assertActiveEvent } = require('../services/lifecycle-service');
-const discoveryQuery = z.object({
-  pageSize: z.coerce.number().int().min(1).max(100),
-  cursor: z.string().max(1000).optional(),
-  city: z.string().trim().max(120).default(''),
-  startDate: z.iso.date(),
-  endDate: z.iso.date(),
-  query: z.string().trim().max(120).default(''),
-  category: z.string().trim().max(80).default('all'),
-  timezone: z.string().trim().min(1).max(64).default('UTC'),
-}).refine((value) => value.startDate <= value.endDate, { path: ['endDate'], message: 'End date must be on or after start date' })
-  .refine((value) => (Date.parse(value.endDate) - Date.parse(value.startDate)) / 86400000 <= 31,
-    { path: ['endDate'], message: 'Discovery range must be 31 days or less' });
+const { discoveryQuery } = require('../http/public-schemas');
 const cursorSchema = z.object({ day: z.iso.date(), premium: z.boolean(), title: z.string(), id: z.uuid(), filter: z.string().length(64) }).strict();
 const discoveryFilterKey = (input) => createHash('sha256').update(JSON.stringify([input.city, input.startDate, input.endDate, input.query, input.category, input.timezone])).digest('hex');
 function decodeCursor(value, filter) {
@@ -112,7 +101,7 @@ function redactLocation(location) {
 function createPublicController({ models }) {
   return {
     batchEvents: async (req, res) => {
-      const ids = z.string().min(1).max(1200).transform((value) => value.split(',')).pipe(z.array(z.uuid()).min(1).max(30)).parse(req.query.ids);
+      const ids = require('../http/public-schemas').batchQuery.parse(req.query).ids;
       const unique = [...new Set(ids)];
       const events = await models.Event.findAll({ where: { id: { [Op.in]: unique }, status: 'published', lifecycleState: 'active', endsAt: { [Op.gte]: new Date() } },
         include: [{ model: models.Location, as: 'location' }, { model: models.Organization, as: 'organization', attributes: ['id', 'name', 'slug', 'planTier'] },
@@ -128,6 +117,7 @@ function createPublicController({ models }) {
     listEvents: async (req, res) => {
       // Existing callers receive an array. Opt-in discovery callers receive a page.
       if (req.query.pageSize !== undefined) return res.json({ data: await pagedEvents(models, discoveryQuery.parse(req.query)) });
+      const legacyQuery = require('../http/public-schemas').legacyDiscoveryQuery.parse(req.query);
       // Apply the active-event boundary before pagination. Otherwise historical
       // events can consume the public limit and leave discovery with no results.
       const where = {
@@ -141,15 +131,15 @@ function createPublicController({ models }) {
         isDiscoverable: true,
         endsAt: { [Op.gte]: new Date() },
       };
-      if (req.query.category) where.category = req.query.category;
+      if (legacyQuery.category) where.category = legacyQuery.category;
       const candidates = await models.Event.findAll({ where, attributes: ['id'], include: [{ model: models.Location, as: 'location', attributes: [] }, { model: models.Organization, as: 'organization', attributes: ['id', 'planTier'] }, { model: models.User, as: 'creator', attributes: [] }], order: [['startsAt', 'ASC']], limit: Math.min(Number(req.query.limit) || 50, 100), subQuery: false });
       const events = candidates.length ? await models.Event.findAll({ where: { id: candidates.map((event) => event.id) }, include: [{ model: models.Location, as: 'location' }, { model: models.Organization, as: 'organization', attributes: ['id', 'name', 'slug', 'planTier'] }, { model: models.Offering, as: 'offerings', required: false }], order: [['startsAt', 'ASC']] }) : [];
       res.json({ data: events.map(publicEvent) });
     },
     getEvent: async (req, res) => {
       const event = await models.Event.findByPk(req.params.eventId, { include: [{ model: models.Location, as: 'location' }, { model: models.Organization, as: 'organization', attributes: ['id', 'name', 'slug', 'planTier'] }, { model: models.Offering, as: 'offerings', required: false }] });
-      if (!event || event.status !== 'published') return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Event not found' } });
-      try { await assertActiveEvent(models, event); } catch { return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Event not found' } }); }
+      if (!event || event.status !== 'published') throw require('../domain/errors').notFound('Event');
+      try { await assertActiveEvent(models, event); } catch (error) { if (![403, 404].includes(error.status)) throw error; throw require('../domain/errors').notFound('Event'); }
       res.json({ data: publicEvent(event) });
     },
   };

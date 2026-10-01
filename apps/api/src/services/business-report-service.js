@@ -349,7 +349,7 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
     const teamColumns = { guestlist: '"guestlistPlaces"', commission: '"commissionCents"', contribution: '"salesCents"' };
     const extraColumn = allowed[kind].includes(field) ? (commonColumns[field] || teamColumns[field]) : null;
     const sort = definition.sorts[input.sort] || (extraColumn ? `${extraColumn} ${direction} NULLS LAST, id ASC` : null);
-    if (!sort) { const error = new Error('Unsupported sort for this report table'); error.status = 400; throw error; }
+    if (!sort) throw new (require('../domain/errors').DomainError)('Unsupported sort for this report table', { status: 400, code: 'UNSUPPORTED_REPORT_SORT' });
     const predicate = kind === 'team' ? ` WHERE (:personSearch = '' OR label ILIKE :personPattern ESCAPE '\\')
       AND (:allRoles OR role IN (:roles))` : kind === 'events' && input.activityOnly === 'true' ? ' WHERE orders > 0' : '';
     const tableValues = { ...values, personSearch: input.personSearch || '',

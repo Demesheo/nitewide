@@ -3,6 +3,23 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { createWorkerRuntime } = require('../src/background/runtime');
 const { supervise } = require('../../../deploy/supervise.cjs');
+const { createDiagnostics } = require('../src/diagnostics/observability');
+
+test('worker lane failures use redacted structured diagnostics without arbitrary error fields', async () => {
+  const logs = [], diagnostics = createDiagnostics({ write: line => logs.push(JSON.parse(line)) });
+  const noop = { enabled: false, drain: async () => 0, stop: async () => {} };
+  const runtime = createWorkerRuntime({ sequelize: { authenticate: async () => {}, query: async () => {}, diagnostics },
+    services: { email: { ...noop, drain: async () => { throw Object.assign(new Error('private password'), { code: 'private token', sql: 'private query' }); } }, notifications: noop, exports: [] },
+    pollIntervalMs: 1000 });
+  try {
+    await runtime.start();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(logs[0].event, 'worker_job_failed');
+    assert.equal(logs[0].lane, 'email');
+    assert.equal(logs[0].outcome, 'error');
+    assert.doesNotMatch(JSON.stringify(logs), /private|password|token|query/);
+  } finally { await runtime.stop(); }
+});
 
 test('worker lanes do not overlap, long export does not block notifications, stop waits for active work', async () => {
   let release, entered = 0, finished = false, notifications = 0, heartbeats = 0;

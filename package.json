@@ -27,6 +27,8 @@
     "test:e2e:report": "playwright show-report",
     "test:e2e:codegen": "node e2e/codegen.cjs",
     "test:demo": "npm run test:demo --workspace @nitewide/api",
+    "api:contract": "npm run api:contract --workspace @nitewide/api",
+    "api:contract:check": "npm run api:contract:check --workspace @nitewide/api",
     "test:email:customer:mocked": "npm run test:email:customer:mocked --workspace @nitewide/api",
     "test:email:customer:simulated": "node scripts/check-resend-workflows.cjs",
     "test:email:business:mocked": "npm run test:email:business:mocked --workspace @nitewide/api",

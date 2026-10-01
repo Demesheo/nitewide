@@ -5,6 +5,7 @@ const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 const { createFixture } = require('./admissions-fixture.cjs');
 const { request: httpRequest } = require('./support/http-client.cjs');
 const { reportDetailQuery } = require('../src/http/business-schemas');
+const { contractFor } = require('../src/http/api-contract');
 
 test('scaled SQL reports and durable snapshot exports', { timeout: 180000 }, async (t) => {
   assertManagedTestDatabase();
@@ -120,6 +121,9 @@ test('scaled SQL reports and durable snapshot exports', { timeout: 180000 }, asy
     let id;
     await t.test('large export queues, freezes rows once, and ignores purchases between batches', async () => {
       const queued = await request(`/api/business/reports/export.csv?exportTable=customers&organizationIds=${ids.org}`).expect(202);
+      const acceptedSchema = contractFor({ method: 'get', path: '/business/reports/export.csv', authenticated: true }).responseSchemas[202];
+      const parsed = acceptedSchema.safeParse(queued.body);
+      assert.equal(parsed.success, true, JSON.stringify(parsed.error));
       id = queued.body.data.id;
       assert.equal(queued.body.data.status, 'queued');
       await request(`/api/business/reports/exports/${id}/download`).expect(409);

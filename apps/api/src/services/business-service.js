@@ -2,8 +2,7 @@ const { mutationTransaction } = require('./mutation-transaction');
 const { randomUUID } = require('node:crypto');
 const { assertEventEditable } = require('../domain/event-policy');
 const { activeUser, assertActiveEvent, assertActiveOrganization, assertOrganizationVenue } = require('./lifecycle-service');
-const { queueEventEmail, formatTime, venueName } = require('./email-events');
-const { queueBusinessEventStatus } = require('./business-email-events');
+const { authorizeEventWrite, assertDirectCapacity, persistOffering, recordEventMutation } = require('./event-mutation-policy');
 const {
   forbidden,
   conflict,
@@ -165,16 +164,7 @@ function createBusinessService({
             })
           : null;
         if (eventId && !event) throw notFound("Event");
-        if (eventId) await permissions.assertManageEvent(userId, eventId, transaction);
-        else if (input.organizationId) await permissions.assertManageOrganization(userId, input.organizationId, transaction);
-        const actor = await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.SHARE || 'SHARE' });
-        if (!activeUser(actor)) throw forbidden('An active account is required');
-        if (!actor.isInternalAdmin) {
-          if (event) await assertActiveEvent(models, event, transaction);
-          else if (input.organizationId) await assertActiveOrganization(models, input.organizationId, transaction);
-          else if (!actor.independentCreator) throw forbidden('Independent event creation access is required');
-        }
-        if (event) assertEventEditable(event, now());
+        await authorizeEventWrite({ models, permissions, userId, event, organizationId: input.organizationId, transaction, now: now() });
         if (input.endsAt <= now() || input.status === 'completed') throw conflict('Create or edit events with a future end time. Past events are read-only.');
         if (event && event.organizationId !== input.organizationId)
           throw forbidden("Event organization cannot be changed");
@@ -226,23 +216,7 @@ function createBusinessService({
             "TIER_HAS_SALES",
           );
         }
-        if (event) {
-          const used =
-            Number(
-              await models.GuestlistEntry.sum("partySize", {
-                where: {
-                  eventId,
-                  eventAffiliateId: null,
-                  status: ["confirmed", "checked_in"],
-                },
-                transaction,
-              }),
-            ) || 0;
-          if (input.guestlistCapacity < used)
-            throw conflict(
-              `Direct guestlist already has ${used} approved guests`,
-            );
-        }
+        if (event) await assertDirectCapacity({ models, eventId, capacity: input.guestlistCapacity, transaction });
         if (input.imageAssetId && input.imageAssetId !== event?.imageAssetId) {
           const asset = await models.MediaAsset.findByPk(input.imageAssetId, {
             transaction,
@@ -306,64 +280,13 @@ function createBusinessService({
         for (const [sortOrder, tier] of offerings.entries()) {
           const { id, releaseAfterIndex, ...values } = tier;
           values.releaseAfterOfferingId = releaseAfterIndex == null ? null : savedTiers[releaseAfterIndex].id;
-          if (id)
-            savedTiers.push(await byId
-              .get(id)
-              .update({ ...values, sortOrder }, { transaction }));
-          else
-            savedTiers.push(await models.Offering.create(
-              { ...values, eventId: saved.id, currency: "USD", sortOrder },
-              { transaction },
-            ));
+          savedTiers.push(await persistOffering({ models, eventId: saved.id, values: { ...values, sortOrder, currency: 'USD' }, previous: id ? byId.get(id) : null, transaction }));
         }
         // Re-link retained tiers first, then delete only verified unsold tiers.
         if (removedTiers.length) await models.Offering.destroy({
           where: { id: removedTiers.map((tier) => tier.id), eventId: saved.id }, transaction,
         });
-        await models.AuditLog.create(
-          {
-            actorUserId: userId,
-            organizationId: saved.organizationId,
-            entityType: "Event",
-            entityId: saved.id,
-            action: event ? "event.updated" : "event.created",
-            before,
-            after: { ...saved.toJSON(), offerings, location: input.location },
-          },
-          { transaction },
-        );
-        if (email?.enabled && saved.status === 'published' && (!event || before.status !== 'published')) {
-          await queueBusinessEventStatus({ email, models, event: saved, change: 'Published', details: 'Your event is now published.',
-            actionId: `published-${saved.version || saved.id}`, businessAppUrl, transaction });
-        }
-        if (event && before.status === 'published') {
-          if (saved.status === 'cancelled') {
-            await queueEventEmail({ email, models, event: saved, kind: 'cancelled',
-              variables: { EVENT_DATE: formatTime(before.startsAt, previousLocation?.timezone) },
-              customerAppUrl, transaction, key: `cancelled-${saved.version}` });
-            await queueBusinessEventStatus({ email, models, event: saved, change: 'Cancelled', details: 'Sales have stopped. Refunds are not automatic; coordinate them separately.',
-              actionId: `cancelled-${saved.version}`, businessAppUrl, transaction });
-          } else if (saved.status === 'published') {
-            if (Math.abs(+new Date(before.startsAt) - +new Date(saved.startsAt)) >= 15 * 60 * 1000 || Math.abs(+new Date(before.endsAt) - +new Date(saved.endsAt)) >= 15 * 60 * 1000) {
-              await queueEventEmail({ email, models, event: saved, kind: 'timeChange',
-                variables: {
-                  OLD_TIME: `${formatTime(before.startsAt, previousLocation?.timezone)} – ${formatTime(before.endsAt, previousLocation?.timezone)}`,
-                  NEW_TIME: `${formatTime(saved.startsAt, location?.timezone)} – ${formatTime(saved.endsAt, location?.timezone)}`,
-                }, customerAppUrl, transaction, key: `time-${saved.version}` });
-              await queueBusinessEventStatus({ email, models, event: saved, change: 'Time changed',
-                details: `${formatTime(before.startsAt, previousLocation?.timezone)} → ${formatTime(saved.startsAt, location?.timezone)}`,
-                actionId: `time-${saved.version}`, businessAppUrl, transaction });
-            }
-            if (previousLocation && venueName(previousLocation) !== venueName(location)) {
-              await queueEventEmail({ email, models, event: saved, kind: 'venueChange',
-                variables: { OLD_VENUE: venueName(previousLocation), NEW_VENUE: venueName(location) },
-                customerAppUrl, transaction, key: `venue-${saved.version}` });
-              await queueBusinessEventStatus({ email, models, event: saved, change: 'Venue changed',
-                details: `${venueName(previousLocation)} → ${venueName(location)}`,
-                actionId: `venue-${saved.version}`, businessAppUrl, transaction });
-            }
-          }
-        }
+        await recordEventMutation({ models, email, userId, saved, before, offerings, location, previousLocation, customerAppUrl, businessAppUrl, transaction });
         return saved;
       },
     );
