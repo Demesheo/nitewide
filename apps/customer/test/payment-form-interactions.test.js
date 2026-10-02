@@ -20,10 +20,28 @@ test('secure form handles provider errors and verifies confirmation independentl
     const user = (await import('@testing-library/user-event')).default.setup({ document: dom.window.document });
     let providerError = true, verified = 0, checked = 0, unpaid = true, checkError = null, checkGate = null, verifyError = null;
     const calls = [], activity = [], fieldsOptions = [], expressOptions = [];
-    let availabilityChanged, walletLoadError;
+    let availabilityChanged, walletLoadError, fieldsReady, fieldsLoadError;
     const checkout = { total: { total: { amount: '$25.00' } }, confirm: async options => { calls.push(options); return providerError ? { type: 'error', error: { message: 'Test card declined' } } : { type: 'success' }; } };
-    const props = { amount:'$25.00', checkoutState: { type: 'success', checkout }, PaymentFields: ({options}) => { fieldsOptions.push(options); return React.createElement('div', null, 'Mock secure fields'); }, ExpressFields: ({ onConfirm, options, onAvailablePaymentMethodsChange, onLoadError }) => { expressOptions.push(options); availabilityChanged = onAvailablePaymentMethodsChange; walletLoadError = onLoadError; return React.createElement('button', { type: 'button', onClick: () => onConfirm({ fixture: 'wallet-event' }) }, 'Mock wallet'); }, onCheck: async () => { checked += 1; if (checkGate) await checkGate; if (checkError) throw checkError; return unpaid; }, onVerify: async () => { verified += 1; if (verifyError) throw verifyError; }, onBusyChange: busy => activity.push(busy) };
-    view = render(React.createElement(PaymentCheckoutForm, props), { container: dom.window.document.getElementById('root') });
+    const props = { amount:'$25.00', checkoutState: { type: 'success', checkout }, PaymentFields: ({options, onReady, onLoadError}) => { fieldsOptions.push(options); fieldsReady = onReady; fieldsLoadError = onLoadError; return React.createElement('div', null, 'Mock secure fields'); }, ExpressFields: ({ onConfirm, options, onAvailablePaymentMethodsChange, onLoadError }) => { expressOptions.push(options); availabilityChanged = onAvailablePaymentMethodsChange; walletLoadError = onLoadError; return React.createElement('button', { type: 'button', onClick: () => onConfirm({ fixture: 'wallet-event' }) }, 'Mock wallet'); }, onCheck: async () => { checked += 1; if (checkGate) await checkGate; if (checkError) throw checkError; return unpaid; }, onVerify: async () => { verified += 1; if (verifyError) throw verifyError; }, onBusyChange: busy => activity.push(busy) };
+    view = render(React.createElement(PaymentCheckoutForm, { ...props, checkoutState: { type: 'loading' } }), { container: dom.window.document.getElementById('root') });
+    // Loading the Checkout SDK and rendering its secure iframe are separate
+    // phases. Neither may expose Pay or accept implicit Enter submissions.
+    const submit = () => dom.window.document.querySelector('form').dispatchEvent(new dom.window.Event('submit', {bubbles:true,cancelable:true}));
+    assert.ok(screen.getByText('Loading secure payment form…'));
+    assert.equal(screen.queryByRole('button', {name:/^Pay /}), null);
+    assert.equal(screen.queryByText('Mock secure fields'), null);
+    await React.act(submit);
+    view.rerender(React.createElement(PaymentCheckoutForm, props));
+    assert.ok(screen.getByText('Mock secure fields'));
+    assert.ok(screen.getByText('Loading secure payment form…'));
+    assert.equal(screen.queryByRole('button', {name:/^Pay /}), null);
+    await React.act(submit);
+    assert.equal(checked, 0);
+    assert.equal(calls.length, 0);
+    assert.deepEqual(activity, []);
+    await React.act(() => fieldsReady());
+    assert.ok(screen.getByRole('button', {name:'Pay $25.00'}));
+    assert.equal(screen.queryByText('Loading secure payment form…'), null);
     assert.deepEqual(fieldsOptions[0], {layout:'tabs',wallets:{applePay:'never',googlePay:'never',link:'never'}});
     assert.deepEqual(expressOptions[0].paymentMethods, {applePay:'always',googlePay:'always',link:'auto',paypal:'never',amazonPay:'never',klarna:'never'});
     assert.deepEqual(expressOptions[0].paymentMethodOrder, ['apple_pay', 'google_pay', 'link']);
@@ -78,6 +96,8 @@ test('secure form handles provider errors and verifies confirmation independentl
     // The actual form lock blocks repetitive submissions while verification
     // is in flight, even when bypassing the disabled button via form submit.
     view.rerender(React.createElement(PaymentCheckoutForm, props));
+    assert.equal(screen.queryByRole('button', {name:/^Pay /}), null);
+    await React.act(() => fieldsReady());
     const beforeCheck = checked;
     let release;
     checkGate = new Promise(resolve => { release = resolve; });
@@ -102,6 +122,21 @@ test('secure form handles provider errors and verifies confirmation independentl
     unpaid = false;
     await user.click(screen.getByRole('button', {name:'Pay $25.00'}));
     assert.equal(calls.length, 3);
+    // A provider reload must not reuse the old iframe's readiness. A failed
+    // iframe can still recover a paid booking, but cannot confirm unpaid cards.
+    view.rerender(React.createElement(PaymentCheckoutForm, { ...props, checkoutState: { type: 'loading' } }));
+    assert.equal(screen.queryByRole('button', {name:/^Pay /}), null);
+    view.rerender(React.createElement(PaymentCheckoutForm, props));
+    assert.equal(screen.queryByRole('button', {name:/^Pay /}), null);
+    await React.act(() => fieldsLoadError());
+    assert.equal(screen.queryByText('Loading secure payment form…'), null);
+    assert.ok(screen.getAllByRole('alert').some(alert => /form couldn’t load/.test(alert.textContent)));
+    await user.click(screen.getByRole('button', {name:'Pay $25.00'}));
+    assert.equal(calls.length, 3);
+    unpaid = true;
+    await user.click(screen.getByRole('button', {name:'Pay $25.00'}));
+    assert.equal(calls.length, 3);
+    assert.match(screen.getByRole('alert').textContent, /Refresh the page/);
   } finally {
     view?.unmount(); await vite?.close();
     for (const [key, descriptor] of originals) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; }

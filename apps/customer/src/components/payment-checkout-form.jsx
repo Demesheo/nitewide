@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from './ui/button';
 import { LoadingIndicator } from './loading-indicator';
 
@@ -19,16 +19,25 @@ export function PaymentCheckoutForm({ checkoutState, PaymentFields, ExpressField
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [walletsAvailable, setWalletsAvailable] = useState(null);
+  const [fieldsReady, setFieldsReady] = useState(false);
+  const [fieldsLoadFailed, setFieldsLoadFailed] = useState(false);
   const lock = useRef(false);
   const ready = checkoutState.type === 'success';
+  const loading = checkoutState.type === 'loading' || (ready && !fieldsReady && !fieldsLoadFailed);
+  const canPay = checkoutState.type === 'error' || (ready && (fieldsReady || fieldsLoadFailed));
+  useEffect(() => {
+    if (!ready) { setFieldsReady(false); setFieldsLoadFailed(false); }
+  }, [ready]);
   async function confirm(expressCheckoutConfirmEvent) {
-    if (lock.current) return;
+    // The provider can be ready before its secure iframe is interactive.
+    // Ignore implicit card submissions until it loads; wallets load separately.
+    if (lock.current || checkoutState.type === 'loading' || (!expressCheckoutConfirmEvent && !canPay)) return;
     lock.current = true; setBusy(true); setError(''); onBusyChange(true);
     try {
       // Check before every card/wallet confirmation. A successful payment with
       // a lost response opens passes instead of submitting payment again.
       if (!await onCheck()) return;
-      if (!ready) throw new Error('Your booking is still unpaid. Refresh the page to reload the secure payment form; your original booking is saved.');
+      if (!ready || (!expressCheckoutConfirmEvent && !fieldsReady)) throw new Error('Your booking is still unpaid. Refresh the page to reload the secure payment form; your original booking is saved.');
       const result = await checkoutState.checkout.confirm({ redirect: 'if_required', ...(expressCheckoutConfirmEvent ? { expressCheckoutConfirmEvent } : {}) });
       if (result.type === 'error') { setError(result.error.message || 'Payment could not be confirmed.'); return; }
       await onVerify();
@@ -36,7 +45,7 @@ export function PaymentCheckoutForm({ checkoutState, PaymentFields, ExpressField
     finally { lock.current = false; setBusy(false); onBusyChange(false); }
   }
   return <form className="stripe-payment-form" onSubmit={event => { event.preventDefault(); confirm(); }}>
-    {checkoutState.type === 'loading' && <LoadingIndicator>Loading secure payment form…</LoadingIndicator>}
+    {loading && <LoadingIndicator>Loading secure payment form…</LoadingIndicator>}
     {checkoutState.type === 'error' && <p role="alert">The payment form couldn’t load. Pay will check for a completed booking; otherwise refresh the page to reload the secure form.</p>}
     {ready && ExpressFields && <div className="stripe-express-checkout" hidden={walletsAvailable === false}>
       {walletsAvailable === null && <LoadingIndicator>Checking express payment options…</LoadingIndicator>}
@@ -45,9 +54,10 @@ export function PaymentCheckoutForm({ checkoutState, PaymentFields, ExpressField
         onLoadError={() => setWalletsAvailable(false)} />
       {walletsAvailable && <p className="stripe-payment-divider">Or pay with card</p>}
     </div>}
-    {ready && <PaymentFields options={PAYMENT_OPTIONS} />}
+    {ready && <PaymentFields options={PAYMENT_OPTIONS} onReady={() => { setFieldsReady(true); setFieldsLoadFailed(false); }}
+      onLoadError={() => { setFieldsReady(false); setFieldsLoadFailed(true); setError('The secure payment form couldn’t load. Pay will check your original booking; refresh the page if it is still unpaid.'); }} />}
     {error && <p role="alert" className="error-message">{error}</p>}
-    <Button type="submit" className="primary-action dark-glass-action" disabled={busy}>{busy ? <LoadingIndicator>Checking your booking…</LoadingIndicator> : `Pay ${ready ? checkoutState.checkout.total.total.amount : amount || ''}`.trim()}</Button>
+    {canPay && <Button type="submit" className="primary-action dark-glass-action" disabled={busy}>{busy ? <LoadingIndicator>Checking your booking…</LoadingIndicator> : `Pay ${ready ? checkoutState.checkout.total.total.amount : amount || ''}`.trim()}</Button>}
     <p className="fine-print">Sandbox payment · use test payment details only.</p>
   </form>;
 }

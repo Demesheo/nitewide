@@ -4,10 +4,13 @@ import { CheckoutElementsProvider, PaymentElement, ExpressCheckoutElement, useCh
 import { PaymentCheckoutForm } from './payment-checkout-form';
 
 const clients = new Map();
-function stripeClient(key, stripeAccount) {
+export function stripeClient(key, stripeAccount, initialize = loadStripe) {
   if (!key?.startsWith('pk_test_') || !stripeAccount?.startsWith('acct_')) return Promise.resolve(null);
   const identity = `${key}:${stripeAccount}`;
-  if (!clients.has(identity)) clients.set(identity, loadStripe(key, { stripeAccount }).catch(() => null));
+  if (!clients.has(identity)) clients.set(identity, initialize(key, {
+    stripeAccount,
+    developerTools: { assistant: { enabled: false } },
+  }).catch(() => null));
   return clients.get(identity);
 }
 function Form(props) {

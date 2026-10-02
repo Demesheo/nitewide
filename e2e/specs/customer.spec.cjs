@@ -527,6 +527,36 @@ test('Continue retires an ended saved sandbox checkout in one click without sile
   await expectNoOverflow(page);
 });
 
+test('secure checkout hides Pay while Stripe loads without blocking safe recovery', async ({ page, fixture }) => {
+  let releaseStripe;
+  const stripeGate = new Promise(resolve => { releaseStripe = resolve; });
+  await page.route('https://js.stripe.com/**', async route => { await stripeGate; await route.abort(); });
+  await page.route('**/api/customer/payment-config', route => route.fulfill({ json: { data: { enabled: true, configured: true, mode: 'test', publishableKey: 'pk_test_fixture_offline', demoEnabled: false } } }));
+  try {
+    await login(page, fixture, 'customer');
+    await page.goto(`/?event=${fixture.ids.event}`);
+    const details = page.getByTestId('customer-event-details');
+    await details.getByRole('button', { name: /VIP Package/ }).click();
+    await details.getByRole('button', { name: /^Continue ·/ }).click();
+    await page.route('**/api/customer/checkout-attempts/*', route => route.fulfill({ status: 404, json: { error: { message: 'Absent' } } }));
+    await page.route('**/api/customer/payment-checkouts', route => route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'pending', clientSecret: 'fixture_checkout_secret', stripeAccountId: 'acct_fixture' } } }));
+    const stripeRequested = page.waitForRequest('https://js.stripe.com/**');
+    await details.getByRole('button', { name: 'Continue to payment' }).click();
+    await stripeRequested;
+    await expect(details.locator('.stripe-payment-form')).toBeVisible();
+    await expect(details.getByRole('status').filter({ hasText: 'Loading secure payment form…' })).toBeVisible();
+    await expect(details.getByRole('button', { name: /^Pay / })).toHaveCount(0);
+    await expect(details.getByRole('button', { name: 'Cancel payment attempt' })).toBeEnabled();
+    await expectNoOverflow(page);
+    releaseStripe();
+    // The error-state action can check an already-paid booking without
+    // attempting a new confirmation through an unavailable provider.
+    await expect(details.getByRole('alert').filter({ hasText: 'payment form couldn’t load' })).toBeVisible();
+    await expect(details.getByRole('button', { name: /^Pay / })).toBeVisible();
+    await expect(details.getByRole('status').filter({ hasText: 'Loading secure payment form…' })).toHaveCount(0);
+  } finally { releaseStripe(); }
+});
+
 test('sandbox checkout cancellation retires its key only after server confirms cancellation', async ({ page, fixture }) => {
   await page.route('https://js.stripe.com/**', route => route.abort());
   await page.route('**/api/customer/payment-config', route => route.fulfill({ json: { data: { enabled: true, configured: true, mode: 'test', publishableKey: 'pk_test_fixture_offline', demoEnabled: false } } }));
