@@ -1,6 +1,24 @@
 const { test, expect, login, expectNoOverflow } = require('../fixtures.cjs');
+const { expectBrandImage, expectBrandIcons } = require('../brand-checks.cjs');
 const { urls } = require('../environment.cjs');
 const { checkPasswordVisibility, checkOnboardingPasswords } = require('../password-visibility.cjs');
+
+test('approved brand logo and favicon load without changing customer header or footer navigation', async ({ page }) => {
+  await page.goto('/');
+  const home = page.getByRole('banner').getByRole('link', { name: 'Nitewide home', exact: true });
+  await expectBrandImage(home.locator('img'));
+  await expectBrandIcons(page);
+  await expectNoOverflow(page);
+  await test.info().attach('customer-brand-header', { body: await page.screenshot(), contentType: 'image/png' });
+  const footer = page.getByRole('contentinfo');
+  await footer.scrollIntoViewIfNeeded();
+  await expectBrandImage(footer.getByRole('link', { name: 'Nitewide home', exact: true }).locator('img'));
+  await expect(footer.getByRole('link', { name: 'For business', exact: true })).toBeVisible();
+  await expectNoOverflow(page);
+  await footer.getByRole('link', { name: 'Nitewide home', exact: true }).click();
+  await expect(page).toHaveURL(url => url.pathname === '/' && !url.searchParams.has('event'));
+  await expect(home).toBeVisible();
+});
 
 test('customer profile Edit saves contact details independently of password and notification settings', async ({ page, fixture }) => {
   await login(page, fixture, 'customer');

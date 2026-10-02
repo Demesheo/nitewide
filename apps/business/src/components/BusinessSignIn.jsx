@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, BarChart3, Command, LoaderCircle, ShieldCheck, Ticket } from 'lucide-react';
+import { ArrowRight, BarChart3, LoaderCircle, ShieldCheck, Ticket } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { api } from '@/lib/api';
 import { BusinessAccessRequestForm } from './BusinessAccessRequestForm';
+import { BrandMark, BusinessBrand } from './BusinessBrand';
 
 export function BusinessSignIn({ onSession, notice = '', invitationOnly = false }) {
   const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get('resetPassword'));
@@ -43,12 +44,12 @@ export function BusinessSignIn({ onSession, notice = '', invitationOnly = false 
     } catch (err) { setError(err.message); }
     finally { submitting.current = false; setBusy(false); }
   }
-  return <main className="signin"><section className="signin-story"><div className="brand"><span className="brand-icon"><Command size={21}/></span><span>nitewide<span className="brand-sub">BUSINESS</span></span></div>
+  return <main className="signin"><section className="signin-story"><BusinessBrand />
     <div className="story-content"><span className="eyebrow">THE BUSINESS BEHIND THE NIGHT</span><h1>Great nights.<br/><em>Even better <br/>business.</em></h1><p>Your events, your people, your performance.<br/>One clear view of everything that matters.</p>
       <div className="story-pills"><span><BarChart3 size={16}/>Real-time insights</span><span><Ticket size={16}/>Built for experiences</span></div></div>
     <div className="story-footer">A new standard for going out.<span>Made for the people who make it happen.</span></div><div className="orb orb-one"/><div className="orb orb-two"/></section>
     <section className="signin-form"><div className="signin-box"><a className="signin-back" href={import.meta.env.VITE_BUSINESS_HOME || '/'}>← About Nitewide Business</a>
-      <span className="login-mark"><ShieldCheck/></span>{mode === 'request' ? <BusinessAccessRequestForm initialEmail={email} onBack={backToSignIn} /> : <><span className="eyebrow">YOUR BUSINESS, CONNECTED</span>
+      <span className="login-mark"><BrandMark /></span>{mode === 'request' ? <BusinessAccessRequestForm initialEmail={email} onBack={backToSignIn} /> : <><span className="eyebrow">YOUR BUSINESS, CONNECTED</span>
       <h2>{mode === 'forgot' ? 'Reset your password.' : mode === 'reset' ? 'Choose a new password.' : 'Welcome back.'}</h2>
       <p>{mode === 'forgot' ? 'If an account exists, we’ll send a one-hour reset link.' : mode === 'reset' ? 'Use a strong password with uppercase, lowercase and a number.' : invitationOnly ? 'Sign in with your Nitewide account to accept your invitation.' : 'Sign in with your approved Nitewide Business account.'}</p>
       <form id="business-signin-form" aria-label="Business sign in" onSubmit={submit}>{mode !== 'reset' && <label className="field" htmlFor="business-signin-email"><span>Work email</span><Input id="business-signin-email" type="email" name="email" autoComplete="username" required maxLength={320} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@yourbusiness.com"/></label>}

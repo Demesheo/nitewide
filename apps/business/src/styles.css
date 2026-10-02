@@ -291,11 +291,9 @@ small {
   place-items: center;
   width: 37px;
   height: 37px;
-  color: #ccc0ff;
-  background: #332a4b;
-  border: 1px solid #514366;
-  border-radius: 11px;
+  flex-shrink: 0;
 }
+.business-brand-image { display: block; width: 100%; height: 100%; object-fit: contain; }
 .brand-sub {
   display: block;
   font-size: 8px;
@@ -1397,10 +1395,6 @@ textarea:focus-visible {
   place-items: center;
   width: 48px;
   height: 48px;
-  border-radius: 13px;
-  background: #2a223a;
-  border: 1px solid #493a5f;
-  color: #c9a8ef;
   margin-bottom: 28px;
 }
 .signin-box h2 {

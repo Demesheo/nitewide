@@ -44,9 +44,15 @@ async function businessSection(page, section) {
   await buttons.filter({ visible: true }).click();
 }
 async function adminSection(page, section) {
-  const button = page.getByRole('button', { name: section, exact: true });
-  if (!await button.isVisible()) await page.getByRole('button', { name: 'Toggle navigation' }).click();
-  await button.click();
+  const navigation = page.getByRole('navigation', { name: 'Admin sections', exact: true, includeHidden: true });
+  // Session verification can outlive page.goto(). Wait for the authenticated
+  // shell before deciding whether the responsive sidebar needs to be opened.
+  await expect(navigation).toBeAttached();
+  if (!await navigation.isVisible()) {
+    await page.getByRole('button', { name: 'Toggle navigation', exact: true }).click();
+  }
+  await expect(navigation).toBeVisible();
+  await navigation.getByRole('button', { name: section, exact: true }).click();
 }
 async function expectNoOverflow(page) {
   const measurements = await page.evaluate(() => ({ viewport: window.innerWidth, content: document.documentElement.scrollWidth }));

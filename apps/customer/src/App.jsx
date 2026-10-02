@@ -55,6 +55,7 @@ import { bookingFromSearch } from './lib/booking-link';
 import { parseCustomerRoute, updateCustomerRoute } from './lib/customer-route';
 import { mapsUrlForLocation } from './lib/maps-link';
 import { clearPassCache } from './lib/pass-cache';
+import brandLogo from './assets/nitewide-logo-v1.png';
 import { isPremiumHost } from './lib/premium-host';
 import {
   availableQuantity,
@@ -76,6 +77,7 @@ const calendarLabel = (date) =>
 const StripeCheckout = lazy(() => import('./components/stripe-checkout'));
 const Brand = () => (
   <a href="/" aria-label="Nitewide home" className="brand">
+    <img className="brand-logo" src={brandLogo} alt="" aria-hidden="true" width="192" height="192" decoding="async" draggable="false" />
     nitewide
   </a>
 );

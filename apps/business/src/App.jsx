@@ -6,7 +6,6 @@ import {
   Check,
   ChevronRight,
   CircleUserRound,
-  Command,
   CreditCard,
   LayoutDashboard,
   LogOut,
@@ -33,6 +32,7 @@ import { BusinessPayments } from "@/components/BusinessPayments";
 import { OnboardingSetup } from "@/components/OnboardingSetup";
 import { BusinessProfile } from "@/components/BusinessProfile";
 import { BusinessSignIn } from "@/components/BusinessSignIn";
+import { BusinessBrand as Brand } from "@/components/BusinessBrand";
 import { LoadingState } from "@/components/LoadingState";
 import { Admissions } from "@/components/Admissions";
 import { api, readSession, SESSION_KEY } from "@/lib/api";
@@ -52,18 +52,6 @@ const navigation = [
   ["payments", CreditCard, "Payments"],
   ["team", Users, "Organization"],
 ];
-function Brand() {
-  return (
-    <div className="brand">
-      <span className="brand-icon">
-        <Command size={21} />
-      </span>
-      <span>
-        nitewide<span className="brand-sub">BUSINESS</span>
-      </span>
-    </div>
-  );
-}
 export default function App() {
   const [session, setSession] = useState(readSession);
   const [onboardingToken, setOnboardingToken] = useState(() => new URLSearchParams(window.location.search).get('onboarding'));

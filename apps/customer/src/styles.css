@@ -155,8 +155,9 @@ h3 {
   letter-spacing: -1.7px;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 9px;
 }
+.brand-logo { display: block; width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; }
 .brand span {
   font: 400 39px/0.5 sans-serif;
   color: var(--highlight);

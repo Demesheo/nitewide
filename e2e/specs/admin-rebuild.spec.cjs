@@ -1,4 +1,5 @@
 const { test, expect, login, adminSection, businessSection, expectNoOverflow } = require('../fixtures.cjs');
+const { expectBrandImage, expectBrandIcons } = require('../brand-checks.cjs');
 
 const uuid = (number) => `10000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
 const business = { id: uuid(1), name: 'Evolve Promo', slug: 'evolve-promo', status: 'active', lifecycleState: 'active', version: 3, venueIds: [], createdAt: '2026-09-01T12:00:00Z' };
@@ -80,6 +81,35 @@ test('consolidated admin navigation and directories work at phone and desktop wi
   await mockAdmin(page); await page.goto('/');
   for (const section of ['Overview', 'Businesses', 'Events', 'People', 'Support', 'Analytics', 'Audit']) {
     await adminSection(page, section); await expect(page.getByRole('heading', { name: section, exact: true })).toBeVisible(); await expectNoOverflow(page);
+  }
+});
+
+test('admin navigation waits for delayed session verification before choosing desktop or mobile controls', async ({ page }) => {
+  await mockAdmin(page);
+  // Hold the authentication boundary explicitly so readiness never depends on
+  // a fixed delay or machine speed. Neither navigation control exists yet.
+  let releaseVerification;
+  const verification = new Promise((resolve) => { releaseVerification = resolve; });
+  await page.route('**/api/auth/me', async (route) => {
+    await verification;
+    await route.fallback();
+  });
+  try {
+    await page.goto('/');
+    await expect(page.locator('.boot')).toBeVisible();
+    const firstNavigation = adminSection(page, 'Businesses');
+    await expect(page.locator('.boot')).toBeVisible();
+    releaseVerification();
+    await firstNavigation;
+    await expect(page.getByRole('heading', { name: 'Businesses', exact: true })).toBeVisible();
+    await expectNoOverflow(page);
+    for (const section of ['Events', 'People']) {
+      await adminSection(page, section);
+      await expect(page.getByRole('heading', { name: section, exact: true })).toBeVisible();
+      await expectNoOverflow(page);
+    }
+  } finally {
+    releaseVerification();
   }
 });
 
@@ -337,4 +367,20 @@ test('support reference fields have unique IDs and search labels focus the corre
   const ids = await dialog.locator('input[id], select[id], textarea[id]').evaluateAll((nodes) => nodes.map((node) => node.id)); expect(new Set(ids).size).toBe(ids.length); expect(ids.some((id) => id.includes('undefined'))).toBe(false);
   for (const search of await dialog.getByRole('search').all()) { const label = search.locator('label'); const input = search.getByRole('textbox'); await label.click(); await expect(input).toBeFocused(); }
   await expectNoOverflow(page);
+});
+test('approved brand logo, favicon and iOS icon load on admin login and workspace', async ({ page, fixture }) => {
+  await page.goto('/');
+  await expectBrandImage(page.locator('.admin-login-logo'));
+  if (page.viewportSize().width > 720) await expectBrandImage(page.locator('.login-story .brand img'));
+  await expectBrandIcons(page);
+  await expectNoOverflow(page);
+  await test.info().attach('admin-brand-sign-in', { body: await page.screenshot(), contentType: 'image/png' });
+  await login(page, fixture, 'admin');
+  await expectBrandImage(page.getByRole('link', { name: 'Nitewide Admin home', exact: true }).locator('img'));
+  await expectBrandIcons(page);
+  await expectNoOverflow(page);
+  await adminSection(page, 'People');
+  await page.getByRole('link', { name: 'Nitewide Admin home', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+  await test.info().attach('admin-brand-workspace', { body: await page.screenshot(), contentType: 'image/png' });
 });

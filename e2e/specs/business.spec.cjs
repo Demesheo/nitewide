@@ -1,7 +1,35 @@
 const { test, expect, login, businessSection, expectNoOverflow } = require('../fixtures.cjs');
+const { expectBrandImage, expectBrandIcons } = require('../brand-checks.cjs');
 const QRCode = require('qrcode');
 const { urls } = require('../environment.cjs');
 const { checkPasswordVisibility, checkOnboardingPasswords } = require('../password-visibility.cjs');
+
+test('approved brand logo and favicon stay readable on business landing, sign in and workspace', async ({ page, fixture }) => {
+  await page.goto('/');
+  await expectBrandImage(page.locator('.lp-header .lp-brand img'));
+  await expectBrandIcons(page);
+  await expectNoOverflow(page);
+  await test.info().attach('business-brand-landing', { body: await page.screenshot(), contentType: 'image/png' });
+  await page.goto('/sign-in');
+  await expectBrandImage(page.locator('.login-mark img'));
+  if (page.viewportSize().width > 850) await expectBrandImage(page.locator('.signin-story .brand img'));
+  await expectNoOverflow(page);
+  await test.info().attach('business-brand-sign-in', { body: await page.screenshot(), contentType: 'image/png' });
+  await login(page, fixture, 'business');
+  const menu = page.getByRole('button', { name: 'Open navigation', exact: true });
+  if (await menu.isVisible()) {
+    await menu.click();
+    const drawer = page.getByRole('dialog', { name: 'Workspace navigation', exact: true });
+    await expectBrandImage(drawer.locator('.brand img'));
+    await test.info().attach('business-brand-workspace', { body: await page.screenshot(), contentType: 'image/png' });
+    await drawer.getByRole('button', { name: 'Close', exact: true }).click();
+  } else {
+    await expectBrandImage(page.locator('.sidebar .brand img'));
+    await test.info().attach('business-brand-workspace', { body: await page.screenshot(), contentType: 'image/png' });
+  }
+  await expectBrandIcons(page);
+  await expectNoOverflow(page);
+});
 
 test('business profile password change rotates the session and preserves workspace access', async ({ page, request, fixture }) => {
   await login(page, fixture, 'business');

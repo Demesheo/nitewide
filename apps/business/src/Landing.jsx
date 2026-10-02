@@ -5,7 +5,6 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
-  Command,
   Layers3,
   ShieldCheck,
   Sparkles,
@@ -18,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { features, pricing, questions, roadmap } from "./lib/landing-content";
 import { customerLink } from "./lib/customer-link";
 import FeeComparison from "./components/fee-comparison";
+import { BrandMark, BusinessBrand } from './components/BusinessBrand';
 import "./landing.css";
 
 const icons = {
@@ -32,16 +32,7 @@ const customerUrl = customerLink(
 );
 
 function Brand() {
-  return (
-    <a className="lp-brand" href={import.meta.env.VITE_BUSINESS_HOME || '/'} aria-label="Nitewide Business home">
-      <span className="lp-brand-icon">
-        <Command size={21} />
-      </span>
-      <span>
-        nitewide<small>BUSINESS</small>
-      </span>
-    </a>
-  );
+  return <BusinessBrand landing href={import.meta.env.VITE_BUSINESS_HOME || '/'} />;
 }
 
 function ProductPreview() {
@@ -52,7 +43,7 @@ function ProductPreview() {
     >
       <div className="lp-preview-top">
         <span>
-          <Command size={15} /> Your workspace
+          <BrandMark className="lp-preview-mark" /> Your workspace
         </span>
         <span className="lp-sample">SAMPLE DATA</span>
       </div>
