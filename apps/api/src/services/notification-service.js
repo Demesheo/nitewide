@@ -1,7 +1,13 @@
-const { Op } = require('sequelize');
+const { Op, literal } = require('sequelize');
 const { notFound } = require('../domain/errors');
+const { checkoutReminderVisibleSql } = require('./checkout-reminder-policy');
 
 function createNotificationService(models) {
+  function visibleWhere(userId) {
+    return { userId, dismissedAt: { [Op.is]: null }, [Op.or]: [
+      { kind: { [Op.ne]: 'checkout_pending' } }, literal(checkoutReminderVisibleSql('"Notification"')),
+    ] };
+  }
   async function emit({ userId, eventId = null, kind, title, message, metadata = {} }, transaction) {
     if (!userId) return null;
     const optionalSetting = { guestlist_request: 'reviewRequests', referral_purchase: 'salesActivity',
@@ -26,11 +32,11 @@ function createNotificationService(models) {
       : row);
   }
   async function list(userId) {
-    const rows = await models.Notification.findAll({ where: { userId, dismissedAt: { [Op.is]: null } }, order: [['createdAt', 'DESC'], ['id', 'DESC']], limit: 50 });
+    const rows = await models.Notification.findAll({ where: visibleWhere(userId), order: [['createdAt', 'DESC'], ['id', 'DESC']], limit: 50 });
     return enrichLegacy(userId, rows);
   }
   async function page(userId, { page = 1, pageSize = 20 } = {}) {
-    const where = { userId, dismissedAt: { [Op.is]: null } };
+    const where = visibleWhere(userId);
     const [total, rows, unreadCount] = await Promise.all([
       models.Notification.count({ where }),
       models.Notification.findAll({ where, order: [['createdAt', 'DESC'], ['id', 'DESC']], limit: pageSize, offset: (page - 1) * pageSize }),
@@ -39,7 +45,7 @@ function createNotificationService(models) {
     return { items: await enrichLegacy(userId, rows), page, pageSize, total, hasMore: page * pageSize < total, unreadCount };
   }
   async function unreadCount(userId) {
-    return models.Notification.count({ where: { userId, readAt: { [Op.is]: null }, dismissedAt: { [Op.is]: null } } });
+    return models.Notification.count({ where: { ...visibleWhere(userId), readAt: { [Op.is]: null } } });
   }
   async function markRead(userId, id) {
     const notification = await models.Notification.findOne({ where: { id, userId } });

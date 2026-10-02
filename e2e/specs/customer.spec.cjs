@@ -351,6 +351,7 @@ test('sandbox payment review preserves the booking without retrying payment or o
   await page.route('**/api/customer/checkout-attempts/*', route => reviews ? route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'pending', verificationStatus: 'review' } } }) : route.fulfill({ status: 404, json: { error: { message: 'Absent' } } }));
   await page.route('**/api/customer/payment-checkouts', route => { prepares += 1; reviews = true; return route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'pending', verificationStatus: 'review' } } }); });
   await page.route(`**/api/customer/payment-checkouts/${fixture.ids.order}/verify`, route => route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'pending', verificationStatus: 'review' } } }));
+  await page.route(`**/api/customer/payment-checkouts/${fixture.ids.order}/resume`, route => route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'pending', verificationStatus: 'review' } } }));
   await details.getByRole('button', { name: 'Continue to payment' }).click();
   await expect(details.getByRole('status')).toContainText('needs review');
   await expect(details.getByRole('button', { name: 'Cancel payment attempt' })).toHaveCount(0);
@@ -363,6 +364,94 @@ test('sandbox payment review preserves the booking without retrying payment or o
   expect(prepares).toBe(1);
   expect(await page.evaluate(() => localStorage.getItem(`nitewide.checkout.${JSON.parse(localStorage.getItem('nitewide.session')).user.id}`))).toBeTruthy();
   await expect(page.getByRole('img', { name: /QR code for ticket/ })).toHaveCount(0);
+  await expectNoOverflow(page);
+});
+
+async function abandonedCheckoutFixture(page, fixture) {
+  await page.route('https://js.stripe.com/**', route => route.abort());
+  await page.route('**/api/customer/payment-config', route => route.fulfill({ json: { data: { enabled: true, configured: true, mode: 'test', publishableKey: 'pk_test_fixture_offline', demoEnabled: false } } }));
+  const token = await page.evaluate(() => JSON.parse(localStorage.getItem('nitewide.session')).accessToken);
+  const response = await page.request.get(`${urls.api}/api/customer/bookings?page=1`, { headers: { Authorization: `Bearer ${token}` } });
+  const bookings = (await response.json()).data;
+  const order = bookings.orders.find(item => item.id === fixture.ids.order);
+  expect(order).toBeTruthy();
+  const booking = { idempotencyKey: 'abandoned-original-key', event: order.event, subtotalCents: order.subtotalCents,
+    totalCents: order.totalCents, currency: order.currency, items: order.items.map(item => ({ offeringId: fixture.ids.offering, name: item.name, kind: 'package', quantity: item.quantity, unitPriceCents: item.lineTotalCents / item.quantity })) };
+  const reminder = { id: fixture.ids.order, kind: 'checkout_pending', eventId: order.event.id,
+    title: 'Purchase incomplete', message: `Continue your purchase for ${order.event.title}?`,
+    metadata: { orderId: fixture.ids.order }, createdAt: new Date().toISOString(), readAt: null };
+  await page.route('**/api/notifications?**', route => route.fulfill({ json: { data: {
+    items: [reminder], total: 1, unreadCount: reminder.readAt ? 0 : 1, hasMore: false, page: 1, pageSize: 20,
+  } } }));
+  await page.route(`**/api/notifications/${fixture.ids.order}/read`, route => {
+    reminder.readAt = new Date().toISOString(); return route.fulfill({ json: { data: reminder } });
+  });
+  await page.route(`**/api/notifications/${fixture.ids.order}`, route => { expect(route.request().method()).not.toBe('DELETE'); return route.abort(); });
+  // Snapshot the fixture before routing. Fetching inside the route leaves an
+  // unnecessary in-flight API response that can outlive WebKit test teardown.
+  const abandonedBookings = { ...bookings,
+    orders: bookings.orders.filter(item => item.id !== fixture.ids.order),
+    entries: bookings.entries.filter(item => item.id !== fixture.ids.order),
+    total: bookings.total - 1 };
+  await page.route('**/api/customer/bookings?**', route => route.fulfill({ json: { data: abandonedBookings } }));
+  return () => booking;
+}
+
+test('abandoned sandbox checkout stays out of Booked and resumes from Notifications without local storage, including close and refresh', async ({ page, fixture }) => {
+  await login(page, fixture, 'customer');
+  const booking = await abandonedCheckoutFixture(page, fixture);
+  const resumes = [], prepares = [];
+  await page.route('**/api/customer/payment-checkouts', route => { prepares.push(route.request().postData()); return route.abort(); });
+  await page.route(`**/api/customer/payment-checkouts/${fixture.ids.order}/resume`, route => {
+    resumes.push(route.request().method());
+    return route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'pending', verificationStatus: 'pending', clientSecret: 'fixture_original_secret', stripeAccountId: 'acct_fixture', booking: booking() } } });
+  });
+  await page.goto('/?tab=booked');
+  const saved = () => page.evaluate(() => localStorage.getItem(`nitewide.checkout.${JSON.parse(localStorage.getItem('nitewide.session')).user.id}`));
+  expect(await saved()).toBeNull();
+  await expect(page.getByRole('button', { name: /^Resume checkout for / })).toHaveCount(0);
+  await page.getByRole('button', { name: /^Notifications/ }).click();
+  await page.getByRole('button', { name: /Continue your purchase for/ }).click();
+  const details = page.getByTestId('customer-event-details');
+  await expect(details.getByRole('button', { name: 'Check booking', exact: true })).toBeVisible();
+  const first = JSON.parse(await saved());
+  expect(first.orderId).toBe(fixture.ids.order);
+  expect(first.body.idempotencyKey).toBe('abandoned-original-key');
+  expect(first.bookingTotals.total).toBe(booking().totalCents);
+  expect(await saved()).not.toContain('fixture_original_secret');
+  await details.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.reload();
+  await expect(details).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Resume checkout for / })).toHaveCount(0);
+  await page.getByRole('button', { name: /^Notifications/ }).click();
+  await page.getByRole('button', { name: /Continue your purchase for/ }).click();
+  await expect(details.getByRole('button', { name: 'Cancel payment attempt' })).toBeVisible();
+  await page.reload();
+  await expect(details.getByRole('button', { name: 'Check booking', exact: true })).toBeVisible();
+  expect(JSON.parse(await saved()).body.idempotencyKey).toBe(first.body.idempotencyKey);
+  expect(prepares).toEqual([]);
+  expect(resumes.length).toBeGreaterThanOrEqual(3);
+  expect(resumes.every(method => method === 'POST')).toBeTruthy();
+  await expectNoOverflow(page);
+});
+
+test('abandoned sandbox checkout reconciles already-paid orders and expires unpaid orders without a second payment', async ({ page, fixture }) => {
+  await login(page, fixture, 'customer');
+  const booking = await abandonedCheckoutFixture(page, fixture);
+  let status = 'cancelled', prepares = 0;
+  await page.route('**/api/customer/payment-checkouts', route => { prepares += 1; return route.abort(); });
+  await page.route(`**/api/customer/payment-checkouts/${fixture.ids.order}/resume`, route => route.fulfill({ json: { data: { orderId: fixture.ids.order, status, booking: booking() } } }));
+  await page.goto('/?tab=booked');
+  await page.getByRole('button', { name: /^Notifications/ }).click();
+  await page.getByRole('button', { name: /Continue your purchase for/ }).click();
+  await expect(page.getByRole('alert')).toContainText('checkout has ended');
+  await expect(page.getByRole('button', { name: /^Pay / })).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem(`nitewide.checkout.${JSON.parse(localStorage.getItem('nitewide.session')).user.id}`))).toBeNull();
+  status = 'paid';
+  await page.getByRole('button', { name: /Continue your purchase for/ }).click();
+  await expect(page).toHaveURL(new RegExp(`booking=purchase(?:%3A|:)${fixture.ids.order}`));
+  await expect(page.getByRole('img', { name: /QR code for ticket 1/ })).toBeVisible();
+  expect(prepares).toBe(0);
   await expectNoOverflow(page);
 });
 

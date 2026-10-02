@@ -32,6 +32,7 @@ test('request and query contracts retain the actual shared validators and canoni
   assert.equal(find('post', '/orders').requestSchema, schemas.checkout);
   const payments = require('../src/http/payment-schemas');
   assert.equal(find('post', '/customer/payment-checkouts').requestSchema, payments.paymentCheckoutSchema);
+  assert.equal(find('post', '/customer/payment-checkouts/:orderId/resume').responseSchemas[200].shape.data, payments.checkoutResumption);
   assert.equal(find('post', '/business/orders/:orderId/refunds').requestSchema, payments.refundSchema);
   assert.equal(find('get', '/customer/payment-config').authenticated, false);
   for (const route of contracts.filter(value => value.path.includes('/payment-checkouts') || value.path.includes('/payment-accounts') || value.path.endsWith('/refunds'))) {

@@ -47,7 +47,7 @@ import { useConnections } from './lib/use-connections';
 import { focusEventDialogStart, openEventDialogAtTop } from './lib/dialog-focus';
 import { detectCurrentCity } from "./discovery-defaults";
 import { api } from "./lib/api";
-import { readCheckoutAttempt, prepareCheckoutAttempt, clearCheckoutAttempt, checkCheckoutAttempt, submitCheckoutAttempt, resumePaymentCheckout, verifyPaymentCheckout, restoredCheckoutEvent } from './lib/checkout-attempt';
+import { readCheckoutAttempt, prepareCheckoutAttempt, clearCheckoutAttempt, checkCheckoutAttempt, submitCheckoutAttempt, resumePaymentCheckout, verifyPaymentCheckout, restoredCheckoutEvent, rememberCheckoutOrder, restorePaymentAttempt } from './lib/checkout-attempt';
 import { businessLink } from './lib/business-link';
 import { referralCodeForEvent, referralFromSearch } from './lib/referral';
 import { eventShareUrl } from './lib/event-share';
@@ -137,7 +137,11 @@ export default function App() {
   }, [session?.accessToken]);
   async function openNotification(item) {
     const target = notificationTarget(item);
-    if (target?.type === 'booking') {
+    if (target?.type === 'checkout') {
+      if (!target.id) throw new Error('This purchase reminder no longer has a linked checkout.');
+      await resumeBooking(target.id);
+      return true;
+    } else if (target?.type === 'booking') {
       const ticket = await loadNotificationBooking(target, api, session.accessToken);
       setSelected(null); setWalletOpen(false); setView('booked'); setBookingRoute(`${target.kind}:${target.id}`);
       setNotificationBooking({ ticket });
@@ -163,6 +167,7 @@ export default function App() {
   const [checkoutRecovering, setCheckoutRecovering] = useState(false);
   const [paymentConfig, setPaymentConfig] = useState(null);
   const [paymentCheckout, setPaymentCheckout] = useState(null);
+  const [bookingsRevision, setBookingsRevision] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     api('/customer/payment-config', { signal: controller.signal }).then(setPaymentConfig)
@@ -170,6 +175,7 @@ export default function App() {
     return () => controller.abort();
   }, []);
   const checkoutLock = useRef(false);
+  const activeCheckoutAttempt = useRef(null);
   const recoveryBuyer = useRef(null);
   const currentCheckoutBuyer = useRef(session?.user.id);
   currentCheckoutBuyer.current = session?.user.id;
@@ -340,9 +346,14 @@ export default function App() {
   const weekRange = submitted.date ? upcomingWeekRange(submitted.date) : null;
   const weeklyEvents = previewEvents;
   const offering = selected?.offerings?.find((o) => o.id === offeringId);
-  const totals = checkoutTotal(offering?.priceCents || 0, quantity, offering?.currency || 'USD', offering?.effectiveFeeMode || 'buyer');
+  const totals = checkoutRecovering && activeCheckoutAttempt.current?.bookingTotals
+    ? { ...activeCheckoutAttempt.current.bookingTotals, eligible: true }
+    : checkoutTotal(offering?.priceCents || 0, quantity, offering?.currency || 'USD', offering?.effectiveFeeMode || 'buyer');
+  const savedCheckout = session && readCheckoutAttempt(session.user.id);
+  const selectedPendingCheckout = savedCheckout?.body.eventId === selected?.id ? savedCheckout : null;
   const demoCheckoutEnabled = Boolean(paymentConfig?.demoEnabled && paymentConfig.mode === 'disabled');
   function openEvent(event, { fromRoute = false } = {}) {
+    activeCheckoutAttempt.current = null;
     setCheckoutRecovering(false);
     setPaymentCheckout(null);
     setSelected(event);
@@ -457,19 +468,39 @@ export default function App() {
       .then(async (result) => { setNotice(result.status === 'confirmed' ? 'You are confirmed on the guestlist.' : 'Your invitation is not confirmed; the guestlist may be full or closed.'); if (result.status === 'confirmed') { refreshConnections(); const url = new URL(window.location.href); url.searchParams.delete('guestlistInvite'); window.history.replaceState({}, '', url); if (result.entryId) await openGuestlistEntry(result.entryId, session.accessToken); } })
       .catch((error) => setNotice(`Guestlist invitation could not be claimed: ${error.message}`));
   }, [guestlistInviteToken, session]);
-  function checkout() {
-    if (!totals.eligible) return;
+  async function checkout() {
+    const pending = session && readCheckoutAttempt(session.user.id);
+    if (!pending && !totals.eligible) return;
     if (!session) {
       pendingAuth.current = "checkout";
       setAuthOpen(true);
     } else {
-      const pending = readCheckoutAttempt(session.user.id);
       if (pending?.body.eventId === selected.id) {
+        if (pending.orderId) { try { await resumeBooking(pending.orderId); } catch (error) { setDemoError(error.message); setNotice(error.message); } return; }
+        const event = restoredCheckoutEvent(pending);
+        if (event) openEvent(event);
+        activeCheckoutAttempt.current = pending;
         setOfferingId(pending.body.items[0].offeringId); setQuantity(pending.body.items[0].quantity); setCheckoutRecovering(true);
         setReferral(pending.body.affiliateCode ? { eventId: pending.body.eventId, code: pending.body.affiliateCode, referrerName: typeof pending.referrerName === 'string' ? pending.referrerName : 'Your host' } : null);
       }
       setStage("checkout");
     }
+  }
+  async function resumeBooking(orderId) {
+    if (checkoutLock.current || !session) return;
+    checkoutLock.current = true; setDemoBusy(true); setDemoError('');
+    const buyerId = session.user.id;
+    try {
+      const result = await api(`/customer/payment-checkouts/${encodeURIComponent(orderId)}/resume`, { token: session.accessToken, method: 'POST' });
+      if (currentCheckoutBuyer.current !== buyerId) return;
+      const attempt = restorePaymentAttempt(buyerId, result);
+      if (result.status === 'paid') { await openPurchasedPasses(result.orderId, attempt); setCheckoutRecovering(false); return; }
+      if (['cancelled', 'refunded'].includes(result.status)) { clearCheckoutAttempt(buyerId, attempt.body.idempotencyKey); throw new Error('This checkout has ended. Select your tickets again to start a new booking.'); }
+      openEvent({ ...result.booking.event, offerings: attempt.eventContext.offerings });
+      activeCheckoutAttempt.current = attempt;
+      setOfferingId(attempt.body.items[0].offeringId); setQuantity(attempt.body.items[0].quantity);
+      setReferral(null); setStage('checkout'); setCheckoutRecovering(true); setPaymentCheckout(result);
+    } finally { checkoutLock.current = false; setDemoBusy(false); }
   }
   async function openPurchasedPasses(orderId, attempt, token = session.accessToken) {
     const ticket = await api(`/customer/purchases/${encodeURIComponent(orderId)}/tickets`, { token });
@@ -479,6 +510,8 @@ export default function App() {
     setPaymentCheckout(null);
     updateCustomerRoute({ tab: 'booked', eventId: null, booking: `purchase:${orderId}` });
     clearCheckoutAttempt(attempt.buyerId, attempt.body.idempotencyKey);
+    activeCheckoutAttempt.current = null;
+    setBookingsRevision(value => value + 1);
     refreshConnections();
     window.scrollTo({ top: 0 });
   }
@@ -486,6 +519,13 @@ export default function App() {
     if (!session) { recoveryBuyer.current = null; return; }
     if (recoveryBuyer.current === session.user.id) return;
     recoveryBuyer.current = session.user.id;
+    const returnedOrder = new URLSearchParams(window.location.search).get('paymentOrder');
+    if (returnedOrder && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(returnedOrder)) {
+      resumeBooking(returnedOrder).catch(error => setNotice(`We couldn’t restore your booking: ${error.message}`));
+      const url = new URL(window.location.href); url.searchParams.delete('paymentOrder'); url.searchParams.delete('session_id');
+      window.history.replaceState(window.history.state, '', url);
+      return;
+    }
     const attempt = readCheckoutAttempt(session.user.id);
     if (!attempt) return;
     checkoutLock.current = true; setDemoBusy(true); setCheckoutRecovering(true);
@@ -495,11 +535,16 @@ export default function App() {
       const orderId = resumed ? (resumed.status === 'paid' ? resumed.orderId : null) : await checkCheckoutAttempt(attempt, api, session.accessToken);
       if (!active) return;
       if (orderId) { await openPurchasedPasses(orderId, attempt, session.accessToken); setCheckoutRecovering(false); return; }
+      // Check lost payment responses automatically, but do not drag customers
+      // back into an abandoned payment form when visiting Booked or discovery.
+      // The durable notification is the explicit way to continue that purchase.
+      if (resumed?.orderId && !parseCustomerRoute(window.location.search).eventId) { setCheckoutRecovering(false); return; }
       let event;
       try { event = await api(`/events/${encodeURIComponent(attempt.body.eventId)}`); }
       catch (error) { event = restoredCheckoutEvent(attempt); if (!event) throw error; }
       if (!active) return;
       openEvent(event);
+      activeCheckoutAttempt.current = resumed?.booking ? restorePaymentAttempt(attempt.buyerId, resumed) : resumed?.orderId ? rememberCheckoutOrder(attempt, resumed.orderId) : attempt;
       setOfferingId(attempt.body.items[0].offeringId); setQuantity(attempt.body.items[0].quantity); setStage('checkout'); setCheckoutRecovering(true);
       setReferral(attempt.body.affiliateCode ? { eventId: attempt.body.eventId, code: attempt.body.affiliateCode, referrerName: typeof attempt.referrerName === 'string' ? attempt.referrerName : 'Your host' } : null);
       if (resumed) setPaymentCheckout(resumed);
@@ -522,17 +567,21 @@ export default function App() {
     try {
     const mode = totals.total === 0 ? 'free' : paymentConfig?.enabled && paymentConfig.mode === 'test' ? 'stripe' : demoCheckoutEnabled ? 'demo' : 'disabled';
     if (mode === 'disabled' && !checkoutRecovering) throw new Error('Payment checkout is not ready yet. Please try again later.');
-    const attempt = checkoutRecovering ? readCheckoutAttempt(session.user.id) : prepareCheckoutAttempt(session.user.id, {
+    let attempt = checkoutRecovering ? activeCheckoutAttempt.current || readCheckoutAttempt(session.user.id) : prepareCheckoutAttempt(session.user.id, {
       eventId: selected.id,
       expectedTotalCents: totals.total,
       affiliateCode: referralCodeForEvent(referral, selected.id),
       items: [{ offeringId: offering.id, quantity }],
       ...(mode === 'demo' ? { payment: { provider: 'demo', reference: crypto.randomUUID(), status: 'succeeded' } } : {}),
     }, undefined, undefined, mode, referralCodeForEvent(referral, selected.id) ? referral.referrerName : null, selected);
+    if (!attempt) throw new Error('Your saved attempt is unavailable. Open Notifications to continue your purchase.');
+    activeCheckoutAttempt.current = attempt;
     setCheckoutRecovering(true);
     if (attempt.mode === 'stripe') {
       const result = await resumePaymentCheckout(attempt, api, session.accessToken);
       if (currentCheckoutBuyer.current !== attempt.buyerId) return;
+      attempt = result.booking ? restorePaymentAttempt(attempt.buyerId, result) : rememberCheckoutOrder(attempt, result.orderId);
+      activeCheckoutAttempt.current = attempt;
       if (result.status === 'paid') { await openPurchasedPasses(result.orderId, attempt); setCheckoutRecovering(false); }
       else { setPaymentCheckout(result); setDemoError(''); }
       return;
@@ -554,14 +603,14 @@ export default function App() {
     if (!paymentCheckout || !session) return;
     checkoutLock.current = true; setDemoBusy(true); setDemoError('');
     try {
-      const attempt = readCheckoutAttempt(session.user.id);
+      const attempt = activeCheckoutAttempt.current || readCheckoutAttempt(session.user.id);
       const result = await verifyPaymentCheckout(paymentCheckout.orderId, api, session.accessToken);
       if (attempt) await openPurchasedPasses(result.orderId, attempt);
       setCheckoutRecovering(false); setPaymentCheckout(null);
     } catch (error) {
       if (error.paymentReview) setPaymentCheckout({ orderId: error.orderId, status: 'pending', verificationStatus: 'review' });
       if (error.terminalOrderId) {
-        const attempt = readCheckoutAttempt(session.user.id);
+        const attempt = activeCheckoutAttempt.current || readCheckoutAttempt(session.user.id);
         if (attempt) clearCheckoutAttempt(session.user.id, attempt.body.idempotencyKey);
         setCheckoutRecovering(false); setPaymentCheckout(null); setStage('details');
       }
@@ -574,10 +623,10 @@ export default function App() {
     checkoutLock.current = true; setDemoBusy(true); setDemoError('');
     try {
       const result = await api(`/customer/payment-checkouts/${encodeURIComponent(paymentCheckout.orderId)}/cancel`, { token: session.accessToken, method: 'POST' });
-      const attempt = readCheckoutAttempt(session.user.id);
+      const attempt = activeCheckoutAttempt.current || readCheckoutAttempt(session.user.id);
       if (result.status === 'paid') { if (attempt) await openPurchasedPasses(result.orderId, attempt); }
-      else if (result.status === 'cancelled') { if (attempt) clearCheckoutAttempt(session.user.id, attempt.body.idempotencyKey); setPaymentCheckout(null); setCheckoutRecovering(false); setStage('details'); }
-      else { setPaymentCheckout(result); setDemoError(result.verificationStatus === 'review' ? 'Your payment needs review. Contact the event host before making another payment. Your booking reference is saved.' : 'Your payment is still being checked. Your booking is saved; check again shortly.'); }
+      else if (result.status === 'cancelled') { if (attempt) clearCheckoutAttempt(session.user.id, attempt.body.idempotencyKey); activeCheckoutAttempt.current = null; setPaymentCheckout(null); setCheckoutRecovering(false); setStage('details'); setBookingsRevision(value => value + 1); }
+      else { setPaymentCheckout(current => ({ ...current, ...result })); setDemoError(result.verificationStatus === 'review' ? 'Your payment needs review. Contact the event host before making another payment. Your booking reference is saved.' : 'Your payment is still being checked. Your booking is saved; check again shortly.'); }
     } catch (error) { setDemoError(error.message); }
     finally { checkoutLock.current = false; setDemoBusy(false); }
   }
@@ -672,7 +721,7 @@ export default function App() {
           <div className="header-actions">
             {session ? (
               <>
-                <Notifications key={session.user.id} session={session} onNotification={openNotification} />
+                <Notifications key={session.user.id} session={session} onNotification={openNotification} refreshKey={`${bookingsRevision}:${selected?.id || ''}:${paymentCheckout?.status || ''}`} />
                 <button className="profile-avatar profile-trigger" aria-label={`Open ${session.user.displayName}'s profile`} title="Your profile" onClick={() => setWalletOpen(true)}>{initials(session.user.displayName)}</button>
               </>
             ) : (
@@ -689,7 +738,7 @@ export default function App() {
       {view === 'connections' && hasConnections && <ConnectionsPage key={session.user.id} session={session} history={connectionsHistory} saved={saved} onSave={save} onReferral={openConnection} onRefresh={refreshConnections} onVisible={savedCollection.checkVisible} />}
       {view === 'booked' && <main className="booked-page wrap" id="booked">
         <div className="booked-page-heading"><p className="eyebrow">YOUR NEXT NIGHT STARTS HERE</p><h1>Booked.</h1><p>Your tickets and guest list entries, all in one place.</p></div>
-        {session ? <AccountDialog key={session.user.id} embedded open session={session} notificationBooking={notificationBooking} bookingRoute={bookingRoute} onBookingRouteChange={(value) => { setBookingRoute(value); updateCustomerRoute({ tab: 'booked', booking: value }, { replace: !value }); }} onNotificationOpened={() => setNotificationBooking(null)} onOpenChange={() => navigateView('discover')} /> : <div className="account-empty"><Ticket /><h2>Your nights are waiting.</h2><p>Sign in to see your upcoming bookings and guest list entries.</p><Button className="dark-glass-action" onClick={() => setAuthOpen(true)}>Sign in</Button></div>}
+        {session ? <AccountDialog key={session.user.id} embedded open session={session} onResumeCheckout={resumeBooking} bookingsRevision={bookingsRevision} notificationBooking={notificationBooking} bookingRoute={bookingRoute} onBookingRouteChange={(value) => { setBookingRoute(value); updateCustomerRoute({ tab: 'booked', booking: value }, { replace: !value }); }} onNotificationOpened={() => setNotificationBooking(null)} onOpenChange={() => navigateView('discover')} /> : <div className="account-empty"><Ticket /><h2>Your nights are waiting.</h2><p>Sign in to see your upcoming bookings and guest list entries.</p><Button className="dark-glass-action" onClick={() => setAuthOpen(true)}>Sign in</Button></div>}
       </main>}
       {view === 'saved' && <main className="booked-page wrap" id="saved">
         <div className="booked-page-heading"><p className="eyebrow">KEEP THE GOOD NIGHTS CLOSE</p><h1>Saved.</h1><p>Your shortlist of upcoming events.</p></div>
@@ -890,6 +939,7 @@ export default function App() {
           </DialogHeader>
           {selected && stage === "details" && (
             <>
+              {selectedPendingCheckout && <div className="checkout-summary" role="status"><strong>You have an unfinished purchase for this event.</strong><p>Resume your saved checkout to complete payment or cancel it.</p><Button disabled={demoBusy} onClick={selectedPendingCheckout.orderId ? async () => { try { await resumeBooking(selectedPendingCheckout.orderId); } catch (error) { setNotice(error.message); } } : checkout}>{demoBusy ? <LoadingIndicator>Restoring checkout…</LoadingIndicator> : 'Resume checkout'}</Button></div>}
               <div className="detail-art">
                 <EventArtwork event={selected} />
               </div>
@@ -1037,9 +1087,9 @@ export default function App() {
                 {totals.total === 0 ? 'Confirm your free admission. No card details are required.' : paymentConfig?.enabled ? 'Pay securely with Stripe in test mode. Use test payment details only; no real charge will be made.' : demoCheckoutEnabled ? 'This creates a demo order and admission in local test data. No card details or charge; not valid for entry.' : 'Paid booking will be available once secure payment setup is complete.'}
               </p>
               <div className="order-summary">
-                <h3>{offering.name}</h3>
+                <h3>{paymentCheckout?.booking?.items.length > 1 ? 'Your booking' : offering.name}</h3>
                 <p>
-                  {quantity} × {money(offering.priceCents, offering.currency)}
+                  {paymentCheckout?.booking ? paymentCheckout.booking.items.map(item => `${item.quantity} × ${item.name} · ${money(item.unitPriceCents, paymentCheckout.booking.currency)}`).join(' / ') : <>{quantity} × {money(offering.priceCents, offering.currency)}</>}
                 </p>
                 <dl>
                   <div>
@@ -1067,7 +1117,7 @@ export default function App() {
               {paymentCheckout?.verificationStatus === 'review' && <p role="status" className="fine-print">Your payment needs review. Contact the event host for help before making another payment. Booking reference: {paymentCheckout.orderId}</p>}
               {referralCodeForEvent(referral, selected.id) && <p className="connection-context">Booking with <strong>{referral.referrerName}</strong></p>}
               {paymentCheckout?.clientSecret && paymentCheckout.verificationStatus !== 'review' && paymentConfig?.enabled && <Suspense fallback={<LoadingIndicator>Loading secure payment form…</LoadingIndicator>}><StripeCheckout key={paymentCheckout.orderId} config={paymentConfig} checkout={paymentCheckout} onVerify={verifyBooking} onBusyChange={busy => { checkoutLock.current = busy; setDemoBusy(busy); }} /></Suspense>}
-              {paymentCheckout ? <><Button className="primary-action dark-glass-action" disabled={demoBusy} onClick={verifyBooking}>{demoBusy ? <LoadingIndicator>Checking your booking…</LoadingIndicator> : 'Check booking'}</Button>{paymentCheckout.verificationStatus !== 'review' && <Button variant="outline" disabled={demoBusy} onClick={cancelPaymentBooking}>Cancel payment attempt</Button>}<p className="fine-print">You can close this window and return to the same booking.{paymentCheckout.verificationStatus !== 'review' && ' Cancellation is final only after the server confirms payment was not completed.'}</p></> : <Button className="primary-action dark-glass-action" onClick={completeDemo} disabled={demoBusy || (!checkoutRecovering && (!totals.eligible || (totals.total > 0 && !paymentConfig?.enabled && !demoCheckoutEnabled)))}>
+              {paymentCheckout ? <>{!paymentCheckout.clientSecret && paymentCheckout.verificationStatus !== 'review' && <Button className="primary-action dark-glass-action" disabled={demoBusy} onClick={completeDemo}>Resume checkout</Button>}<Button className="primary-action dark-glass-action" disabled={demoBusy} onClick={verifyBooking}>{demoBusy ? <LoadingIndicator>Checking your booking…</LoadingIndicator> : 'Check booking'}</Button>{paymentCheckout.verificationStatus !== 'review' && <Button variant="outline" disabled={demoBusy} onClick={cancelPaymentBooking}>Cancel payment attempt</Button>}<p className="fine-print">You can close this window and continue your purchase from Notifications.{paymentCheckout.verificationStatus !== 'review' && ' Cancellation is final only after the server confirms payment was not completed.'}</p></> : <Button className="primary-action dark-glass-action" onClick={completeDemo} disabled={demoBusy || (!checkoutRecovering && (!totals.eligible || (totals.total > 0 && !paymentConfig?.enabled && !demoCheckoutEnabled)))}>
                 {demoBusy ? <LoadingIndicator>{checkoutRecovering ? 'Checking your booking…' : 'Preparing your booking…'}</LoadingIndicator> : <>{checkoutRecovering ? 'Check / retry booking' : totals.total === 0 ? 'Confirm free booking' : paymentConfig?.enabled ? 'Continue to payment' : demoCheckoutEnabled ? 'Confirm demo booking' : 'Payments unavailable'} <ArrowRight /></>}
               </Button>}
               <Button variant="ghost" disabled={demoBusy || checkoutRecovering} onClick={() => setStage("details")}>

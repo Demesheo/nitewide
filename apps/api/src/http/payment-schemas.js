@@ -18,6 +18,11 @@ const checkoutSummary = z.object({ orderId: z.uuid(), status: z.string(), verifi
   retryable: z.boolean().optional() }).strict();
 const checkoutPreparation = checkoutSummary.extend({ clientSecret: z.string().optional(), stripeAccountId: z.string().optional(),
   expiresAt: time.optional() }).strict();
+const checkoutResumption = checkoutPreparation.extend({ booking: z.object({
+  idempotencyKey: z.string().min(8).max(100), event: z.object({ id: z.uuid(), title: z.string(), startsAt: time, endsAt: time }).passthrough(),
+  subtotalCents: z.number().int().nonnegative(), totalCents: z.number().int().nonnegative(), currency: z.string().length(3),
+  items: z.array(z.object({ offeringId: z.uuid(), name: z.string(), kind: z.string(), quantity: z.number().int().positive(), unitPriceCents: z.number().int().nonnegative() }).strict()),
+}).strict() }).strict();
 const refundSummary = z.object({ refundId: z.uuid(), orderId: z.uuid(), status: z.string(), retryable: z.boolean().optional() }).strict();
 const paymentAccount = z.object({ id: z.uuid(), organizationId: z.uuid(), name: z.string(), stripeAccountId: z.string().nullable(),
   mode: z.literal('test'), chargesEnabled: z.boolean(), payoutsEnabled: z.boolean(), detailsSubmitted: z.boolean(),
@@ -28,7 +33,8 @@ const paymentAccount = z.object({ id: z.uuid(), organizationId: z.uuid(), name: 
   disconnectedAt:time.nullable(),disconnectErrorCode:z.string().nullable(),paymentsReady: z.boolean() }).strict();
 const paymentAccountPage = z.object({ items: z.array(paymentAccount), total: z.number().int().nonnegative(),
   page: z.number().int().positive(), pageSize: z.number().int().positive(), hasMore: z.boolean(),
-  defaultPaymentAccountId: z.uuid().nullable(), canManageFinance: z.literal(true),canDisconnectPayments:z.boolean() }).strict();
+  defaultPaymentAccountId: z.uuid().nullable(), canManageFinance: z.literal(true),canDisconnectPayments:z.boolean(),
+  sharedSandboxAccount:z.object({stripeAccountId:z.string().regex(/^acct_[A-Za-z0-9]+$/),paymentsReady:z.boolean()}).strict().optional() }).strict();
 const onboardingLink = z.object({ url: z.url(), expiresAt: time }).strict();
 const webhookAcknowledgment = z.object({ received: z.literal(true), replayed: z.boolean().optional(), ignored: z.boolean().optional() }).strict();
 const count = z.number().int().nonnegative();
@@ -56,5 +62,5 @@ const emptyPaymentQuery = z.object({}).strict();
 
 module.exports = { paymentCheckoutSchema, refundSchema, createProfile, selection, paymentAccountQuery,
   paymentControl,disconnectPermission,disconnectImpact,disconnectResult,
-  paymentConfiguration, checkoutSummary, checkoutPreparation, refundSummary, paymentAccount, paymentAccountPage,
+  paymentConfiguration, checkoutSummary, checkoutPreparation, checkoutResumption, refundSummary, paymentAccount, paymentAccountPage,
   onboardingLink, webhookAcknowledgment, paymentOverviewCurrency, paymentOverview, earningsCurrency, paymentEarnings, emptyPaymentQuery };

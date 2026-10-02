@@ -3,9 +3,12 @@ const fixtures = require('../../../e2e/test-data/stripe-connect/us-sandbox.json'
 const { createStripeTestIdentity } = require('../../../e2e/test-data/stripe-connect/identity.cjs');
 const { STRIPE_API_VERSION } = require('../src/payments/stripe-client');
 const { controllerMatches, providerState, paymentsReady, RESPONSIBILITIES } = require('../src/services/business-payment-account-service');
+const { sharedSandboxAccountId } = require('../src/domain/shared-sandbox-merchant');
 
 function assertSandboxInvocation(args, environment) {
-  if (args[0] !== '--run' || !(args.length === 1 || args.length === 3 && args[1] === '--resume' && /^api-onboarding-\d{8}-[a-f0-9]{12}$/.test(args[2]))) throw new Error('Invoke explicitly with npm run test:stripe:sandbox, optionally -- --resume <test identifier>.');
+  const resume = args.length === 3 && args[1] === '--resume' && /^(api-onboarding|payment-regression)-\d{8}-[a-f0-9]{12}$/.test(args[2]);
+  const existing = args.length === 3 && args[1] === '--account' && /^acct_[A-Za-z0-9]+$/.test(args[2]);
+  if (args[0] !== '--run' || !(args.length === 1 || resume || existing)) throw new Error('Invoke explicitly with npm run test:stripe:sandbox, optionally -- --resume <test identifier> or -- --account <Nitewide sandbox account ID>.');
   if (environment.CI && environment.CI !== 'false') throw new Error('Real Stripe sandbox tests are not allowed in CI, build or deployment jobs.');
   if (environment.NODE_ENV === 'production' || environment.HOSTED_DEMO === 'true') throw new Error('Run sandbox tests locally, not inside an application deployment.');
   if (environment.STRIPE_MODE !== 'test' || !/^sk_test_[A-Za-z0-9]+$/.test(environment.STRIPE_SECRET_KEY || '')
@@ -18,6 +21,12 @@ function sandboxCredentials(environment) {
     // uses or changes the developer's deployed destination signing secrets.
     STRIPE_WEBHOOK_SECRET: `whsec_${randomBytes(32).toString('hex')}`,
     STRIPE_ACCOUNT_WEBHOOK_SECRET: `whsec_${randomBytes(32).toString('hex')}` };
+}
+
+function reusableSandboxAccount(args, environment) {
+  const shared = sharedSandboxAccountId({ ...environment, NODE_ENV: environment.NODE_ENV || 'development' });
+  if (args[1] === '--resume') return null; // Keep the report's original merchant.
+  return args[1] === '--account' ? args[2] : shared;
 }
 
 function accountParameters(identity) {
@@ -36,8 +45,13 @@ function accountParameters(identity) {
 }
 
 function assertOwnedSandboxAccount(account, identity) {
+  const owned = identity.accountSource === 'existing-business'
+    ? account?.id === identity.expectedStripeAccountId
+      && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(identity.sourcePaymentProfileId || '')
+      && account.metadata?.nitewide_payment_account_id === identity.sourcePaymentProfileId
+    : account?.metadata?.nitewide_sandbox_test === 'true' && account.metadata?.nitewide_test_identifier === identity.testIdentifier;
   if (!/^acct_[A-Za-z0-9]+$/.test(account?.id || '') || account.livemode !== false || !controllerMatches(account)
-    || account.metadata?.nitewide_sandbox_test !== 'true' || account.metadata?.nitewide_test_identifier !== identity.testIdentifier) {
+    || account.closed === true || !owned) {
     throw new Error('Refusing a live, untagged or differently configured connected account.');
   }
   return account;
@@ -57,4 +71,4 @@ function safeFailure(error) {
 }
 
 module.exports = { assertSandboxInvocation, sandboxCredentials, accountParameters, assertOwnedSandboxAccount, verifiedReadiness,
-  safeFailure, createStripeTestIdentity, fixtures, STRIPE_API_VERSION };
+  safeFailure, createStripeTestIdentity, fixtures, STRIPE_API_VERSION, reusableSandboxAccount };

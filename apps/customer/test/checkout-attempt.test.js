@@ -1,12 +1,52 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { prepareCheckoutAttempt, readCheckoutAttempt, clearCheckoutAttempt, submitCheckoutAttempt, checkCheckoutAttempt, resumePaymentCheckout, verifyPaymentCheckout, restoredCheckoutEvent } from '../src/lib/checkout-attempt.js';
+import { prepareCheckoutAttempt, readCheckoutAttempt, clearCheckoutAttempt, submitCheckoutAttempt, checkCheckoutAttempt, resumePaymentCheckout, verifyPaymentCheckout, restoredCheckoutEvent, rememberCheckoutOrder, restorePaymentAttempt } from '../src/lib/checkout-attempt.js';
 
 const storage = () => {
   const entries = new Map();
   return { getItem: key => entries.get(key), setItem: (key, value) => entries.set(key, value), removeItem: key => entries.delete(key) };
 };
 const body = { eventId: 'event', items: [{ offeringId: 'table', quantity: 2 }], affiliateCode: 'host', expectedTotalCents: 5000, payment: { provider: 'demo', reference: 'reference', status: 'succeeded' } };
+const restored = { orderId: 'original-order', status: 'pending', clientSecret: 'secret-never-persist', stripeAccountId: 'acct_original', booking: {
+  idempotencyKey: 'original-key', event: { id: 'event', title: 'Your original night', startsAt: '2026-10-10T21:00:00Z', endsAt: '2026-10-11T03:00:00Z', location: { name: 'Venue' } },
+  items: [{ offeringId: 'table', name: 'Original package', kind: 'package', quantity: 2, unitPriceCents: 2000 }], currency: 'USD', subtotalCents: 4000, totalCents: 4500,
+} };
+test('Booked restores the server-owned cart without browser storage, repricing or retaining provider secrets', async () => {
+  const store = storage();
+  const attempt = restorePaymentAttempt('buyer', restored, store);
+  assert.equal(attempt.orderId, 'original-order');
+  assert.equal(attempt.body.idempotencyKey, 'original-key');
+  assert.deepEqual(attempt.bookingTotals, { subtotal: 4000, fee: 500, total: 4500 });
+  assert.equal(restoredCheckoutEvent(attempt).offerings[0].priceCents, 2000);
+  assert.deepEqual(readCheckoutAttempt('buyer', store), attempt);
+  assert.equal(JSON.stringify(attempt).includes('secret-never-persist'), false);
+  assert.equal(JSON.stringify(attempt).includes('acct_original'), false);
+  const calls = [];
+  assert.equal((await resumePaymentCheckout(attempt, async (path, options) => { calls.push([path, options]); return restored; }, 'token')).orderId, 'original-order');
+  assert.deepEqual(calls, [['/customer/payment-checkouts/original-order/resume', { token: 'token', method: 'POST' }]]);
+});
+test('resuming another server order never overwrites an unresolved locally saved attempt', () => {
+  const store = storage();
+  const prior = prepareCheckoutAttempt('buyer', body, store, () => 'other-key', 'stripe');
+  const attempt = restorePaymentAttempt('buyer', restored, store);
+  assert.equal(attempt.orderId, 'original-order');
+  assert.deepEqual(readCheckoutAttempt('buyer', store), prior);
+  clearCheckoutAttempt('buyer', attempt.body.idempotencyKey, store);
+  assert.deepEqual(readCheckoutAttempt('buyer', store), prior);
+});
+test('server order recovery still works if persistence is denied; malformed recovery cannot produce a new checkout', () => {
+  const denied = { getItem() { throw new Error('Denied'); } };
+  assert.equal(restorePaymentAttempt('buyer', restored, denied).orderId, 'original-order');
+  assert.throws(() => restorePaymentAttempt('buyer', { orderId: 'missing-cart' }, denied), /could not be restored/);
+});
+test('recording an existing order preserves the original retry key and never replaces another saved attempt', () => {
+  const store = storage();
+  const attempt = prepareCheckoutAttempt('buyer', body, store, () => 'stable-key', 'stripe');
+  assert.equal(rememberCheckoutOrder(attempt, 'original-order', store).body.idempotencyKey, 'stable-key');
+  assert.equal(readCheckoutAttempt('buyer', store).orderId, 'original-order');
+  rememberCheckoutOrder({ ...attempt, body: { ...attempt.body, idempotencyKey: 'wrong-key' } }, 'other-order', store);
+  assert.equal(readCheckoutAttempt('buyer', store).orderId, 'original-order');
+});
 test('lost response and reload preserve the buyer, cart, attribution and original payment body', async () => {
   const store = storage();
   const attempt = prepareCheckoutAttempt('buyer', body, store, () => 'stable-key');

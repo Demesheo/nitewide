@@ -5,6 +5,7 @@ const { eventFinished, offeringSaleState } = require('../domain/event-policy');
 const { base, organizationMember,manages,orderAccess, guestAccess, pageResult } = require('./business-read-service');
 const { hasInternalPermission } = require('./internal-admin-permissions');
 const { commissionTerms, effectiveCommissionBps } = require('../domain/commission-eligibility');
+const { unsettledMerchantSql } = require('../domain/payment-merchant-policy');
 
 function createBusinessEventReadService({ models, now = () => new Date() }) {
   const select = (sql, replacements) => models.Event.sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
@@ -17,7 +18,7 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
       (:isAdmin OR ${organizationMember}) AS "organizationWideAccess",
       ${manages} AS "canManage",
       EXISTS (SELECT 1 FROM organization_owners finance WHERE finance.organization_id=e.organization_id AND finance.user_id=:userId AND finance.lifecycle_state='active' AND (finance.role='owner' OR finance.role='admin' AND finance.finance_authorized)) AS "canManageFinance",
-      NOT EXISTS (SELECT 1 FROM orders merchant_order WHERE merchant_order.event_id=e.id AND merchant_order.status IN ('pending','paid','refunded')) AS "canChangePaymentAccount"
+      NOT EXISTS (SELECT 1 FROM orders merchant_order WHERE merchant_order.event_id=e.id AND ${unsettledMerchantSql('merchant_order')}) AS "canChangePaymentAccount"
       FROM events e WHERE e.id = :eventId AND ${base}`, replacements);
     if (!rows.length) throw notFound('Event');
     return { ...replacements, canManage: rows[0].canManage, canManageFinance: rows[0].canManageFinance, canChangePaymentAccount: rows[0].canChangePaymentAccount, organizationWideAccess: rows[0].organizationWideAccess,organizationId: rows[0].organizationId,locationId: rows[0].locationId,isManagedVenue: rows[0].isManagedVenue };

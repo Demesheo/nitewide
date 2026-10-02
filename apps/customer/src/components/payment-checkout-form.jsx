@@ -21,8 +21,8 @@ export function PaymentCheckoutForm({ checkoutState, PaymentFields, ExpressField
     finally { lock.current = false; setBusy(false); onBusyChange(false); }
   }
   return <form className="stripe-payment-form" onSubmit={event => { event.preventDefault(); confirm(); }}>
-    {ExpressFields && <ExpressFields onConfirm={confirm} options={{ buttonTheme: { applePay: 'white', googlePay: 'white' }, layout: { maxColumns: 1 } }} />}
-    <PaymentFields options={{ layout: 'tabs' }} />
+    {ExpressFields && <ExpressFields onConfirm={confirm} options={{ buttonTheme: { applePay: 'white', googlePay: 'white' }, layout: { maxColumns: 1 }, paymentMethods: { applePay: 'auto', googlePay: 'auto', link: 'never', klarna: 'never' } }} />}
+    <PaymentFields options={{ layout: 'tabs', wallets: { link: 'never' } }} />
     {error && <p role="alert" className="error-message">{error}</p>}
     <Button type="submit" className="primary-action dark-glass-action" disabled={busy}>{busy ? <LoadingIndicator>Checking your booking…</LoadingIndicator> : `Pay ${checkoutState.checkout.total.total.amount}`}</Button>
     <p className="fine-print">Sandbox payment · use test payment details only.</p>

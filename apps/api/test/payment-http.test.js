@@ -25,6 +25,10 @@ function fixture(changes = {}) {
       abuse: { before: async () => {}, authenticated: async () => {} },
       paymentCheckouts: {
         prepare: async input => { calls.push(['prepare', input]); return { ...result, clientSecret: 'cs_mock_secret_private', stripeAccountId: 'acct_mock', expiresAt: '2026-10-01T12:00:00.000Z' }; },
+        resume: async (...input) => { calls.push(['resume', ...input]); return { ...result, clientSecret: 'cs_mock_secret_private', stripeAccountId: 'acct_mock', booking: {
+          idempotencyKey: 'stable-checkout-key', event: { id: orderId, title: 'Original booking', startsAt: '2026-10-01T20:00:00.000Z', endsAt: '2026-10-02T02:00:00.000Z' },
+          currency: 'USD', subtotalCents: 1000, totalCents: 1164, items: [{ offeringId: orderId, name: 'Ticket', kind: 'ticket', quantity: 1, unitPriceCents: 1000 }],
+        } }; },
         verify: async (...input) => { calls.push(['verify', ...input]); return result; },
         cancel: async (...input) => { calls.push(['cancel', ...input]); return result; },
         lookup: async (...input) => { calls.push(['lookup', ...input]); return result; },
@@ -42,6 +46,15 @@ test('publishable configuration is public, no-store and contains no private cred
   assert.deepEqual(response.body.data, { configured: true, enabled: true, mode: 'test', publishableKey: 'pk_test_mock', demoEnabled: false });
   assert.doesNotMatch(JSON.stringify(response.body), /sk_test_|whsec_|AUTH_TOKEN_SECRET/);
   assert.equal((await request(fixture({ STRIPE_ACCOUNT_WEBHOOK_SECRET: undefined }).app).get('/api/customer/payment-config')).body.data.enabled, false);
+});
+test('resume payment is private, validates the order ID and uses only the signed-in buyer identity', async () => {
+  const { app, calls } = fixture();
+  await request(app).post(`/api/customer/payment-checkouts/${orderId}/resume`).expect(401);
+  await authorized(request(app).post('/api/customer/payment-checkouts/not-a-uuid/resume')).expect(422);
+  assert.equal(calls.length, 0);
+  const response = await authorized(request(app).post(`/api/customer/payment-checkouts/${orderId}/resume`)).send({ buyerUserId: 'forged', items: [], stripeAccountId: 'acct_forged' }).expect(200).expect('Cache-Control', 'no-store');
+  schemas.checkoutResumption.parse(response.body.data);
+  assert.deepEqual(calls, [['resume', buyerId, orderId]]);
 });
 test('buyer payment operations require a session and reject caller-supplied payment success', async () => {
   const { app, calls } = fixture();

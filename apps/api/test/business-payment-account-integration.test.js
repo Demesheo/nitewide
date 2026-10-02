@@ -9,7 +9,8 @@ const {createApp}=require('../src/app');
 const request=require('supertest');
 const paymentSchemas=require('../src/http/payment-schemas');
 const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve};};
-test('sandbox profiles persist scoped provider readiness and lock event merchant after payment history',{timeout:30000},async()=>{
+const {mutationTransaction}=require('../src/services/mutation-transaction');
+test('sandbox profiles persist scoped provider readiness and lock event merchant while checkout is unresolved',{timeout:30000},async()=>{
   assertManagedTestDatabase();
   const db=require('../src/db/sequelize').createSequelize(require('../src/config').getConfig());
   const m=require('../src/db/models').initModels(db);
@@ -58,6 +59,120 @@ test('sandbox profiles persist scoped provider readiness and lock event merchant
     clock=new Date(+clock+1000);const beforeClose=ordered.synchronize(owner.id,org.id,profile.id);const closedRejection=assert.rejects(beforeClose,{code:'NOT_FOUND'});await closingStarted.promise;
     clock=new Date(+clock+1000);await ordered.synchronizeTrusted(remote.id);
     closing.resolve(ready);await closedRejection;await cached.reload();assert.equal(cached.lifecycleState,'archived');assert.equal(cached.chargesEnabled,false);
+  } finally {await db.close();}
+});
+
+test('settled activity unlocks merchant selection without moving old orders, payments or refunds',{timeout:60000},async t=>{
+  assertManagedTestDatabase();
+  const config=require('../src/config').getConfig(),db=require('../src/db/sequelize').createSequelize(config);
+  const m=require('../src/db/models').initModels(db);
+  try {
+    const owner=await m.User.create({displayName:'Merchant selection owner',email:`${randomUUID()}@offline.nitewide.test`});
+    const stranger=await m.User.create({displayName:'Other business owner',email:`${randomUUID()}@offline.nitewide.test`});
+    const org=await m.Organization.create({name:'Past demo venue',slug:randomUUID(),onboardingEstablished:true});
+    const foreignOrg=await m.Organization.create({name:'Other venue',slug:randomUUID(),onboardingEstablished:true});
+    await m.OrganizationOwner.create({organizationId:org.id,userId:owner.id,role:'owner'});
+    const old=await m.PaymentAccount.create({organizationId:org.id,name:'Original',stripeAccountId:`acct_${randomUUID().replaceAll('-','')}`});
+    const fresh=await m.PaymentAccount.create({organizationId:org.id,name:'New',stripeAccountId:`acct_${randomUUID().replaceAll('-','')}`});
+    const foreign=await m.PaymentAccount.create({organizationId:foreignOrg.id,name:'Foreign',stripeAccountId:`acct_${randomUUID().replaceAll('-','')}`});
+    const ended=await m.Event.create({organizationId:org.id,creatorUserId:owner.id,title:'Ended venue night',slug:randomUUID(),status:'published',
+      startsAt:new Date(Date.now()-7200000),endsAt:new Date(Date.now()-3600000)});
+    await m.Offering.create({eventId:ended.id,name:'Historical ticket',priceCents:2000,quantityTotal:100});
+    const demo=await m.Order.create({buyerUserId:owner.id,eventId:ended.id,status:'paid',idempotencyKey:randomUUID(),pricingPlanSnapshot:{demo:true}});
+    const beforeDemo=demo.toJSON();
+    const stripe={mode:'test',enabled:true};
+    const accounts=createBusinessPaymentAccountService({models:m,stripe});
+    const app=createApp({sequelize:db,models:m,config,services:{stripe,email:{enabled:false}}});
+    const selectDefault=(id,userId=owner.id)=>request(app).put(`/api/business/organizations/${org.id}/payment-accounts/default`).set('x-user-id',userId).send({paymentAccountId:id});
+    const selectEvent=id=>request(app).put(`/api/business/events/${ended.id}/payment-account`).set('x-user-id',owner.id).send({paymentAccountId:id});
+    const editable=async()=>{const res=await request(app).get(`/api/business/events/${ended.id}/summary`).set('x-user-id',owner.id).expect(200);return res.body.data.event.canChangePaymentAccount;};
+    await t.test('ended demo orders do not lock defaults or require historical offerings to be ready',async()=>{
+      await selectDefault(fresh.id).expect(200);
+      assert.equal((await org.reload()).defaultPaymentAccountId,fresh.id);
+      assert.deepEqual((await demo.reload()).toJSON(),beforeDemo);
+      assert.equal(await editable(),true);
+      await selectEvent(fresh.id).expect(200);await selectEvent(null).expect(200);
+      await accounts.selectDefault(owner.id,org.id,null);
+      assert.equal((await org.reload()).defaultPaymentAccountId,null);
+    });
+    const order=await m.Order.create({buyerUserId:owner.id,eventId:ended.id,status:'paid',providerMode:'test',providerVerificationStatus:'verified',
+      paymentAccountId:old.id,stripeAccountId:old.stripeAccountId,stripePaymentIntentId:`pi_${randomUUID().replaceAll('-','')}`,
+      stripeChargeId:`ch_${randomUUID().replaceAll('-','')}`,totalCents:1000,idempotencyKey:randomUUID()});
+    const payment=await m.Payment.create({orderId:order.id,provider:'stripe',providerReference:order.stripePaymentIntentId,status:'succeeded',amountCents:1000,currency:'USD',metadata:{stripeAccountId:old.stripeAccountId}});
+    const refund=await m.Refund.create({orderId:order.id,paymentAccountId:old.id,stripeAccountId:old.stripeAccountId,amountCents:1000,status:'succeeded',
+      idempotencyKey:randomUUID(),requestedByUserId:owner.id,reason:'Verified test refund'});
+    const oldSnapshots=[order.toJSON(),payment.toJSON(),refund.toJSON()];
+    await t.test('verified completed payments and refunds allow changes and retain every historical merchant snapshot',async()=>{
+      await selectDefault(fresh.id).expect(200);assert.equal(await editable(),true);
+      await selectEvent(fresh.id).expect(200);
+      assert.deepEqual((await order.reload()).toJSON(),oldSnapshots[0]);
+      assert.deepEqual((await payment.reload()).toJSON(),oldSnapshots[1]);
+      assert.deepEqual((await refund.reload()).toJSON(),oldSnapshots[2]);
+      await selectEvent(null).expect(200);
+    });
+    await t.test('pending, unverified and review payments block both routes even for ended events',async()=>{
+      for(const state of [{status:'pending',providerVerificationStatus:'pending'},{status:'paid',providerVerificationStatus:'review'},
+        {status:'refunded',providerVerificationStatus:'review'},{status:'paid',providerVerificationStatus:'pending'},
+        {status:'cancelled',providerVerificationStatus:'pending'}]) {
+        await order.update(state);
+        const response=await selectDefault(old.id).expect(409);assert.equal(response.body.error.code,'PAYMENT_ACCOUNT_LOCKED');
+        await selectEvent(old.id).expect(409);assert.equal(await editable(),false);
+        assert.equal((await org.reload()).defaultPaymentAccountId,fresh.id);assert.equal((await ended.reload()).paymentAccountId,null);
+      }
+      await order.update({status:'paid',providerVerificationStatus:'verified'});
+    });
+    await t.test('pending and failed refunds block changes until resolved or explicitly cancelled',async()=>{
+      for(const status of ['pending','failed']) {
+        await refund.update({status});await selectDefault(old.id).expect(409);await selectEvent(old.id).expect(409);assert.equal(await editable(),false);
+      }
+      for(const status of ['succeeded','canceled','cancelled']) {
+        await refund.update({status});await selectEvent(old.id).expect(200);await selectEvent(null).expect(200);assert.equal(await editable(),true);
+      }
+      await refund.update({status:'succeeded'});
+    });
+    await t.test('provider-confirmed expired checkout and full refund unlock selection',async()=>{
+      for(const status of ['cancelled','refunded']) {
+        await order.update({status,providerVerificationStatus:'verified'});
+        await selectDefault(old.id).expect(200);await selectDefault(fresh.id).expect(200);assert.equal(await editable(),true);
+      }
+    });
+    await t.test('unresolved explicit event overrides do not block an unrelated organization default',async()=>{
+      await selectEvent(old.id).expect(200);await order.update({status:'pending',providerVerificationStatus:'pending'});
+      await selectDefault(old.id).expect(200);await selectEvent(fresh.id).expect(409);
+      assert.equal((await ended.reload()).paymentAccountId,old.id);
+      await order.update({status:'paid',providerVerificationStatus:'verified'});await selectEvent(null).expect(200);
+    });
+    await t.test('new published paid events still require a ready selected account and roll back invalid defaults',async()=>{
+      const future=await m.Event.create({organizationId:org.id,creatorUserId:owner.id,title:'Future paid night',slug:randomUUID(),status:'published',
+        startsAt:new Date(Date.now()+3600000),endsAt:new Date(Date.now()+7200000)});
+      await m.Offering.create({eventId:future.id,name:'Future ticket',priceCents:2000,quantityTotal:100});
+      const response=await selectDefault(fresh.id).expect(409);assert.equal(response.body.error.code,'PAYMENTS_NOT_READY');
+      assert.equal((await org.reload()).defaultPaymentAccountId,old.id);
+      await future.update({status:'draft'});
+    });
+    await t.test('checkout and selection share the authorization fence so newly unresolved activity cannot race a change',async()=>{
+      const held=deferred(),release=deferred();
+      const concurrent=mutationTransaction(db,async transaction=>{
+        await order.update({status:'pending',providerVerificationStatus:'pending'},{transaction});held.resolve();await release.promise;
+      });
+      await held.promise;
+      let finished=false;
+      const attempt=accounts.selectDefault(owner.id,org.id,fresh.id);
+      attempt.then(()=>{finished=true;},()=>{finished=true;});
+      const rejected=assert.rejects(attempt,{code:'PAYMENT_ACCOUNT_LOCKED'});
+      try {
+        await new Promise(resolve=>setTimeout(resolve,75));
+        assert.equal(finished,false,'selection waits for the in-flight checkout transaction before reading settlement');
+      } finally {release.resolve();}
+      await concurrent;await rejected;
+      assert.equal((await org.reload()).defaultPaymentAccountId,old.id);
+      await order.update({status:'paid',providerVerificationStatus:'verified'});
+      await accounts.selectDefault(owner.id,org.id,fresh.id);
+    });
+    await t.test('settlement never bypasses finance authorization or organization scoping',async()=>{
+      await selectDefault(old.id,stranger.id).expect(403);await selectDefault(foreign.id).expect(404);await selectEvent(foreign.id).expect(404);
+      assert.equal((await org.reload()).defaultPaymentAccountId,fresh.id);
+    });
   } finally {await db.close();}
 });
 

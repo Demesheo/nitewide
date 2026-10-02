@@ -3,6 +3,7 @@
 const routeInventory = [
   { method: 'get', path: '/customer/payment-config', successStatuses: [200] },
   { method: 'post', path: '/customer/payment-checkouts', successStatuses: [200] },
+  { method: 'post', path: '/customer/payment-checkouts/:orderId/resume', successStatuses: [200] },
   { method: 'post', path: '/customer/payment-checkouts/:orderId/verify', successStatuses: [200] },
   { method: 'post', path: '/customer/payment-checkouts/:orderId/cancel', successStatuses: [200] },
   { method: 'post', path: '/business/orders/:orderId/refunds', successStatuses: [200] },

@@ -19,6 +19,8 @@ function createBusinessPaymentDisconnectService({ models, stripe, paymentAccount
   const transact = fn => mutationTransaction(db, fn, { accessChange: true });
   const audit = (userId, organizationId, id, action, after, transaction) => models.AuditLog.create({ actorUserId:userId, organizationId,
     entityType:'PaymentAccount', entityId:id, action, after }, { transaction });
+  const sharedMerchant = account => stripe?.mode === 'test' && stripe.sandboxSharedAccountId && account.stripeAccountId === stripe.sandboxSharedAccountId;
+  const sharedWarning = 'Disable shared sandbox routing before disabling or disconnecting its merchant; all test businesses are using it.';
   async function get(organizationId, id, transaction) {
     const account = await models.PaymentAccount.findOne({ where:{ id, organizationId }, transaction, ...(transaction ? {lock:transaction.LOCK.UPDATE} : {}) });
     if (!account) throw notFound('Payment account');
@@ -53,6 +55,7 @@ function createBusinessPaymentDisconnectService({ models, stripe, paymentAccount
       const account = await get(organizationId,id,transaction);
       const counts = await obligations(organization,account,transaction);
       const blockedReasons = blockers(counts);
+      if (sharedMerchant(account)) blockedReasons.push(sharedWarning);
       return { account:profile(account), ...counts, blockedReasons,
         providerDisconnectConfigured:Boolean(stripe?.mode === 'test' && stripe.disconnectEnabled),
         canDisconnect:Boolean(account.lifecycleState === 'active' && account.stripeAccountId && stripe?.disconnectEnabled && !blockedReasons.length) };
@@ -63,6 +66,7 @@ function createBusinessPaymentDisconnectService({ models, stripe, paymentAccount
     return transact(async transaction => {
       await assertDisconnectAccess(models,userId,organizationId,transaction);
       const account = await get(organizationId,id,transaction);
+      if (sharedMerchant(account)) throw conflict(sharedWarning, 'SANDBOX_SHARED_MERCHANT');
       if (account.lifecycleState !== 'active') throw conflict('This payment connection is no longer active.', 'PAYMENTS_NOT_READY');
       await account.update({paymentsDisabledAt:account.paymentsDisabledAt || now(),controlVersion:account.controlVersion+1},{transaction});
       await audit(userId,organizationId,id,'business.payment_account.disabled',{reason:input.reason,requestId:input.idempotencyKey},transaction);
@@ -97,6 +101,7 @@ function createBusinessPaymentDisconnectService({ models, stripe, paymentAccount
     const prepared = await transact(async transaction => {
       const {organization} = await assertDisconnectAccess(models,userId,organizationId,transaction);
       const account = await get(organizationId,id,transaction);
+      if (sharedMerchant(account)) throw conflict(sharedWarning, 'SANDBOX_SHARED_MERCHANT');
       if (account.disconnectStatus === 'disconnected') return {account,call:false};
       if (account.lifecycleState !== 'active') throw conflict('This payment connection is no longer active.', 'PAYMENTS_NOT_READY');
       if (stripe?.mode !== 'test' || !stripe.disconnectEnabled || !account.stripeAccountId) throw conflict('Stripe disconnection is unavailable. You can disable new payments instead.', 'DISCONNECT_NOT_CONFIGURED');

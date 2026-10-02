@@ -3,6 +3,8 @@ const { Op } = require('sequelize');
 const { forbidden, conflict, notFound } = require('../domain/errors');
 const { activeUser, assertActiveOrganization } = require('./lifecycle-service');
 const { mutationTransaction } = require('./mutation-transaction');
+const { eventFinished } = require('../domain/event-policy');
+const { unsettledMerchantWhere } = require('../domain/payment-merchant-policy');
 const RESPONSIBILITIES = Object.freeze({ fees_collector: 'stripe', losses_collector: 'stripe' });
 const profileInput = z.object({ name: z.string().trim().min(1).max(160), idempotencyKey: z.uuid() }).strict();
 function controllerMatches(account) {
@@ -49,9 +51,13 @@ async function resolvePaymentAccount({ models, event, transaction, stripe, refre
   if (refresh && transaction) throw new Error('Synchronize Stripe outside the payment mutation transaction.');
   if (!event.organizationId || !models.PaymentAccount) throw conflict('Select a business payment account before paid publication.', 'PAYMENTS_NOT_READY');
   const org = await assertActiveOrganization(models, event.organizationId, transaction);
+  const shared = stripe?.mode === 'test' && stripe.sandboxSharedAccountId;
   const id = event.paymentAccountId || org.defaultPaymentAccountId;
-  let account = id && await models.PaymentAccount.findOne({ where: { id, organizationId: event.organizationId, lifecycleState: 'active' }, transaction, ...(transaction ? { lock: transaction.LOCK.UPDATE } : {}) });
+  let account = (shared || id) && await models.PaymentAccount.findOne({ where: shared
+    ? { stripeAccountId: shared, mode: 'test', lifecycleState: 'active' }
+    : { id, organizationId: event.organizationId, lifecycleState: 'active' }, transaction, ...(transaction ? { lock: transaction.LOCK.UPDATE } : {}) });
   if (!account) throw conflict('Select a business payment account before paid publication.', 'PAYMENTS_NOT_READY');
+  if (shared && account.organizationId !== event.organizationId) await assertActiveOrganization(models, account.organizationId, transaction);
   if (refresh) account = await synchronizeAccount(account, stripe, {models,now});
   if (!paymentsReady(account,now())) throw conflict('Complete Stripe onboarding, then refresh the payment profile to verify charge readiness.', 'PAYMENTS_NOT_READY');
   return account;
@@ -66,10 +72,14 @@ async function assertFinanceAccess(models, userId, organizationId, transaction) 
   return org;
 }
 function createBusinessPaymentAccountService({ models, stripe = null, businessAppUrl = 'http://localhost:5174/app',now = () => new Date() }) {
+  const sharedAccountId = stripe?.mode === 'test' && stripe.sandboxSharedAccountId;
+  const assertNormalSelection = () => {
+    if (sharedAccountId) throw conflict('Shared sandbox testing routes new payments through one merchant. Disable that server setting before changing account selection.', 'SANDBOX_SHARED_MERCHANT');
+  };
   const transact = fn => mutationTransaction(models.Organization.sequelize, fn, { accessChange: true });
   const audit = (userId,organizationId,entityId,action,after,transaction) => models.AuditLog?.create({ actorUserId:userId,organizationId,entityType:'PaymentAccount',entityId,action,after },{transaction});
   async function validatePublishedMerchant(event,transaction) {
-    if (event.status !== 'published') return;
+    if (event.status !== 'published' || eventFinished(event, now()) || event.lifecycleState && event.lifecycleState !== 'active') return;
     const offerings = await models.Offering.findAll({where:{eventId:event.id},transaction});
     if (offerings.some(o=>o.isActive !== false && o.priceCents>0)) {
       if (stripe?.enabled !== true) throw conflict('Configure verified sandbox checkout before changing a published paid merchant.','PAYMENTS_NOT_READY');
@@ -79,11 +89,19 @@ function createBusinessPaymentAccountService({ models, stripe = null, businessAp
   const get = async (org, id, transaction) => { const a = await models.PaymentAccount.findOne({ where: { id, organizationId: org, lifecycleState: 'active' }, transaction, ...(transaction ? {lock:transaction.LOCK.UPDATE}: {}) }); if (!a) throw notFound('Payment account'); return a; };
   async function list(userId, organizationId, input = {}) {
     const page = z.coerce.number().int().min(1).max(10000).default(1).parse(input.page), pageSize = z.coerce.number().int().min(1).max(50).default(20).parse(input.pageSize);
+    if (sharedAccountId) {
+      // Read provider status before opening locks, without granting callers
+      // management access to the other organization's canonical profile.
+      await assertFinanceAccess(models,userId,organizationId);
+      await synchronizeTrusted(sharedAccountId);
+    }
     return transact(async transaction => { const org = await assertFinanceAccess(models,userId,organizationId,transaction);
       const membership = await models.OrganizationOwner.findOne({where:{organizationId,userId,lifecycleState:'active'},transaction});
       const { rows, count } = await models.PaymentAccount.findAndCountAll({ where: { organizationId }, order: [['createdAt','ASC'],['id','ASC']], limit: pageSize, offset: (page-1)*pageSize, transaction });
+      const shared = sharedAccountId && await models.PaymentAccount.findOne({where:{stripeAccountId:sharedAccountId,mode:'test',lifecycleState:'active'},transaction});
       return { items: rows.map(a=>safeProfile(a,now())), total: count, page, pageSize, hasMore: page*pageSize<count, defaultPaymentAccountId: org.defaultPaymentAccountId, canManageFinance: true,
-        canDisconnectPayments:membership.role === 'owner' || Boolean(membership.paymentDisconnectAuthorized) }; });
+        canDisconnectPayments:membership.role === 'owner' || Boolean(membership.paymentDisconnectAuthorized),
+        ...(sharedAccountId ? {sharedSandboxAccount:{stripeAccountId:sharedAccountId,paymentsReady:Boolean(stripe.enabled && paymentsReady(shared,now()))}} : {}) }; });
   }
   async function create(userId, organizationId, body) {
     if (!stripe || stripe.mode !== 'test') throw conflict('Stripe sandbox is not configured.', 'PAYMENTS_NOT_ENABLED');
@@ -124,14 +142,28 @@ function createBusinessPaymentAccountService({ models, stripe = null, businessAp
     if (link.livemode !== false || link.account !== profile.stripeAccountId || link.object !== 'v2.core.account_link') throw conflict('Unexpected Stripe onboarding link.','PAYMENTS_NOT_READY');
     return { url: link.url, expiresAt: new Date(link.expires_at).toISOString() };
   }
-  async function selectDefault(userId,organizationId,id) { return transact(async transaction => { const org = await assertFinanceAccess(models,userId,organizationId,transaction); if (id) await get(organizationId,id,transaction);
-    const unbound = await models.Event.findAll({ where: { organizationId, paymentAccountId: null }, transaction, lock: transaction.LOCK.UPDATE });
-    if (org.defaultPaymentAccountId !== id && unbound.length && await models.Order.count({ where: { eventId: unbound.map(e=>e.id), status: { [Op.in]: ['pending','paid','refunded'] } }, transaction })) throw conflict('An event has checkout or payment history. Its merchant cannot change.', 'PAYMENT_ACCOUNT_LOCKED');
-    await org.update({ defaultPaymentAccountId: id },{ transaction });for(const event of unbound) await validatePublishedMerchant(event,transaction);
-    await audit(userId,organizationId,id || organizationId,'business.payment_account.default_selected',{paymentAccountId:id},transaction); return { defaultPaymentAccountId: id }; }); }
+  async function selectDefault(userId,organizationId,id) {
+    return transact(async transaction => {
+      const org = await assertFinanceAccess(models,userId,organizationId,transaction);
+      if (id) await get(organizationId,id,transaction);
+      if (org.defaultPaymentAccountId === id) return { defaultPaymentAccountId: id };
+      assertNormalSelection();
+      const unbound = await models.Event.findAll({ where: { organizationId, paymentAccountId: null }, order: [['id','ASC']], transaction, lock: transaction.LOCK.UPDATE });
+      if (unbound.length && await models.Order.count({ where: unsettledMerchantWhere({ [Op.in]: unbound.map(event => event.id) }), transaction })) {
+        throw conflict('Resolve pending Stripe checkouts, payments needing review, and outstanding refunds before changing the default payment account.', 'PAYMENT_ACCOUNT_LOCKED');
+      }
+      // Completed orders and refunds retain their saved merchant identifiers.
+      // This changes only routing for subsequent checkouts, never old records.
+      await org.update({ defaultPaymentAccountId: id }, { transaction });
+      for (const event of unbound) await validatePublishedMerchant(event, transaction);
+      await audit(userId,organizationId,id || organizationId,'business.payment_account.default_selected',{paymentAccountId:id},transaction);
+      return { defaultPaymentAccountId: id };
+    });
+  }
   async function selectEvent(userId,eventId,id) { return transact(async transaction => { const event = await models.Event.findByPk(eventId,{ transaction, lock: transaction.LOCK.UPDATE }); if (!event) throw notFound('Event');
     await assertFinanceAccess(models,userId,event.organizationId,transaction); if (id) await get(event.organizationId,id,transaction);
-    if (event.paymentAccountId !== id && await models.Order.count({ where: { eventId, status: { [Op.in]: ['pending','paid','refunded'] } }, transaction })) throw conflict('Checkout or payment history locks this event merchant.', 'PAYMENT_ACCOUNT_LOCKED');
+    if (event.paymentAccountId !== id) assertNormalSelection();
+    if (event.paymentAccountId !== id && await models.Order.count({ where: unsettledMerchantWhere(eventId), transaction })) throw conflict('Resolve pending Stripe checkouts, payments needing review, and outstanding refunds before changing this event’s payment account.', 'PAYMENT_ACCOUNT_LOCKED');
     await event.update({ paymentAccountId: id },{ transaction });await validatePublishedMerchant(event,transaction);
     await audit(userId,event.organizationId,id || eventId,'business.payment_account.event_selected',{eventId,paymentAccountId:id},transaction); return { paymentAccountId: id }; }); }
   async function synchronizeTrusted(stripeAccountId) {

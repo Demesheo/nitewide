@@ -1,4 +1,8 @@
 .payment-accounts { display: grid; gap: 16px; padding: 20px; }
+.payment-accounts .shared-sandbox-notice { display: grid; gap: 10px; min-width: 0; line-height: 1.6; }
+.shared-sandbox-notice p { margin: 0; }
+.shared-sandbox-notice code { overflow-wrap: anywhere; }
+.shared-sandbox-notice button { width: fit-content; min-height: 44px; }
 .payment-accounts .section-heading { align-items: flex-start; padding: 0; border: 0; }
 .payment-accounts .section-heading a { white-space: nowrap; font-size: 13px; }
 .payment-profile-list { display: grid; gap: 12px; }

@@ -5,7 +5,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, Di
 import { api } from '../lib/api';
 import { activateNotification } from '../lib/notification-target';
 
-export function Notifications({ session, onNotification }) {
+export function Notifications({ session, onNotification, refreshKey = 0 }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
@@ -16,6 +16,12 @@ export function Notifications({ session, onNotification }) {
   const [loading, setLoading] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const revision = useRef(0);
+  const previousRefreshKey = useRef(refreshKey);
+  useEffect(() => {
+    if (previousRefreshKey.current === refreshKey) return;
+    previousRefreshKey.current = refreshKey;
+    setPage(1); setRefresh(value => value + 1);
+  }, [refreshKey]);
   useEffect(() => {
     const refreshOnFocus = () => { if (!document.hidden) { setPage(1); setRefresh((value) => value + 1); } };
     window.addEventListener('focus', refreshOnFocus);
@@ -42,7 +48,7 @@ export function Notifications({ session, onNotification }) {
     setOpening(item.id); setError('');
     try {
       const openedBooking = await activateNotification(item, onNotification, api, session.accessToken);
-      if (openedBooking) {
+      if (openedBooking && item.kind !== 'checkout_pending') {
         revision.current += 1;
         setItems(rows => rows.filter(row => row.id !== item.id));
         if (!item.readAt) setUnread(count => Math.max(0, count - 1));

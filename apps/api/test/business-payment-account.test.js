@@ -99,3 +99,24 @@ test('slow provider retrieval cannot extend freshness beyond observation start',
   await started.promise;const observedAt=+clock;clock=new Date(observedAt+300001);response.resolve(readyRemote());await rejection;
   assert.equal(+f.profiles.get(a.id).synchronizedAt,observedAt);
 });
+
+test('default selection ignores ended demo events and does not require their old paid offerings to be Stripe ready',async()=>{
+  const f=fixture(); const a=await f.service.create('user','org',{name:'New merchant',idempotencyKey:randomUUID()});
+  f.models.Event.findAll=async()=>[{id:'ended',organizationId:'org',status:'published',endsAt:new Date(Date.now()-1000)}];
+  f.models.Offering={findAll:async()=>{throw new Error('Ended events must not be revalidated for paid publication');}};
+  assert.deepEqual(await f.service.selectDefault('user','org',a.id),{defaultPaymentAccountId:a.id});
+  assert.equal(f.organization.defaultPaymentAccountId,a.id);
+});
+test('an unresolved inherited Stripe checkout prevents default selection under the authorization transaction',async()=>{
+  const f=fixture(); const a=await f.service.create('user','org',{name:'New merchant',idempotencyKey:randomUUID()});
+  f.models.Event.findAll=async()=>[{id:'pending',status:'draft'}];
+  f.models.Order.count=async options=>{assert.ok(options.transaction);return 1;};
+  await assert.rejects(f.service.selectDefault('user','org',a.id),{code:'PAYMENT_ACCOUNT_LOCKED'});
+  assert.equal(f.organization.defaultPaymentAccountId,null);
+});
+test('reselecting the current default is a harmless no-op even while activity is pending',async()=>{
+  const f=fixture(); const a=await f.service.create('user','org',{name:'Current merchant',idempotencyKey:randomUUID()});
+  f.organization.defaultPaymentAccountId=a.id;
+  f.models.Event.findAll=async()=>{throw new Error('A no-op should not load or mutate events');};
+  assert.deepEqual(await f.service.selectDefault('user','org',a.id),{defaultPaymentAccountId:a.id});
+});

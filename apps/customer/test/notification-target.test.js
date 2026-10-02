@@ -47,3 +47,14 @@ test('non-booking navigation preserves existing mark-as-read behavior', async ()
   await activateNotification({ id: 'notice' }, async () => false, async (path, options) => { assert.equal(path, '/notifications/notice/read'); assert.equal(options.method, 'POST'); });
   await activateNotification({ id: 'notice', readAt: 'yesterday' }, async () => false, () => assert.fail('already read'));
 });
+test('unfinished purchases resume the original order and keep their reminder until payment is terminal', async () => {
+  const item = { id: 'order', kind: 'checkout_pending', eventId: 'event', metadata: { orderId: 'order' } };
+  assert.deepEqual(notificationTarget(item), { type: 'checkout', id: 'order' });
+  const calls = [];
+  assert.equal(await activateNotification(item, async notice => { assert.equal(notice, item); calls.push('resumed'); return true; }, async (path, options) => {
+    assert.equal(path, '/notifications/order/read'); assert.equal(options.method, 'POST'); calls.push('read');
+  }, 'token'), true);
+  assert.deepEqual(calls, ['resumed', 'read']);
+  await activateNotification({ ...item, readAt: 'yesterday' }, async () => true, () => assert.fail('read reminders must not be dismissed or written again'));
+  await assert.rejects(activateNotification(item, async () => { throw new Error('Checkout unavailable'); }, () => assert.fail('failed recovery must retain reminder')), /Checkout unavailable/);
+});

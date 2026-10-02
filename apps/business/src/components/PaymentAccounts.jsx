@@ -108,11 +108,12 @@ export function PaymentAccounts({ session, organization, request = api, navigate
     <p className="hint">Sandbox setup · Stripe manages processing fees and payouts. Free events and guestlists remain available without a payment account.</p>
     {error && <><p className="error" role="alert">{error}</p><Button variant="outline" disabled={Boolean(busy)} onClick={() => setRevision(value => value + 1)}>Retry payment accounts</Button></>}{notice && <p className="notice" role="status">{notice}</p>}
     {!data ? <LoadingState>Loading payment accounts…</LoadingState> : <>
-      <label className="payment-account-default">Default account<select aria-label="Default payment account" value={data.defaultPaymentAccountId || ''} disabled={Boolean(busy)} onChange={event => action('default', `${base}/default`, { method: 'PUT', body: JSON.stringify({ paymentAccountId: event.target.value || null }) }, () => setNotice('Default payment account updated.'))}><option value="">No default account</option>{data.defaultPaymentAccountId && !data.items.some(item => item.id === data.defaultPaymentAccountId) && <option value={data.defaultPaymentAccountId}>Current default · another page</option>}{data.items.map(account => <option key={account.id} value={account.id} disabled={account.lifecycleState === 'archived' || Boolean(account.paymentsDisabledAt)}>{account.name}{account.disconnectStatus === 'disconnected' ? ' · Disconnected' : account.paymentsDisabledAt ? ' · Payments disabled' : account.paymentsReady ? ' · Ready' : ' · Setup required'}</option>)}</select></label>
+      {data.sharedSandboxAccount && <SharedSandboxNotice account={data.sharedSandboxAccount} busy={Boolean(busy)} onRefresh={() => setRevision(value => value + 1)} />}
+      <label className="payment-account-default">Default account<select aria-label="Default payment account" value={data.defaultPaymentAccountId || ''} disabled={Boolean(busy) || Boolean(data.sharedSandboxAccount)} onChange={event => action('default', `${base}/default`, { method: 'PUT', body: JSON.stringify({ paymentAccountId: event.target.value || null }) }, () => setNotice('Default payment account updated.'))}><option value="">No default account</option>{data.defaultPaymentAccountId && !data.items.some(item => item.id === data.defaultPaymentAccountId) && <option value={data.defaultPaymentAccountId}>Current default · another page</option>}{data.items.map(account => <option key={account.id} value={account.id} disabled={account.lifecycleState === 'archived' || Boolean(account.paymentsDisabledAt)}>{account.name}{account.disconnectStatus === 'disconnected' ? ' · Disconnected' : account.paymentsDisabledAt ? ' · Payments disabled' : account.paymentsReady ? ' · Ready' : ' · Setup required'}</option>)}</select></label>
       <div className="payment-profile-list">{data.items.map(account => <article className="payment-profile" key={account.id}>
         <div><h3>{account.name}</h3><span className="status-pill">{account.disconnectStatus === 'disconnected' || account.lifecycleState === 'archived' ? 'Disconnected · history retained' : account.disconnectStatus === 'pending' ? 'Disconnection pending · payments disabled' : account.paymentsDisabledAt ? 'New payments disabled' : account.paymentsReady ? 'Ready for sandbox payments' : 'Setup required'}</span>{account.id === data.defaultPaymentAccountId && <small>Organization default</small>}<p className="hint">{account.detailsSubmitted ? 'Business details submitted' : 'Business details needed'} · {account.chargesEnabled ? 'Stripe charges enabled' : 'Charges not enabled'} · {account.payoutsEnabled ? 'Payouts enabled' : 'Payouts not enabled'}</p></div>
         <div className="payment-profile-controls">{account.lifecycleState !== 'archived' && <div className="payment-profile-actions"><Button variant="outline" disabled={Boolean(busy) || account.disconnectStatus === 'pending'} onClick={() => openStripeSetup(account)}>{openingAccount === account.id ? <><LoaderCircle className="payment-setup-spinner" size={16} aria-hidden="true" />Opening Stripe…</> : account.paymentsReady ? 'Update Stripe details' : 'Complete Stripe setup'}</Button><Button variant="ghost" disabled={Boolean(busy) || account.disconnectStatus === 'pending'} onClick={() => action(account.id, `${base}/${account.id}/synchronize`, { method: 'POST' }, () => setNotice('Payment readiness checked with Stripe.'))}>Check readiness</Button></div>}
-        {data.canDisconnectPayments && account.lifecycleState !== 'archived' && <div className="payment-profile-actions payment-connection-actions">
+        {data.canDisconnectPayments && account.lifecycleState !== 'archived' && account.stripeAccountId !== data.sharedSandboxAccount?.stripeAccountId && <div className="payment-profile-actions payment-connection-actions">
           {account.disconnectStatus !== 'pending' && <Button variant="outline" disabled={Boolean(busy)} onClick={() => setConnection({account,mode:account.paymentsDisabledAt ? 'resume' : 'disable'})}>{account.paymentsDisabledAt ? 'Resume payments' : 'Disable new payments'}</Button>}
           {account.stripeAccountId && <Button variant="ghost" disabled={Boolean(busy)} onClick={() => setConnection({account,mode:'disconnect'})}>{account.disconnectStatus === 'pending' ? 'Check disconnection' : 'Disconnect Stripe'}</Button>}
         </div>}
@@ -120,15 +121,24 @@ export function PaymentAccounts({ session, organization, request = api, navigate
           if (setupLink.expiresAt <= Date.now()) { event.preventDefault(); setSetupLink(null); setError('Your Stripe setup link expired. Please try again.'); }
         }}>Continue to Stripe ↗</a>}</div>
       </article>)}</div>
-      {!data.items.length && <p>No payment accounts yet. Add one below to start Stripe setup.</p>}
+      {!data.items.length && <p>{data.sharedSandboxAccount ? 'This business uses the shared sandbox merchant above. A separate Stripe account is not needed for these test purchases.' : 'No payment accounts yet. Add one below to start Stripe setup.'}</p>}
       {data.total > 10 && <div className="payment-profile-actions"><Button variant="outline" disabled={page === 1 || Boolean(busy)} onClick={() => setPage(value => value - 1)}>Previous accounts</Button><span>Page {page}</span><Button variant="outline" disabled={!data.hasMore || Boolean(busy)} onClick={() => setPage(value => value + 1)}>Next accounts</Button></div>}
     </>}
-    <form className="payment-account-create" onSubmit={create}><label htmlFor={`payment-account-name-${organization.id}`}>New account name<Input id={`payment-account-name-${organization.id}`} value={name} maxLength={120} placeholder="e.g. Downtown venue" disabled={Boolean(busy)} onChange={event => setName(event.target.value)} /></label><Button type="submit" disabled={Boolean(busy) || !name.trim()}>Add payment account</Button></form>
+    {!data?.sharedSandboxAccount && <form className="payment-account-create" onSubmit={create}><label htmlFor={`payment-account-name-${organization.id}`}>New account name<Input id={`payment-account-name-${organization.id}`} value={name} maxLength={120} placeholder="e.g. Downtown venue" disabled={Boolean(busy)} onChange={event => setName(event.target.value)} /></label><Button type="submit" disabled={Boolean(busy) || !name.trim()}>Add payment account</Button></form>}
     {connection && <PaymentConnectionDialog key={`${base}-${connection.account.id}-${connection.mode}`} {...connection} base={base} session={session} request={request} onClose={() => {setConnection(null);setRevision(value=>value+1);}} onSaved={(saved,mode) => {
       setRevision(value=>value+1);setSetupLink(null);
       setNotice(saved.disconnectStatus === 'disconnected' ? 'Stripe disconnected. Booking history and passes are retained.' : saved.disconnectStatus === 'pending' ? 'New payments disabled. Stripe disconnection is still being checked.' : mode === 'resume' ? 'Stripe readiness verified. New payments resumed.' : 'New paid bookings disabled. Existing passes and history are retained.');
     }}/>}
   </section>;
+}
+
+function SharedSandboxNotice({ account, busy, onRefresh }) {
+  return <div className="notice shared-sandbox-notice" role="status">
+    <strong>Shared sandbox payments</strong>
+    <p>All new test purchases use <code>{account.stripeAccountId}</code>. No real money is moved. Individual account choices are preserved and resume when shared testing is turned off.</p>
+    <p>{account.paymentsReady ? 'Stripe readiness verified.' : 'Stripe readiness is not confirmed. Paid checkout remains unavailable.'}</p>
+    <Button variant="outline" disabled={busy} onClick={onRefresh}>Refresh shared account</Button>
+  </div>;
 }
 
 export function EventPaymentAccount({ event, session, request = api, onSaved }) {
@@ -137,20 +147,22 @@ export function EventPaymentAccount({ event, session, request = api, onSaved }) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
     if (!event.organizationId || !event.canManageFinance) return;
     const controller = new AbortController();
     request(`/business/organizations/${event.organizationId}/payment-accounts?page=${page}&pageSize=50`, session, { signal: controller.signal })
       .then(result => { if (!controller.signal.aborted) setData(previous => page === 1 ? result : { ...result, items: [...new Map([...(previous?.items || []), ...result.items].map(item => [item.id, item])).values()] }); }).catch(err => { if (!controller.signal.aborted) setError(err.message); });
     return () => controller.abort();
-  }, [event.id, event.organizationId, event.canManageFinance, session.accessToken, page]);
+  }, [event.id, event.organizationId, event.canManageFinance, session.accessToken, page, revision]);
   if (!event.organizationId || !event.canManageFinance) return null;
   const locked = event.canChangePaymentAccount === false;
+  if (data?.sharedSandboxAccount) return <section className="panel payment-accounts"><h3>Event payments</h3><SharedSandboxNotice account={data.sharedSandboxAccount} busy={busy} onRefresh={() => setRevision(value => value + 1)} />{error && <p className="error" role="alert">{error}</p>}</section>;
   async function save() {
     setBusy(true); setError('');
     try { await request(`/business/events/${event.id}/payment-account`, session, { method: 'PUT', body: JSON.stringify({ paymentAccountId: selected || null }) }); onSaved?.('Event payment account updated.'); }
     catch (err) { setError(err.message); }
     finally { setBusy(false); }
   }
-  return <section className="panel payment-accounts"><h3>Event payments</h3><p className="hint">Choose which account receives payments for this event. This choice locks once a payment is pending or paid.</p>{error && <p className="error" role="alert">{error}</p>}<label>Payment account<select aria-label="Event payment account" disabled={busy || locked || !data} value={selected} onChange={event => setSelected(event.target.value)}><option value="">Organization default{data?.defaultPaymentAccountId ? ` · ${data.items.find(item => item.id === data.defaultPaymentAccountId)?.name || 'Selected account'}` : ' · Not set'}</option>{selected && !data?.items.some(item => item.id === selected) && <option value={selected}>Current payment account</option>}{data?.items.map(account => <option key={account.id} value={account.id}>{account.name}{account.paymentsReady ? ' · Ready' : ' · Setup required'}</option>)}</select></label>{data?.hasMore && <Button variant="ghost" disabled={busy} onClick={() => setPage(value => value + 1)}>Load more payment accounts</Button>}<Button variant="outline" disabled={busy || locked || !data || selected === (event.paymentAccountId || '')} onClick={save}>Save payment account</Button>{locked && <p className="hint" role="status">The payment account is locked because this event has pending or paid bookings.</p>}</section>;
+  return <section className="panel payment-accounts"><h3>Event payments</h3><p className="hint">Changes apply to future payments. Existing orders and refunds keep their original account.</p>{error && <p className="error" role="alert">{error}</p>}<label>Payment account<select aria-label="Event payment account" disabled={busy || locked || !data} value={selected} onChange={event => setSelected(event.target.value)}><option value="">Organization default{data?.defaultPaymentAccountId ? ` · ${data.items.find(item => item.id === data.defaultPaymentAccountId)?.name || 'Selected account'}` : ' · Not set'}</option>{selected && !data?.items.some(item => item.id === selected) && <option value={selected}>Current payment account</option>}{data?.items.map(account => <option key={account.id} value={account.id}>{account.name}{account.paymentsReady ? ' · Ready' : ' · Setup required'}</option>)}</select></label>{data?.hasMore && <Button variant="ghost" disabled={busy} onClick={() => setPage(value => value + 1)}>Load more payment accounts</Button>}<Button variant="outline" disabled={busy || locked || !data || selected === (event.paymentAccountId || '')} onClick={save}>Save payment account</Button>{locked && <p className="hint" role="status">Resolve pending checkouts, payments needing review, and outstanding refunds to change this account.</p>}</section>;
 }

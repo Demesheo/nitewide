@@ -26,6 +26,49 @@ async function enableDisconnectFixture(page) {
   await mockPaymentSummaries(page);
 }
 
+test('shared sandbox account is clear, refreshable and protected in business payments',async({page,fixture})=>{
+  await enableDisconnectFixture(page);
+  const sharedAccountId='acct_sharedbrowser';let reads=0,mutations=0;
+  await page.route('**/api/business/organizations/*/payment-accounts**',route=>{
+    if(route.request().method()!=='GET') mutations++;
+    reads++;
+    return route.fulfill({json:{data:{items:[{id:'00000000-0000-4000-8000-000000000520',name:'Original merchant profile',stripeAccountId:sharedAccountId,
+      lifecycleState:'active',disconnectStatus:'none',paymentsReady:true,detailsSubmitted:true,chargesEnabled:true,payoutsEnabled:true}],
+      total:1,page:1,pageSize:10,hasMore:false,canDisconnectPayments:true,defaultPaymentAccountId:null,
+      sharedSandboxAccount:{stripeAccountId:sharedAccountId,paymentsReady:true}}}});
+  });
+  await login(page,fixture,'business','business',`/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  const card=page.locator('.payment-accounts'),notice=card.locator('.shared-sandbox-notice');
+  await expect(notice.getByText('Shared sandbox payments',{exact:true})).toBeVisible();
+  await expect(notice).toContainText(sharedAccountId);await expect(notice).toContainText('Individual account choices are preserved');
+  await expect(card.getByLabel('Default payment account')).toBeDisabled();
+  await expect(card.getByRole('button',{name:'Disconnect Stripe',exact:true})).toHaveCount(0);
+  await expect(card.getByRole('button',{name:'Disable new payments',exact:true})).toHaveCount(0);
+  await expect(card.getByRole('button',{name:'Add payment account',exact:true})).toHaveCount(0);
+  const before=reads,response=page.waitForResponse(value=>value.url().includes('/payment-accounts?')&&value.request().method()==='GET');
+  await notice.getByRole('button',{name:'Refresh shared account'}).click();await response;
+  await expect(notice.getByText('Stripe readiness verified.',{exact:true})).toBeVisible();
+  expect(reads).toBeGreaterThan(before);expect(mutations).toBe(0);await expectNoOverflow(page);
+  await page.unrouteAll({behavior:'wait'});
+});
+
+test('event payments explains shared sandbox routing instead of an ineffective account selector',async({page,fixture})=>{
+  await page.route('**/api/business/events/*/summary',async route=>{
+    const response=await route.fetch(),payload=await response.json();
+    payload.data.event={...payload.data.event,canManageFinance:true,canChangePaymentAccount:true};
+    await route.fulfill({response,json:payload});
+  });
+  await page.route('**/api/business/organizations/*/payment-accounts**',route=>route.fulfill({json:{data:{items:[],total:0,page:1,pageSize:50,hasMore:false,
+    defaultPaymentAccountId:null,canDisconnectPayments:false,sharedSandboxAccount:{stripeAccountId:'acct_sharedbrowser',paymentsReady:false}}}}));
+  await login(page,fixture,'business','business',`/app?section=events&event=${fixture.ids.event}`);
+  const payments=page.locator('.payment-accounts');
+  await expect(payments.getByText('Shared sandbox payments',{exact:true})).toBeVisible();
+  await expect(payments).toContainText('Paid checkout remains unavailable');
+  await expect(payments.getByLabel('Event payment account')).toHaveCount(0);
+  await expect(payments.getByRole('button',{name:'Save payment account'})).toHaveCount(0);
+  await expectNoOverflow(page);await page.unrouteAll({behavior:'wait'});
+});
+
 test('self-service Stripe disconnect confirms impact, preserves retry identity and retains history',async({page,fixture},testInfo)=>{
   await enableDisconnectFixture(page);
   let account={id:'00000000-0000-4000-8000-000000000510',name:'Disconnect merchant',stripeAccountId:'acct_offline',
@@ -203,7 +246,7 @@ test('business payment profiles support named defaults, hosted setup and verifie
   await expect(page.locator('.payment-accounts')).toHaveCount(0);
 });
 
-test('event payment selection remains read only after paid bookings', async ({ page, fixture }) => {
+test('event payment selection is read only while checkouts or refunds are unresolved', async ({ page, fixture }) => {
   await page.route(`**/api/business/events/${fixture.ids.event}/summary`, async route => {
     const response = await route.fetch();
     const payload = await response.json();
@@ -216,8 +259,36 @@ test('event payment selection remains read only after paid bookings', async ({ p
   await expect(card.getByRole('heading', { name: 'Event payments' })).toBeVisible();
   await expect(card.getByLabel('Event payment account')).toBeDisabled();
   await expect(card.getByRole('button', { name: 'Save payment account' })).toBeDisabled();
-  await expect(card.getByRole('status')).toContainText('locked');
+  await expect(card.getByRole('status')).toContainText('Resolve pending checkouts');
   await expectNoOverflow(page);
+});
+
+test('settled event payment selection allows a new account while explaining historical merchant retention', async ({ page, fixture }) => {
+  await page.route(`**/api/business/events/${fixture.ids.event}/summary`, async route => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    Object.assign(payload.data.event, { canManageFinance: true, canChangePaymentAccount: true });
+    await route.fulfill({ response, json: payload });
+  });
+  const fresh = { id: '00000000-0000-4000-8000-000000000512', name: 'New merchant', paymentsReady: true };
+  await page.route('**/api/business/organizations/*/payment-accounts**', route => route.fulfill({ json: { data: { items: [fresh], total: 1, hasMore: false, defaultPaymentAccountId: null } } }));
+  let selected = null;
+  await page.route(`**/api/business/events/${fixture.ids.event}/payment-account`, route => {
+    selected = route.request().postDataJSON().paymentAccountId;
+    return route.fulfill({ json: { data: { paymentAccountId: selected } } });
+  });
+  await login(page, fixture, 'business', 'business', `/app?section=events&event=${fixture.ids.event}`);
+  const card = page.locator('.payment-accounts');
+  await expect(card.getByText('Changes apply to future payments. Existing orders and refunds keep their original account.')).toBeVisible();
+  await expect(card.getByLabel('Event payment account')).toBeEnabled();
+  await card.getByLabel('Event payment account').selectOption(fresh.id);
+  const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === `/api/business/events/${fixture.ids.event}/summary`);
+  await card.getByRole('button', { name: 'Save payment account' }).click();
+  await expect.poll(() => selected).toBe(fresh.id);
+  await expect(page.getByText('Event payment account updated.', { exact: true })).toBeVisible();
+  await refreshed;
+  await expectNoOverflow(page);
+  await page.unrouteAll({ behavior: 'wait' });
 });
 
 test('event commission editing and promoter invitations remain locked at zero without individual Stripe onboarding', async ({ page, fixture }) => {

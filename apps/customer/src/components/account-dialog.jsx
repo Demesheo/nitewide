@@ -14,7 +14,7 @@ export function initials(name = '') { return name.trim().split(/\s+/).slice(0, 2
 function InlineAccount({ children }) { return children; }
 function withPassKind(pass, kind) { return { ...pass, kind: pass.kind || kind }; }
 
-export function AccountDialog({ open, onOpenChange, session, onProfile, onSessionChanged, onSignOut, embedded = false, notificationBooking, bookingRoute, onBookingRouteChange, onNotificationOpened }) {
+export function AccountDialog({ open, onOpenChange, session, onProfile, onSessionChanged, onSignOut, embedded = false, notificationBooking, bookingRoute, onBookingRouteChange, onNotificationOpened, onResumeCheckout, bookingsRevision = 0 }) {
   const Container = embedded ? InlineAccount : Dialog;
   const Content = embedded ? 'div' : DialogContent;
   const scrollContainer = useRef(null), ticketReturn = useRef(null), restoreTicketPosition = useRef(false);
@@ -128,11 +128,13 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
       .catch((error) => { if (!controller.signal.aborted) setError(error.message); })
       .finally(() => { if (!controller.signal.aborted) setBusy(false); });
     return () => controller.abort();
-  }, [open, tab, period, page, refresh, session?.accessToken]);
+  }, [open, tab, period, page, refresh, bookingsRevision, session?.accessToken]);
   async function showTicket(id, kind = 'purchase') {
     ticketReturn.current = { id, top: embedded ? window.scrollY : scrollContainer.current?.scrollTop || 0 };
     setTicketBusy(id); setError('');
     try {
+      const booking = kind === 'purchase' && data?.orders.find(order => order.id === id);
+      if (booking?.canResumePayment && onResumeCheckout) { await onResumeCheckout(id); return; }
       const pass = withPassKind(await api(kind === 'guestlist' ? `/customer/guestlists/${id}/pass` : `/customer/purchases/${id}/tickets`, { token: session.accessToken }), kind);
       setTicket(pass); setTicketIndex(0); setCachedPass(false); setRequestedSpots(pass.partySize || 1); savePassCache(session.user.id, pass);
       if (embedded) onBookingRouteChange?.(`${kind}:${id}`);
@@ -192,6 +194,7 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
           {ticket ? <section className="ticket-view">
             <Button variant="ghost" onClick={() => { restoreTicketPosition.current = true; setTicket(null); onBookingRouteChange?.(null); }}><ChevronLeft size={16} /> Back to my nights</Button>
             <AdmissionPassView ticket={ticket} index={Math.min(ticketIndex, Math.max(0, ticket.tickets.length - 1))} onIndex={setTicketIndex} cached={cachedPass} />
+            {ticket.canResumePayment && onResumeCheckout && <Button disabled={Boolean(ticketBusy)} onClick={async () => { setTicketBusy(ticket.id); setError(''); try { await onResumeCheckout(ticket.id); } catch (error) { setError(error.message); } finally { setTicketBusy(''); } }}>{ticketBusy ? <LoadingIndicator>Restoring checkout…</LoadingIndicator> : 'Resume checkout'}</Button>}
             {ticket.kind === 'guestlist' && ticket.tickets[0]?.status === 'pending' && !cachedPass && <div className="pending-guestlist-actions">
               <p>Your request is pending review. You can change your party size or withdraw it while it is pending.</p>
               {editingSpots ? <form onSubmit={async (event) => { event.preventDefault(); setTicketBusy(ticket.id); setError(''); try { const result = await api(`/customer/guestlists/${ticket.id}`, { token: session.accessToken, method: 'PATCH', body: { partySize: Number(requestedSpots) } }); setTicket((current) => ({ ...current, partySize: result.entry.partySize })); setEditingSpots(false); setRefresh((value) => value + 1); } catch (error) { setError(error.message); } finally { setTicketBusy(''); } }}><label>Spots <input type="number" inputMode="numeric" min="1" max="20" value={requestedSpots} onChange={(event) => setRequestedSpots(event.target.value)} /></label><Button type="submit" disabled={Boolean(ticketBusy)}>Save spots</Button><Button type="button" variant="ghost" onClick={() => setEditingSpots(false)}>Cancel</Button></form> : <Button variant="outline" onClick={() => setEditingSpots(true)}>Edit spots</Button>}

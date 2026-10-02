@@ -1,4 +1,5 @@
 const { DomainError } = require('../domain/errors');
+const { sharedSandboxAccountId } = require('../domain/shared-sandbox-merchant');
 
 // Match the sandbox's dated API and stripe-node 22.6.0. Accounts v2 is
 // available in this stable release; no preview-version override is needed.
@@ -16,6 +17,7 @@ function stripeConfiguration(config = {}) {
 }
 
 function createStripeClient(config = {}, { sdk } = {}) {
+  const sandboxSharedAccountId = sharedSandboxAccountId(config);
   if (config.STRIPE_SECRET_KEY && !/^sk_test_[A-Za-z0-9]+$/.test(config.STRIPE_SECRET_KEY)) throw unavailable();
   const configuration = stripeConfiguration(config);
   if (!configuration.configured) return null;
@@ -27,9 +29,11 @@ function createStripeClient(config = {}, { sdk } = {}) {
     return options;
   };
   return {
-    mode: 'test', enabled: configuration.enabled, apiVersion: STRIPE_API_VERSION,
+    mode: 'test', enabled: configuration.enabled, apiVersion: STRIPE_API_VERSION, sandboxSharedAccountId,
     disconnectEnabled: disconnect.enabled, disconnectAccount: disconnect.disconnect,
-    checkoutPaymentMethodOptions: { payment_method_types: ['card'] },
+    // Link can add bank/BNPL funding even to a card-only session. Disable it
+    // explicitly; card-backed Apple Pay and Google Pay remain available.
+    checkoutPaymentMethodOptions: { payment_method_types: ['card'], wallet_options: { link: { display: 'never' } } },
     createAccount: (params, options) => stripe.v2.core.accounts.create(params, options),
     retrieveAccount: id => stripe.v2.core.accounts.retrieve(id, { include: ['configuration.merchant', 'defaults', 'requirements'] }),
     createAccountLink: params => stripe.v2.core.accountLinks.create(params),

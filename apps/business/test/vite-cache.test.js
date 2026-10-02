@@ -46,6 +46,23 @@ test('failed startup and failed close both clean up only their temporary cache',
   await missing(closeCache);
 });
 
+test('SSR test servers disable unused client optimization after inherited app configuration', async () => {
+  let options;
+  const plugin = { name: 'caller-plugin' };
+  const vite = await createTestServer({ plugins: [plugin] }, async config => {
+    options = config;
+    return { async close() {} };
+  });
+  try {
+    assert.equal(options.plugins[0], plugin);
+    const config = { optimizeDeps: { include: ['@nitewide/pricing'], exclude: ['fixture-exclusion'] } };
+    const isolation = options.plugins.find(item => item.name === 'nitewide-ssr-test-dependencies');
+    assert.equal(isolation.enforce, 'post');
+    isolation.config(config);
+    assert.deepEqual(config.optimizeDeps, { include: [], exclude: ['fixture-exclusion'], noDiscovery: true });
+  } finally { await vite.close(); }
+});
+
 test('real Vite servers for all three apps resolve isolated caches and strict ports', async () => {
   for (const app of ['customer', 'business', 'admin']) {
     const appRoot = resolve(root, 'apps', app);
@@ -54,6 +71,9 @@ test('real Vite servers for all three apps resolve isolated caches and strict po
     try {
       assert.ok(relative(root, cacheDir).startsWith('..'));
       assert.equal(vite.config.server.strictPort, true);
+      assert.equal(vite.config.optimizeDeps.noDiscovery, true);
+      assert.deepEqual(vite.config.optimizeDeps.include, []);
+      assert.equal(vite.environments.client.depsOptimizer, undefined);
       await vite.ssrLoadModule('/src/lib/utils.js');
     } finally { await vite.close(); }
     await missing(cacheDir);

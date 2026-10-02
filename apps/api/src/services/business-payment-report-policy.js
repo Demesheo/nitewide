@@ -2,11 +2,17 @@ const { accessScopeSql } = require('./event-affiliate-access');
 
 // Persisted verification is meaningful only with the original merchant and
 // matching payment record. EXISTS keeps duplicate evidence from multiplying sums.
+// Cross-business sandbox history additionally requires the immutable server
+// snapshot's strict boolean marker and original event/account bindings.
 const verifiedStripeOrderSql = (o = 'o') => `(${o}.provider_mode = 'test' AND ${o}.provider_verification_status = 'verified'
   AND ${o}.payment_account_id IS NOT NULL AND ${o}.stripe_account_id ~ '^acct_[A-Za-z0-9]+$'
   AND ${o}.stripe_payment_intent_id ~ '^pi_[A-Za-z0-9]+$' AND ${o}.stripe_charge_id ~ '^ch_[A-Za-z0-9]+$'
   AND EXISTS (SELECT 1 FROM payment_accounts pa JOIN events merchant_event ON merchant_event.id=${o}.event_id
-    WHERE pa.id=${o}.payment_account_id AND pa.organization_id=merchant_event.organization_id
+    WHERE pa.id=${o}.payment_account_id AND (pa.organization_id=merchant_event.organization_id
+      OR (${o}.pricing_plan_snapshot #> '{merchant,sharedSandbox}' = 'true'::jsonb
+        AND ${o}.pricing_plan_snapshot #>> '{merchant,organizationId}' = merchant_event.organization_id::text
+        AND ${o}.pricing_plan_snapshot #>> '{merchant,paymentAccountId}' = pa.id::text
+        AND ${o}.pricing_plan_snapshot #>> '{merchant,stripeAccountId}' = pa.stripe_account_id))
       AND pa.mode='test' AND pa.stripe_account_id=${o}.stripe_account_id)
   AND EXISTS (SELECT 1 FROM payments p WHERE p.order_id=${o}.id AND p.provider='stripe'
     AND p.provider_reference=${o}.stripe_payment_intent_id AND p.amount_cents=${o}.total_cents

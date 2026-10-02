@@ -29,7 +29,9 @@ async function runPaymentFlow({ root, env, credentials, sdk, stripe, sequelize, 
   const freeOffering = await models.Offering.create({ eventId: freeEvent.id, name: 'Free admission', kind: 'ticket', priceCents: 0, quantityTotal: 10 });
   const express = require('express');
   const harness = express();
-  let server, browser;
+  let server, browser, page;
+  let attemptedOrder;
+  const stage = value => { report.paymentStep = value; save(); };
   const abort = () => { browser?.close().catch(() => {}); server?.closeAllConnections(); };
   signal?.addEventListener('abort', abort, { once: true });
   try {
@@ -59,7 +61,7 @@ async function runPaymentFlow({ root, env, credentials, sdk, stripe, sequelize, 
     // traces/HAR/video: Stripe client secrets are present in browser traffic.
     browser = await require('@playwright/test').chromium.launch({ headless: true });
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: 'America/New_York', serviceWorkers: 'block' });
-    const page = await context.newPage();
+    page = await context.newPage();
     page.setDefaultTimeout(15000);
     page.setDefaultNavigationTimeout(30000);
     const runtimeErrors = [];
@@ -82,6 +84,8 @@ async function runPaymentFlow({ root, env, credentials, sdk, stripe, sequelize, 
     await details.getByRole('button', { name: 'Continue to payment', exact: true }).click();
     const prepared = await (await preparation).json();
     const order = await models.Order.findByPk(prepared.data.orderId);
+    attemptedOrder = order;
+    report.orderId = order.id; report.sessionId = order.checkoutSessionId; report.simulatedTotalCents = order.totalCents; save();
     assert.equal(order.status, 'pending'); assert.ok(order.checkoutSessionId);
     assert.ok(order.totalCents <= 5000, 'test charge is bounded to at most $50 simulated USD');
     assert.equal(await models.Ticket.count(), freeTickets);
@@ -89,17 +93,34 @@ async function runPaymentFlow({ root, env, credentials, sdk, stripe, sequelize, 
     assert.equal(retry.status, 200); assert.equal(retry.body.data.orderId, order.id);
     assert.equal((await sdk.checkout.sessions.list({ limit: 10 }, { stripeAccount: account.id })).data.filter(s => s.metadata?.orderId === order.id).length, 1);
     check('checkout retry retains exactly one provider session and reserves without issuing paid admissions');
-    const cardFrame = page.frameLocator('iframe[title="Secure payment input frame"]');
+    stage('payment-frame-card-number');
+    // Stripe may nest its card fields below the titled Payment Element frame.
+    // Find the actual Stripe-hosted field frame by its accessible card label.
+    const cardFrame = await waitFor(async () => {
+      const candidates = [];
+      for (const frame of page.frames()) {
+        try {
+          if (new URL(frame.url()).hostname === 'js.stripe.com' && await frame.getByLabel('Card number', { exact: true }).count() === 1) candidates.push(frame);
+        } catch { /* Ignore frames replaced while Elements loads. */ }
+      }
+      assert.ok(candidates.length <= 1, 'Only one Stripe card form should be mounted.');
+      return candidates[0];
+    }, frame => Boolean(frame), 'Stripe card input frame');
     await cardFrame.getByLabel('Card number', { exact: true }).fill('4242424242424242');
-    await cardFrame.getByLabel('Expiration date', { exact: true }).fill('1234');
-    await cardFrame.getByLabel('Security code', { exact: true }).fill('123');
+    stage('payment-frame-expiration');
+    await cardFrame.getByRole('textbox', { name: /Expiration|Expiry|MM\s*\/\s*YY/i }).fill('1234');
+    stage('payment-frame-security-code');
+    await cardFrame.getByRole('textbox', { name: 'Security code', exact: true }).fill('123');
     const postal = cardFrame.getByLabel(/ZIP|Postal code/i);
     if (await postal.count()) await postal.fill('12345');
+    stage('payment-submit');
     await details.getByRole('button', { name: /^Pay / }).click();
+    stage('provider-payment-confirmation');
     const session = await waitFor(() => stripe.retrieveCheckoutSession(order.checkoutSessionId, { stripeAccount: account.id, expand: ['payment_intent.latest_charge'] }), s => s.status === 'complete' && s.payment_status === 'paid', 'Stripe payment confirmation');
     assert.equal(session.livemode, false);
     assert.equal((await order.reload()).status, 'pending'); assert.equal(await models.Ticket.count(), freeTickets);
     check('Stripe Elements confirms one simulated direct charge; no admission before server verification');
+    stage('payment-webhook-replay');
     report.orderId = order.id; report.sessionId = session.id; report.paymentIntentId = session.payment_intent.id; report.simulatedTotalCents = order.totalCents; save();
     const eventEvidence = await waitFor(() => sdk.events.list({ type: 'checkout.session.completed', limit: 10 }, { stripeAccount: account.id }), events => events.data.some(e => e.data.object.id === session.id), 'Stripe checkout completion event');
     const completion = eventEvidence.data.find(e => e.data.object.id === session.id);
@@ -117,12 +138,25 @@ async function runPaymentFlow({ root, env, credentials, sdk, stripe, sequelize, 
     assert.equal(replay.status, 200); assert.equal(replay.body.replayed, true);
     assert.equal(await models.Ticket.count(), freeTickets + 1);
     check('retrieved real Stripe event passes raw-body HTTP signature checks and duplicate delivery issues admission once');
+    stage('customer-pass-recovery');
     await page.unroute('**/api/customer/payment-checkouts/*/verify');
     await details.getByRole('button', { name: 'Check booking', exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`booking=purchase(?:%3A|:)${order.id}`));
     await expect(page.getByRole('img', { name: /QR code for ticket 1/ })).toBeVisible();
     assert.deepEqual(runtimeErrors, []);
     check('customer recovery opens exact QR passes after verified webhook fulfillment');
+    stage('application-fee-evidence');
+    const paidOrder = await order.reload();
+    const charge = await sdk.charges.retrieve(paidOrder.stripeChargeId, { expand: ['balance_transaction'] }, { stripeAccount: account.id });
+    const feeId = typeof charge.application_fee === 'string' ? charge.application_fee : charge.application_fee?.id;
+    assert.ok(feeId, 'the direct charge must collect a Nitewide application fee');
+    const fee = await waitFor(() => stripe.retrieveApplicationFee(feeId), value => Boolean(value.balance_transaction), 'application fee balance transaction');
+    const balanceId = typeof fee.balance_transaction === 'string' ? fee.balance_transaction : fee.balance_transaction.id;
+    const platformTransaction = await sdk.balanceTransactions.retrieve(balanceId);
+    report.feeEvidence = require('./application-fee-check.cjs').verifyApplicationFeeEvidence(paidOrder, account.id, charge, fee, platformTransaction);
+    save();
+    check('actual Stripe application fee and merchant/Nitewide balance transactions match the server quote');
+    stage('full-refund');
     const refundKey = randomUUID();
     const refund = await request.post(`/api/business/orders/${order.id}/refunds`).set('x-user-id', owner.id).send({ reason: 'Synthetic sandbox full-refund regression', idempotencyKey: refundKey });
     assert.equal(refund.status, 200);
@@ -132,7 +166,34 @@ async function runPaymentFlow({ root, env, credentials, sdk, stripe, sequelize, 
     assert.equal(await models.Ticket.count({ where: { orderItemId: paidItems.map(i => i.id), status: 'void' } }), 1);
     assert.equal(await models.EmailOutbox.count(), 0);
     check('full customer payment and application fee refund are provider verified and admission is voided; zero Resend messages');
+    delete report.paymentStep; save();
+  } catch (error) {
+    // Record only form structure, never field values, URLs or response bodies.
+    if (page && !page.isClosed()) {
+      const frames = [];
+      for (const frame of page.frames()) {
+        try {
+          const origin = new URL(frame.url()).origin;
+          if (!/^https:\/\/([a-z0-9.-]+\.)?stripe\.com$/i.test(origin)) continue;
+          frames.push({ origin, inputs: await frame.locator('input').evaluateAll(inputs => inputs.map(input => ({
+            name: input.name, type: input.type, label: input.getAttribute('aria-label'), placeholder: input.getAttribute('placeholder'),
+          }))) });
+        } catch { /* A detached provider frame should not mask the failure. */ }
+      }
+      report.browserDiagnostics = { frameTitles: await page.locator('iframe').evaluateAll(frames => frames.map(frame => frame.title)), frames };
+      save();
+    }
+    throw error;
   } finally {
+    if (attemptedOrder) {
+      try {
+        report.providerCleanup = await require('./payment-cleanup.cjs').cleanupSandboxAttempt({ sdk, accountId: account.id,
+          orderId: attemptedOrder.id, sessionId: attemptedOrder.checkoutSessionId });
+      } catch (error) {
+        report.providerCleanupFailure = require('./sandbox-policy.cjs').safeFailure(error);
+      }
+      save();
+    }
     signal?.removeEventListener('abort', abort);
     if (browser) await browser.close();
     if (server) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

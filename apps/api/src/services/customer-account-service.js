@@ -102,7 +102,11 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     const comparator = period === 'past' ? '<' : '>=';
     const direction = period === 'past' ? 'DESC' : 'ASC';
     const [timeline] = await models.Order.sequelize.query(`WITH combined AS (
-      SELECT o.id, 'purchase' AS kind, e.starts_at FROM orders o JOIN events e ON e.id = o.event_id WHERE o.buyer_user_id = :userId AND e.ends_at ${comparator} :now
+      SELECT o.id, 'purchase' AS kind, e.starts_at FROM orders o JOIN events e ON e.id = o.event_id
+      WHERE o.buyer_user_id = :userId AND e.ends_at ${comparator} :now
+        AND (o.status IN ('paid', 'refunded') OR (o.status = 'cancelled' AND (o.paid_at IS NOT NULL OR EXISTS (
+          SELECT 1 FROM payments p WHERE p.order_id = o.id AND p.status IN ('succeeded', 'refunded')
+        ))))
       UNION ALL
       SELECT g.id, 'guestlist' AS kind, e.starts_at FROM guestlist_entries g JOIN events e ON e.id = g.event_id WHERE g.user_id = :userId AND e.ends_at ${comparator} :now
     ) SELECT (SELECT COUNT(*)::int FROM combined) AS total,
@@ -113,6 +117,7 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     const guests = await models.GuestlistEntry.findAll({ where: { userId, id: timeline.entries.filter((row) => row.kind === 'guestlist').map((row) => row.id) }, attributes: ['id', 'eventId', 'partySize', 'status', 'createdAt'], include: [eventInclude] });
     const addressEvents = await attendeeLocationEventIds(userId, [...orders, ...guests].map((row) => row.eventId));
     return { page, total: timeline.total, entries: timeline.entries, pageSize: 10, orders: orders.map((order) => ({ id: order.id, status: order.status, currency: order.currency,
+      canResumePayment: order.status === 'pending' && order.providerMode === 'test',
       subtotalCents: order.subtotalCents, totalCents: order.totalCents, paidAt: order.paidAt,
       demo: Boolean(order.pricingPlanSnapshot?.demo), event: eventSummary(order.event, { canViewAttendeeAddress: addressEvents.has(order.eventId) }),
       items: order.items.map((item) => ({ id: item.id, name: item.nameSnapshot, quantity: item.quantity,
@@ -151,7 +156,7 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
         qrImage: showCode ? await QRCode.toDataURL(walletToken(credential, tokenSecret), { width: 320, margin: 4, errorCorrectionLevel: 'M' }) : null });
     }
     const addressEvents = await attendeeLocationEventIds(userId, [order.eventId]);
-    return { id: order.id, status: order.status, event: eventSummary(order.event, { canViewAttendeeAddress: addressEvents.has(order.eventId) }), demo: Boolean(order.pricingPlanSnapshot?.demo),
+    return { id: order.id, status: order.status, canResumePayment: order.status === 'pending' && order.providerMode === 'test', event: eventSummary(order.event, { canViewAttendeeAddress: addressEvents.has(order.eventId) }), demo: Boolean(order.pricingPlanSnapshot?.demo),
       subtotalCents: order.subtotalCents, totalCents: order.totalCents, currency: order.currency, tickets };
   }
   async function updateProfile(userId, input) {

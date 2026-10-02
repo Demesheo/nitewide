@@ -1,6 +1,7 @@
 const { z } = require('zod');
 const ipaddr = require('ipaddr.js');
 const { databaseConnectionConfig } = require('./db/connection-config');
+const { sharedSandboxAccountId } = require('./domain/shared-sandbox-merchant');
 
 const DEVELOPMENT_SECRETS = {
   AUTH_TOKEN_SECRET: 'nitewide-development-secret-change-me',
@@ -46,6 +47,7 @@ const schema = z.object({
   STRIPE_WEBHOOK_SECRET: optionalR2(z.string()),
   STRIPE_ACCOUNT_WEBHOOK_SECRET: optionalR2(z.string()),
   STRIPE_CONNECT_CLIENT_ID: optionalR2(z.string().regex(/^ca_[A-Za-z0-9]+$/)),
+  STRIPE_SANDBOX_SHARED_ACCOUNT_ID: optionalR2(z.string().regex(/^acct_[A-Za-z0-9]+$/)),
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).optional(),
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().optional(),
@@ -84,6 +86,7 @@ function getConfig(environment = process.env) {
     for (const name of ['CUSTOMER_APP_URL', 'BUSINESS_APP_URL']) assertPublicStripeReturnUrl(environment[name], name);
   }
   const values = schema.parse(environment);
+  sharedSandboxAccountId(values);
   // Live mode is deliberately not a configuration option in this integration.
   // Validate even disabled credentials so a live key cannot slip in unnoticed.
   if (values.STRIPE_SECRET_KEY && !/^sk_test_[A-Za-z0-9]+$/.test(values.STRIPE_SECRET_KEY)) {

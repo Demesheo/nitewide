@@ -1,5 +1,6 @@
 // Only customer-owned booking notifications may open admission credentials.
 export function notificationTarget(item) {
+  if (item.kind === 'checkout_pending') return { type: 'checkout', id: item.metadata?.orderId };
   if (item.kind === 'purchase_confirmed') return { type: 'booking', kind: 'purchase', id: item.metadata?.orderId };
   if (['guestlist_approved', 'guestlist_invited', 'guestlist_declined'].includes(item.kind)) {
     return { type: 'booking', kind: 'guestlist', id: item.metadata?.entryId };
@@ -15,7 +16,9 @@ export async function loadNotificationBooking(target, request, token) {
 
 export async function activateNotification(item, navigate, request, token) {
   const openedBooking = await navigate(item);
-  if (openedBooking) {
+  // A resumed but still unpaid checkout remains available if abandoned again.
+  // The server hides its reminder automatically when the order is terminal.
+  if (openedBooking && item.kind !== 'checkout_pending') {
     await request(`/notifications/${encodeURIComponent(item.id)}`, { token, method: 'DELETE' });
   } else if (!item.readAt) {
     await request(`/notifications/${encodeURIComponent(item.id)}/read`, { token, method: 'POST' });

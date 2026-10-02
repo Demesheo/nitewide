@@ -17,7 +17,8 @@ function mockProvider(namespace = '') {
   let unavailable = false, loseCreationResponse = false, loseRefundResponse = false, creations = 0, refundCreations = 0;
   const check = () => { if (unavailable) throw new Error('Provider transport unavailable'); };
   const scoped = (session, options) => { assert.equal(options.stripeAccount, session.account); return structuredClone(session); };
-  const stripe = { enabled: true, mode: 'test', checkoutPaymentMethodOptions: { payment_method_types: ['card'] },
+  const paymentOptions = require('../src/payments/stripe-client').createStripeClient({ STRIPE_MODE:'test', STRIPE_SECRET_KEY:'sk_test_mock', STRIPE_PUBLISHABLE_KEY:'pk_test_mock', STRIPE_WEBHOOK_SECRET:'whsec_mock', STRIPE_ACCOUNT_WEBHOOK_SECRET:'whsec_mock' }, { sdk:{} }).checkoutPaymentMethodOptions;
+  const stripe = { enabled: true, mode: 'test', checkoutPaymentMethodOptions: paymentOptions,
     retrieveAccount: async id => ({ id, object: 'v2.core.account', livemode: false, applied_configurations: ['merchant'], dashboard: 'full',
       defaults: { responsibilities: { fees_collector: 'stripe', losses_collector: 'stripe', requirements_collector: 'stripe' } },
       configuration: { merchant: { applied: true, capabilities: { card_payments: { status: 'active' }, stripe_balance: { payouts: { status: 'active' } } } } }, requirements: { entries: [] } }),
@@ -28,6 +29,7 @@ function mockProvider(namespace = '') {
         amount_total: params.line_items.reduce((sum, line) => sum + line.quantity * line.price_data.unit_amount, 0), currency: params.line_items[0].price_data.currency,
         fee: params.payment_intent_data.application_fee_amount, params };
       assert.equal(params.ui_mode, 'elements'); assert.deepEqual(params.payment_method_types, ['card']);
+      assert.deepEqual(params.wallet_options, { link: { display: 'never' } });
       assert.equal('allowed_payment_method_types' in params, false); assert.equal('transfer_data' in params.payment_intent_data, false);
       sessions.set(id, session); keys.set(options.idempotencyKey, id);
       if (loseCreationResponse) { loseCreationResponse = false; throw new Error('Response lost after provider creation'); }
@@ -43,7 +45,7 @@ function mockProvider(namespace = '') {
       assert.equal(params.refund_application_fee, true); assert.equal('reverse_transfer' in params, false);
       const charge = [...charges.values()].find(value => value.payment_intent === params.payment_intent);
       assert.equal(options.stripeAccount, charge.account);
-      const id = `re_${++refundCreations}`, refund = { id, livemode: false, status: 'succeeded', amount: params.amount, currency: charge.currency,
+      const id = `re_${namespace}${++refundCreations}`, refund = { id, livemode: false, status: 'succeeded', amount: params.amount, currency: charge.currency,
         payment_intent: params.payment_intent, charge: charge.id, metadata: params.metadata };
       charge.refunded = true; charge.amount_refunded = params.amount;
       const fee = fees.get(charge.application_fee); fee.refunded = true; fee.amount_refunded = fee.amount;
@@ -56,7 +58,8 @@ function mockProvider(namespace = '') {
     retrieveApplicationFee: async id => { check(); return structuredClone(fees.get(id)); },
   };
   function pay(id) {
-    const s = sessions.get(id), intentId = `pi_${id}`, chargeId = `ch_${id}`, feeId = `fee_${id}`;
+    const s = sessions.get(id), suffix = id.replace(/[^A-Za-z0-9]/g, '');
+    const intentId = `pi_${suffix}`, chargeId = `ch_${suffix}`, feeId = `fee_${suffix}`;
     const charge = { id: chargeId, account: s.account, livemode: false, payment_intent: intentId, amount: s.amount_total, currency: s.currency,
       paid: true, captured: true, refunded: false, amount_refunded: 0, application_fee_amount: s.fee, application_fee: feeId };
     charges.set(chargeId, charge); fees.set(feeId, { id: feeId, livemode: false, currency: s.currency, amount: s.fee, amount_refunded: 0, refunded: false, account: s.account, charge: chargeId });
@@ -141,6 +144,41 @@ test('sandbox provider reservations, verified webhook races and full refunds use
       await assert.rejects(payments.lookup(other, input.idempotencyKey), { status: 404 });
       await assert.rejects(payments.verify(other, order.id), { status: 404 });
     });
+    await t.test('abandoned checkout resumes by buyer-owned order with original prices and merchant, not another reservation', async () => {
+      await assert.rejects(payments.resume(other, order.id), { status: 404 });
+      const originalPrice = offering.priceCents;
+      await offering.update({ priceCents: originalPrice + 1000 });
+      const recovered = await payments.resume(buyer, order.id);
+      assert.equal(recovered.orderId, prepared.orderId);
+      assert.equal(recovered.clientSecret, prepared.clientSecret);
+      assert.equal(recovered.stripeAccountId, account.stripeAccountId);
+      assert.equal(recovered.booking.idempotencyKey, input.idempotencyKey);
+      assert.equal(recovered.booking.totalCents, order.totalCents);
+      assert.equal(recovered.booking.items[0].unitPriceCents, originalPrice);
+      assert.equal(recovered.booking.items[0].quantity, 2);
+      require('../src/http/payment-schemas').checkoutResumption.parse(JSON.parse(JSON.stringify(recovered)));
+      const customer = require('../src/services/customer-account-service').createCustomerAccountService({ models, tokenSecret: 'offline-test' });
+      const booked = await customer.bookings(buyer);
+      assert.equal(booked.orders.some(value => value.id === order.id), false, 'unpaid attempts are not bookings');
+      assert.equal(booked.total, 0, 'unfinished checkout is excluded from pagination counts');
+      const notifications = require('../src/services/notification-service').createNotificationService(models);
+      const notices = await notifications.page(buyer, { pageSize: 1 });
+      assert.equal(notices.total, 1); assert.equal(notices.unreadCount, 1);
+      assert.equal(notices.items[0].kind, 'checkout_pending');
+      assert.equal(notices.items[0].message, `Continue your purchase for ${event.title}?`);
+      assert.deepEqual(notices.items[0].metadata, { orderId: order.id });
+      assert.equal((await notifications.page(other)).total, 0);
+      assert.equal(await models.Notification.count({ where: { kind: 'checkout_pending', id: order.id } }), 1, 'retries create exactly one durable reminder');
+      await notifications.markRead(buyer, order.id);
+      assert.equal((await notifications.page(buyer)).total, 1, 'opening leaves the reminder available for another abandonment');
+      assert.equal(await notifications.unreadCount(buyer), 0);
+      await assert.rejects(notifications.dismiss(other, order.id), { status: 404 });
+      assert.equal((await customer.purchaseTickets(buyer, order.id)).canResumePayment, true);
+      assert.equal(provider.creations(), 1);
+      assert.equal(await models.Order.count(), 1);
+      assert.equal((await offering.reload()).quantityReserved, 2);
+      await offering.update({ priceCents: originalPrice });
+    });
     await t.test('unknown provider outcome retains reservations; local expiry alone cannot release inventory', async () => {
       provider.unavailable(true);
       assert.equal((await payments.verify(buyer, order.id)).retryable, true);
@@ -167,6 +205,13 @@ test('sandbox provider reservations, verified webhook races and full refunds use
       assert.equal((await payments.lookup(buyer, input.idempotencyKey)).status, 'paid');
     });
     await t.test('only merchant finance can request full refund; verified fee return voids tickets once', async () => {
+      const replacement = await models.PaymentAccount.create({ organizationId: organization.id, name: 'Replacement sandbox business',
+        stripeAccountId: 'acct_replacement', mode: 'test', accountApiVersion: 'v2', lifecycleState: 'active',
+        detailsSubmitted: true, chargesEnabled: true, cardPaymentsActive: true, controllerMatches: true, synchronizedAt: new Date() });
+      const merchantSelection = createBusinessPaymentAccountService({ models, stripe: provider.stripe });
+      await merchantSelection.selectEvent(owner, event.id, replacement.id);
+      assert.equal((await event.reload()).paymentAccountId, replacement.id);
+      assert.equal((await order.reload()).paymentAccountId, account.id, 'settled order keeps its original merchant despite event routing changes');
       const refundInput = { reason: 'Merchant approves customer cancellation', idempotencyKey: randomUUID() };
       await assert.rejects(refunds.requestRefund(buyer, order.id, refundInput), { code: 'FORBIDDEN' });
       provider.loseNextRefund();
@@ -185,6 +230,9 @@ test('sandbox provider reservations, verified webhook races and full refunds use
       assert.equal(provider.refundCreations(), 1); assert.equal(await models.Refund.count(), 1);
       assert.equal((await order.reload()).status, 'refunded'); assert.equal(await models.Ticket.count({ where: { status: 'void' } }), 2);
       assert.equal((await models.Payment.findOne()).status, 'refunded'); assert.equal((await offering.reload()).quantitySold, 2);
+      assert.equal((await models.Refund.findByPk(result.refundId)).stripeAccountId, account.stripeAccountId, 'refund is still sent to the order’s original Stripe account');
+      await merchantSelection.selectEvent(owner, event.id, null);
+      await event.reload();
     });
     await t.test('provider-confirmed expiry releases reservation without issuing admission', async () => {
       const newInput = { ...input, idempotencyKey: randomUUID(), items: [{ offeringId: offering.id, quantity: 1 }] };
@@ -197,6 +245,21 @@ test('sandbox provider reservations, verified webhook races and full refunds use
       assert.equal(provider.creations(), creationsBeforeRecovery);
       assert.equal((await payments.cancel(buyer, attempt.orderId)).status, 'cancelled');
       assert.equal((await offering.reload()).quantityReserved, 0); assert.equal(await models.Ticket.count(), 2);
+      const customer = require('../src/services/customer-account-service').createCustomerAccountService({ models, tokenSecret: 'offline-test' });
+      const booked = await customer.bookings(buyer);
+      assert.equal(booked.orders.some(value => value.id === attempt.orderId), false, 'unpaid cancelled checkout is not a booking');
+      assert.equal(booked.entries.some(value => value.id === attempt.orderId), false);
+      assert.equal(booked.total, 1, 'the unpaid cancellation is excluded before pagination/counting');
+      assert.equal(booked.orders[0].status, 'refunded', 'real paid/refunded booking history remains visible');
+      assert.equal((await models.Order.findByPk(attempt.orderId)).status, 'cancelled', 'the audit record is retained');
+      const notifications = require('../src/services/notification-service').createNotificationService(models);
+      const notices = await notifications.page(buyer);
+      assert.equal(notices.items.some(value => value.kind === 'checkout_pending'), false, 'completed and cancelled attempts have no stale reminder');
+      assert.equal((await notifications.list(buyer)).some(value => value.kind === 'checkout_pending'), false);
+      assert.equal(await models.Notification.count({ where: { kind: 'checkout_pending', id: attempt.orderId } }), 1, 'the reminder audit record is retained too');
+      const resumed = await payments.resume(buyer, attempt.orderId);
+      assert.equal(resumed.status, 'cancelled'); assert.equal(resumed.clientSecret, undefined);
+      assert.equal(provider.creations(), creationsBeforeRecovery, 'cancelled checkout cannot create a replacement session');
     });
     await t.test('paid evidence arriving after event closure goes to audited review without usable tickets', async () => {
       const attempt = await payments.prepare({ ...input, idempotencyKey: randomUUID(), items: [{ offeringId: offering.id, quantity: 1 }] });
@@ -206,6 +269,8 @@ test('sandbox provider reservations, verified webhook races and full refunds use
       assert.equal(result.verificationStatus, 'review'); assert.equal(result.status, 'pending');
       assert.equal(await models.Ticket.count(), 2); assert.equal(await models.Payment.count(), 2);
       assert.equal(await models.AuditLog.count({ where: { action: 'payment.closed_event_review' } }), 1);
+      const resumed = await payments.resume(buyer, pending.id);
+      assert.equal(resumed.verificationStatus, 'review'); assert.equal(resumed.clientSecret, undefined);
     });
     await t.test('Dashboard partial and fee-incomplete refunds hold admissions; full verified external return settles without invented approval', async () => {
       const externalEvent = await models.Event.create({ creatorUserId: owner, organizationId: organization.id, title: 'Dashboard refund', slug: randomUUID(), status: 'published', startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 172800000) });
@@ -266,3 +331,122 @@ test('sandbox provider reservations, verified webhook races and full refunds use
 // This additional scenario runs afterward and scopes assertions to its event;
 // its provider IDs also have a separate namespace to mirror Stripe uniqueness.
 test('disabled merchant stops new paid sessions but preserves in-flight checkout and free bookings',{timeout:30000},checkDisabledMerchant);
+
+test('temporary shared sandbox merchant serves all businesses without changing ownership or historical routing',{timeout:60000},async t=>{
+  assertManagedTestDatabase();
+  const config=require('../src/config').getConfig(),sequelize=createSequelize(config),models=initModels(sequelize);
+  const {resolvePaymentAccount}=require('../src/services/business-payment-account-service');
+  const {assertPaidPublication}=require('../src/services/payment-readiness-service');
+  const request=require('supertest'),{createApp}=require('../src/app');
+  try {
+    const owner=await models.User.create({displayName:'Shared test owner',email:`${randomUUID()}@offline.nitewide.test`});
+    const buyer=await models.User.create({displayName:'Shared test customer',email:`${randomUUID()}@offline.nitewide.test`});
+    const businesses=[];
+    for(const name of ['Canonical merchant business','Second test business','New test business']) {
+      const org=await models.Organization.create({name,slug:randomUUID(),onboardingEstablished:true});
+      await models.OrganizationOwner.create({organizationId:org.id,userId:owner.id,role:'owner'});
+      businesses.push(org);
+    }
+    const shared=await models.PaymentAccount.create({organizationId:businesses[0].id,name:'Shared sandbox',stripeAccountId:'acct_sharedintegration'});
+    const original=await models.PaymentAccount.create({organizationId:businesses[1].id,name:'Original merchant',stripeAccountId:'acct_originalintegration'});
+    await businesses[1].update({defaultPaymentAccountId:original.id});
+    const provider=mockProvider('shared_'),stripe=provider.stripe;
+    const checkout=createCheckoutService({sequelize,models,environment:'test',email:null});
+    const payments=createStripeCheckoutService({sequelize,models,stripe,checkout,email:null});
+    const accounts=createBusinessPaymentAccountService({models,stripe});
+    const events=[],offerings=[];
+    for(const org of businesses) {
+      const event=await models.Event.create({organizationId:org.id,creatorUserId:owner.id,title:'Shared sandbox fixture',slug:randomUUID(),status:'published',
+        startsAt:new Date(Date.now()+86400000),endsAt:new Date(Date.now()+172800000)});
+      events.push(event);offerings.push(await models.Offering.create({eventId:event.id,name:'Ticket',priceCents:2000,quantityTotal:10}));
+    }
+    const oldInput={buyerUserId:buyer.id,eventId:events[1].id,idempotencyKey:randomUUID(),items:[{offeringId:offerings[1].id,quantity:1}]};
+    const oldAttempt=await payments.prepare(oldInput),oldOrder=await models.Order.findByPk(oldAttempt.orderId);
+    const oldSnapshot=oldOrder.toJSON();
+    stripe.sandboxSharedAccountId=shared.stripeAccountId;
+    const sharedAccounts=createBusinessPaymentAccountService({models,stripe});
+    const app=createApp({sequelize,models,config,services:{stripe,email:{enabled:false}}});
+    await t.test('both existing businesses and a business without any profile use the verified shared merchant',async()=>{
+      for(let index=0;index<businesses.length;index++) {
+        const result=await payments.prepare({buyerUserId:buyer.id,eventId:events[index].id,idempotencyKey:randomUUID(),items:[{offeringId:offerings[index].id,quantity:1}]});
+        const order=await models.Order.findByPk(result.orderId);
+        assert.equal(order.paymentAccountId,shared.id);assert.equal(order.stripeAccountId,shared.stripeAccountId);
+        assert.equal(order.pricingPlanSnapshot.merchant.organizationId,businesses[index].id);
+        assert.equal(order.pricingPlanSnapshot.merchant.sharedSandbox,true);
+        assert.ok(order.applicationFeeCents>0);assert.equal(provider.sessions.get(order.checkoutSessionId).account,shared.stripeAccountId);
+        assert.equal((await businesses[index].reload()).defaultPaymentAccountId,index===1?original.id:null);
+        await assertPaidPublication({models,event:events[index],offerings:[offerings[index]],stripe,environment:'test'});
+      }
+      assert.equal(await models.PaymentAccount.count({where:{stripeAccountId:shared.stripeAccountId}}),1);
+      assert.equal((await shared.reload()).organizationId,businesses[0].id);
+    });
+    await t.test('list shows shared routing without exposing another business profile or granting its management access',async()=>{
+      const response=await request(app).get(`/api/business/organizations/${businesses[2].id}/payment-accounts`).set('x-user-id',owner.id).expect(200);
+      require('../src/http/payment-schemas').paymentAccountPage.parse(response.body.data);
+      assert.deepEqual(response.body.data.sharedSandboxAccount,{stripeAccountId:shared.stripeAccountId,paymentsReady:true});
+      assert.deepEqual(response.body.data.items,[]);assert.equal(response.body.data.total,0);
+      await request(app).post(`/api/business/organizations/${businesses[2].id}/payment-accounts/${shared.id}/synchronize`).set('x-user-id',owner.id).expect(404);
+      await request(app).get(`/api/business/organizations/${businesses[2].id}/payment-accounts`).set('x-user-id',buyer.id).expect(403);
+      await assert.rejects(sharedAccounts.selectDefault(owner.id,businesses[1].id,null),{code:'SANDBOX_SHARED_MERCHANT'});
+      await assert.rejects(sharedAccounts.selectEvent(owner.id,events[1].id,original.id),{code:'SANDBOX_SHARED_MERCHANT'});
+      const controls=createBusinessPaymentDisconnectService({models,stripe,paymentAccounts:sharedAccounts});
+      const body={confirmed:true,reason:'Attempt a shared disconnect',idempotencyKey:randomUUID()};
+      await assert.rejects(controls.disable(owner.id,businesses[0].id,shared.id,body),{code:'SANDBOX_SHARED_MERCHANT'});
+      await assert.rejects(controls.disconnect(owner.id,businesses[0].id,shared.id,body),{code:'SANDBOX_SHARED_MERCHANT'});
+      assert.ok((await controls.impact(owner.id,businesses[0].id,shared.id)).blockedReasons.some(reason=>reason.includes('shared sandbox')));
+    });
+    await t.test('pre-existing retries retain their original merchant after shared routing is enabled',async()=>{
+      const retried=await payments.prepare(oldInput);assert.equal(retried.orderId,oldOrder.id);assert.equal(retried.stripeAccountId,original.stripeAccountId);
+      assert.deepEqual((await oldOrder.reload()).toJSON(),oldSnapshot);
+      provider.pay(oldOrder.checkoutSessionId);assert.equal((await payments.verify(buyer.id,oldOrder.id)).status,'paid');
+    });
+    await t.test('shared bookings still fulfill and refund through their original snapshot after the setting is disabled',async()=>{
+      const sharedOrder=await models.Order.findOne({where:{eventId:events[2].id,stripeAccountId:shared.stripeAccountId}});
+      const retryKey=sharedOrder.idempotencyKey;
+      delete stripe.sandboxSharedAccountId;
+      await assert.rejects(resolvePaymentAccount({models,event:events[2],stripe}),{code:'PAYMENTS_NOT_READY'});
+      const retry=await payments.prepare({buyerUserId:buyer.id,eventId:events[2].id,idempotencyKey:retryKey,items:[{offeringId:offerings[2].id,quantity:1}]});
+      assert.equal(retry.orderId,sharedOrder.id);assert.equal(retry.stripeAccountId,shared.stripeAccountId);
+      provider.pay(sharedOrder.checkoutSessionId);assert.equal((await payments.verify(buyer.id,sharedOrder.id)).status,'paid');
+      const refunds=createStripeRefundService({sequelize,models,stripe,permissions:createPermissionService(models)});
+      const refunded=await refunds.requestRefund(owner.id,sharedOrder.id,{reason:'Shared sandbox refund',idempotencyKey:randomUUID()});
+      assert.equal(refunded.status,'succeeded');assert.equal((await sharedOrder.reload()).stripeAccountId,shared.stripeAccountId);
+      assert.equal((await models.Refund.findByPk(refunded.refundId)).stripeAccountId,shared.stripeAccountId);
+      assert.equal((await resolvePaymentAccount({models,event:events[1],stripe})).id,original.id);
+    });
+    await t.test('payment totals retain verified shared purchases without mixing businesses or trusting malformed snapshots',async()=>{
+      const overview=require('../src/services/business-payment-overview-service').createBusinessPaymentOverviewService({models});
+      const sharedOrder=await models.Order.findOne({where:{eventId:events[2].id,stripeAccountId:shared.stripeAccountId}});
+      assert.equal(stripe.sandboxSharedAccountId,undefined);
+      const summary=await overview.overview(owner.id,businesses[2].id);
+      assert.equal(summary.currencies[0].collectedCents,sharedOrder.totalCents);
+      assert.equal(summary.currencies[0].refundedCents,sharedOrder.totalCents);
+      assert.equal(summary.currencies[0].netCollectedCents,0);
+      assert.equal(summary.currencies[0].refundedOrders,1);
+      const canonical=await overview.overview(owner.id,businesses[0].id);
+      assert.equal(canonical.currencies[0].collectedCents,0);
+      assert.equal(canonical.pendingOrders,1);
+      const other=await overview.overview(owner.id,businesses[1].id);
+      assert.equal(other.currencies[0].collectedCents,oldOrder.totalCents);
+      assert.equal(other.currencies[0].paidOrders,1);
+      const snapshot=sharedOrder.pricingPlanSnapshot;
+      try {
+        for(const mismatch of [{sharedSandbox:'true'},{organizationId:businesses[0].id},{paymentAccountId:original.id},{stripeAccountId:original.stripeAccountId}]) {
+          await sharedOrder.update({pricingPlanSnapshot:{...snapshot,merchant:{...snapshot.merchant,...mismatch}}});
+          assert.deepEqual((await overview.overview(owner.id,businesses[2].id)).currencies,[]);
+        }
+      } finally {await sharedOrder.update({pricingPlanSnapshot:snapshot});}
+    });
+    await t.test('missing, disabled or no-longer-ready shared merchants fail closed instead of falling back to another account',async()=>{
+      stripe.sandboxSharedAccountId='acct_missingintegration';
+      await assert.rejects(resolvePaymentAccount({models,event:events[1],stripe}),{code:'PAYMENTS_NOT_READY'});
+      stripe.sandboxSharedAccountId=shared.stripeAccountId;
+      await shared.update({paymentsDisabledAt:new Date()});
+      await assert.rejects(resolvePaymentAccount({models,event:events[1],stripe}),{code:'PAYMENTS_NOT_READY'});
+      await shared.update({paymentsDisabledAt:null});
+      const originalRetrieval=stripe.retrieveAccount;
+      stripe.retrieveAccount=async id=>{const remote=await originalRetrieval(id);remote.configuration.merchant.capabilities.card_payments.status='restricted';return remote;};
+      await assert.rejects(resolvePaymentAccount({models,event:events[1],stripe}),{code:'PAYMENTS_NOT_READY'});
+    });
+  } finally {await sequelize.close();}
+});

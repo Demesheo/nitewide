@@ -106,6 +106,7 @@ function responseFor(method, path) {
   if (path === '/business/payments/earnings') return payments.paymentEarnings;
   if (path === '/customer/payment-config') return payments.paymentConfiguration;
   if (path === '/customer/payment-checkouts') return payments.checkoutPreparation;
+  if (path === '/customer/payment-checkouts/:orderId/resume') return payments.checkoutResumption;
   if (path.startsWith('/customer/payment-checkouts/')) return payments.checkoutSummary;
   if (/^\/(business|admin)\/orders\/:orderId\/refunds$/.test(path)) return payments.refundSummary;
   if (path === '/business/organizations/:organizationId/payment-accounts') return method === 'get' ? payments.paymentAccountPage : payments.paymentAccount;

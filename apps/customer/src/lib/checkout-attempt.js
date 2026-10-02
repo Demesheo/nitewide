@@ -44,6 +44,7 @@ export function prepareCheckoutAttempt(buyerId, body, storage, uuid = () => cryp
 }
 
 export async function resumePaymentCheckout(attempt, request, token) {
+  if (attempt.orderId) return request(`/customer/payment-checkouts/${encodeURIComponent(attempt.orderId)}/resume`, { token, method: 'POST' });
   let status;
   try { status = await request(`/customer/checkout-attempts/${encodeURIComponent(attempt.body.idempotencyKey)}`, { token }); }
   catch (error) { if (error.status !== 404) throw error; }
@@ -58,6 +59,34 @@ export async function resumePaymentCheckout(attempt, request, token) {
     return result.verificationStatus === 'review' ? { ...result, status: 'pending', clientSecret: null } : result;
   }
   catch (error) { error.checkoutRejected = ['PRICE_CHANGED', 'INSUFFICIENT_INVENTORY', 'EVENT_NOT_ON_SALE', 'OFFERING_NOT_ON_SALE', 'INVALID_AFFILIATE', 'SELF_REFERRAL', 'INVALID_QUANTITY', 'PAYMENTS_NOT_ENABLED', 'PAYMENTS_NOT_READY', 'PAYMENT_ACCOUNT_NOT_READY'].includes(error.code); throw error; }
+}
+
+export function rememberCheckoutOrder(attempt, orderId, storage) {
+  const updated = { ...attempt, orderId };
+  try {
+    storage = resolveStorage(storage);
+    if (readCheckoutAttempt(attempt.buyerId, storage)?.body.idempotencyKey === attempt.body.idempotencyKey) storage.setItem(storageKey(attempt.buyerId), JSON.stringify(updated));
+  } catch { /* The server order is still recoverable through Notifications. */ }
+  return updated;
+}
+
+// Server-owned order snapshots restore the cart even on a different device.
+// Provider secrets stay only in React memory; another saved attempt is not lost.
+export function restorePaymentAttempt(buyerId, checkout, storage) {
+  const booking = checkout.booking;
+  if (!booking?.event?.id || !booking.items?.length || !booking.idempotencyKey || !checkout.orderId) throw new Error('This checkout could not be restored. Refresh Notifications and try again.');
+  const body = { eventId: booking.event.id, idempotencyKey: booking.idempotencyKey,
+    items: booking.items.map(item => ({ offeringId: item.offeringId, quantity: item.quantity })), expectedTotalCents: booking.totalCents };
+  const event = { ...booking.event, offerings: booking.items.map(item => ({ id: item.offeringId, name: item.name, kind: item.kind,
+    priceCents: item.unitPriceCents, currency: booking.currency, minPerOrder: item.quantity, maxPerOrder: item.quantity })) };
+  const attempt = { buyerId, body, scope: checkoutScope(buyerId, body), mode: 'stripe', orderId: checkout.orderId,
+    eventContext: snapshotEvent(event), bookingTotals: { subtotal: booking.subtotalCents, total: booking.totalCents, fee: booking.totalCents - booking.subtotalCents } };
+  try {
+    storage = resolveStorage(storage);
+    const existing = readCheckoutAttempt(buyerId, storage);
+    if (!existing || existing.body.idempotencyKey === body.idempotencyKey) storage.setItem(storageKey(buyerId), JSON.stringify(attempt));
+  } catch { /* Already-created orders do not need browser storage to resume. */ }
+  return attempt;
 }
 
 export async function verifyPaymentCheckout(orderId, request, token, { tries = 4, delay = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {

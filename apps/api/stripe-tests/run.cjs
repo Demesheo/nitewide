@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { Client } = require('pg');
-const { assertSandboxInvocation, sandboxCredentials, createStripeTestIdentity, accountParameters, assertOwnedSandboxAccount, verifiedReadiness, safeFailure, STRIPE_API_VERSION } = require('./sandbox-policy.cjs');
+const { assertSandboxInvocation, sandboxCredentials, createStripeTestIdentity, accountParameters, assertOwnedSandboxAccount, verifiedReadiness, safeFailure, STRIPE_API_VERSION, reusableSandboxAccount } = require('./sandbox-policy.cjs');
 const { createRuntime, command: runCommand } = require('./runtime.cjs');
 const { maintenanceUrl, postgresUrl, assertGeneratedDatabaseName, offlineEnvironment } = require('../scripts/test-database.cjs');
 const root = path.resolve(__dirname, '../../..');
@@ -14,8 +14,13 @@ async function main(args = process.argv.slice(2)) {
   const source = { ...local, ...process.env };
   assertSandboxInvocation(args, source);
   const previous = args[1] === '--resume' ? JSON.parse(fs.readFileSync(path.join(root, 'test-results/stripe-sandbox', `${args[2]}.json`), 'utf8')) : null;
-  const identity = previous ? { testIdentifier: args[2], email: `test+${args[2]}@nitewide.com` } : createStripeTestIdentity('api-onboarding');
+  const requestedAccount = reusableSandboxAccount(args, source);
+  const identity = previous ? { testIdentifier: args[2], email: `test+${args[2]}@nitewide.com` }
+    : createStripeTestIdentity(requestedAccount ? 'payment-regression' : 'api-onboarding');
   if (previous && (previous.email !== identity.email || previous.mode !== 'test' || !/^acct_[A-Za-z0-9]+$/.test(previous.stripeAccountId || ''))) throw new Error('Resume requires a valid local sandbox report containing a tagged connected account.');
+  const existingBusiness = Boolean(requestedAccount || previous?.accountSource === 'existing-business');
+  if (existingBusiness) Object.assign(identity, { accountSource: 'existing-business', expectedStripeAccountId: requestedAccount || previous.stripeAccountId,
+    sourcePaymentProfileId: previous?.sourcePaymentProfileId });
   const report = { testIdentifier: identity.testIdentifier, email: identity.email, apiVersion: STRIPE_API_VERSION,
     startedAt: new Date().toISOString(), mode: 'test', realMoney: false, resendEmails: 0,
     webhookTransport: 'retrieved-provider-events-replayed-to-local-signed-HTTP-receiver',
@@ -37,7 +42,7 @@ async function main(args = process.argv.slice(2)) {
   try {
     // Run actual mocked regressions before making any external writes.
     step('offline prerequisites');
-    await command(['--test', ...['stripe-sandbox-runner.test.js', 'stripe-connect-fixtures.test.js', 'stripe-client.test.js', 'stripe-verification.test.js', 'stripe-webhook.test.js'].map(f => path.join(apiRoot, 'test', f))], offlineEnvironment());
+    await command(['--test', ...['stripe-sandbox-runner.test.js', 'stripe-sandbox-cleanup.test.js', 'stripe-application-fee-evidence.test.js', 'stripe-connect-fixtures.test.js', 'stripe-client.test.js', 'stripe-verification.test.js', 'stripe-webhook.test.js'].map(f => path.join(apiRoot, 'test', f))], offlineEnvironment());
     check('offline payment/webhook/runner prerequisites');
     await command([path.join(apiRoot, 'scripts/run-tests.cjs'), '--integration', '--suite', 'stripe-checkout-integration.test.js'], {
       ...offlineEnvironment(), TEST_DATABASE_ADMIN_URL: adminUrl });
@@ -52,18 +57,25 @@ async function main(args = process.argv.slice(2)) {
     const sdk = new (require('stripe'))(source.STRIPE_SECRET_KEY, { apiVersion: STRIPE_API_VERSION, timeout: 12000, maxNetworkRetries: 1 });
     const credentials = sandboxCredentials(source);
     const stripe = require('../src/payments/stripe-client').createStripeClient(credentials, { sdk });
-    console.log(`${previous ? 'Resuming the same' : 'Creating one'} tagged sandbox merchant: ${identity.email}`);
+    console.log(`${existingBusiness ? 'Reusing an existing Nitewide' : previous ? 'Resuming the same tagged' : 'Creating one tagged'} sandbox merchant; test identity: ${identity.email}`);
     step('tagged sandbox account provisioning');
-    const account = previous ? await stripe.retrieveAccount(previous.stripeAccountId)
+    const account = existingBusiness ? await stripe.retrieveAccount(identity.expectedStripeAccountId)
+      : previous ? await stripe.retrieveAccount(previous.stripeAccountId)
       : await sdk.v2.core.accounts.create(accountParameters(identity), { idempotencyKey: `nitewide-sandbox-${identity.testIdentifier}` });
+    if (requestedAccount) identity.sourcePaymentProfileId = account.metadata?.nitewide_payment_account_id;
+    if (existingBusiness) Object.assign(report, { accountSource: identity.accountSource, sourcePaymentProfileId: identity.sourcePaymentProfileId });
     report.stripeAccountId = account.id; save();
     assertOwnedSandboxAccount(account, identity);
-    check('API-created Accounts v2 merchant preserves full Dashboard and Stripe-owned fees/losses');
+    check(`${existingBusiness ? 'reused Nitewide' : 'API-created'} Accounts v2 merchant preserves full Dashboard and Stripe-owned fees/losses`);
     // Full-Dashboard merchants must configure their payout bank and accept
     // terms in Stripe's hosted UI. Stripe forbids us doing either on their
     // behalf. A capability gate must not turn into an authentication bypass.
     step('account status HTTP webhook');
-    const remote = await require('./account-webhook-check.cjs').checkAccountWebhook({ env, credentials, sdk, stripe, sequelize, models, account, identity, check, signal: runtime.signal });
+    // Reusing a merchant must not modify its metadata or bindings in the
+    // development/Render apps. Payment events are still checked through HTTP.
+    const remote = existingBusiness ? assertOwnedSandboxAccount(await stripe.retrieveAccount(account.id), identity)
+      : await require('./account-webhook-check.cjs').checkAccountWebhook({ env, credentials, sdk, stripe, sequelize, models, account, identity, check, signal: runtime.signal });
+    if (existingBusiness) check('existing merchant independently retrieved without changing its onboarding, metadata or application bindings');
     report.capabilities = { cardPayments: remote.configuration?.merchant?.capabilities?.card_payments?.status,
       payouts: remote.configuration?.merchant?.capabilities?.stripe_balance?.payouts?.status };
     report.outstandingRequirements = (remote.requirements?.entries || []).filter(e => ['currently_due', 'past_due'].includes(e.minimum_deadline?.status)).map(e => e.description);
@@ -93,7 +105,7 @@ async function main(args = process.argv.slice(2)) {
       if (created) { await client.query(`DROP DATABASE "${assertGeneratedDatabaseName(name)}" WITH (FORCE)`); console.log('Removed only the disposable sandbox test database.'); }
     } catch (error) { report.cleanupFailure = { ...safeFailure(error), databaseName: name }; }
     finally { await client.end().catch(error => { report.cleanupFailure ||= safeFailure(error); }); runtime.dispose(); }
-    if (report.cleanupFailure) { report.status = 'failed'; process.exitCode = 1; console.error(`Sandbox cleanup needs attention: ${JSON.stringify(report.cleanupFailure)}`); }
+    if (report.cleanupFailure || report.providerCleanupFailure) { report.status = 'failed'; process.exitCode = 1; console.error(`Sandbox cleanup needs attention: ${JSON.stringify(report.cleanupFailure || report.providerCleanupFailure)}`); }
     report.finishedAt = new Date().toISOString(); delete report.currentStep; save();
     console.log(`Redacted sandbox report: ${reportPath}`);
   }

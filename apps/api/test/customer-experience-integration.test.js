@@ -108,6 +108,27 @@ test('customer experience HTTP: account saved events, paged history, guestlist s
     const buyerBookings = await request('/customer/bookings?page=1&period=upcoming', 'guest');
     const paidEvent = buyerBookings.data.orders.find((order) => order.id === ids.order).event;
     assert.equal(paidEvent.location.addressLine1, '88 Nightlife Avenue');
+    // Enough unfinished/cancelled rows to fill several pages must neither hide
+    // real bookings nor inflate their counts. Guestlist review stays separate.
+    const abandonedOrders = await m.Order.bulkCreate(Array.from({ length: 24 }, (_, index) => ({
+      buyerUserId: ids.guest, eventId: ids.event, providerMode: 'test',
+      status: index < 12 ? 'pending' : 'cancelled', idempotencyKey: randomUUID(),
+    })), { returning: true });
+    extraOrderIds.push(...abandonedOrders.map(order => order.id));
+    const bookedWithoutAbandoned = await request('/customer/bookings?page=1&period=upcoming', 'guest');
+    assert.equal(bookedWithoutAbandoned.data.total, buyerBookings.data.total);
+    assert.deepEqual(bookedWithoutAbandoned.data.entries, buyerBookings.data.entries);
+    assert.equal((await request('/customer/bookings?page=2&period=upcoming', 'guest')).data.entries.length, 0);
+    const cancelledPaid = abandonedOrders.at(-1);
+    await cancelledPaid.update({ paidAt: new Date() });
+    assert.equal((await request('/customer/bookings?page=1&period=upcoming', 'guest')).data.total, buyerBookings.data.total + 1, 'a historically paid cancellation is retained');
+    await cancelledPaid.update({ paidAt: null });
+    const pastEvent = await m.Event.findByPk(ids.event);
+    const originalEnd = pastEvent.endsAt;
+    await pastEvent.update({ endsAt: new Date(Date.now() - 60 * 60 * 1000) });
+    const pastBookings = await request('/customer/bookings?page=1&period=past', 'guest');
+    assert.equal(pastBookings.data.orders.some(order => abandonedOrders.some(abandoned => abandoned.id === order.id)), false, 'past Booked also excludes unpaid attempts');
+    await pastEvent.update({ endsAt: originalEnd });
     const confirmedPass = await request(`/customer/guestlists/${ids.entry}/pass`, 'guest');
     assert.equal(confirmedPass.data.event.location.addressLine1, '88 Nightlife Avenue');
     const pendingRows = await request('/customer/bookings?page=1&period=upcoming', 'pendingGuest');

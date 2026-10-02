@@ -19,10 +19,12 @@ test('secure form handles provider errors and verifies confirmation independentl
     const { render, screen, waitFor } = await import('@testing-library/react');
     const user = (await import('@testing-library/user-event')).default.setup({ document: dom.window.document });
     let providerError = true, verified = 0;
-    const calls = [], activity = [];
+    const calls = [], activity = [], fieldsOptions = [], expressOptions = [];
     const checkout = { total: { total: { amount: '$25.00' } }, confirm: async options => { calls.push(options); return providerError ? { type: 'error', error: { message: 'Test card declined' } } : { type: 'success' }; } };
-    const props = { checkoutState: { type: 'success', checkout }, PaymentFields: () => React.createElement('div', null, 'Mock secure fields'), ExpressFields: ({ onConfirm }) => React.createElement('button', { type: 'button', onClick: () => onConfirm({ fixture: 'wallet-event' }) }, 'Mock wallet'), onVerify: async () => { verified += 1; }, onBusyChange: busy => activity.push(busy) };
+    const props = { checkoutState: { type: 'success', checkout }, PaymentFields: ({options}) => { fieldsOptions.push(options); return React.createElement('div', null, 'Mock secure fields'); }, ExpressFields: ({ onConfirm, options }) => { expressOptions.push(options); return React.createElement('button', { type: 'button', onClick: () => onConfirm({ fixture: 'wallet-event' }) }, 'Mock wallet'); }, onVerify: async () => { verified += 1; }, onBusyChange: busy => activity.push(busy) };
     view = render(React.createElement(PaymentCheckoutForm, props), { container: dom.window.document.getElementById('root') });
+    assert.deepEqual(fieldsOptions[0], {layout:'tabs',wallets:{link:'never'}});
+    assert.deepEqual(expressOptions[0].paymentMethods, {applePay:'auto',googlePay:'auto',link:'never',klarna:'never'});
     await user.click(screen.getByRole('button', { name: 'Pay $25.00' }));
     assert.equal((await screen.findByRole('alert')).textContent, 'Test card declined');
     assert.equal(verified, 0);
