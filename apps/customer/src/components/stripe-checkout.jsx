@@ -18,6 +18,6 @@ export default function StripeCheckout({ config, checkout, ...props }) {
   const stripe = useMemo(() => config.mode === 'test' ? stripeClient(config.publishableKey, checkout.stripeAccountId) : Promise.resolve(null), [config.mode, config.publishableKey, checkout.stripeAccountId]);
   useEffect(() => { let active = true; stripe.then(client => { if (active) setUnavailable(!client); }); return () => { active = false; }; }, [stripe]);
   const options = useMemo(() => ({ clientSecret: checkout.clientSecret, elementsOptions: { appearance: { theme: 'night', variables: { colorPrimary: '#dfc28a', colorBackground: '#15151b', colorText: '#f5f4f0', colorDanger: '#ff9a9a', borderRadius: '12px', spacingUnit: '4px' } } } }), [checkout.clientSecret]);
-  if (unavailable) return <p className="error-message" role="alert">The secure payment form couldn’t load. Check your connection, then check or cancel this booking below.</p>;
+  if (unavailable) return <PaymentCheckoutForm {...props} checkoutState={{type:'error'}} />;
   return <CheckoutElementsProvider stripe={stripe} options={options}><Form {...props} /></CheckoutElementsProvider>;
 }

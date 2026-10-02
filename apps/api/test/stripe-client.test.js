@@ -49,7 +49,7 @@ test('Dahlia account operations use v2 includes, hosted onboarding links and a s
     ['create', params, options], ['account', 'acct_mock', { include: ['configuration.merchant', 'defaults', 'requirements'] }],
     ['link', link], ['thin', raw, 'signed', 'whsec_accountmock'], ['event', 'evt_mock'],
   ]);
-  assert.deepEqual(client.checkoutPaymentMethodOptions, { payment_method_types: ['card'], wallet_options: { link: { display: 'never' } } });
+  assert.deepEqual(client.checkoutPaymentMethodOptions, { payment_method_types: ['card', 'link'], wallet_options: { link: { display: 'auto' } } });
 });
 test('direct charges retain account scope while application fees use platform scope', () => {
   const calls = [];

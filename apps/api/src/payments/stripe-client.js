@@ -31,9 +31,10 @@ function createStripeClient(config = {}, { sdk } = {}) {
   return {
     mode: 'test', enabled: configuration.enabled, apiVersion: STRIPE_API_VERSION, sandboxSharedAccountId,
     disconnectEnabled: disconnect.enabled, disconnectAccount: disconnect.disconnect,
-    // Link can add bank/BNPL funding even to a card-only session. Disable it
-    // explicitly; card-backed Apple Pay and Google Pay remain available.
-    checkoutPaymentMethodOptions: { payment_method_types: ['card'], wallet_options: { link: { display: 'never' } } },
+    // Explicit allowlist: cards (including Apple Pay/Google Pay) plus Link.
+    // Link controls funding choices internally; no separate bank/BNPL method.
+    // PayPal is unsupported for our US Connect direct-charge architecture.
+    checkoutPaymentMethodOptions: { payment_method_types: ['card', 'link'], wallet_options: { link: { display: 'auto' } } },
     createAccount: (params, options) => stripe.v2.core.accounts.create(params, options),
     retrieveAccount: id => stripe.v2.core.accounts.retrieve(id, { include: ['configuration.merchant', 'defaults', 'requirements'] }),
     createAccountLink: params => stripe.v2.core.accountLinks.create(params),

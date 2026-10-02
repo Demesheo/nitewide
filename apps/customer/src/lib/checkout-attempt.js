@@ -43,20 +43,27 @@ export function prepareCheckoutAttempt(buyerId, body, storage, uuid = () => cryp
   return attempt;
 }
 
+function resumablePaymentCheckout(result) {
+  // Every recovery path must retire a server-confirmed ended checkout, not
+  // mount a dead form or keep offering Resume with the same cancelled order.
+  if (['cancelled', 'refunded'].includes(result?.status)) throw Object.assign(new Error('This checkout has ended. Review your selection to start a new booking.'), { terminalOrderId: result.orderId });
+  return result?.verificationStatus === 'review' ? { ...result, status: 'pending', clientSecret: null } : result;
+}
+
 export async function resumePaymentCheckout(attempt, request, token) {
-  if (attempt.orderId) return request(`/customer/payment-checkouts/${encodeURIComponent(attempt.orderId)}/resume`, { token, method: 'POST' });
+  if (attempt.orderId) return resumablePaymentCheckout(await request(`/customer/payment-checkouts/${encodeURIComponent(attempt.orderId)}/resume`, { token, method: 'POST' }));
   let status;
   try { status = await request(`/customer/checkout-attempts/${encodeURIComponent(attempt.body.idempotencyKey)}`, { token }); }
   catch (error) { if (error.status !== 404) throw error; }
-  if (status?.verificationStatus === 'review') return { ...status, status: 'pending', clientSecret: null };
+  if (status) status = resumablePaymentCheckout(status);
+  if (status?.verificationStatus === 'review') return status;
   if (status?.status === 'paid') return status;
-  if (['cancelled', 'refunded'].includes(status?.status)) throw Object.assign(new Error('This booking is no longer payable. Review your selection.'), { terminalOrderId: status.orderId });
   // The server replays the original provider session for this key. Secrets
   // stay in memory, and a pending status never creates a different attempt.
   const { payment, ...body } = attempt.body;
   try {
     const result = await request('/customer/payment-checkouts', { token, body });
-    return result.verificationStatus === 'review' ? { ...result, status: 'pending', clientSecret: null } : result;
+    return resumablePaymentCheckout(result);
   }
   catch (error) { error.checkoutRejected = ['PRICE_CHANGED', 'INSUFFICIENT_INVENTORY', 'EVENT_NOT_ON_SALE', 'OFFERING_NOT_ON_SALE', 'INVALID_AFFILIATE', 'SELF_REFERRAL', 'INVALID_QUANTITY', 'PAYMENTS_NOT_ENABLED', 'PAYMENTS_NOT_READY', 'PAYMENT_ACCOUNT_NOT_READY'].includes(error.code); throw error; }
 }
@@ -89,15 +96,22 @@ export function restorePaymentAttempt(buyerId, checkout, storage) {
   return attempt;
 }
 
+export async function checkPaymentCheckout(orderId, request, token) {
+  const result = await request(`/customer/payment-checkouts/${encodeURIComponent(orderId)}/verify`, { token, method: 'POST' });
+  if (!result || result.orderId !== orderId) throw new Error('We couldn’t check this booking. Your original booking is saved; try Pay again shortly.');
+  if (result.verificationStatus === 'review') throw Object.assign(new Error('Your payment needs review. Contact the event host before making another payment. Your booking reference is saved.'), { paymentReview: true, orderId });
+  if (['cancelled', 'refunded'].includes(result.status)) throw Object.assign(new Error('This booking is no longer payable.'), { terminalOrderId: orderId });
+  if (!['paid', 'pending'].includes(result.status)) throw new Error('We couldn’t check this booking. Your original booking is saved; try Pay again shortly.');
+  return result;
+}
+
 export async function verifyPaymentCheckout(orderId, request, token, { tries = 4, delay = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
   for (let index = 0; index < tries; index += 1) {
-    const result = await request(`/customer/payment-checkouts/${encodeURIComponent(orderId)}/verify`, { token, method: 'POST' });
-    if (result.verificationStatus === 'review') throw Object.assign(new Error('Your payment needs review. Contact the event host before making another payment. Your booking reference is saved.'), { paymentReview: true, orderId });
+    const result = await checkPaymentCheckout(orderId, request, token);
     if (result.status === 'paid') return result;
-    if (['cancelled', 'refunded'].includes(result.status)) throw Object.assign(new Error('This booking is no longer payable.'), { terminalOrderId: orderId });
     if (index < tries - 1) await delay(1000);
   }
-  throw new Error('Payment is still being checked. Use Check booking shortly; your original booking is saved.');
+  throw new Error('Payment is still being checked. Try Pay again shortly to check your original booking.');
 }
 
 export function clearCheckoutAttempt(buyerId, key, storage) {

@@ -47,7 +47,7 @@ import { useConnections } from './lib/use-connections';
 import { focusEventDialogStart, openEventDialogAtTop } from './lib/dialog-focus';
 import { detectCurrentCity } from "./discovery-defaults";
 import { api } from "./lib/api";
-import { readCheckoutAttempt, prepareCheckoutAttempt, clearCheckoutAttempt, checkCheckoutAttempt, submitCheckoutAttempt, resumePaymentCheckout, verifyPaymentCheckout, restoredCheckoutEvent, rememberCheckoutOrder, restorePaymentAttempt } from './lib/checkout-attempt';
+import { readCheckoutAttempt, prepareCheckoutAttempt, clearCheckoutAttempt, checkCheckoutAttempt, submitCheckoutAttempt, resumePaymentCheckout, checkPaymentCheckout, verifyPaymentCheckout, restoredCheckoutEvent, rememberCheckoutOrder, restorePaymentAttempt } from './lib/checkout-attempt';
 import { businessLink } from './lib/business-link';
 import { referralCodeForEvent, referralFromSearch } from './lib/referral';
 import { eventShareUrl } from './lib/event-share';
@@ -358,6 +358,7 @@ export default function App() {
     activeCheckoutAttempt.current = null;
     setCheckoutRecovering(false);
     setPaymentCheckout(null);
+    setDemoError('');
     setSelected(event);
     if (!fromRoute) { rememberScroll(); updateCustomerRoute({ eventId: event.id }, { eventEntry: true }); }
     setShareFeedback('');
@@ -471,6 +472,7 @@ export default function App() {
       .catch((error) => setNotice(`Guestlist invitation could not be claimed: ${error.message}`));
   }, [guestlistInviteToken, session]);
   async function checkout() {
+    if (checkoutLock.current) return;
     const pending = session && readCheckoutAttempt(session.user.id);
     if (!pending && !totals.eligible) return;
     if (!session) {
@@ -478,7 +480,15 @@ export default function App() {
       setAuthOpen(true);
     } else {
       if (pending?.body.eventId === selected.id) {
-        if (pending.orderId) { try { await resumeBooking(pending.orderId); } catch (error) { setDemoError(error.message); setNotice(error.message); } return; }
+        if (pending.orderId) {
+          try { await resumeBooking(pending.orderId); }
+          catch (error) {
+            setDemoError(error.message);
+            if (error.terminalOrderId) setStage('checkout');
+            else setNotice(error.message);
+          }
+          return;
+        }
         const event = restoredCheckoutEvent(pending);
         if (event) openEvent(event);
         activeCheckoutAttempt.current = pending;
@@ -488,20 +498,33 @@ export default function App() {
       setStage("checkout");
     }
   }
+  function retireCheckoutAttempt(attempt) {
+    if (!attempt) return;
+    clearCheckoutAttempt(attempt.buyerId, attempt.body.idempotencyKey);
+    if (currentCheckoutBuyer.current !== attempt.buyerId) return;
+    if (activeCheckoutAttempt.current?.body.idempotencyKey === attempt.body.idempotencyKey) activeCheckoutAttempt.current = null;
+    setCheckoutRecovering(false);
+    setPaymentCheckout(null);
+  }
   async function resumeBooking(orderId) {
     if (checkoutLock.current || !session) return;
     checkoutLock.current = true; setDemoBusy(true); setDemoError('');
     const buyerId = session.user.id;
     try {
-      const result = await api(`/customer/payment-checkouts/${encodeURIComponent(orderId)}/resume`, { token: session.accessToken, method: 'POST' });
+      const result = await resumePaymentCheckout({ orderId }, api, session.accessToken);
       if (currentCheckoutBuyer.current !== buyerId) return;
       const attempt = restorePaymentAttempt(buyerId, result);
       if (result.status === 'paid') { await openPurchasedPasses(result.orderId, attempt); setCheckoutRecovering(false); return; }
-      if (['cancelled', 'refunded'].includes(result.status)) { clearCheckoutAttempt(buyerId, attempt.body.idempotencyKey); throw new Error('This checkout has ended. Select your tickets again to start a new booking.'); }
       openEvent({ ...result.booking.event, offerings: attempt.eventContext.offerings });
       activeCheckoutAttempt.current = attempt;
       setOfferingId(attempt.body.items[0].offeringId); setQuantity(attempt.body.items[0].quantity);
       setReferral(null); setStage('checkout'); setCheckoutRecovering(true); setPaymentCheckout(result);
+    } catch (error) {
+      if (error.terminalOrderId && currentCheckoutBuyer.current === buyerId) {
+        const attempt = [activeCheckoutAttempt.current, readCheckoutAttempt(buyerId)].find(value => value?.orderId === error.terminalOrderId);
+        retireCheckoutAttempt(attempt);
+      }
+      throw error;
     } finally { checkoutLock.current = false; setDemoBusy(false); }
   }
   async function openPurchasedPasses(orderId, attempt, token = session.accessToken) {
@@ -551,7 +574,7 @@ export default function App() {
       setReferral(attempt.body.affiliateCode ? { eventId: attempt.body.eventId, code: attempt.body.affiliateCode, referrerName: typeof attempt.referrerName === 'string' ? attempt.referrerName : 'Your host' } : null);
       if (resumed) setPaymentCheckout(resumed);
       setDemoError(resumed?.verificationStatus === 'review' ? 'Your payment needs review. Contact the event host before making another payment.' : resumed ? '' : 'Your previous attempt has no confirmed booking yet. Retry to check and complete the same booking.');
-    })().catch((error) => { if (active) { if (error.terminalOrderId) { clearCheckoutAttempt(attempt.buyerId, attempt.body.idempotencyKey); setCheckoutRecovering(false); } setDemoError(`We couldn’t check your booking: ${error.message}`); setNotice(`We couldn’t check your booking: ${error.message}`); } })
+    })().catch((error) => { if (active) { if (error.terminalOrderId) retireCheckoutAttempt(attempt); setDemoError(`We couldn’t check your booking: ${error.message}`); setNotice(`We couldn’t check your booking: ${error.message}`); } })
       .finally(() => { if (active) { checkoutLock.current = false; setDemoBusy(false); } });
     return () => { active = false; checkoutLock.current = false; setDemoBusy(false); };
   }, [session?.user.id]);
@@ -593,32 +616,38 @@ export default function App() {
     setCheckoutRecovering(false);
     } catch (error) {
       if (error.checkoutRejected || error.terminalOrderId) {
-        const rejected = readCheckoutAttempt(session.user.id);
-        if (rejected) clearCheckoutAttempt(session.user.id, rejected.body.idempotencyKey);
-        setCheckoutRecovering(false);
+        const rejected = activeCheckoutAttempt.current || readCheckoutAttempt(session.user.id);
+        retireCheckoutAttempt(rejected);
         setDemoError(`Booking was not completed: ${error.message} Review your selection before trying again.`);
       } else setDemoError(`We couldn’t confirm the result. Check or retry this same booking: ${error.message}`);
     }
     finally { checkoutLock.current = false; setDemoBusy(false); }
   }
-  async function verifyBooking() {
-    if (!paymentCheckout || !session) return;
-    checkoutLock.current = true; setDemoBusy(true); setDemoError('');
+  async function checkBookingPayment(afterConfirmation = false) {
+    if (!paymentCheckout || !session) throw new Error('Sign in again to check your saved booking.');
+    const buyerId = session.user.id;
+    setDemoError('');
     try {
       const attempt = activeCheckoutAttempt.current || readCheckoutAttempt(session.user.id);
-      const result = await verifyPaymentCheckout(paymentCheckout.orderId, api, session.accessToken);
-      if (attempt) await openPurchasedPasses(result.orderId, attempt);
-      setCheckoutRecovering(false); setPaymentCheckout(null);
+      const result = await (afterConfirmation ? verifyPaymentCheckout : checkPaymentCheckout)(paymentCheckout.orderId, api, session.accessToken);
+      if (currentCheckoutBuyer.current !== buyerId) throw new Error('Your account changed. Sign in to recover this booking.');
+      if (result.status === 'pending') return true;
+      if (!attempt) throw new Error('Your payment is complete. Open Booked to see your passes.');
+      await openPurchasedPasses(result.orderId, attempt);
+      setCheckoutRecovering(false);
+      return false;
     } catch (error) {
+      if (currentCheckoutBuyer.current !== buyerId) throw error;
       if (error.paymentReview) setPaymentCheckout({ orderId: error.orderId, status: 'pending', verificationStatus: 'review' });
       if (error.terminalOrderId) {
         const attempt = activeCheckoutAttempt.current || readCheckoutAttempt(session.user.id);
-        if (attempt) clearCheckoutAttempt(session.user.id, attempt.body.idempotencyKey);
-        setCheckoutRecovering(false); setPaymentCheckout(null); setStage('details');
+        retireCheckoutAttempt(attempt);
+        setStage('details');
       }
-      setDemoError(error.message);
+      if (error.paymentReview) setDemoError(error.message);
+      if (error.terminalOrderId) setNotice(error.message);
+      throw error;
     }
-    finally { checkoutLock.current = false; setDemoBusy(false); }
   }
   async function cancelPaymentBooking() {
     if (checkoutLock.current || !paymentCheckout) return;
@@ -627,7 +656,7 @@ export default function App() {
       const result = await api(`/customer/payment-checkouts/${encodeURIComponent(paymentCheckout.orderId)}/cancel`, { token: session.accessToken, method: 'POST' });
       const attempt = activeCheckoutAttempt.current || readCheckoutAttempt(session.user.id);
       if (result.status === 'paid') { if (attempt) await openPurchasedPasses(result.orderId, attempt); }
-      else if (result.status === 'cancelled') { if (attempt) clearCheckoutAttempt(session.user.id, attempt.body.idempotencyKey); activeCheckoutAttempt.current = null; setPaymentCheckout(null); setCheckoutRecovering(false); setStage('details'); setBookingsRevision(value => value + 1); }
+      else if (result.status === 'cancelled') { retireCheckoutAttempt(attempt); setStage('details'); setBookingsRevision(value => value + 1); }
       else { setPaymentCheckout(current => ({ ...current, ...result })); setDemoError(result.verificationStatus === 'review' ? 'Your payment needs review. Contact the event host before making another payment. Your booking reference is saved.' : 'Your payment is still being checked. Your booking is saved; check again shortly.'); }
     } catch (error) { setDemoError(error.message); }
     finally { checkoutLock.current = false; setDemoBusy(false); }
@@ -1044,7 +1073,7 @@ export default function App() {
                       <Button
                         className="primary-action dark-glass-action"
                         onClick={checkout}
-                        disabled={referralBusy || !availableQuantity(offering) || !totals.eligible}
+                        disabled={demoBusy || referralBusy || !availableQuantity(offering) || !totals.eligible}
                       >
                         {totals.eligible ? `Continue · ${money(totals.total, offering.currency)}` : 'Pricing unavailable'}
                         <ArrowRight />
@@ -1118,8 +1147,8 @@ export default function App() {
               {demoError && <p role="alert">{demoError}</p>}
               {paymentCheckout?.verificationStatus === 'review' && <p role="status" className="fine-print">Your payment needs review. Contact the event host for help before making another payment. Booking reference: {paymentCheckout.orderId}</p>}
               {referralCodeForEvent(referral, selected.id) && <p className="connection-context">Booking with <strong>{referral.referrerName}</strong></p>}
-              {paymentCheckout?.clientSecret && paymentCheckout.verificationStatus !== 'review' && paymentConfig?.enabled && <Suspense fallback={<LoadingIndicator>Loading secure payment form…</LoadingIndicator>}><StripeCheckout key={paymentCheckout.orderId} config={paymentConfig} checkout={paymentCheckout} onVerify={verifyBooking} onBusyChange={busy => { checkoutLock.current = busy; setDemoBusy(busy); }} /></Suspense>}
-              {paymentCheckout ? <>{!paymentCheckout.clientSecret && paymentCheckout.verificationStatus !== 'review' && <Button className="primary-action dark-glass-action" disabled={demoBusy} onClick={completeDemo}>Resume checkout</Button>}<Button className="primary-action dark-glass-action" disabled={demoBusy} onClick={verifyBooking}>{demoBusy ? <LoadingIndicator>Checking your booking…</LoadingIndicator> : 'Check booking'}</Button>{paymentCheckout.verificationStatus !== 'review' && <Button variant="outline" disabled={demoBusy} onClick={cancelPaymentBooking}>Cancel payment attempt</Button>}<p className="fine-print">You can close this window and continue your purchase from Notifications.{paymentCheckout.verificationStatus !== 'review' && ' Cancellation is final only after the server confirms payment was not completed.'}</p></> : <Button className="primary-action dark-glass-action" onClick={completeDemo} disabled={demoBusy || (!checkoutRecovering && (!totals.eligible || (totals.total > 0 && !paymentConfig?.enabled && !demoCheckoutEnabled)))}>
+              {paymentCheckout?.clientSecret && paymentCheckout.verificationStatus !== 'review' && paymentConfig?.enabled && <Suspense fallback={<LoadingIndicator>Loading secure payment form…</LoadingIndicator>}><StripeCheckout key={paymentCheckout.orderId} config={paymentConfig} checkout={paymentCheckout} amount={money(totals.total, offering.currency)} onCheck={() => checkBookingPayment()} onVerify={() => checkBookingPayment(true)} onBusyChange={busy => { checkoutLock.current = busy; setDemoBusy(busy); }} /></Suspense>}
+              {paymentCheckout ? <>{!paymentCheckout.clientSecret && paymentCheckout.verificationStatus !== 'review' && <Button className="primary-action dark-glass-action" disabled={demoBusy} onClick={completeDemo}>{demoBusy ? <LoadingIndicator>Checking your booking…</LoadingIndicator> : `Pay ${money(totals.total, offering.currency)}`}</Button>}{paymentCheckout.verificationStatus !== 'review' && <Button variant="outline" disabled={demoBusy} onClick={cancelPaymentBooking}>Cancel payment attempt</Button>}<p className="fine-print">You can close this window and continue your purchase from Notifications.{paymentCheckout.verificationStatus !== 'review' && ' Cancellation is final only after the server confirms payment was not completed.'}</p></> : <Button className="primary-action dark-glass-action" onClick={completeDemo} disabled={demoBusy || (!checkoutRecovering && (!totals.eligible || (totals.total > 0 && !paymentConfig?.enabled && !demoCheckoutEnabled)))}>
                 {demoBusy ? <LoadingIndicator>{checkoutRecovering ? 'Checking your booking…' : 'Preparing your booking…'}</LoadingIndicator> : <>{checkoutRecovering ? 'Check / retry booking' : totals.total === 0 ? 'Confirm free booking' : paymentConfig?.enabled ? 'Continue to payment' : demoCheckoutEnabled ? 'Confirm demo booking' : 'Payments unavailable'} <ArrowRight /></>}
               </Button>}
               <Button variant="ghost" disabled={demoBusy || checkoutRecovering} onClick={() => setStage("details")}>

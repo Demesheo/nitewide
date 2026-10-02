@@ -331,13 +331,14 @@ test('sandbox checkout checks server payment status and recovers exact passes wi
   });
   await page.route(`**/api/customer/payment-checkouts/${fixture.ids.order}/verify`, route => route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'paid' } } }));
   await details.getByRole('button', { name: 'Continue to payment', exact: true }).click();
-  await expect(details.getByRole('button', { name: 'Check booking', exact: true })).toBeVisible();
+  await expect(details.getByRole('button', { name: /^Pay / })).toBeVisible();
+  await expect(details.getByRole('button', { name: 'Check booking', exact: true })).toHaveCount(0);
   const saved = await page.evaluate(() => {
     const user = JSON.parse(localStorage.getItem('nitewide.session')).user;
     return localStorage.getItem(`nitewide.checkout.${user.id}`);
   });
   expect(saved).toContain(key); expect(saved).not.toContain('fixture_checkout_secret');
-  await details.getByRole('button', { name: 'Check booking', exact: true }).click();
+  await details.getByRole('button', { name: /^Pay / }).click();
   await expect(page).toHaveURL(new RegExp(`booking=purchase(?:%3A|:)${fixture.ids.order}`));
   await expect(page.getByRole('img', { name: /QR code for ticket 1/ })).toBeVisible();
   await expectNoOverflow(page);
@@ -374,8 +375,7 @@ test('sandbox payment review preserves the booking without retrying payment or o
   await expect(details.getByRole('status')).toContainText('needs review');
   await expect(details.getByRole('button', { name: 'Cancel payment attempt' })).toHaveCount(0);
   await expect(details.getByRole('button', { name: /^Pay / })).toHaveCount(0);
-  await details.getByRole('button', { name: 'Check booking' }).click();
-  await expect(details.getByRole('alert')).toContainText('Contact the event host');
+  await expect(details.getByRole('button', { name: 'Check booking' })).toHaveCount(0);
   await page.route(`**/api/events/${fixture.ids.event}`, route => route.fulfill({ status: 404, json: { error: { message: 'Event unavailable' } } }));
   await page.reload();
   await expect(details.getByRole('status')).toContainText('needs review');
@@ -431,7 +431,7 @@ test('abandoned sandbox checkout stays out of Booked and resumes from Notificati
   await page.getByRole('button', { name: /^Notifications/ }).click();
   await page.getByRole('button', { name: /Continue your purchase for/ }).click();
   const details = page.getByTestId('customer-event-details');
-  await expect(details.getByRole('button', { name: 'Check booking', exact: true })).toBeVisible();
+  await expect(details.getByRole('button', { name: /^Pay / })).toBeVisible();
   const first = JSON.parse(await saved());
   expect(first.orderId).toBe(fixture.ids.order);
   expect(first.body.idempotencyKey).toBe('abandoned-original-key');
@@ -445,7 +445,7 @@ test('abandoned sandbox checkout stays out of Booked and resumes from Notificati
   await page.getByRole('button', { name: /Continue your purchase for/ }).click();
   await expect(details.getByRole('button', { name: 'Cancel payment attempt' })).toBeVisible();
   await page.reload();
-  await expect(details.getByRole('button', { name: 'Check booking', exact: true })).toBeVisible();
+  await expect(details.getByRole('button', { name: /^Pay / })).toBeVisible();
   expect(JSON.parse(await saved()).body.idempotencyKey).toBe(first.body.idempotencyKey);
   expect(prepares).toEqual([]);
   expect(resumes.length).toBeGreaterThanOrEqual(3);
@@ -469,6 +469,60 @@ test('abandoned sandbox checkout reconciles already-paid orders and expires unpa
   await page.getByRole('button', { name: /Continue your purchase for/ }).click();
   await expect(page).toHaveURL(new RegExp(`booking=purchase(?:%3A|:)${fixture.ids.order}`));
   await expect(page.getByRole('img', { name: /QR code for ticket 1/ })).toBeVisible();
+  expect(prepares).toBe(0);
+  await expectNoOverflow(page);
+});
+
+for (const status of ['cancelled', 'refunded']) test(`ended sandbox checkout (${status}) does not strand payment continuation after reload`, async ({ page, fixture }) => {
+  await login(page, fixture, 'customer');
+  const booking = (await abandonedCheckoutFixture(page, fixture))();
+  await page.evaluate(({ orderId, booking }) => {
+    const buyerId = JSON.parse(localStorage.getItem('nitewide.session')).user.id;
+    localStorage.setItem(`nitewide.checkout.${buyerId}`, JSON.stringify({ buyerId, orderId, mode: 'stripe',
+      body: { eventId: booking.event.id, idempotencyKey: booking.idempotencyKey, items: booking.items.map(item => ({ offeringId: item.offeringId, quantity: item.quantity })), expectedTotalCents: booking.totalCents } }));
+  }, { orderId: fixture.ids.order, booking });
+  await page.route(`**/api/customer/payment-checkouts/${fixture.ids.order}/resume`, route => route.fulfill({ json: { data: { orderId: fixture.ids.order, status, booking } } }));
+  const prepares = [];
+  await page.route('**/api/customer/checkout-attempts/*', route => route.fulfill({ status: 404, json: { error: { message: 'Absent' } } }));
+  await page.route('**/api/customer/payment-checkouts', route => {
+    prepares.push(route.request().postDataJSON());
+    return route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'pending', clientSecret: 'fixture_new_secret', stripeAccountId: 'acct_fixture' } } });
+  });
+  await page.goto(`/?event=${fixture.ids.event}`);
+  const details = page.getByTestId('customer-event-details');
+  const saved = () => page.evaluate(() => localStorage.getItem(`nitewide.checkout.${JSON.parse(localStorage.getItem('nitewide.session')).user.id}`));
+  await expect.poll(saved).toBeNull();
+  await expect(details.getByRole('button', { name: 'Resume checkout', exact: true })).toHaveCount(0);
+  await details.getByRole('button', { name: /VIP Package/ }).click();
+  await details.getByRole('button', { name: /^Continue ·/ }).click();
+  await expect(details.getByRole('button', { name: 'Continue to payment', exact: true })).toBeEnabled();
+  await details.getByRole('button', { name: 'Continue to payment', exact: true }).click();
+  await expect(details.getByRole('button', { name: /^Pay / })).toBeVisible();
+  expect(prepares).toHaveLength(1);
+  expect(prepares[0].idempotencyKey).not.toBe(booking.idempotencyKey);
+  expect(JSON.parse(await saved()).body.idempotencyKey).toBe(prepares[0].idempotencyKey);
+  await expectNoOverflow(page);
+});
+
+test('Continue retires an ended saved sandbox checkout in one click without silently resubmitting', async ({ page, fixture }) => {
+  await login(page, fixture, 'customer');
+  await abandonedCheckoutFixture(page, fixture);
+  await page.goto(`/?event=${fixture.ids.event}`);
+  const details = page.getByTestId('customer-event-details');
+  await expect(details.getByRole('button', { name: /^Continue ·/ })).toBeEnabled();
+  await page.evaluate(({ orderId, eventId, offeringId }) => {
+    const buyerId = JSON.parse(localStorage.getItem('nitewide.session')).user.id;
+    localStorage.setItem(`nitewide.checkout.${buyerId}`, JSON.stringify({ buyerId, orderId, mode: 'stripe',
+      body: { eventId, idempotencyKey: 'ended-original-key', items: [{ offeringId, quantity: 1 }] } }));
+  }, { orderId: fixture.ids.order, eventId: fixture.ids.event, offeringId: fixture.ids.offering });
+  let prepares = 0;
+  await page.route('**/api/customer/payment-checkouts', route => { prepares += 1; return route.abort(); });
+  await page.route(`**/api/customer/payment-checkouts/${fixture.ids.order}/resume`, route => route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'cancelled' } } }));
+  await details.getByRole('button', { name: /^Continue ·/ }).click();
+  await expect(details.getByRole('alert')).toContainText('checkout has ended');
+  await expect(details.getByRole('button', { name: 'Continue to payment', exact: true })).toBeEnabled();
+  await expect(details.getByRole('button', { name: 'Check / retry booking', exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem(`nitewide.checkout.${JSON.parse(localStorage.getItem('nitewide.session')).user.id}`))).toBeNull();
   expect(prepares).toBe(0);
   await expectNoOverflow(page);
 });

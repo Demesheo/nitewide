@@ -28,8 +28,8 @@ function mockProvider(namespace = '') {
         mode: params.mode, status: 'open', payment_status: 'unpaid', metadata: params.metadata, client_reference_id: params.client_reference_id,
         amount_total: params.line_items.reduce((sum, line) => sum + line.quantity * line.price_data.unit_amount, 0), currency: params.line_items[0].price_data.currency,
         fee: params.payment_intent_data.application_fee_amount, params };
-      assert.equal(params.ui_mode, 'elements'); assert.deepEqual(params.payment_method_types, ['card']);
-      assert.deepEqual(params.wallet_options, { link: { display: 'never' } });
+      assert.equal(params.ui_mode, 'elements'); assert.deepEqual(params.payment_method_types, ['card', 'link']);
+      assert.deepEqual(params.wallet_options, { link: { display: 'auto' } });
       assert.equal('allowed_payment_method_types' in params, false); assert.equal('transfer_data' in params.payment_intent_data, false);
       sessions.set(id, session); keys.set(options.idempotencyKey, id);
       if (loseCreationResponse) { loseCreationResponse = false; throw new Error('Response lost after provider creation'); }

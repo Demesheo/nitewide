@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { prepareCheckoutAttempt, readCheckoutAttempt, clearCheckoutAttempt, submitCheckoutAttempt, checkCheckoutAttempt, resumePaymentCheckout, verifyPaymentCheckout, restoredCheckoutEvent, rememberCheckoutOrder, restorePaymentAttempt } from '../src/lib/checkout-attempt.js';
+import { prepareCheckoutAttempt, readCheckoutAttempt, clearCheckoutAttempt, submitCheckoutAttempt, checkCheckoutAttempt, resumePaymentCheckout, checkPaymentCheckout, verifyPaymentCheckout, restoredCheckoutEvent, rememberCheckoutOrder, restorePaymentAttempt } from '../src/lib/checkout-attempt.js';
 
 const storage = () => {
   const entries = new Map();
@@ -142,11 +142,51 @@ test('Stripe pending recovery replays the same cart and never stores provider se
   assert.equal(checkout.orderId, 'order');
   assert.equal(JSON.stringify(readCheckoutAttempt('buyer', store)).includes('fixture-only-secret'), false);
 });
+test('all Stripe recovery paths reject server-confirmed cancelled and refunded orders without replaying them', async () => {
+  for (const status of ['cancelled', 'refunded']) {
+    for (const path of ['resume', 'lookup', 'prepare']) {
+      const attempt = { body: { idempotencyKey: 'original-key' }, ...(path === 'resume' ? { orderId: 'ended-order' } : {}) };
+      const calls = [];
+      await assert.rejects(resumePaymentCheckout(attempt, async url => {
+        calls.push(url);
+        if (path === 'prepare' && url.startsWith('/customer/checkout-attempts/')) throw Object.assign(new Error('Absent'), { status: 404 });
+        return { orderId: 'ended-order', status, clientSecret: 'must-not-mount' };
+      }, 'token'), error => error.terminalOrderId === 'ended-order' && /checkout has ended/.test(error.message));
+      assert.deepEqual(calls, path === 'resume' ? ['/customer/payment-checkouts/ended-order/resume'] : path === 'lookup' ? ['/customer/checkout-attempts/original-key'] : ['/customer/checkout-attempts/original-key', '/customer/payment-checkouts']);
+    }
+  }
+});
+test('known-order recovery preserves unknown outcomes and suppresses reviewed payment secrets', async () => {
+  const attempt = { orderId: 'original-order', body: { idempotencyKey: 'original-key' } };
+  const review = await resumePaymentCheckout(attempt, async () => ({ ...restored, verificationStatus: 'review' }), 'token');
+  assert.equal(review.clientSecret, null);
+  for (const failure of [new Error('Offline'), Object.assign(new Error('Not found'), { status: 404 })]) {
+    await assert.rejects(resumePaymentCheckout(attempt, async () => { throw failure; }, 'token'), error => error === failure && !error.terminalOrderId);
+  }
+});
 test('Stripe verification is bounded and server status alone authorizes purchased passes', async () => {
   let checks = 0;
   await assert.rejects(verifyPaymentCheckout('order', async path => { assert.equal(path, '/customer/payment-checkouts/order/verify'); checks += 1; return { orderId: 'order', status: 'pending' }; }, 'token', { tries: 3, delay: async () => {} }), /still being checked/);
   assert.equal(checks, 3);
   assert.deepEqual(await verifyPaymentCheckout('order', async () => ({ orderId: 'order', status: 'paid' }), 'token'), { orderId: 'order', status: 'paid' });
+});
+test('Pay preflight permits only a matching server-verified pending or paid booking', async () => {
+  for (const status of ['pending', 'paid']) {
+    const result = {orderId:'original-order',status};
+    assert.deepEqual(await checkPaymentCheckout('original-order', async (path, options) => {
+      assert.equal(path, '/customer/payment-checkouts/original-order/verify');
+      assert.deepEqual(options, {token:'token',method:'POST'});
+      return result;
+    }, 'token'), result);
+  }
+  for (const result of [null, {orderId:'original-order',status:'unknown'}, {orderId:'other-order',status:'paid'}, {orderId:'other-order',status:'cancelled'}, {orderId:'other-order',status:'pending',verificationStatus:'review'}]) {
+    await assert.rejects(checkPaymentCheckout('original-order', async () => result, 'token'), /couldn’t check this booking/);
+  }
+  for (const status of ['cancelled', 'refunded']) {
+    await assert.rejects(checkPaymentCheckout('original-order', async () => ({orderId:'original-order',status}), 'token'), error => error.terminalOrderId === 'original-order');
+  }
+  const offline = new Error('Offline');
+  await assert.rejects(checkPaymentCheckout('original-order', async () => {throw offline;}, 'token'), error => error === offline);
 });
 test('provider review state suppresses payment remount and additional verification polling', async () => {
   const attempt = { body: { idempotencyKey: 'key' } };
