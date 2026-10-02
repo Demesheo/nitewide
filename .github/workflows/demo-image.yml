@@ -46,7 +46,7 @@ jobs:
   browser:
     name: Browser regression tests (${{ matrix.app }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -89,7 +89,7 @@ jobs:
         timeout-minutes: 5
       - name: Browser regression and end-to-end tests (${{ matrix.app }})
         run: node e2e/ci-container.cjs
-        timeout-minutes: 6
+        timeout-minutes: 10
       - name: Upload browser report and failure diagnostics
         if: ${{ always() && !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (Node 24)

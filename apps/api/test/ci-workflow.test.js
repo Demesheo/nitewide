@@ -54,6 +54,14 @@ test('CI separates all six browser projects into isolated per-app jobs without i
   assert.throws(() => containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: 'customer --workers=4' } }), /supported browser project group/);
 });
 
+test('CI browser timeouts allow both device projects and reserve time for setup and diagnostics', () => {
+  const browser = section('browser');
+  const jobTimeout = Number(browser.match(/^    timeout-minutes: (\d+)$/m)?.[1]);
+  const testTimeout = Number(browser.match(/run: node e2e\/ci-container\.cjs\n\s+timeout-minutes: (\d+)/)?.[1]);
+  assert.ok(testTimeout >= 10, 'Sequential iPhone and desktop coverage needs at least ten minutes');
+  assert.ok(jobTimeout >= testTimeout + 5, 'Reserve five additional minutes for setup and diagnostic uploads');
+});
+
 test('all parallel verification jobs gate publication without registry writes or duplicate builds', () => {
   assert.match(section('verify'), /needs: \[unit, browser, build\]/);
   assert.match(section('verify'), /if: \$\{\{ always\(\) \}\}/);
