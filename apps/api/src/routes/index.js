@@ -40,16 +40,22 @@ function createRouter(options) {
   const team = createTeamService({ models, permissions, email, businessAppUrl });
   const eventWorkspace = createEventWorkspaceService({ models, permissions, email, businessAppUrl });
   const referralLinks = createReferralLinkService({ models });
+  // Customer event operations use the same internal scope as event detail;
+  // reports.view remains the unchanged Business/reporting collection default.
+  const customerEventRead = createBusinessReadService({ models, internalReadPermission: 'events.manage' });
+  const myEvents = require('../services/customer-my-events-service').createCustomerMyEventsService({ models, businessRead: customerEventRead, businessEventRead,
+    invitations, referralLinks, reviewGuestlist: options.reviewGuestlist });
   const account = createCustomerAccountService({ models, tokenSecret: qrTokenSecret });
   const saved = createCustomerSavedService({ models });
   const admissions = createAdmissionsService({ models, permissions });
-  const context = { router, publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl, businessAppUrl, qrTokenSecret, deliveryTrackingConfigured, business, businessRead, businessReports, adminReports, reportExports, businessTeamRead, businessEventReuse, businessEventRead, businessInstructionsRead, admin, adminSupport, analytics, team, eventWorkspace, referralLinks, account, saved, admissions, stripe, paymentAccounts, paymentController };
+  const context = { router, publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl, businessAppUrl, qrTokenSecret, deliveryTrackingConfigured, business, businessRead, businessReports, adminReports, reportExports, businessTeamRead, businessEventReuse, businessEventRead, businessInstructionsRead, admin, adminSupport, analytics, team, eventWorkspace, referralLinks, myEvents, account, saved, admissions, stripe, paymentAccounts, paymentController };
   require('./public').registerPublicRoutes(context);
   require('./account').registerAccountRoutes(context);
   require('./business-access').registerBusinessAccessRoutes(context);
   // Publishable configuration contains no secret keys. Discovery can fetch it
   // before sign-in; all order/account mutations below require a real session.
   router.get('/customer/payment-config', (_req, res) => res.set('Cache-Control', 'no-store').json({ data: paymentConfiguration }));
+  require('./customer-my-events').registerCustomerMyEventsRoutes(context);
   require('./customer').registerCustomerRoutes(context);
   require('./payments').registerPaymentRoutes(context);
   require('./business-payments').registerBusinessPaymentRoutes(context);

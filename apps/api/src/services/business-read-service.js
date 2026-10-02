@@ -40,6 +40,16 @@ const orderAccess = `(:isAdmin OR ${manages}
   OR EXISTS (SELECT 1 FROM event_affiliates own_ea WHERE own_ea.id = o.event_affiliate_id AND own_ea.user_id = :userId)
   OR (o.event_affiliate_id IS NULL AND EXISTS (SELECT 1 FROM org_affiliates own_oa WHERE own_oa.id = o.org_affiliate_id AND own_oa.user_id = :userId AND own_oa.status = 'active')))`;
 const guestAccess = `(:isAdmin OR ${manages} OR EXISTS (SELECT 1 FROM event_affiliates own_ea WHERE own_ea.id = g.event_affiliate_id AND own_ea.user_id = :userId))`;
+// Match guestlistReviewScope: a venue assignment is valid only through its
+// exact, still-active venue grant, just as organization assignments require
+// current membership. Share this between business/customer read capabilities.
+const ownGuestlistReviewAssignments = `SELECT ea.id FROM event_affiliates ea WHERE ea.event_id=e.id AND ea.user_id=:userId AND ea.status='active'
+  AND (ea.starts_at IS NULL OR ea.starts_at<=NOW()) AND (ea.ends_at IS NULL OR ea.ends_at>=NOW())
+  AND (${accessScopeSql('ea')}='event' OR (${accessScopeSql('ea')}='organization' AND ${organizationMember})
+    OR (${accessScopeSql('ea')}='venue' AND EXISTS (SELECT 1 FROM venue_access va JOIN organization_venues ov
+      ON ov.organization_id=va.organization_id AND ov.location_id=va.location_id
+      WHERE va.id=ea.venue_access_id AND va.organization_id=e.organization_id AND va.location_id=e.location_id
+        AND va.user_id=:userId AND va.status='active')))`;
 
 const pageResult = (items, total, page, pageSize) => ({ items, total: Number(total || 0), page, pageSize, hasMore: page * pageSize < Number(total || 0) });
 const cents = (value) => Number(value || 0);
@@ -47,13 +57,13 @@ const cleanVenue = column => `REGEXP_REPLACE(LOWER(COALESCE(${column},'')),'[^a-
 const venueIdentitySql = `encode(digest('["'||COALESCE(e.organization_id::text,'creator:'||e.creator_user_id::text)||'","'||
   ${['name','address_line1','city','region','country_code'].map(column => cleanVenue(`filter_location.${column}`)).join(`||'","'||`)}||'"]','sha256'),'hex')`;
 
-function createBusinessReadService({ models, email = null, deliveryTrackingConfigured = false, now = () => new Date() }) {
+function createBusinessReadService({ models, email = null, deliveryTrackingConfigured = false, now = () => new Date(), internalReadPermission = 'reports.view' }) {
   const select = (sql, replacements, { transaction } = {}) => models.Event.sequelize.query(sql, { replacements, transaction, type: QueryTypes.SELECT });
   async function actor(userId, { transaction } = {}) {
     const user = await models.User.findByPk(userId, { transaction, attributes: ['id', 'isActive', 'lifecycleState', 'onboardingPending', 'isInternalAdmin', 'internalAdminRole', 'independentCreator'] });
     if (!activeUser(user)) throw forbidden('An active account is required');
     const memberships = await models.OrganizationOwner.findAll({ transaction, where: { userId, lifecycleState: 'active' }, attributes: ['organizationId'] });
-    return { userId, isAdmin: hasInternalPermission(user, 'reports.view'), canManageBusinesses: hasInternalPermission(user, 'access.manage'), canManageEvents: hasInternalPermission(user, 'events.manage'), user,
+    return { userId, isAdmin: hasInternalPermission(user, internalReadPermission), canManageBusinesses: hasInternalPermission(user, 'access.manage'), canManageEvents: hasInternalPermission(user, 'events.manage'), user,
       managedOrgIds: new Set(memberships.map((row) => row.organizationId)) };
   }
   async function organizations(scope, { transaction } = {}) {
@@ -169,10 +179,8 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
       FROM orders o JOIN events e ON e.id = o.event_id WHERE o.event_id IN (:ids) AND o.status = 'paid' AND o.currency = 'USD' AND ${orderAccess}
       GROUP BY o.event_id`, { ...scope, ids: ids.map((r) => r.id) });
     const bySales = new Map(sales.map((r) => [r.id, r]));
-    const reviewable = await select(`SELECT DISTINCT ea.event_id AS id FROM event_affiliates ea JOIN events e ON e.id = ea.event_id
-      WHERE ea.event_id IN (:ids) AND ea.user_id = :userId AND ea.status = 'active'
-      AND (ea.starts_at IS NULL OR ea.starts_at <= NOW()) AND (ea.ends_at IS NULL OR ea.ends_at >= NOW())
-      AND (${accessScopeSql('ea')} = 'event' OR ${organizationMember})`,
+    const reviewable = await select(`SELECT e.id FROM events e
+      WHERE e.id IN (:ids) AND EXISTS (${ownGuestlistReviewAssignments})`,
     { ...scope, ids: ids.map((r) => r.id) });
     const reviewIds = new Set(reviewable.map((row) => row.id));
     const items = ids.map(({ id,canManage: scopedManage,isManagedVenue }) => {
@@ -284,4 +292,4 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
   return { bootstrap, events, overview, needsAttention, actor, filters };
 }
 
-module.exports = { createBusinessReadService, organizationMember,access, manages, base, orderAccess, guestAccess, pageResult };
+module.exports = { createBusinessReadService, organizationMember,access, manages, base, orderAccess, guestAccess, ownGuestlistReviewAssignments, pageResult };

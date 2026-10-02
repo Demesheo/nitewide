@@ -51,7 +51,7 @@ async function start() {
   const config = require('../apps/api/src/config').getConfig();
   sequelize = require('../apps/api/src/db/sequelize').createSequelize(config);
   const models = require('../apps/api/src/db/models').initModels(sequelize);
-  const { seed } = require('./seed.cjs');
+  const { seed, seedMyEventsScenario } = require('./seed.cjs');
   let fixture = await seed(models, config);
   let resetting = false, activeQueries = 0;
   const activeResponses = new Set();
@@ -89,6 +89,14 @@ async function start() {
     finally { resetting = false; }
   });
   harness.get('/__e2e/fixture', (_req, res) => res.json(fixture));
+  harness.post('/__e2e/my-events-fixture', async (req, res, next) => {
+    try {
+      if (resetting) return res.status(409).json({ error: 'Fixture reset is running.' });
+      if (typeof req.body.past !== 'boolean') return res.sendStatus(400);
+      await drainRequests();
+      res.json(await seedMyEventsScenario(models, config, fixture, { past: req.body.past }));
+    } catch (error) { next(error); }
+  });
   harness.get('/__e2e/emails', (_req, res) => res.json(emails));
   harness.use((req, res, next) => {
     if (resetting) return res.status(503).json({ error: 'Isolated fixtures are being reset.' });

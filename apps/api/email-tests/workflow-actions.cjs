@@ -136,6 +136,7 @@ async function collectWorkflowMessages(runLabel) {
         findOne: async () => entry,
         sum: async () => 0,
       },
+      GuestlistPass: { findAll: async () => [], bulkCreate: async (values) => values },
       AffiliateAttribution: { create: async () => ({}) },
       AuditLog: { create: async () => ({}) },
     };

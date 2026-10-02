@@ -8,11 +8,12 @@ const { activeUser, assertActiveEvent } = require('./lifecycle-service');
 const { currentVenueMembership } = require('./venue-access-policy');
 
 function createReferralLinkService({ models, now = () => new Date() }) {
-  async function ownLink(userId, eventId) {
+  async function ownLink(userId, eventId, context = {}) {
     return mutationTransaction(models.Event.sequelize, async (transaction) => {
       const event = await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
       const user = await models.User.findByPk(userId, { transaction });
       if (!event) throw notFound('Event');
+      if (context.assertAccess) await context.assertAccess(userId, transaction);
       if (!activeUser(user)) throw forbidden('An active account is required');
       await assertActiveEvent(models, event, transaction);
       if (event.status !== 'published' || eventFinished(event, now())) throw conflict('This event is not accepting referrals', 'REFERRALS_CLOSED');

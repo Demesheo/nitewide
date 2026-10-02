@@ -1,4 +1,4 @@
-const tabs = new Set(['discover', 'booked', 'saved', 'connections']);
+const tabs = new Set(['discover', 'booked', 'saved', 'connections', 'my-events']);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const booking = /^(purchase|guestlist):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function validDate(value) {
@@ -8,26 +8,35 @@ function validDate(value) {
 }
 export function parseCustomerRoute(search) {
   const params = new URLSearchParams(search);
-  const tab = params.get('tab');
+  const requestedTab = params.get('tab');
+  const tab = tabs.has(requestedTab) ? requestedTab : 'discover';
+  const operatorView = tab === 'my-events';
+  const page = Number(params.get('myPage'));
   return {
-    tab: tabs.has(tab) ? tab : 'discover',
-    eventId: uuid.test(params.get('event') || '') ? params.get('event') : null,
-    booking: booking.test(params.get('booking') || '') ? params.get('booking') : null,
-    city: (params.get('city') || '').slice(0, 120),
-    date: validDate(params.get('date')),
-    query: (params.get('q') || '').slice(0, 120),
-    shortcut: ['tonight', 'tomorrow', 'weekend'].includes(params.get('when')) ? params.get('when') : '',
+    tab,
+    eventId: !operatorView && uuid.test(params.get('event') || '') ? params.get('event') : null,
+    booking: !operatorView && booking.test(params.get('booking') || '') ? params.get('booking') : null,
+    city: operatorView ? '' : (params.get('city') || '').slice(0, 120),
+    date: operatorView ? '' : validDate(params.get('date')),
+    query: operatorView ? '' : (params.get('q') || '').slice(0, 120),
+    shortcut: !operatorView && ['tonight', 'tomorrow', 'weekend'].includes(params.get('when')) ? params.get('when') : '',
+    myEventId: operatorView && uuid.test(params.get('myEvent') || '') ? params.get('myEvent') : null,
+    myStatus: operatorView && params.get('myStatus') === 'past' ? 'past' : 'upcoming',
+    myPage: operatorView && Number.isSafeInteger(page) && page > 0 ? Math.min(page, 100000) : 1,
+    mySearch: operatorView ? (params.get('mySearch') || '').trim().slice(0, 120) : '',
   };
 }
 export function updateCustomerRoute(changes, { replace = false, eventEntry = false } = {}) {
   const url = new URL(window.location.href);
-  const fields = { tab: 'tab', eventId: 'event', booking: 'booking', city: 'city', date: 'date', query: 'q', shortcut: 'when' };
+  const fields = { tab: 'tab', eventId: 'event', booking: 'booking', city: 'city', date: 'date', query: 'q', shortcut: 'when', myEventId: 'myEvent', myStatus: 'myStatus', myPage: 'myPage', mySearch: 'mySearch' };
   for (const [field, param] of Object.entries(fields)) {
     if (!(field in changes)) continue;
     const value = changes[field];
-    if (value && !(field === 'tab' && value === 'discover')) url.searchParams.set(param, value);
+    if (value && !(field === 'tab' && value === 'discover') && !(field === 'myStatus' && value === 'upcoming') && !(field === 'myPage' && value === 1)) url.searchParams.set(param, value);
     else url.searchParams.delete(param);
   }
-  const state = { ...window.history.state, nitewideEventEntry: eventEntry, nitewideScrollY: eventEntry ? window.scrollY : 0 };
+  const operatorView = url.searchParams.get('tab') === 'my-events';
+  for (const param of operatorView ? ['event', 'booking', 'city', 'date', 'q', 'when', 'ref'] : ['myEvent', 'myStatus', 'myPage', 'mySearch']) url.searchParams.delete(param);
+  const state = { ...window.history.state, nitewideEventEntry: operatorView ? false : eventEntry, nitewideScrollY: eventEntry ? window.scrollY : 0 };
   window.history[replace ? 'replaceState' : 'pushState'](state, '', url);
 }

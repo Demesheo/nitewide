@@ -22,6 +22,11 @@ test('sensitive endpoint classification covers uploads, exports, invitations and
     ['POST', '/AUTH/SIGN-IN/', 'login'], ['HEAD', '/business/reports/export.csv', 'export'],
     ['POST', '/admin/management/team_invitations', 'invitation'],
     ['POST', '/admin/management/guestlist_invitations', 'invitation'],
+    ['GET', '/customer/my-events', 'report'], ['HEAD', '/customer/my-events/event-id', 'report'],
+    ['GET', '/customer/my-events/event-id/guestlist-page', 'report'],
+    ['GET', '/customer/my-events/event-id/guestlist-page/entry-id', 'report'],
+    ['GET', '/customer/my-events/access', null],
+    ['POST', '/customer/my-events/event-id/guestlist-invitations', 'invitation'],
   ]) assert.equal(routePolicy(method, path), group, path);
 });
 test('normalized accounts and IPs are independently charged without storing personal identifiers', async () => {

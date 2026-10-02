@@ -240,7 +240,9 @@ test('pending guest can edit party size and withdraw without an admission QR', a
   await expect(page.getByText('Pending review', { exact: true })).toBeVisible();
   await expect(page.getByRole('img', { name: /QR code for/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Edit spots' }).click();
-  await page.getByLabel('Spots', { exact: true }).fill('4');
+  await page.getByRole('button', { name: 'Increase guestlist spots', exact: true }).click();
+  await page.getByRole('button', { name: 'Increase guestlist spots', exact: true }).click();
+  await expect(page.getByRole('spinbutton', { name: 'Spots', exact: true })).toHaveAttribute('aria-valuenow', '4');
   await page.getByRole('button', { name: 'Save spots' }).click();
   await expect(page.getByText('4 guests', { exact: true })).toBeVisible();
   page.once('dialog', dialog => dialog.accept());

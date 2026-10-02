@@ -13,6 +13,7 @@ const adminSupport = require('./admin-support-schemas');
 const businessAccess = require('./business-access-schemas');
 const { venuePageSchema } = require('../services/business-venue-service');
 const payments = require('./payment-schemas');
+const { MAX_GUESTLIST_REQUEST_PARTY_SIZE } = require('../domain/guestlist-party-size');
 
 const uuid = z.uuid();
 const count = z.number().int().nonnegative();
@@ -50,6 +51,16 @@ const onboardingInvitation = z.object({ id: uuid, userId: uuid, email: z.email()
   delivery: z.enum(['queued','unavailable']).optional() });
 const envelope = (data) => z.object({ data });
 const error = z.object({ error: z.object({ code: z.string(), message: z.string(), requestId: z.string().optional(), details: z.json().optional() }) });
+const myEventCapabilities = z.object({ readOnly: z.boolean(), canShareReferral: z.boolean(), canInviteGuestlist: z.boolean(), canReviewGuestlist: z.boolean() });
+const personalEarnings = z.object({ currency: z.literal('USD'), earnedCommissionCents: count, demoCommissionCents: count,
+  sandboxCommissionCents: count, unverifiedCommissionCents: count, receivedPayouts: z.null(), payoutsTracked: z.literal(false) });
+const eventSummary = z.object({ salesCents: count, commissionCents: count, orders: count, customers: count,
+  admissions: count, checkedIn: count, guestlistPlaces: count });
+const myEvent = event.extend({ canManage: z.boolean(), capabilities: myEventCapabilities, scope: z.enum(['event', 'own']) });
+const guestlistRow = guest.extend({ eventId: uuid, userId: uuid.nullable(), eventAffiliateId: uuid.nullable(), source: z.string(),
+  createdAt: dateTime, reviewedAt: dateTime.nullable(), reviewNote: z.string().nullable(), checkedInAt: dateTime.nullable(),
+  guestName: z.string(), guestEmail: z.string().nullable(), guestPhone: z.string().nullable(), reviewerName: z.string().nullable(),
+  referrerName: z.string().nullable(), checkedInSpots: count, hasInvitation: z.boolean() });
 
 // Concrete shared wire models are executable with safeParse at HTTP boundaries.
 // Dynamic management resources retain JSON extension fields by design.
@@ -62,6 +73,7 @@ const queries = {
   '/events': z.union([publicQuery.discoveryQuery, publicQuery.legacyDiscoveryQuery]), '/events/batch': publicQuery.batchQuery,
   '/customer/bookings': domainQuery.bookings, '/customer/saved': domainQuery.saved, '/customer/saved/ids': domainQuery.savedIds,
   '/customer/connections': domainQuery.connections, '/customer/connections/summary': domainQuery.connectionPeople, '/customer/connections/people': domainQuery.connectionPeople,
+  '/customer/my-events': business.eventListQuery, '/customer/my-events/:eventId/guestlist-page': business.eventPageQuery,
   '/customer/events/:eventId/guestlist': domainQuery.guestlistStatus, '/notifications': domainQuery.notifications,
   '/business/admissions/events': domainQuery.admissions, '/business/admissions/events/:eventId': domainQuery.admissionsRoster,
   '/business/organizations/:organizationId/team-page': domainQuery.organizationTeam,
@@ -102,6 +114,16 @@ function paramsFor(path) {
 }
 
 function responseFor(method, path) {
+  if (path === '/customer/my-events/access') return z.object({ eligible: z.boolean() });
+  if (path === '/customer/my-events') return page(myEvent).extend({ counts: z.object({ upcoming: count, past: count, draft: count }) });
+  if (path === '/customer/my-events/:eventId') return z.object({ event, scope: z.enum(['event', 'own']), summary: eventSummary,
+    personalEarnings, capabilities: myEventCapabilities, tiers: z.array(record), teamSales: z.array(record), channels: z.array(record) });
+  if (path === '/customer/my-events/:eventId/guestlist-page') return page(guestlistRow);
+  if (path === '/customer/my-events/:eventId/guestlist-page/:entryId') return guestlistRow;
+  if (path === '/customer/my-events/:eventId/guestlist-invite-pools') return z.object({ direct: z.boolean(), open: z.boolean(),
+    own: z.array(z.object({ id: uuid, guestlistAllocation: count })) });
+  if (path === '/customer/my-events/:eventId/guestlist-invitations') return z.object({ invitation: z.object({ id: uuid,
+    name: z.string().nullable(), email: z.string().nullable(), phone: z.string().nullable(), partySize: count, status: z.string(), expiresAt: dateTime }), entryId: uuid, token: z.string() });
   if (path === '/business/organizations/:organizationId/payment-overview') return payments.paymentOverview;
   if (path === '/business/payments/earnings') return payments.paymentEarnings;
   if (path === '/customer/payment-config') return payments.paymentConfiguration;
@@ -153,7 +175,7 @@ function responseFor(method, path) {
   if (path === '/customer/saved/:eventId') return z.object({ saved: z.boolean() });
   if (path === '/customer/guestlists/:entryId' && method === 'delete') return z.object({ withdrawn: z.literal(true) });
   if (path === '/customer/guestlists/:entryId') return z.object({ entry: guest });
-  if (path === '/customer/events/:eventId/guestlist') return z.object({ entry: guest.nullable(), maxPartySize: count, requestsOpen: z.boolean() });
+  if (path === '/customer/events/:eventId/guestlist') return z.object({ entry: guest.nullable(), maxPartySize: z.literal(MAX_GUESTLIST_REQUEST_PARTY_SIZE), requestsOpen: z.boolean() });
   if (path === '/business/admissions/events') return page(admissionEvent).extend({ serverTime: dateTime, nextEvent: admissionEvent.nullable() });
   if (path === '/business/admissions/events/:eventId') return z.object({ total: count, expected: count, admitted: count,
     entries: z.array(z.object({ id: uuid, kind: z.enum(['ticket', 'guestlist', 'guestlist_pass']), name: z.string(), email: z.email().nullable(), spots: count, status: z.string() }).catchall(z.json())), page: count, pageSize: count, serverTime: dateTime });

@@ -16,6 +16,7 @@ import { MobileTableSort } from './MobileTableSort';
 import { LoadingState } from './LoadingState';
 import { searchRows } from '@/lib/table-search';
 import { allocationInputIsReadOnly, closeOtherAllocationEditors, focusAllocationInput, normalizeAllocationInput } from '@/lib/guestlist-allocation';
+import { GuestlistApprovalQuantity } from './GuestlistApprovalQuantity';
 
 const guestColumns = [['guestName', 'Guest'], ['partyValue', 'Spots'], ['sourceValue', 'Source'], ['requestedValue', 'Request'], ['status', 'Status']].map(([key, label]) => ({ key, label }));
 
@@ -32,6 +33,8 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
   const [activeEntryId, setActiveEntryId] = useState(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmDecline, setConfirmDecline] = useState(false);
+  const [approvalDraft, setApprovalDraft] = useState(null);
+  const decisionPendingRef = useRef(false);
   const entryTriggerRef = useRef(null);
   const initialEntryHandledRef = useRef(false);
   const entriesEventRef = useRef(null);
@@ -48,6 +51,9 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
   const pendingOnly = statuses.length === 1 && statuses[0] === 'pending';
   const [linkedEntry, setLinkedEntry] = useState(null);
   const activeEntry = entries.find((entry) => entry.id === activeEntryId) || (linkedEntry?.id === activeEntryId ? linkedEntry : null);
+  const canReviewEntry = selected.canReviewGuestlist !== false;
+  const approvalDraftKey = activeEntry ? `${eventId}:${activeEntry.id}:${activeEntry.status}:${activeEntry.partySize}:${activeEntry.reviewedAt || ''}` : null;
+  const approvalPartySize = approvalDraft?.key === approvalDraftKey ? approvalDraft.value : Math.min(20, Math.max(1, Number(activeEntry?.partySize) || 1));
   useEffect(() => {
     if (!initialEntryHandledRef.current && initialEntryId && entries.some((entry) => entry.id === initialEntryId)) {
       initialEntryHandledRef.current = true;
@@ -79,6 +85,9 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
     setStatuses((current) => current.every((status) => allowed.has(status)) ? current : current.filter((status) => allowed.has(status)));
   }, [selected?.startsAt, currentTime]);
   async function decide(id, decision) {
+    if (busy || decisionPendingRef.current || !canReviewEntry || activeEntry?.id !== id) return;
+    const partySize = activeEntry.status === 'pending' ? approvalPartySize : activeEntry.partySize;
+    decisionPendingRef.current = true;
     setBusy(true);
     setError("");
     setNotice("");
@@ -86,22 +95,24 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
       await api(
         `/business/events/${eventId}/guestlist/${id}/decision`,
         session,
-        { method: "POST", body: JSON.stringify({ decision }) },
+        { method: "POST", body: JSON.stringify({ decision, ...(decision === 'approve' && activeEntry.status === 'pending' ? { partySize } : {}) }) },
       );
       setNotice(
         decision === "approve"
-          ? "Request approved. Admission credential created."
+          ? `Request approved for ${partySize} ${partySize === 1 ? 'spot' : 'spots'}. Admission credential created.`
           : decision === 'cancel' ? 'Approval revoked. The guestlist space is available again.' : "Request declined.",
       );
       setActiveEntryId(null);
       setConfirmCancel(false);
       setConfirmDecline(false);
+      setApprovalDraft(null);
       setRevision((v) => v + 1);
       onChanged?.();
     } catch (e) {
       if (e.status === 401) expire();
       else setError(e.message);
     } finally {
+      decisionPendingRef.current = false;
       setBusy(false);
     }
   }
@@ -167,8 +178,8 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
   }
   return (
     <>
-      <Dialog open={Boolean(activeEntry)} onOpenChange={(open) => { if (!open) { setActiveEntryId(null); setConfirmCancel(false); setConfirmDecline(false); setError(''); } }}>
-        {activeEntry && <DialogContent className="team-member-dialog guestlist-detail-dialog sm:max-w-xl max-h-[90vh] overflow-y-auto" onCloseAutoFocus={(event) => { event.preventDefault(); entryTriggerRef.current?.focus(); }}>
+      <Dialog open={Boolean(activeEntry)} onOpenChange={(open) => { if (!open && !busy && !decisionPendingRef.current) { setActiveEntryId(null); setConfirmCancel(false); setConfirmDecline(false); setApprovalDraft(null); setError(''); } }}>
+        {activeEntry && <DialogContent className="team-member-dialog guestlist-detail-dialog sm:max-w-xl max-h-[90vh] overflow-y-auto" showCloseButton={!busy} onEscapeKeyDown={(event) => { if (busy || decisionPendingRef.current) event.preventDefault(); }} onPointerDownOutside={(event) => { if (busy || decisionPendingRef.current) event.preventDefault(); }} onCloseAutoFocus={(event) => { event.preventDefault(); entryTriggerRef.current?.focus(); }}>
           <DialogHeader>
             <span className="eyebrow">GUESTLIST REQUEST</span>
             <DialogTitle>{activeEntry.user?.displayName || 'Guest'}</DialogTitle>
@@ -177,7 +188,7 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
           </DialogHeader>
           <dl className="guestlist-detail-grid">
             <div><dt>Status</dt><dd><span className="status-pill guestlist-status" data-guestlist-status={activeEntry.status}>{guestlistStatuses.find((item) => item.id === activeEntry.status)?.label || activeEntry.status}</span></dd></div>
-            <div><dt>Spots</dt><dd>{activeEntry.partySize}{activeEntry.checkedInSpots > 0 ? ` · ${activeEntry.checkedInSpots} admitted` : ''}</dd></div>
+            <div><dt>{activeEntry.status === 'pending' ? 'Requested spots' : 'Spots'}</dt><dd>{activeEntry.partySize}{activeEntry.checkedInSpots > 0 ? ` · ${activeEntry.checkedInSpots} admitted` : ''}</dd></div>
             <div><dt>Source</dt><dd>{activeEntry.source === 'affiliate' ? `Referred by ${activeEntry.eventAffiliate?.user?.displayName || 'Unknown referrer'}` : 'Direct'}</dd></div>
             {activeEntry.user?.phone && <div><dt>Phone</dt><dd>{activeEntry.user.phone}</dd></div>}
             <div><dt>Requested</dt><dd>{new Date(activeEntry.createdAt).toLocaleString()}</dd></div>
@@ -186,19 +197,22 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
             {activeEntry.reviewNote && <div><dt>Review note</dt><dd>{activeEntry.reviewNote}</dd></div>}
             {activeEntry.checkedInAt && <div><dt>Checked in</dt><dd>{new Date(activeEntry.checkedInAt).toLocaleString()}</dd></div>}
           </dl>
+          {activeEntry.status === 'pending' && canReviewEntry && <div className="guestlist-approval-row"><div className="guestlist-approval-label">Approved spots<small>{approvalPartySize} {approvalPartySize === 1 ? 'entry pass' : 'entry passes'} on approval</small></div><GuestlistApprovalQuantity value={approvalPartySize} disabled={busy || confirmDecline} onChange={(value) => setApprovalDraft({ key: approvalDraftKey, value })}/></div>}
           {error && <p className="error" role="alert">{error}</p>}
           {confirmDecline && <p className="guestlist-cancel-warning">Decline this guestlist request? The guest will be notified and no entry credential will be issued.</p>}
           {confirmCancel && <p className="guestlist-cancel-warning">Revoking approval invalidates this guest’s entry credential and releases {activeEntry.partySize} {activeEntry.partySize === 1 ? 'place' : 'places'} from the {activeEntry.source === 'affiliate' ? 'referrer' : 'venue'} guestlist. You can approve this request again later if space is available.</p>}
           <DialogFooter className="guestlist-detail-actions">
             <DialogClose asChild><Button className="guestlist-dialog-close" variant="outline" disabled={busy}>Close</Button></DialogClose>
-            {canCopy(activeEntry) && <Button variant="outline" disabled={Boolean(copyingId)} onClick={() => copyInvitation(activeEntry)}><Copy aria-hidden="true"/>{copyingId === activeEntry.id ? 'Copying…' : 'Copy link'}</Button>}
+            {canCopy(activeEntry) && <Button variant="outline" disabled={busy || Boolean(copyingId)} onClick={() => copyInvitation(activeEntry)}><Copy aria-hidden="true"/>{copyingId === activeEntry.id ? 'Copying…' : 'Copy link'}</Button>}
+            {canReviewEntry && <>
             {activeEntry.status === 'pending' && (confirmDecline
               ? <><Button variant="outline" disabled={busy} onClick={() => setConfirmDecline(false)}>Keep request</Button><Button variant="destructive" disabled={busy} onClick={() => decide(activeEntry.id, 'reject')}>Confirm decline</Button></>
               : <><Button variant="outline" disabled={busy} onClick={() => setConfirmDecline(true)}><X /> Decline</Button><Button disabled={busy} onClick={() => decide(activeEntry.id, 'approve')}><Check /> Approve</Button></>)}
             {activeEntry.status === 'rejected' && <Button disabled={busy} onClick={() => decide(activeEntry.id, 'approve')}><Check /> Approve</Button>}
-            {activeEntry.status === 'confirmed' && !activeEntry.checkedInAt && (confirmCancel
+            {activeEntry.status === 'confirmed' && !activeEntry.checkedInAt && !(activeEntry.checkedInSpots > 0) && (confirmCancel
               ? <><Button variant="outline" disabled={busy} onClick={() => setConfirmCancel(false)}>Keep approval</Button><Button variant="destructive" disabled={busy} onClick={() => decide(activeEntry.id, 'cancel')}>Confirm revocation</Button></>
               : <Button variant="destructive" disabled={busy} onClick={() => setConfirmCancel(true)}>Revoke approval</Button>)}
+            </>}
           </DialogFooter>
         </DialogContent>}
       </Dialog>
@@ -259,7 +273,7 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
                 {pager.rows.map((entry) => (
                   <tr key={entry.id}>
                     <td data-label="Guest">
-                      <button type="button" className="guestlist-guest-link" onClick={(event) => { entryTriggerRef.current = event.currentTarget; setError(''); setConfirmCancel(false); setActiveEntryId(entry.id); }}>{entry.user?.displayName || 'Guest'}</button>
+                      <button type="button" className="guestlist-guest-link" onClick={(event) => { if (busy || decisionPendingRef.current) return; entryTriggerRef.current = event.currentTarget; setError(''); setConfirmCancel(false); setConfirmDecline(false); setApprovalDraft(null); setActiveEntryId(entry.id); }}>{entry.user?.displayName || 'Guest'}</button>
                       <span className="guestlist-mobile-status status-pill guestlist-status" data-guestlist-status={entry.status}>{guestlistStatuses.find((item) => item.id === entry.status)?.label || entry.status.replaceAll('_', ' ')}</span>
                     </td>
                     <td data-label="Spots">{entry.partySize}{entry.checkedInSpots > 0 && <small className="block">{entry.checkedInSpots} admitted</small>}</td>

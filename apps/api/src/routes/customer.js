@@ -20,7 +20,7 @@ function registerCustomerRoutes({ router, commerceController, paymentController,
   router.get('/customer/purchases/:id/tickets', asyncHandler(async (req, res) => res.json({ data: await account.purchaseTickets(req.userId, z.string().uuid().parse(req.params.id)) })));
   router.get('/customer/guestlists/:id/pass', asyncHandler(async (req, res) => res.json({ data: await account.guestlistPass(req.userId, z.string().uuid().parse(req.params.id)) })));
   router.get('/customer/events/:eventId/guestlist', asyncHandler(async (req, res) => res.json({ data: await account.guestlistStatus(req.userId, z.uuid().parse(req.params.eventId), querySchemas.guestlistStatus.parse(req.query)) })));
-  router.patch('/customer/guestlists/:entryId', validate(z.object({ partySize: z.number().int().min(1).max(20) }).strict()), asyncHandler(async (req, res) => res.json({ data: await account.updatePendingGuestlist(req.userId, z.uuid().parse(req.params.entryId), req.body.partySize) })));
+  router.patch('/customer/guestlists/:entryId', validate(schemas.guestlistPendingUpdate), asyncHandler(async (req, res) => res.json({ data: await account.updatePendingGuestlist(req.userId, z.uuid().parse(req.params.entryId), req.body.partySize) })));
   router.delete('/customer/guestlists/:entryId', asyncHandler(async (req, res) => res.json({ data: await account.withdrawPendingGuestlist(req.userId, z.uuid().parse(req.params.entryId)) })));
   router.get('/customer/connections', asyncHandler(async (req, res) => {
     const query = querySchemas.connections.parse(req.query);

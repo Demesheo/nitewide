@@ -2,6 +2,7 @@ const { test, expect, login, businessSection, expectNoOverflow } = require('../f
 const { expectBrandImage, expectBrandIcons } = require('../brand-checks.cjs');
 const QRCode = require('qrcode');
 const { urls } = require('../environment.cjs');
+const { requestFiveSpots, expectFourApprovedPasses } = require('../guestlist-quantity.cjs');
 const { checkPasswordVisibility, checkOnboardingPasswords } = require('../password-visibility.cjs');
 
 test('approved brand logo and favicon stay readable on business landing, sign in and workspace', async ({ page, fixture }) => {
@@ -262,6 +263,31 @@ test('overview charts switch categories and team pagination uses the backend', a
   await expect(pager).toContainText('Page 2');
   await pager.getByRole('button', { name: 'Previous' }).click();
   await expect(pager).toContainText('Page 1');
+});
+
+test('business reviewer adjusts a five-spot request to four separate passes and a matching notification', async ({ page, browser, request, fixture }, testInfo) => {
+  const customer = await requestFiveSpots({ browser, page, request, fixture, testInfo });
+  try {
+    await eventDetails(page, fixture);
+    await page.getByRole('tab', { name: 'Guestlist', exact: true }).click();
+    await page.getByRole('button', { name: 'Pending Guest', exact: true }).click();
+    const details = page.getByRole('dialog', { name: 'Pending Guest', exact: true });
+    const spots = details.getByRole('spinbutton', { name: 'Approved spots', exact: true });
+    await expect(spots).toHaveAttribute('aria-valuenow', '5');
+    await details.getByRole('button', { name: 'Decrease approved spots', exact: true }).click();
+    await expect(spots).toHaveAttribute('aria-valuenow', '4');
+    await expectNoOverflow(page);
+    const screenshot = testInfo.outputPath('business-adjust-approval.png');
+    await page.screenshot({ path: screenshot, animations: 'disabled' });
+    await testInfo.attach('business-adjust-approval', { path: screenshot, contentType: 'image/png' });
+    const reviewed = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith(`/guestlist/${customer.entry.id}/decision`));
+    await details.getByRole('button', { name: 'Approve', exact: true }).click();
+    const response = await reviewed;
+    expect(response.ok()).toBeTruthy();
+    expect(response.request().postDataJSON()).toMatchObject({ decision: 'approve', partySize: 4 });
+    await expect(details).toHaveCount(0);
+    await expectFourApprovedPasses(customer, fixture, testInfo);
+  } finally { await customer.context.close(); }
 });
 
 test('manager personal invitation opens four account-free individual passes and can be copied again', async ({ page, context, fixture }, testInfo) => {

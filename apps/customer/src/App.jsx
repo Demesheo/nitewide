@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   ArrowRight,
@@ -42,6 +42,9 @@ import { Notifications } from "./components/notifications";
 import { notificationTarget, loadNotificationBooking } from './lib/notification-target';
 import { AccountDialog, initials } from './components/account-dialog';
 import { ConnectionsPage } from './components/connections-page';
+import { MyEventsAccessState } from './components/my-events-access-state';
+import { useMyEventsAccess } from './lib/use-my-events-access';
+import './components/my-events-navigation.css';
 import { EventConnectionPicker } from './components/event-connection-picker';
 import { useConnections } from './lib/use-connections';
 import { focusEventDialogStart, openEventDialogAtTop } from './lib/dialog-focus';
@@ -56,6 +59,8 @@ import { parseCustomerRoute, updateCustomerRoute } from './lib/customer-route';
 import { mapsUrlForLocation } from './lib/maps-link';
 import { clearPassCache } from './lib/pass-cache';
 import { GuestlistInvitationPage } from './components/guestlist-invitation-page';
+import { GuestlistQuantity } from './components/guestlist-quantity';
+import { customerGuestlistMaxPartySize, customerGuestlistPartyLimit, validGuestlistPartySize } from './lib/guestlist-quantity';
 import brandLogo from './assets/nitewide-logo-v1.png';
 import { isPremiumHost } from './lib/premium-host';
 import {
@@ -76,6 +81,7 @@ const calendarLabel = (date) =>
     year: "numeric",
   });
 const StripeCheckout = lazy(() => import('./components/stripe-checkout'));
+const MyEventsPage = lazy(() => import('./components/my-events-page').then(module => ({ default: module.MyEventsPage })));
 const Brand = () => (
   <a href="/" aria-label="Nitewide home" className="brand">
     <img className="brand-logo" src={brandLogo} alt="" aria-hidden="true" width="192" height="192" decoding="async" draggable="false" />
@@ -112,6 +118,27 @@ function CustomerApp() {
     [walletOpen, setWalletOpen] = useState(false);
   const [notificationBooking, setNotificationBooking] = useState(null);
   const [bookingRoute, setBookingRoute] = useState(initialRoute.booking);
+  const [myEventsRoute, setMyEventsRoute] = useState({ myEventId: initialRoute.myEventId, myStatus: initialRoute.myStatus, myPage: initialRoute.myPage, mySearch: initialRoute.mySearch });
+  const myEventsAccess = useMyEventsAccess(session, view === 'my-events');
+  const hasMyEvents = Boolean(session && myEventsAccess.eligible);
+  const handleMyEventsUnauthorized = useCallback((error) => {
+    setMyEventsRoute(current => ({ ...current, myEventId: null }));
+    if (parseCustomerRoute(window.location.search).tab === 'my-events') updateCustomerRoute({ myEventId: null }, { replace: true });
+    myEventsAccess.invalidate();
+    if (error?.status === 401) {
+      if (session?.user?.id) clearPassCache(session.user.id);
+      writeStorage('nitewide.session', null);
+      setSession(null);
+    }
+  }, [myEventsAccess.invalidate, session?.user?.id]);
+  const previousMyEventsSession = useRef(session?.accessToken);
+  useEffect(() => {
+    if (previousMyEventsSession.current && !session?.accessToken) {
+      setMyEventsRoute(current => ({ ...current, myEventId: null }));
+      if (parseCustomerRoute(window.location.search).tab === 'my-events') updateCustomerRoute({ myEventId: null }, { replace: true });
+    }
+    previousMyEventsSession.current = session?.accessToken;
+  }, [session?.accessToken]);
   const [passwordResetToken, setPasswordResetToken] = useState(() => new URLSearchParams(window.location.search).get('resetPassword'));
   const [onboardingToken, setOnboardingToken] = useState(() => new URLSearchParams(window.location.search).get('onboarding'));
   useEffect(() => {
@@ -144,6 +171,13 @@ function CustomerApp() {
       .catch(() => setNotice('This booking is unavailable. Check your Booked list or sign in with the account used to book.'));
   }, [session?.accessToken]);
   async function openNotification(item) {
+    if (['guestlist_request', 'referral_purchase'].includes(item.kind) && item.eventId) {
+      const next = { myEventId: item.eventId, myStatus: 'upcoming', myPage: 1, mySearch: '' };
+      rememberScroll(); setSelected(null); setWalletOpen(false); setBookingRoute(null); setView('my-events'); setMyEventsRoute(next);
+      updateCustomerRoute({ tab: 'my-events', ...next });
+      window.scrollTo({ top: 0 });
+      return false;
+    }
     const target = notificationTarget(item);
     if (target?.type === 'checkout') {
       if (!target.id) throw new Error('This purchase reminder no longer has a linked checkout.');
@@ -204,7 +238,8 @@ function CustomerApp() {
     [guestError, setGuestError] = useState("");
   const [guestEntry, setGuestEntry] = useState(null);
   const [guestPartySize, setGuestPartySize] = useState(1);
-  const [guestMaxPartySize, setGuestMaxPartySize] = useState(20);
+  const [guestMaxPartySize, setGuestMaxPartySize] = useState(customerGuestlistMaxPartySize);
+  const guestRequestLock = useRef(false);
   const [guestRequestsOpen, setGuestRequestsOpen] = useState(true);
   const [guestStatusLoading, setGuestStatusLoading] = useState(false);
   const [notice, setNotice] = useState("");
@@ -222,7 +257,9 @@ function CustomerApp() {
     setView(next);
     setSelected(null);
     setBookingRoute(null);
-    updateCustomerRoute({ tab: next, eventId: null, booking: null }, { replace });
+    const operatorRoute = { myEventId: null, myStatus: 'upcoming', myPage: 1, mySearch: '' };
+    setMyEventsRoute(operatorRoute);
+    updateCustomerRoute({ tab: next, eventId: null, booking: null, ...(next === 'my-events' ? operatorRoute : {}), ...(next === 'discover' ? submitted : {}) }, { replace });
     if (next === 'discover') requestAnimationFrame(() => document.getElementById('discover')?.scrollIntoView({ behavior: 'smooth' }));
     else window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -239,9 +276,12 @@ function CustomerApp() {
       if (checkoutLock.current) return;
       const route = parseCustomerRoute(window.location.search);
       setView(route.tab);
-      setCity(route.city); setDate(route.date); setQuery(route.query); setShortcut(route.shortcut);
-      setSubmitted({ city: route.city, date: route.date, query: route.query, shortcut: route.shortcut });
+      if (route.tab !== 'my-events') {
+        setCity(route.city); setDate(route.date); setQuery(route.query); setShortcut(route.shortcut);
+        setSubmitted({ city: route.city, date: route.date, query: route.query, shortcut: route.shortcut });
+      }
       setBookingRoute(route.booking);
+      setMyEventsRoute({ myEventId: route.myEventId, myStatus: route.myStatus, myPage: route.myPage, mySearch: route.mySearch });
       requestAnimationFrame(() => window.scrollTo({ top: window.history.state?.nitewideScrollY || 0 }));
       if (!route.eventId) { setSelected(null); return; }
       api(`/events/${encodeURIComponent(route.eventId)}`)
@@ -256,7 +296,7 @@ function CustomerApp() {
   }, [selected?.id]);
   const [locationState, setLocationState] = useState("finding");
   useEffect(() => {
-    if (!selected?.id || !session?.accessToken) { setGuestEntry(null); setGuestState(''); setGuestStatusLoading(false); return; }
+    if (!selected?.id || !session?.accessToken) { setGuestEntry(null); setGuestState(''); setGuestPartySize(1); setGuestMaxPartySize(customerGuestlistMaxPartySize); setGuestRequestsOpen(true); setGuestStatusLoading(false); return; }
     const controller = new AbortController();
     setGuestStatusLoading(true);
     api(`/customer/events/${encodeURIComponent(selected.id)}/guestlist${referralCodeForEvent(referral, selected.id) ? `?affiliateCode=${encodeURIComponent(referralCodeForEvent(referral, selected.id))}` : ''}`, { token: session.accessToken, signal: controller.signal })
@@ -265,7 +305,7 @@ function CustomerApp() {
         setGuestEntry(entry);
         setGuestState(entry?.status || '');
         setGuestPartySize(entry?.partySize || 1);
-        setGuestMaxPartySize(Math.max(1, Math.min(20, maxPartySize || 1)));
+        setGuestMaxPartySize(customerGuestlistPartyLimit(maxPartySize));
         setGuestRequestsOpen(Boolean(requestsOpen));
       })
       .catch((error) => { if (!controller.signal.aborted) setGuestError(`Couldn’t check your guestlist status: ${error.message}`); })
@@ -373,27 +413,32 @@ function CustomerApp() {
     setGuestState("");
     setGuestEntry(null);
     setGuestPartySize(1);
+    setGuestMaxPartySize(customerGuestlistMaxPartySize);
+    setGuestRequestsOpen(true);
     setGuestError("");
   }
   async function changeGuestPartySize(event) {
     event.preventDefault();
-    if (!guestEntry?.id || guestState !== 'pending') return;
+    if (guestRequestLock.current || guestBusy || guestStatusLoading || !guestEntry?.id || guestState !== 'pending') return;
+    if (!validGuestlistPartySize(guestPartySize, guestMaxPartySize)) { setGuestError(`Choose between 1 and ${guestMaxPartySize} guests to update your request.`); return; }
+    guestRequestLock.current = true;
     setGuestBusy(true); setGuestError('');
     try {
       const result = await api(`/customer/guestlists/${guestEntry.id}`, { token: session.accessToken, method: 'PATCH', body: { partySize: Number(guestPartySize) } });
       setGuestEntry(result.entry);
       setNotice('Guestlist party size updated.');
     } catch (error) { setGuestError(error.message); }
-    finally { setGuestBusy(false); }
+    finally { guestRequestLock.current = false; setGuestBusy(false); }
   }
   async function withdrawGuestRequest() {
-    if (!guestEntry?.id || guestState !== 'pending' || !window.confirm('Withdraw this pending guestlist request?')) return;
+    if (guestRequestLock.current || guestBusy || guestStatusLoading || !guestEntry?.id || guestState !== 'pending' || !window.confirm('Withdraw this pending guestlist request?')) return;
+    guestRequestLock.current = true;
     setGuestBusy(true); setGuestError('');
     try {
       await api(`/customer/guestlists/${guestEntry.id}`, { token: session.accessToken, method: 'DELETE' });
       setGuestEntry(null); setGuestState(''); setGuestPartySize(1); setNotice('Guestlist request withdrawn.'); refreshConnections();
     } catch (error) { setGuestError(error.message); }
-    finally { setGuestBusy(false); }
+    finally { guestRequestLock.current = false; setGuestBusy(false); }
   }
   function closeEvent() {
     if (window.history.state?.nitewideEventEntry) window.history.back();
@@ -650,10 +695,14 @@ function CustomerApp() {
     finally { checkoutLock.current = false; setDemoBusy(false); }
   }
   async function requestGuestlist() {
+    if (guestRequestLock.current || guestBusy || referralBusy || guestStatusLoading || !selected) return;
     if (!session) {
       setAuthOpen(true);
       return;
     }
+    if (!guestRequestsOpen) return;
+    if (!validGuestlistPartySize(guestPartySize, guestMaxPartySize)) { setGuestError(`Choose between 1 and ${guestMaxPartySize} guests.`); return; }
+    guestRequestLock.current = true;
     setGuestBusy(true);
     setGuestError("");
     try {
@@ -677,6 +726,7 @@ function CustomerApp() {
           : error.message,
       );
     } finally {
+      guestRequestLock.current = false;
       setGuestBusy(false);
     }
   }
@@ -709,13 +759,13 @@ function CustomerApp() {
   return (
     <>
       <PasswordResetDialog token={passwordResetToken} onClose={clearResetToken} onSuccess={() => { clearResetToken(); setNotice('Password updated. Sign in with your new password.'); setAuthOpen(true); }} />
-      <a className="skip-link" href="#discover">
+      <a className="skip-link" href={`#${view === 'my-events' ? 'my-events' : view === 'connections' ? 'connections' : view === 'booked' ? 'booked' : view === 'saved' ? 'saved' : 'discover'}`}>
         Skip to events
       </a>
-      <header className="site-header">
+      <header className="site-header" data-operator-nav={hasMyEvents}>
         <div className="header-inner">
           <Brand />
-          <nav aria-label="Main navigation" data-view={view} data-connections={hasConnections}>
+          <nav aria-label="Main navigation" data-view={view} data-connections={hasConnections} data-my-events={hasMyEvents} style={{ '--tab-count': 3 + Number(hasConnections) + Number(hasMyEvents), '--tab-index': view === 'booked' ? 1 : view === 'saved' ? 2 : view === 'connections' ? 3 : view === 'my-events' ? 3 + Number(hasConnections) : 0 }}>
             <button
               className={view === "discover" ? "active" : ""}
               aria-current={view === 'discover' ? 'page' : undefined}
@@ -736,6 +786,7 @@ function CustomerApp() {
               Saved
             </button>
             {hasConnections && <button className={view === 'connections' ? 'active' : ''} aria-current={view === 'connections' ? 'page' : undefined} onClick={() => navigateView('connections')}>Connections</button>}
+            {hasMyEvents && <button className={view === 'my-events' ? 'active' : ''} aria-current={view === 'my-events' ? 'page' : undefined} onClick={() => navigateView('my-events')}>My events</button>}
           </nav>
           <div className="header-actions">
             {session ? (
@@ -754,6 +805,14 @@ function CustomerApp() {
           </div>
         </div>
       </header>
+      {view === 'my-events' && (session && myEventsAccess.eligible ? <Suspense fallback={<main className="booked-page wrap" id="my-events"><LoadingIndicator>Opening your events…</LoadingIndicator></main>}><MyEventsPage key={session.accessToken} session={session} access={myEventsAccess} route={myEventsRoute} onRouteChange={(next) => {
+        rememberScroll();
+        setMyEventsRoute(next);
+        setSelected(null);
+        setBookingRoute(null);
+        updateCustomerRoute({ tab: 'my-events', ...next });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }} onUnauthorized={handleMyEventsUnauthorized} onSignIn={() => setAuthOpen(true)} onDiscover={() => navigateView('discover')} /></Suspense> : <MyEventsAccessState session={session} access={myEventsAccess} onSignIn={() => setAuthOpen(true)} onDiscover={() => navigateView('discover')} />)}
       {view === 'connections' && hasConnections && <ConnectionsPage key={session.user.id} session={session} history={connectionsHistory} saved={saved} onSave={save} onReferral={openConnection} onRefresh={refreshConnections} onVisible={savedCollection.checkVisible} />}
       {view === 'booked' && <main className="booked-page wrap" id="booked">
         <div className="booked-page-heading"><p className="eyebrow">YOUR NEXT NIGHT STARTS HERE</p><h1>Booked.</h1><p>Your tickets and guest list entries, all in one place.</p></div>
@@ -1077,7 +1136,7 @@ function CustomerApp() {
                   <div className="guestlist-panel">
                     <Users />
                     <h3>{guestState === 'pending' ? 'Awaiting host approval.' : guestState === 'confirmed' || guestState === 'checked_in' ? 'You’re on the guestlist.' : guestState === 'rejected' ? 'Request declined.' : 'Get on the guestlist.'}</h3>
-                    <p>{guestState === 'pending' ? 'Your request is pending. Entry is confirmed only after the host approves it.' : guestState === 'confirmed' ? 'Your entry is approved. Open your pass in Booked.' : guestState === 'checked_in' ? 'Your party has checked in.' : guestState === 'rejected' ? 'The host declined this request. Your Booked history keeps the result.' : 'Choose 1–20 guests, including yourself. The host reviews your request before entry is confirmed.'}</p>
+                    <p>{guestState === 'pending' ? 'Your request is pending. Entry is confirmed only after the host approves it.' : guestState === 'confirmed' ? 'Your entry is approved. Open your pass in Booked.' : guestState === 'checked_in' ? 'Your party has checked in.' : guestState === 'rejected' ? 'The host declined this request. Your Booked history keeps the result.' : 'Choose 1–5 guests, including yourself. The host reviews your request before entry is confirmed.'}</p>
                     {guestError && (
                       <p className="error-message" role="alert">
                         {guestError}
@@ -1087,9 +1146,9 @@ function CustomerApp() {
                     {guestStatusLoading && <LoadingIndicator>Checking your request…</LoadingIndicator>}
                     {guestEntry && <p className="guestlist-entry-summary">{guestEntry.partySize} {guestEntry.partySize === 1 ? 'guest' : 'guests'} · {guestState === 'pending' ? 'Pending' : guestState === 'confirmed' ? 'Approved' : guestState === 'rejected' ? 'Declined' : guestState === 'checked_in' ? 'Checked in' : guestState.replace('_', ' ')}</p>}
                     {(!guestEntry || guestState === 'pending') && <form className="guestlist-party-form" onSubmit={guestEntry ? changeGuestPartySize : (event) => { event.preventDefault(); requestGuestlist(); }}>
-                      <label htmlFor="guest-party-size">Party size, including you</label>
-                      <select id="guest-party-size" value={guestPartySize} disabled={guestBusy || guestStatusLoading} onChange={(event) => setGuestPartySize(Number(event.target.value))}>{Array.from({ length: guestEntry ? 20 : Math.max(1, Math.min(20, session ? guestMaxPartySize : 20)) }, (_, index) => index + 1).map((size) => <option key={size} value={size}>{size} {size === 1 ? 'guest' : 'guests'}</option>)}</select>
-                      <Button type="submit" disabled={guestBusy || referralBusy || guestStatusLoading || (!guestEntry && session && !guestRequestsOpen) || (guestEntry && guestPartySize === guestEntry.partySize)}>{guestBusy ? 'Updating…' : guestEntry ? 'Update party size' : session ? guestRequestsOpen ? 'Request guestlist approval' : 'Guestlist requests closed' : 'Sign in to request'}</Button>
+                      <GuestlistQuantity id="guest-party-size" label="Party size, including you" value={guestPartySize} max={session ? guestMaxPartySize : customerGuestlistMaxPartySize} disabled={guestBusy || referralBusy || guestStatusLoading} onChange={setGuestPartySize} describedBy={guestPartySize > guestMaxPartySize ? 'guest-party-size-help' : undefined} />
+                      {guestPartySize > guestMaxPartySize && <p id="guest-party-size-help" className="guestlist-quantity-help">Your existing request is for {guestEntry?.partySize || guestPartySize} guests. Reduce the party size to {guestMaxPartySize} or fewer to update it.</p>}
+                      <Button type="submit" disabled={guestBusy || referralBusy || guestStatusLoading || !validGuestlistPartySize(guestPartySize, session ? guestMaxPartySize : customerGuestlistMaxPartySize) || (!guestEntry && session && !guestRequestsOpen) || (guestEntry && guestPartySize === guestEntry.partySize)}>{guestBusy ? 'Updating…' : guestEntry ? 'Update party size' : session ? guestRequestsOpen ? 'Request guestlist approval' : 'Guestlist requests closed' : 'Sign in to request'}</Button>
                     </form>}
                     {guestState === 'pending' && <Button variant="ghost" disabled={guestBusy} onClick={withdrawGuestRequest}>Withdraw request</Button>}
                     {guestEntry && <Button variant="outline" onClick={() => openGuestlistEntry(guestEntry.id)}>View entry in Booked</Button>}

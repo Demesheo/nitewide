@@ -9,10 +9,13 @@ const { assertActiveUser, assertActiveEvent } = require('./lifecycle-service');
 const { mutationTransaction } = require('./mutation-transaction');
 const { createPermissionService } = require('./permission-service');
 const { forbidden } = require('../domain/errors');
+const { MAX_GUESTLIST_REQUEST_PARTY_SIZE, MAX_GUESTLIST_APPROVAL_PARTY_SIZE, assertGuestlistPartySize } = require('../domain/guestlist-party-size');
+const { reconcileGuestlistPasses } = require('./guestlist-pass-service');
 
 function createGuestlistService({ sequelize, models, permissions = createPermissionService(models), now = () => new Date(), email = null, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', reviewEmailsEnabled = false }) {
   const notifications = createNotificationService(models);
   async function request(input, context = {}) {
+    assertGuestlistPartySize(input.partySize, MAX_GUESTLIST_REQUEST_PARTY_SIZE);
     return mutationTransaction(sequelize, async (transaction) => {
       const event = await models.Event.findByPk(input.eventId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!event) throw notFound('Event');
@@ -51,15 +54,21 @@ function createGuestlistService({ sequelize, models, permissions = createPermiss
   }
 
   async function review(input, context = {}) {
+    if (!['approve', 'reject', 'cancel'].includes(input.decision)) throw new DomainError('Choose a guestlist review decision', { code: 'INVALID_GUESTLIST_DECISION', status: 422 });
+    if (input.partySize !== undefined) {
+      if (input.decision !== 'approve') throw new DomainError('Spots can only be adjusted when approving a request', { code: 'INVALID_GUESTLIST_DECISION', status: 422 });
+      assertGuestlistPartySize(input.partySize, MAX_GUESTLIST_APPROVAL_PARTY_SIZE);
+    }
     return mutationTransaction(sequelize, async (transaction) => {
       const event = await models.Event.findByPk(input.eventId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!event) throw notFound('Event');
+      if (context.beforeReview) await context.beforeReview(event, transaction);
       const scope = await permissions.guestlistReviewScope(input.reviewedByUserId, input.eventId, transaction);
       const entry = await models.GuestlistEntry.findOne({ where: { id: input.entryId, eventId: event.id }, transaction, lock: transaction.LOCK.UPDATE });
       if (!entry) throw notFound('Guestlist request');
       if (!scope.canReviewAny && !scope.eventAffiliateIds.includes(entry.eventAffiliateId)) throw forbidden('You can only review guestlist requests referred by you');
       if (input.decision === 'cancel') {
-        if (entry.status !== 'confirmed' || entry.checkedInAt) throw conflict('Only an approved, unused guestlist entry can have its approval revoked', 'GUESTLIST_NOT_CANCELLABLE');
+        if (entry.status !== 'confirmed' || entry.checkedInAt || entry.checkedInSpots > 0) throw conflict('Only an approved, unused guestlist entry can have its approval revoked', 'GUESTLIST_NOT_CANCELLABLE');
         await entry.update({ status: 'rejected', qrTokenHash: null, reviewedByUserId: input.reviewedByUserId, reviewedAt: now(), reviewNote: input.note || null }, { transaction });
         await models.AuditLog.create({ actorUserId: input.reviewedByUserId, organizationId: event.organizationId,
           entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.approval_revoked',
@@ -81,11 +90,14 @@ function createGuestlistService({ sequelize, models, permissions = createPermiss
         return { entry, qrToken: null };
       }
 
-      await assertGuestlistCapacity(models, event, entry.eventAffiliateId, entry.partySize, transaction, reviewedAt);
+      const approvedPartySize = assertGuestlistPartySize(input.partySize === undefined ? entry.partySize : input.partySize, MAX_GUESTLIST_APPROVAL_PARTY_SIZE);
+      const before = { status: entry.status, partySize: entry.partySize };
+      await assertGuestlistCapacity(models, event, entry.eventAffiliateId, approvedPartySize, transaction, reviewedAt);
       const qr = createQrToken();
-      await entry.update({ status: 'confirmed', qrTokenHash: qr.hash, reviewedByUserId: input.reviewedByUserId, reviewedAt, reviewNote: input.note || null }, { transaction });
-      await models.AuditLog.create({ actorUserId: input.reviewedByUserId, organizationId: event.organizationId, entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.approved', after: { partySize: entry.partySize } }, { transaction });
-      if (models.Notification && entry.userId) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_approved', title: 'Guestlist approved', message: `You're on the guestlist for ${event.title}.`, metadata: { entryId: entry.id } }, transaction);
+      await entry.update({ partySize: approvedPartySize, status: 'confirmed', qrTokenHash: qr.hash, reviewedByUserId: input.reviewedByUserId, reviewedAt, reviewNote: input.note || null }, { transaction });
+      await reconcileGuestlistPasses(models, entry, transaction);
+      await models.AuditLog.create({ actorUserId: input.reviewedByUserId, organizationId: event.organizationId, entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.approved', before, after: { status: 'confirmed', partySize: entry.partySize } }, { transaction });
+      if (models.Notification && entry.userId) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_approved', title: 'Guestlist approved', message: `You were approved for ${entry.partySize} ${entry.partySize === 1 ? 'spot' : 'spots'} on the guestlist for ${event.title}.`, metadata: { entryId: entry.id, partySize: entry.partySize } }, transaction);
       await queueGuestlistEmail({ email, models, entry, event, kind: 'approved', customerAppUrl, transaction });
       if (context.onReviewed) await context.onReviewed(entry, event, transaction);
       return { entry, qrToken: qr.token };

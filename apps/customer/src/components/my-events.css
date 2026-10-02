@@ -1,0 +1,150 @@
+/* Operator views use Customer's noir surfaces and never affect checkout styles. */
+.my-events-page { width: 100%; padding-top: 42px; padding-bottom: 64px; }
+.my-events-page :is(h1, h2, h3, p, dl, dd) { margin: 0; }
+.my-events-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 30px; }
+.my-events-heading h1 { font: 750 clamp(32px, 5vw, 46px)/1.12 "Manrope", sans-serif; letter-spacing: -1.9px; margin: 10px 0 12px; }
+.my-events-heading > div > p:last-child { font-size: 14px; color: var(--text-secondary); line-height: 1.6; }
+.my-events-heading-note { display: inline-flex; align-items: center; gap: 8px; color: #c4aad8; font-size: 12px; padding-bottom: 4px; white-space: nowrap; }
+.my-events-toolbar { display: flex; align-items: center; gap: 16px; padding-bottom: 24px; border-bottom: 1px solid #ffffff13; }
+.my-events-period { display: flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 4px; border: 1px solid #ffffff14; background: #0c0c0eaa; border-radius: 14px; }
+.my-events-period button { border: 1px solid transparent; border-radius: 10px; min-height: 44px; padding: 9px 14px; color: var(--text-secondary); font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.my-events-period button[aria-pressed="true"] { border-color: #b68ce04d; background: linear-gradient(160deg, #ffffff08, #a379c009); color: #fff; box-shadow: inset 0 0 8px #aa78d414, 0 0 12px #925bc515; }
+.my-events-period button > span { font-size: 11px; font-variant-numeric: tabular-nums; color: #bba9ce; }
+.my-events-search { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.my-events-search-field { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; border-radius: 12px; border: 1px solid #ffffff1b; background: #ffffff03; padding: 0 13px; color: #bba9ce; }
+.my-events-search-field:focus-within { outline: 2px solid #bda5dc; outline-offset: 2px; }
+.my-events-search-field > svg { flex-shrink: 0; }
+.my-events-search-field input { width: 100%; min-width: 0; min-height: 46px; border: 0; outline: 0; background: transparent; color: var(--text-primary); font-size: 14px; }
+.my-events-search-field input::placeholder { color: var(--text-muted); }
+.my-events-page .my-events-search > button, .my-events-page .my-events-refresh { min-height: 46px; border-radius: 12px; }
+.my-events-refresh { flex-shrink: 0; color: #bba9ce; }
+.my-events-results-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 23px 0 18px; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+.my-events-results-heading > span:first-child { color: var(--text-secondary); font-weight: 600; }
+.my-events-results-heading > span:last-child { text-align: right; overflow-wrap: anywhere; }
+.my-events-page .my-events-recorded-note { font-size: 11px; line-height: 1.6; color: var(--text-muted); margin: 0 0 16px; }
+.my-event-stats .my-events-recorded-note { margin: 12px 0 0; }
+.my-events-access-warning { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; padding: 10px 14px; margin-bottom: 20px; border: 1px solid #cfb07926; border-radius: 10px; background: #cfb07907; color: #c5b08d; font-size: 12px; line-height: 1.5; }
+.my-events-access-warning button { color: #d8c19b; text-decoration: underline; text-underline-offset: 3px; min-height: 32px; }
+.my-events-access-warning button:focus-visible { outline: 2px solid #d8c19b; outline-offset: 3px; border-radius: 3px; }
+.my-events-clear { margin: -7px 0 20px; font-size: 12px; color: #cbb2e0; text-decoration: underline; text-underline-offset: 3px; min-height: 32px; }
+.my-events-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.my-event-card { min-width: 0; display: flex; flex-direction: column; text-align: left; color: var(--text-primary); background: linear-gradient(135deg, #ffffff05, #ffffff01), #111115; border: 1px solid #ffffff14; border-radius: 20px; overflow: hidden; box-shadow: inset 0 1px #ffffff05, 0 10px 25px #0002; transition: border-color 150ms, background 150ms; }
+.my-event-card:hover { border-color: #b68ce04d; background: linear-gradient(135deg, #a888c70b, #ffffff01), #151319; }
+.my-event-card:focus-visible, .my-events-period button:focus-visible, .my-events-clear:focus-visible { outline: 2px solid #d0b6e5; outline-offset: 3px; }
+.my-event-card-main { display: flex; align-items: flex-start; gap: 18px; padding: 22px; flex: 1; min-width: 0; }
+.my-events-page .my-event-flyer { width: 78px; height: 108px; flex: 0 0 78px; border-radius: 9px; overflow: hidden; background: #070708; border: 1px solid #ffffff16; align-self: flex-start; }
+.my-events-page :is(.my-event-flyer, .my-event-detail-flyer) img { width: 100%; height: 100%; display: block; }
+.my-events-page :is(.my-event-flyer, .my-event-detail-flyer).artwork-flyer img { object-fit: contain; padding: 0; background: #070708; }
+.my-events-page :is(.my-event-flyer, .my-event-detail-flyer):not(.artwork-flyer) img { object-fit: cover; }
+.my-events-page :is(.my-event-flyer, .my-event-detail-flyer) .artwork-caption { display: none; }
+.my-event-card-copy { min-width: 0; flex: 1; }
+.my-event-phase { display: inline-flex; width: fit-content; padding: 4px 8px; margin-bottom: 10px; border-radius: 6px; background: #9b7abc13; border: 1px solid #9b7abc24; color: #c8addd; font-size: 10px; line-height: 1.2; font-weight: 600; }
+.my-event-phase.phase-ongoing { color: #dac7a4; border-color: #d5b37d30; background: #d5b37d12; }
+.my-event-phase:is(.phase-past, .phase-cancelled) { color: #a5a0ac; border-color: #ffffff16; background: #ffffff05; }
+.my-event-card-copy h2 { font: 650 18px/1.35 "Manrope", sans-serif; letter-spacing: -.45px; overflow-wrap: anywhere; margin-bottom: 11px; }
+.my-event-meta { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+.my-events-page .my-event-meta + .my-event-meta { margin-top: 6px; }
+.my-event-meta > svg { flex-shrink: 0; margin-top: 2px; color: #b49cc9; }
+.my-event-meta > span { overflow-wrap: anywhere; min-width: 0; }
+.my-events-page .my-event-organization { font-size: 11px; color: var(--text-muted); overflow-wrap: anywhere; margin-top: 7px; }
+.my-event-card-bottom { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px 22px 17px; border-top: 1px solid #ffffff0b; background: #00000010; }
+.my-event-card-stat { min-width: 0; display: grid; gap: 4px; }
+.my-event-card-stat > span { font-size: 10px; color: var(--text-muted); }
+.my-event-card-stat > strong { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.my-event-open { display: inline-flex; align-items: center; gap: 8px; color: #ceb6de; font-size: 11px; font-weight: 600; }
+.my-events-empty { display: grid; justify-items: center; text-align: center; padding: 64px 20px; max-width: 550px; margin: 0 auto; }
+.my-events-empty > svg { color: #b49ac8; width: 32px; height: 32px; margin-bottom: 20px; }
+.my-events-page .my-events-empty > h2 { font: 650 23px/1.3 "Manrope", sans-serif; letter-spacing: -.7px; margin-bottom: 10px; }
+.my-events-page .my-events-empty > p { font-size: 13px; line-height: 1.7; color: var(--text-secondary); max-width: 390px; }
+.my-events-empty > button { margin-top: 22px; }
+.my-events-error { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; margin-bottom: 20px; border: 1px solid #a587bd3d; border-radius: 12px; color: #e1cfe9; background: #3b28441f; font-size: 13px; line-height: 1.5; }
+.my-events-error p { overflow-wrap: anywhere; }
+.my-events-error button { min-height: 44px; }
+.my-events-pagination { display: flex; align-items: center; justify-content: center; gap: 22px; margin-top: 28px; }
+.my-events-pagination > span { font-size: 12px; color: var(--text-secondary); }
+.my-events-pagination > button { min-height: 44px; border-radius: 12px; }
+.my-event-detail-top { display: flex; justify-content: space-between; align-items: center; margin: -12px -12px 18px; }
+.my-event-detail-top > button { min-height: 44px; font-size: 13px; color: #bda5d0; }
+.my-event-hero { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 24px; min-width: 0; padding: 27px; border-radius: 22px; border: 1px solid #ffffff16; background: linear-gradient(135deg, #8e6aac09, #ffffff02), #111115; }
+.my-events-page .my-event-detail-flyer { width: 112px; height: 154px; flex: 0 0 112px; border-radius: 12px; overflow: hidden; background: #070708; border: 1px solid #ffffff16; }
+.my-event-hero-copy { flex: 1 1 250px; min-width: 0; }
+.my-events-page .my-event-hero-copy h1 { font: 700 clamp(24px, 3.5vw, 34px)/1.25 "Manrope", sans-serif; letter-spacing: -1px; overflow-wrap: anywhere; margin: 8px 0 14px; }
+.my-event-hero-copy .my-event-meta { font-size: 13px; }
+.my-event-address { display: grid; gap: 2px; padding-left: 24px; margin-top: 4px; color: var(--text-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.my-events-page .my-event-business { min-height: 44px; border-radius: 12px; font-size: 12px; color: #c9afd9; border-color: #a58cbb33; }
+.my-events-page .my-event-description { flex-basis: 100%; padding-top: 18px; border-top: 1px solid #ffffff10; font-size: 13px; line-height: 1.7; color: var(--text-secondary); overflow-wrap: anywhere; }
+.my-events-page .my-event-readonly { color: #c5b08d; font-size: 12px; line-height: 1.6; padding: 14px 18px; border: 1px solid #cfb07926; border-radius: 12px; background: #cfb07907; margin-top: 16px; }
+.my-event-stats, .my-event-earnings, .my-event-sales-mix { margin-top: 28px; min-width: 0; }
+.my-event-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.my-events-page .my-event-section-heading h2 { font: 650 21px/1.3 "Manrope", sans-serif; letter-spacing: -.5px; margin-top: 7px; }
+.my-event-scope { padding: 6px 9px; color: #bfa7d0; border-radius: 7px; border: 1px solid #b68ce026; background: #b68ce008; font-size: 11px; line-height: 1.4; }
+.my-event-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.my-event-metric { min-width: 0; padding: 20px; border: 1px solid #ffffff12; border-radius: 16px; background: linear-gradient(150deg, #ffffff03, #ffffff01), #111114; }
+.my-event-metric dt { color: var(--text-secondary); font-size: 12px; line-height: 1.4; }
+.my-events-page .my-event-metric dd { color: var(--text-primary); font: 650 27px/1.2 "Manrope", sans-serif; letter-spacing: -.5px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; margin-top: 10px; }
+.my-events-page .my-event-metric p { color: var(--text-muted); font-size: 10px; line-height: 1.4; margin-top: 7px; }
+.my-event-earnings { padding: 22px; border-radius: 20px; border: 1px solid #c3a57423; background: linear-gradient(135deg, #b99c6910, #b99c6903), #111114; }
+.my-event-earnings .eyebrow { color: #c8b28d; }
+.my-event-earnings-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.my-event-earnings .my-event-metric { border: 0; background: transparent; padding: 8px 0; }
+.my-event-earnings .my-event-metric + .my-event-metric { border-left: 1px solid #ffffff12; padding-left: 24px; }
+.my-event-earnings .my-event-metric dd { color: #e2ceab; }
+.my-events-page .my-event-financial-note { color: #b5a690; font-size: 11px; line-height: 1.6; padding-top: 12px; }
+.my-event-sales-mix ul { list-style: none; padding: 0; margin: 0; border: 1px solid #ffffff12; border-radius: 16px; background: #111114; overflow: hidden; }
+.my-event-sales-mix li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; font-size: 13px; }
+.my-event-sales-mix li + li { border-top: 1px solid #ffffff0b; }
+.my-event-sales-mix li > span { min-width: 0; display: grid; gap: 4px; }
+.my-event-sales-mix li > span strong { overflow-wrap: anywhere; }
+.my-event-sales-mix li > strong { flex-shrink: 0; color: #cdb6df; }
+.my-event-sales-mix li small { font-size: 11px; color: var(--text-muted); }
+@media (max-width: 760px) {
+  .my-events-page { padding-top: 26px; padding-bottom: 40px; }
+  .my-events-heading { margin-bottom: 22px; }
+  .my-events-heading h1 { font-size: 32px; letter-spacing: -1.2px; }
+  .my-events-heading-note { display: none; }
+  .my-events-toolbar { flex-wrap: wrap; gap: 12px; padding-bottom: 18px; }
+  .my-events-period { flex: 1; }
+  .my-events-period button { flex: 1; justify-content: center; }
+  .my-events-search { flex-basis: 100%; order: 3; }
+  .my-events-search-field input { font-size: 16px; }
+  .my-events-search > button { padding-inline: 13px; }
+  .my-events-grid { grid-template-columns: 1fr; gap: 14px; }
+  .my-event-card-main { padding: 18px; gap: 16px; }
+  .my-event-card-bottom { padding: 13px 18px 16px; }
+  .my-event-card-copy h2 { font-size: 17px; }
+  .my-events-results-heading { align-items: flex-start; padding-top: 18px; font-size: 11px; }
+  .my-event-hero { padding: 20px; gap: 18px; }
+  .my-events-page .my-event-detail-flyer { width: 82px; height: 116px; flex-basis: 82px; }
+  .my-event-hero-copy { flex-basis: 150px; }
+  .my-events-page .my-event-hero-copy h1 { font-size: 25px; }
+  .my-events-page .my-event-business { flex-basis: 100%; }
+  .my-event-hero-copy .eyebrow { font-size: 9px; letter-spacing: 1px; }
+  .my-event-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .my-event-metric { padding: 16px; }
+  .my-event-metric dt { font-size: 11px; }
+  .my-events-page .my-event-metric dd { font-size: 24px; }
+  .my-event-section-heading { align-items: flex-start; }
+  .my-event-scope { max-width: 130px; text-align: center; }
+  .my-event-earnings { padding: 18px; }
+  .my-event-earnings-metrics { gap: 12px; }
+  .my-event-earnings .my-event-metric + .my-event-metric { padding-left: 14px; }
+  .my-event-earnings .my-event-metric dd { font-size: clamp(18px, 5vw, 24px); }
+  .my-events-pagination { gap: 10px; justify-content: space-between; }
+  .my-events-pagination > span { font-size: 11px; text-align: center; }
+  .my-events-pagination > button { font-size: 12px; padding-inline: 10px; }
+  .my-events-error { align-items: flex-start; flex-direction: column; }
+}
+@media (max-width: 360px) {
+  .my-event-card-main { padding: 16px; gap: 12px; }
+  .my-events-page .my-event-flyer { width: 64px; height: 94px; flex-basis: 64px; }
+  .my-event-card-bottom { gap: 10px; padding-inline: 16px; }
+  .my-event-open > span { display: none; }
+  .my-event-hero { padding: 16px; gap: 14px; }
+  .my-events-page .my-event-detail-flyer { width: 68px; height: 98px; flex-basis: 68px; }
+  .my-event-hero-copy { flex-basis: 140px; }
+  .my-events-page .my-event-hero-copy h1 { font-size: 22px; }
+  .my-event-metric { padding: 14px; }
+  .my-event-earnings-metrics { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .my-event-earnings .my-event-metric + .my-event-metric { border-left: 0; border-top: 1px solid #ffffff12; padding-left: 0; padding-top: 16px; }
+  .my-event-earnings .my-event-metric dd { font-size: 24px; }
+}

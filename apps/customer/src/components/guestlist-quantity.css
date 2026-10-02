@@ -1,0 +1,19 @@
+.guestlist-quantity-field { display: grid; justify-items: start; gap: 8px; min-width: 0; }
+.guestlist-quantity-field > label { color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.guestlist-quantity-controls { display: inline-grid; grid-template-columns: 44px 52px 44px; align-items: center; gap: 6px; max-width: 100%; }
+.guestlist-quantity-controls > [data-slot="button"] { width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 10px; border: 1px solid var(--border-subtle); border-radius: 10px; color: var(--text-primary); background: var(--surface-raised); }
+.guestlist-quantity-controls > input { width: 52px; min-width: 0; height: 44px; padding: 0 4px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-deep); color: var(--text-primary); font: inherit; font-size: 16px; font-variant-numeric: tabular-nums; text-align: center; }
+.guestlist-quantity-controls > input[aria-invalid="true"] { border-color: #805252; }
+.guestlist-quantity-controls > :focus-visible { outline: 2px solid var(--highlight); outline-offset: 2px; }
+.guestlist-quantity-controls > :disabled { opacity: .5; cursor: not-allowed; }
+.guestlist-party-form { display: grid; justify-items: center; gap: 16px; margin-bottom: 12px; min-width: 0; }
+.guestlist-party-form .guestlist-quantity-field { justify-items: center; }
+.guestlist-panel .guestlist-quantity-help { margin: 0; font-size: 12px; }
+.pending-guestlist-actions > form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.pending-guestlist-actions .guestlist-quantity-help { flex-basis: 100%; margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.my-event-approval-quantity { display: grid; gap: 10px; min-width: 0; }
+.my-event-approval-quantity .guestlist-quantity-field { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px; }
+.my-event-approval-quantity > p { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+@media (prefers-reduced-motion: reduce) {
+  .guestlist-quantity-controls > * { transition: none !important; animation: none !important; }
+}

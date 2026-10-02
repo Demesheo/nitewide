@@ -102,7 +102,7 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   };
   const router = createRouter({ publicController: createPublicController(dependencies), managementController: createManagementController({ ...dependencies, businessAppUrl: config.businessAppUrl }), commerceController: createCommerceController(dependencies), authController: createAuthController(dependencies),
     paymentController: createPaymentController(payments), paymentAccounts: payments.paymentAccounts, stripe: payments.stripe, paymentConfiguration: stripeConfiguration(config),
-    auth, requireUser, models, permissions, invitations, notifications, email, environment: config.NODE_ENV, hostedDemo: config.hostedDemo, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, qrTokenSecret: config.QR_TOKEN_SECRET, deliveryTrackingConfigured: Boolean(config.RESEND_WEBHOOK_SECRET) });
+    auth, requireUser, models, permissions, invitations, notifications, email, reviewGuestlist: dependencies.reviewGuestlist, environment: config.NODE_ENV, hostedDemo: config.hostedDemo, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, qrTokenSecret: config.QR_TOKEN_SECRET, deliveryTrackingConfigured: Boolean(config.RESEND_WEBHOOK_SECRET) });
   app.locals.reportExports = router.reportExports;
   app.use('/api', router);
   app.use('/api/admin/background', requireUser, require('./routes/background-jobs').createBackgroundJobRouter({ sequelize, models, permissions, email, notificationJobs }));

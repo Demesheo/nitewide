@@ -38,6 +38,7 @@ function routePolicy(method, path) {
   if (method === 'POST' && /\/uploads\//.test(path)) return 'upload';
   if (method === 'GET' && /(?:export|\.csv)(?:\/|$)/.test(path)) return 'export';
   if (method === 'POST' && /^\/business\/reports\/exports\/[^/]+\/retry$/.test(path)) return 'export';
+  if (method === 'GET' && /^\/customer\/my-events(?:\/[^/]+(?:\/guestlist-page(?:\/[^/]+)?)?)?$/.test(path) && path !== '/customer/my-events/access') return 'report';
   if (method === 'GET' && /^\/(business|admin)\//.test(path) && /\/(analytics|reports|overview|workspace|operations)(\/|$)/.test(path)) return 'report';
   return null;
 }

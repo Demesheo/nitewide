@@ -16,8 +16,8 @@ module.exports = defineConfig({
   // Legacy admin specs remain paused; the rebuilt workflows have dedicated
   // interaction coverage rather than reviving outdated screen assumptions.
   projects: [...['customer', 'business'].flatMap(app => [
-    { name: `${app}-iphone`, testMatch: app === 'business' ? ['business.spec.cjs', 'business-access.spec.cjs', 'business-payments.spec.cjs'] : `${app}.spec.cjs`, use: { ...devices['iPhone 13'], browserName: 'webkit', baseURL: urls[app] } },
-    { name: `${app}-desktop`, testMatch: app === 'business' ? ['business.spec.cjs', 'business-access.spec.cjs', 'business-payments.spec.cjs'] : `${app}.spec.cjs`, use: { ...devices['Desktop Chrome'], baseURL: urls[app] } },
+    { name: `${app}-iphone`, testMatch: app === 'business' ? ['business.spec.cjs', 'business-access.spec.cjs', 'business-payments.spec.cjs'] : ['customer.spec.cjs', 'customer-my-events.spec.cjs'], use: { ...devices['iPhone 13'], browserName: 'webkit', baseURL: urls[app] } },
+    { name: `${app}-desktop`, testMatch: app === 'business' ? ['business.spec.cjs', 'business-access.spec.cjs', 'business-payments.spec.cjs'] : ['customer.spec.cjs', 'customer-my-events.spec.cjs'], use: { ...devices['Desktop Chrome'], baseURL: urls[app] } },
   ]),
     { name: 'admin-rebuild-iphone', testMatch: ['admin-rebuild.spec.cjs', 'admin-access-requests.spec.cjs'], use: { ...devices['iPhone 13'], browserName: 'webkit', baseURL: urls.admin } },
     { name: 'admin-rebuild-desktop', testMatch: ['admin-rebuild.spec.cjs', 'admin-access-requests.spec.cjs'], use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, baseURL: urls.admin } },

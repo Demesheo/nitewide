@@ -10,6 +10,7 @@ const { orderAdmissionEligible } = require('../domain/order-admission-policy');
 const { assertActiveEvent, assertActiveUser, assertAdmissionEvent } = require('./lifecycle-service');
 const { connectionHistorySql, pagedConnections } = require('./customer-connections-page-service');
 const { guestlistPassTickets } = require('./guestlist-pass-service');
+const { MAX_GUESTLIST_REQUEST_PARTY_SIZE, assertGuestlistPartySize } = require('../domain/guestlist-party-size');
 
 function profile(user) {
   return { id: user.id, displayName: user.displayName, email: user.email, phone: user.phone,
@@ -55,9 +56,10 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     try { await assertActiveEvent(models, event); }
     catch (error) { if (![403, 404].includes(error.status)) throw error; active = false; }
     const requestsOpen = active && event.status === 'published' && +new Date(event.endsAt) > +now();
-    return { entry: guestlistSummary(entry), maxPartySize: 20, requestsOpen };
+    return { entry: guestlistSummary(entry), maxPartySize: MAX_GUESTLIST_REQUEST_PARTY_SIZE, requestsOpen };
   }
   async function updatePendingGuestlist(userId, entryId, partySize) {
+    assertGuestlistPartySize(partySize, MAX_GUESTLIST_REQUEST_PARTY_SIZE);
     return mutationTransaction(models.GuestlistEntry.sequelize, async (transaction) => {
       require('./lifecycle-service').assertActiveUser(await models.User.findByPk(userId, { transaction }));
       const existing = await models.GuestlistEntry.findOne({ where: { id: entryId, userId }, attributes: ['eventId'], transaction });

@@ -62,6 +62,7 @@ function createGuestlistInvitationService({ sequelize, models, permissions, emai
     return mutationTransaction(sequelize, async (transaction) => {
       const event = await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!event) throw notFound('Event');
+      if (context.beforeInvite) await context.beforeInvite(event, transaction);
       const eventAffiliateId = context.resolvePool ? await context.resolvePool(userId, eventId, input, transaction) : await assertPool(userId, eventId, input.pool, input.eventAffiliateId, transaction);
       await assertActiveEvent(models, event, transaction);
       if (!invitationsOpen(event, now())) throw conflict('Guestlist invitations are closed for this event', 'GUESTLIST_CLOSED');
@@ -146,8 +147,13 @@ function createGuestlistInvitationService({ sequelize, models, permissions, emai
       event: eventSummary(entry.event, { canViewAttendeeAddress: available }), partySize: entry.partySize,
       tickets: await guestlistPassTickets(models, entry, tokenSecret, available) };
   }
-  async function link(userId, eventId, entryId) {
+  async function link(userId, eventId, entryId, context = {}) {
     return mutationTransaction(sequelize, async transaction => {
+      if (context.beforeLink) {
+        const event = await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });
+        if (!event) throw notFound('Event');
+        await context.beforeLink(event, transaction);
+      }
       const scope = await permissions.guestlistReviewScope(userId, eventId, transaction);
       const entry = await models.GuestlistEntry.findOne({ where: { id: entryId, eventId }, transaction });
       if (!entry || (!scope.canReviewAny && !scope.eventAffiliateIds.includes(entry.eventAffiliateId))) throw notFound('Guest list entry');

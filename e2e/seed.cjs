@@ -75,4 +75,24 @@ async function seed(models, config) {
   const otherTicket = await models.Ticket.findByPk(uuid(601));
   return { ids, accounts, password, ticketQr: walletToken(ticket, config.QR_TOKEN_SECRET), wrongEventQr: walletToken(otherTicket, config.QR_TOKEN_SECRET), guestlistQr: guestlistWalletToken(entry, config.QR_TOKEN_SECRET) };
 }
-module.exports = { seed, accounts, password, uuid };
+// Opt-in operator scenario: only the disposable harness uses this. Keeping it
+// separate leaves checkout/bookings pagination fixtures unchanged.
+async function seedMyEventsScenario(models, config, fixture, { past = false } = {}) {
+  const databaseUrl = require('../apps/api/scripts/test-database.cjs').assertManagedTestDatabase();
+  if (config.DATABASE_URL !== databaseUrl || models.User.sequelize.getDatabaseName() !== new URL(databaseUrl).pathname.slice(1)) {
+    throw new Error('My events scenarios require the managed Playwright database.');
+  }
+  await models.User.sequelize.transaction(async transaction => {
+    await models.Order.update({ eventAffiliateId: fixture.ids.affiliate, affiliateCommissionCents: 125 }, { where: { id: fixture.ids.order }, transaction });
+    await models.Order.create({ id: uuid(450), eventId: fixture.ids.event, buyerUserId: accounts.pending.id, status: 'paid', subtotalCents: 4000, totalCents: 4400,
+      platformFeeCents: 400, paidAt: new Date(), idempotencyKey: 'my-events-uncredited-order', pricingPlanSnapshot: { demo: true } }, { transaction });
+    await models.OrderItem.create({ id: uuid(550), orderId: uuid(450), offeringId: fixture.ids.offering, nameSnapshot: 'General Admission', kindSnapshot: 'ticket', quantity: 1, entriesPerUnitSnapshot: 1, unitPriceCents: 4000, lineTotalCents: 4000 }, { transaction });
+    await models.Payment.bulkCreate([
+      { orderId: fixture.ids.order, provider: 'demo', providerReference: 'my-events-demo-credited', status: 'succeeded', amountCents: 2800, currency: 'USD', processedAt: new Date() },
+      { orderId: uuid(450), provider: 'demo', providerReference: 'my-events-demo-uncredited', status: 'succeeded', amountCents: 4400, currency: 'USD', processedAt: new Date() },
+    ], { transaction });
+    if (past) await models.Event.update({ startsAt: new Date(Date.now() - 86400000), endsAt: new Date(Date.now() - 72000000), status: 'completed' }, { where: { id: fixture.ids.event }, transaction });
+  });
+  return { ...fixture, scenario: { past, eventSalesCents: 6500, ownSalesCents: 2500, ownCommissionCents: 125 } };
+}
+module.exports = { seed, seedMyEventsScenario, accounts, password, uuid };

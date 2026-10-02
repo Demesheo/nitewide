@@ -9,9 +9,11 @@ import { uniqueSavedIds, savedIdBatches } from '../src/lib/saved-id-batch.js';
 test('customer routes restore tab, event, and submitted discovery filters', () => {
   assert.deepEqual(parseCustomerRoute('?tab=saved&event=61daf017-d30c-4030-9b89-dd29d875ddaf&city=Orlando&date=2026-09-29&q=house&when=tonight'), {
     tab: 'saved', eventId: '61daf017-d30c-4030-9b89-dd29d875ddaf', booking: null, city: 'Orlando', date: '2026-09-29', query: 'house', shortcut: 'tonight',
+    myEventId: null, myStatus: 'upcoming', myPage: 1, mySearch: '',
   });
   assert.deepEqual(parseCustomerRoute('?tab=not-a-tab&when=not-a-shortcut'), {
     tab: 'discover', eventId: null, booking: null, city: '', date: '', query: '', shortcut: '',
+    myEventId: null, myStatus: 'upcoming', myPage: 1, mySearch: '',
   });
   const invalid = parseCustomerRoute(`?event=not-a-uuid&date=2026-02-30&city=${'c'.repeat(121)}&q=${'q'.repeat(121)}`);
   assert.equal(invalid.eventId, null);

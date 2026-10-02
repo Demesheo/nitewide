@@ -45,6 +45,13 @@ test('request and query contracts retain the actual shared validators and canoni
   assert.equal(find('post', '/admin/management/users/:id/scoped-role').requestSchema, require('../src/services/admin-role-service').scopedRoleSchema);
   assert.equal(find('patch', '/admin/management/:resource/:id').resourceSchemas.users, require('../src/services/admin-edit-service').schemas.users);
   assert.equal(queries['/business/events'], business.eventListQuery);
+  assert.equal(queries['/customer/my-events'], business.eventListQuery);
+  assert.equal(queries['/customer/my-events/:eventId/guestlist-page'], business.eventPageQuery);
+  assert.equal(find('post', '/customer/my-events/:eventId/guestlist-invitations').requestSchema, schemas.guestlistInvite);
+  assert.equal(find('post', '/customer/my-events/:eventId/guestlist/:entryId/decision').requestSchema, schemas.guestlistDecision);
+  for (const route of contracts.filter(value => value.path.startsWith('/customer/my-events'))) {
+    assert.equal(route.authenticated, true, `${route.path} requires a customer session`);
+  }
   const eventBody = jsonSchema(schemas.event, 'input');
   assert.equal(eventBody.properties.startsAt.type, 'string');
   assert.equal(eventBody.properties.startsAt.format, 'date-time');
@@ -57,6 +64,26 @@ test('registration rejects undocumented operations and method lookup preserves l
   assert.deepEqual(router.allowedMethods('/business/events/not-a-real-id/detail'), ['GET', 'HEAD', 'OPTIONS']);
   assert.deepEqual(router.allowedMethods('/nothing-here'), []);
   assert.throws(() => instrumentRouter(express.Router()).get('/undocumented', () => {}), /API contract missing/);
+});
+
+test('request, pending-edit, invitation, and approval contracts keep their distinct guestlist quantity limits', () => {
+  const { contracts, document } = buildContract();
+  const requestSchema = document.paths['/events/{eventId}/guestlist'].post.requestBody.content['application/json'].schema;
+  const editSchema = document.paths['/customer/guestlists/{entryId}'].patch.requestBody.content['application/json'].schema;
+  assert.equal(requestSchema.properties.partySize.maximum, 5);
+  assert.equal(editSchema.properties.partySize.maximum, 5);
+  assert.equal(contracts.find((route) => route.method === 'patch' && route.path === '/customer/guestlists/:entryId').requestSchema, schemas.guestlistPendingUpdate);
+  for (const prefix of ['business/events', 'customer/my-events']) {
+    const approval = document.paths[`/${prefix}/{eventId}/guestlist/{entryId}/decision`].post.requestBody.content['application/json'].schema;
+    assert.equal(approval.properties.partySize.minimum, 1); assert.equal(approval.properties.partySize.maximum, 20);
+    assert.equal(approval.required.includes('partySize'), false);
+    assert.match(approval.properties.partySize.description, /only valid with approve/);
+    assert.equal(document.paths[`/${prefix}/{eventId}/guestlist-invitations`].post.requestBody.content['application/json'].schema.properties.partySize.maximum, 20);
+  }
+  for (const decision of ['reject', 'cancel']) assert.equal(schemas.guestlistDecision.safeParse({ decision, partySize: 4 }).success, false);
+  for (const partySize of [1, 20]) assert.equal(schemas.guestlistDecision.safeParse({ decision: 'approve', partySize }).success, true);
+  for (const partySize of [0, 1.5, 21, '4', null]) assert.equal(schemas.guestlistDecision.safeParse({ decision: 'approve', partySize }).success, false);
+  assert.equal(document.paths['/customer/events/{eventId}/guestlist'].get.responses[200].content['application/json'].schema.properties.data.properties.maxPartySize.const, 5);
 });
 
 test('mixed CSV and asynchronous export statuses and schema references are executable', () => {

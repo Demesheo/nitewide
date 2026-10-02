@@ -1,6 +1,7 @@
 const { z } = require('zod');
 const { optionalPhone } = require('../domain/phone');
 const { BUSINESS_SLUG_PATTERN } = require('../domain/business-slug');
+const { MAX_GUESTLIST_REQUEST_PARTY_SIZE, MAX_GUESTLIST_APPROVAL_PARTY_SIZE } = require('../domain/guestlist-party-size');
 const uuid = z.string().uuid();
 const date = z.coerce.date();
 const organization = z.object({ name: z.string().trim().min(2).max(160), slug: z.string().max(180).regex(BUSINESS_SLUG_PATTERN).optional(), description: z.string().max(5000).optional(), planTier: z.enum(['free', 'premium']).default('free') }).transform(({ slug, ...organization }) => organization);
@@ -9,19 +10,23 @@ const offering = z.object({ name: z.string().min(1).max(160), description: z.str
 const orgAffiliate = z.object({ userId: uuid, code: z.string().min(3).max(48), defaultCommissionBps: z.number().int().min(0).max(10_000).default(0), defaultGuestlistAllocation: z.number().int().nonnegative().default(0) });
 const eventAffiliate = z.object({ userId: uuid, orgAffiliateId: uuid.nullish(), code: z.string().min(3).max(48), commissionBps: z.number().int().min(0).max(4000).nullish(), guestlistAllocation: z.number().int().nonnegative().nullish() });
 const checkout = z.object({ expectedTotalCents: z.number().int().nonnegative().optional(), eventId: uuid, idempotencyKey: z.string().min(8).max(100), affiliateCode: z.string().max(48).optional(), items: z.array(z.object({ offeringId: uuid, quantity: z.number().int().positive() })).min(1), payment: z.object({ provider: z.string().max(40), reference: z.string().min(1).max(160), status: z.literal('succeeded') }).optional() });
-const guestlist = z.object({ partySize: z.number().int().positive().max(20).default(1), affiliateCode: z.string().max(48).optional() });
+const guestlist = z.object({ partySize: z.number().int().positive().max(MAX_GUESTLIST_REQUEST_PARTY_SIZE).default(1), affiliateCode: z.string().max(48).optional() });
+const guestlistPendingUpdate = z.object({ partySize: z.number().int().min(1).max(MAX_GUESTLIST_REQUEST_PARTY_SIZE) }).strict();
 const guestlistStatus = z.enum(['pending', 'confirmed', 'rejected', 'checked_in', 'no_show']);
 const guestlistQuery = z.object({ status: z.union([guestlistStatus, z.array(guestlistStatus).min(1).max(5), z.literal('all')]).default('pending') });
-const guestlistDecision = z.object({ decision: z.enum(['approve', 'reject', 'cancel']), note: z.string().max(500).optional() });
+const guestlistDecision = z.object({ decision: z.enum(['approve', 'reject', 'cancel']), note: z.string().max(500).optional(),
+  partySize: z.number().int().min(1).max(MAX_GUESTLIST_APPROVAL_PARTY_SIZE).optional()
+    .describe('Approved spots; only valid with approve. Omit to approve the existing requested quantity, including legacy requests up to 20.')
+}).refine((input) => input.decision === 'approve' || input.partySize === undefined, { path: ['partySize'], message: 'Spots can only be adjusted when approving a request' });
 const guestlistCapacity = z.object({ guestlistCapacity: z.number().int().nonnegative() });
 const affiliateGuestlistAllocation = z.object({ guestlistAllocation: z.number().int().nonnegative().nullable() });
 const password = z.string().min(8).max(128).regex(/[a-z]/, 'Password must include a lowercase letter').regex(/[A-Z]/, 'Password must include an uppercase letter').regex(/[0-9]/, 'Password must include a number');
 const passwordChange = z.object({ currentPassword: z.string().min(1).max(128), password, confirmPassword: z.string().min(1).max(128) }).strict().refine((data) => data.password === data.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match' });
 const register = z.object({ displayName: z.string().trim().min(2).max(120), email: z.string().trim().email().max(320), password, phone: optionalPhone, marketingConsent: z.boolean().default(false), transactionalSmsConsent: z.boolean().default(false), marketingSmsConsent: z.boolean().default(false), guestlistInviteToken: z.string().min(20).max(200).optional() }).refine((data) => data.phone || (!data.transactionalSmsConsent && !data.marketingSmsConsent), { path: ['phone'], message: 'Add a phone number to choose SMS updates' });
-const guestlistInvite = z.object({ pool: z.enum(['direct', 'own']), eventAffiliateId: uuid.optional(), name: z.string().trim().min(1).max(120).optional(), inviteBy: z.enum(['email','phone','personal']).optional(), email: z.string().trim().email().max(320).optional(), phone: optionalPhone, partySize: z.number().int().min(1).max(20).default(1) }).refine(data => data.inviteBy === 'personal' ? Boolean(data.name) && !data.email && !data.phone : Boolean(data.email) !== Boolean(data.phone) && (!data.inviteBy || (data.inviteBy === 'email' ? Boolean(data.email) : Boolean(data.phone))), { message: 'Personal invitations require a name; otherwise provide the selected email or phone' });
+const guestlistInvite = z.object({ pool: z.enum(['direct', 'own']), eventAffiliateId: uuid.optional(), name: z.string().trim().min(1).max(120).optional(), inviteBy: z.enum(['email','phone','personal']).optional(), email: z.string().trim().email().max(320).optional(), phone: optionalPhone, partySize: z.number().int().min(1).max(MAX_GUESTLIST_APPROVAL_PARTY_SIZE).default(1) }).refine(data => data.inviteBy === 'personal' ? Boolean(data.name) && !data.email && !data.phone : Boolean(data.email) !== Boolean(data.phone) && (!data.inviteBy || (data.inviteBy === 'email' ? Boolean(data.email) : Boolean(data.phone))), { message: 'Personal invitations require a name; otherwise provide the selected email or phone' });
 const signIn = z.object({ email: z.string().trim().email().max(320), password: z.string().min(1).max(128) });
 const checkIn = z.union([
   z.object({ eventId: uuid, qrToken: z.string().trim().min(1).max(2048) }).strict(),
   z.object({ eventId: uuid, credentialId: uuid, kind: z.enum(['ticket', 'guestlist', 'guestlist_pass']) }).strict(),
 ]);
-module.exports = { organization, event, offering, orgAffiliate, eventAffiliate, checkout, guestlist, guestlistQuery, guestlistDecision, guestlistCapacity, affiliateGuestlistAllocation, register, password, passwordChange, signIn, checkIn, guestlistInvite };
+module.exports = { organization, event, offering, orgAffiliate, eventAffiliate, checkout, guestlist, guestlistPendingUpdate, guestlistQuery, guestlistDecision, guestlistCapacity, affiliateGuestlistAllocation, register, password, passwordChange, signIn, checkIn, guestlistInvite };

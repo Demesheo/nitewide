@@ -9,6 +9,8 @@ import { LoadingIndicator } from './loading-indicator';
 import { AdmissionPassView } from './admission-pass-view';
 import { loadPassCache, removePassCache, savePassCache } from '../lib/pass-cache';
 import { ProfilePasswordForm } from './profile-password-form';
+import { GuestlistQuantity } from './guestlist-quantity';
+import { customerGuestlistMaxPartySize, validGuestlistPartySize } from '../lib/guestlist-quantity';
 
 export function initials(name = '') { return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase(); }
 function InlineAccount({ children }) { return children; }
@@ -26,9 +28,11 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
   const [refresh, setRefresh] = useState(0), [ticket, setTicket] = useState(null), [ticketBusy, setTicketBusy] = useState('');
   const [ticketIndex, setTicketIndex] = useState(0), [cachedPass, setCachedPass] = useState(false);
   const [editingSpots, setEditingSpots] = useState(false), [requestedSpots, setRequestedSpots] = useState(1);
+  const guestlistEditLock = useRef(false);
   const [name, setName] = useState(''), [email, setEmail] = useState(''), [confirmEmail, setConfirmEmail] = useState(''), [phone, setPhone] = useState(''), [confirmPhone, setConfirmPhone] = useState('');
   const [consents, setConsents] = useState({}), [message, setMessage] = useState(''), [resendCooldown, setResendCooldown] = useState(0);
   const previousBookingRoute = useRef(bookingRoute);
+  useEffect(() => { setEditingSpots(false); setRequestedSpots(ticket?.partySize || 1); }, [ticket?.id]);
   useEffect(() => {
     if (!embedded) return;
     if (previousBookingRoute.current && !bookingRoute) setTicket(null);
@@ -148,6 +152,18 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
     }
     finally { setTicketBusy(''); }
   }
+  async function saveRequestedSpots(event) {
+    event.preventDefault();
+    if (guestlistEditLock.current || ticketBusy || !ticket || ticket.kind !== 'guestlist' || ticket.tickets[0]?.status !== 'pending' || cachedPass) return;
+    if (!validGuestlistPartySize(requestedSpots)) { setError(`Choose between 1 and ${customerGuestlistMaxPartySize} spots to update your request.`); return; }
+    guestlistEditLock.current = true; setTicketBusy(ticket.id); setError('');
+    try {
+      const result = await api(`/customer/guestlists/${ticket.id}`, { token: session.accessToken, method: 'PATCH', body: { partySize: requestedSpots } });
+      setTicket((current) => current?.id === ticket.id ? { ...current, partySize: result.entry.partySize } : current);
+      setEditingSpots(false); setRefresh((value) => value + 1);
+    } catch (error) { setError(error.message); }
+    finally { guestlistEditLock.current = false; setTicketBusy(''); }
+  }
   async function saveProfile(event) {
     event.preventDefault(); if (busy) return; setBusy(true); setError(''); setMessage('');
     const changedEmail = email.trim().toLowerCase() !== session.user.email;
@@ -192,13 +208,18 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
         {error && <p className="account-error" role="alert">{error} <button onClick={() => setRefresh((v) => v + 1)}>Try again</button></p>}
         <TabsContent value="plans">
           {ticket ? <section className="ticket-view">
-            <Button variant="ghost" onClick={() => { restoreTicketPosition.current = true; setTicket(null); onBookingRouteChange?.(null); }}><ChevronLeft size={16} /> Back to my nights</Button>
+            <Button variant="ghost" disabled={guestlistEditLock.current} onClick={() => { if (guestlistEditLock.current) return; restoreTicketPosition.current = true; setTicket(null); onBookingRouteChange?.(null); }}><ChevronLeft size={16} /> Back to my nights</Button>
             <AdmissionPassView ticket={ticket} index={Math.min(ticketIndex, Math.max(0, ticket.tickets.length - 1))} onIndex={setTicketIndex} cached={cachedPass} />
             {ticket.canResumePayment && onResumeCheckout && <Button disabled={Boolean(ticketBusy)} onClick={async () => { setTicketBusy(ticket.id); setError(''); try { await onResumeCheckout(ticket.id); } catch (error) { setError(error.message); } finally { setTicketBusy(''); } }}>{ticketBusy ? <LoadingIndicator>Restoring checkout…</LoadingIndicator> : 'Resume checkout'}</Button>}
             {ticket.kind === 'guestlist' && ticket.tickets[0]?.status === 'pending' && !cachedPass && <div className="pending-guestlist-actions">
               <p>Your request is pending review. You can change your party size or withdraw it while it is pending.</p>
-              {editingSpots ? <form onSubmit={async (event) => { event.preventDefault(); setTicketBusy(ticket.id); setError(''); try { const result = await api(`/customer/guestlists/${ticket.id}`, { token: session.accessToken, method: 'PATCH', body: { partySize: Number(requestedSpots) } }); setTicket((current) => ({ ...current, partySize: result.entry.partySize })); setEditingSpots(false); setRefresh((value) => value + 1); } catch (error) { setError(error.message); } finally { setTicketBusy(''); } }}><label>Spots <input type="number" inputMode="numeric" min="1" max="20" value={requestedSpots} onChange={(event) => setRequestedSpots(event.target.value)} /></label><Button type="submit" disabled={Boolean(ticketBusy)}>Save spots</Button><Button type="button" variant="ghost" onClick={() => setEditingSpots(false)}>Cancel</Button></form> : <Button variant="outline" onClick={() => setEditingSpots(true)}>Edit spots</Button>}
-              <Button variant="ghost" disabled={Boolean(ticketBusy)} onClick={async () => { if (!window.confirm('Withdraw this pending guestlist request?')) return; setTicketBusy(ticket.id); setError(''); try { await api(`/customer/guestlists/${ticket.id}`, { token: session.accessToken, method: 'DELETE' }); setTicket(null); setRefresh((value) => value + 1); } catch (error) { setError(error.message); } finally { setTicketBusy(''); } }}>Withdraw request</Button>
+              {editingSpots ? <form onSubmit={saveRequestedSpots}>
+                <GuestlistQuantity id="booked-guestlist-spots" label="Spots" value={requestedSpots} max={customerGuestlistMaxPartySize} disabled={Boolean(ticketBusy)} onChange={setRequestedSpots} describedBy={requestedSpots > customerGuestlistMaxPartySize ? 'booked-guestlist-spots-help' : undefined} />
+                {requestedSpots > customerGuestlistMaxPartySize && <p id="booked-guestlist-spots-help" className="guestlist-quantity-help">Your existing request is for {ticket.partySize} spots. Reduce it to {customerGuestlistMaxPartySize} or fewer to save changes.</p>}
+                <Button type="submit" disabled={Boolean(ticketBusy) || !validGuestlistPartySize(requestedSpots) || requestedSpots === ticket.partySize}>{ticketBusy ? 'Saving…' : 'Save spots'}</Button>
+                <Button type="button" variant="ghost" disabled={Boolean(ticketBusy)} onClick={() => setEditingSpots(false)}>Cancel</Button>
+              </form> : <Button variant="outline" disabled={Boolean(ticketBusy)} onClick={() => { setRequestedSpots(ticket.partySize || 1); setEditingSpots(true); }}>Edit spots</Button>}
+              <Button variant="ghost" disabled={Boolean(ticketBusy)} onClick={async () => { if (guestlistEditLock.current || ticketBusy || !window.confirm('Withdraw this pending guestlist request?')) return; guestlistEditLock.current = true; setTicketBusy(ticket.id); setError(''); try { await api(`/customer/guestlists/${ticket.id}`, { token: session.accessToken, method: 'DELETE' }); setTicket(null); setRefresh((value) => value + 1); } catch (error) { setError(error.message); } finally { guestlistEditLock.current = false; setTicketBusy(''); } }}>Withdraw request</Button>
             </div>}
           </section> : <>
             <div className="account-toolbar"><div className="period-switch" aria-label="Booking period">{['upcoming', 'past'].map((value) => <button key={value} aria-pressed={period === value} onClick={() => { setPeriod(value); setPage(1); }}>{value === 'upcoming' ? 'Upcoming' : 'Past nights'}</button>)}</div><button className="account-refresh" aria-label="Refresh bookings" onClick={() => setRefresh((v) => v + 1)}><RefreshCw size={16} /></button></div>

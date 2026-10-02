@@ -1,6 +1,16 @@
 // Closed inventory: route registration fails if a new operation lacks review.
 // Generated artifact parity tests also detect removals or schema drift.
 const routeInventory = [
+  { method: 'get', path: '/customer/my-events/access', successStatuses: [200] },
+  { method: 'get', path: '/customer/my-events', successStatuses: [200] },
+  { method: 'get', path: '/customer/my-events/:eventId', successStatuses: [200] },
+  { method: 'get', path: '/customer/my-events/:eventId/referral-link', successStatuses: [200] },
+  { method: 'get', path: '/customer/my-events/:eventId/guestlist-invite-pools', successStatuses: [200] },
+  { method: 'get', path: '/customer/my-events/:eventId/guestlist-page', successStatuses: [200] },
+  { method: 'get', path: '/customer/my-events/:eventId/guestlist-page/:entryId', successStatuses: [200] },
+  { method: 'get', path: '/customer/my-events/:eventId/guestlist/:entryId/invitation-link', successStatuses: [200] },
+  { method: 'post', path: '/customer/my-events/:eventId/guestlist-invitations', successStatuses: [201] },
+  { method: 'post', path: '/customer/my-events/:eventId/guestlist/:entryId/decision', successStatuses: [200] },
   { method: 'get', path: '/customer/payment-config', successStatuses: [200] },
   { method: 'post', path: '/customer/payment-checkouts', successStatuses: [200] },
   { method: 'post', path: '/customer/payment-checkouts/:orderId/resume', successStatuses: [200] },
