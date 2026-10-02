@@ -1,4 +1,4 @@
-const sections = new Set(['overview', 'analytics', 'events', 'admissions', 'team']);
+const sections = new Set(['overview', 'analytics', 'events', 'admissions', 'team', 'payments']);
 const tabs = new Set(['sales', 'tickets', 'people', 'guestlist']);
 const eventViews = new Set(['upcoming', 'past', 'draft', 'all']);
 const eventSorts = new Set(['starts_asc', 'starts_desc', 'title_asc', 'title_desc', 'phase_asc', 'phase_desc', 'sales_asc', 'sales_desc', 'orders_asc', 'orders_desc', 'access_asc', 'access_desc']);
@@ -26,6 +26,7 @@ const sectionKeys = {
   events: new Set([...scopeKeys, 'event', 'entry', 'tab', 'eventView', 'eventSort', 'eventSearch',
     'eventFrom', 'eventTo', 'eventPage', 'eventPageSize']),
   admissions: new Set(),
+  payments: new Set(['paymentOrganization', 'paymentView', 'paymentAccountReturn']),
   team: new Set(['teamOrganizationId', 'teamRoles', 'teamSearch', 'teamSort', 'teamPage',
     'teamPageSize', 'teamInvitationPage', 'teamInvitationPageSize', 'managedVenueBusinessId', 'managedVenueId',
     'managedVenueTab', 'venueSearch', 'venuesPage', 'venuesRefresh', 'venueTeamSearch', 'venueTeamPage']),
@@ -39,6 +40,8 @@ const defaultValues = {
 };
 
 function activeSection(params) {
+  // Keep already-issued Stripe onboarding links working after moving Payments.
+  if (params.get('section') === 'team' && reportEventId(params.get('paymentAccountReturn')) && reportEventId(params.get('paymentOrganization'))) return 'payments';
   if (sections.has(params.get('section'))) return params.get('section');
   // Older event links omitted section; keep those links working.
   return params.get('event') ? 'events' : 'overview';
@@ -60,6 +63,8 @@ export function readWorkspaceLocation(search = window.location.search) {
   const eventId = params.get('event');
   return {
     section, eventId, entryId: params.get('entry'),
+    paymentOrganization: reportEventId(params.get('paymentOrganization')),
+    paymentView: params.get('paymentView') === 'commissions' ? 'commissions' : 'business',
     tab: tabs.has(params.get('tab')) ? params.get('tab') : null,
     organizationIds: params.getAll('organizationIds'), venueIds: params.getAll('venueIds'),
     days: ['7', '30', '90', '365'].includes(params.get('days')) ? params.get('days') : '30',

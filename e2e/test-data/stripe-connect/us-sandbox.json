@@ -1,0 +1,48 @@
+{
+  "source": "https://docs.stripe.com/connect/testing",
+  "reviewedOn": "2026-10-01",
+  "country": "US",
+  "sandboxOnly": true,
+  "apiVersion": "2026-08-26.dahlia",
+  "email": "test@nitewide.com",
+  "emailIsVerificationToken": false,
+  "emailNaming": "User-approved: test+<generated test identifier>@nitewide.com",
+  "smsCode": "000-000",
+  "identity": {
+    "birthDateSuccess": "1901-01-01",
+    "birthDateImmediateSuccess": "1902-01-01",
+    "birthDateOfacAlert": "1900-01-01",
+    "personalIdSuccess": "000000000",
+    "ssnLast4Success": "0000",
+    "personalIdImmediateSuccess": "222222222",
+    "personalIdMismatch": "111111111",
+    "documentSuccessToken": "file_identity_document_success",
+    "documentFailureToken": "file_identity_document_failure",
+    "documentSuccessImage": "success.png",
+    "documentSuccessImageSource": "https://d37ugbyn3rpeym.cloudfront.net/docs/identity/success.png"
+  },
+  "business": {
+    "taxIdSuccess": "000000000",
+    "taxIdImmediateSuccess": "222222222",
+    "taxIdMismatch": "111111111",
+    "addressSuccess": "address_full_match",
+    "addressFailure": "address_line1_no_match",
+    "websiteSuccess": "https://accessible.stripe.com",
+    "websiteFailure": "https://inaccessible.stripe.com",
+    "phoneSuccess": "0000000000"
+  },
+  "bank": {
+    "routingNumber": "110000000",
+    "accountSuccess": "000123456789",
+    "accountNotFound": "000111111116",
+    "accountClosed": "000111111113",
+    "accountInsufficientFunds": "000222222227",
+    "ownershipVerificationSuccess": "000999999991",
+    "ownershipVerificationDocumentRequired": "000999999992"
+  },
+  "capabilityTriggers": {
+    "nextRequirementsCard": "4000000000004202",
+    "chargeBlockCard": "4000000000004210",
+    "payoutBlockCard": "4000000000004236"
+  }
+}

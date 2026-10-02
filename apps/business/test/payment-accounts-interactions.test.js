@@ -25,7 +25,7 @@ test('finance account controls use hosted onboarding and server readiness; event
     const request = async (path, identity, options = {}) => {
       assert.equal(identity, session); calls.push({ path, options });
       if (!options.method) return { items: [...accounts], total: accounts.length, hasMore: false, defaultPaymentAccountId };
-      if (path.endsWith('/onboarding')) return { url: 'https://connect.stripe.com/setup/fixture' };
+      if (path.endsWith('/onboarding')) return { url: 'https://connect.stripe.com/setup/fixture', expiresAt: new Date(Date.now() + 300000).toISOString() };
       if (path.endsWith('/synchronize')) { accounts[0] = { ...accounts[0], paymentsReady: true, detailsSubmitted: true, chargesEnabled: true, payoutsEnabled: true }; return accounts[0]; }
       if (path.endsWith('/default')) { defaultPaymentAccountId = JSON.parse(options.body).paymentAccountId; return {}; }
       if (options.method === 'PUT') return {};

@@ -549,12 +549,17 @@ test(
       }
       assert.equal((await req(`/business/events/${event.id}/people`, ids.manager, 'PUT', {userId:ids.outsider,commissionBps:1000,status:'active'})).status,403);
       assert.equal((await req(`/business/events/${event.id}/people`, ids.manager, 'PUT', {userId:ids.promoter,commissionBps:4001,status:'active'})).status,422);
-      assert.equal((await req(`/business/events/${event.id}/people`, ids.manager, 'PUT', {userId:ids.promoter,commissionBps:2500,status:'active'})).status,200);
-      assert.equal((await req(`/business/events/${event.id}/people`, ids.owner, 'PUT', {userId:ids.employee,commissionBps:1500,status:'active'})).status,200);
+      const deniedCommission = await req(`/business/events/${event.id}/people`, ids.manager, 'PUT', {userId:ids.promoter,commissionBps:2500,status:'active'});
+      assert.equal(deniedCommission.status,422);
+      assert.equal(deniedCommission.body.error.code,'COMMISSION_ONBOARDING_REQUIRED');
+      assert.equal((await m.EventAffiliate.findByPk(eventAffiliate.id)).commissionBps,null,'rejection preserves inherited configured terms');
+      assert.equal((await req(`/business/events/${event.id}/people`, ids.owner, 'PUT', {userId:ids.employee,commissionBps:1500,status:'active'})).status,422);
+      assert.equal((await req(`/business/events/${event.id}/people`, ids.owner, 'PUT', {userId:ids.employee,commissionBps:0,status:'active'})).status,200);
       assert.equal((await req(`/business/events/${event.id}/people`, ids.owner, 'PUT', {userId:ids.manager,commissionBps:0,status:'active'})).status,200);
       const beforeOrder = await m.Order.findByPk(checkout.body.data.order.id);
-      assert.equal(beforeOrder.affiliateCommissionCents,200);
-      assert.equal(beforeOrder.pricingPlanSnapshot.commissionBps,1000);
+      assert.equal(beforeOrder.affiliateCommissionCents,0);
+      assert.equal(beforeOrder.pricingPlanSnapshot.commissionBps,0);
+      assert.equal(beforeOrder.pricingPlanSnapshot.configuredCommissionBps,1000);
       // Organization editor ignores forged location, generates URL, and releases tiers transactionally.
       const otherVenue = await m.Location.create({ ...input.location, name:'Another venue', addressLine1:'22 Other Street' });
       locations.add(otherVenue.id);
@@ -581,23 +586,23 @@ test(
       assert.equal((await buy(updatedTiers[3].id)).body.error.code,'OFFERING_NOT_ON_SALE');
       const lastEarly = await buy(tiers[0].id);
       assert.equal(lastEarly.status,201);
-      assert.equal(lastEarly.body.data.order.affiliateCommissionCents,250);
+      assert.equal(lastEarly.body.data.order.affiliateCommissionCents,0);
       const publicTiers = (await req(`/events/${event.id}`,null)).body.data.offerings;
       assert.equal(publicTiers.find((t) => t.id === updatedTiers[1].id).saleState,'on_sale');
       assert.equal(publicTiers.find((t) => t.id === updatedTiers[2].id).saleState,'scheduled');
-      assert.equal((await req(`/business/events/${event.id}/people`,ids.manager,'PUT',{userId:ids.promoter,commissionBps:4000,status:'active'})).status,200);
+      assert.equal((await req(`/business/events/${event.id}/people`,ids.manager,'PUT',{userId:ids.promoter,commissionBps:4000,status:'active'})).status,422);
       const lateOrder = await buy(updatedTiers[1].id);
       assert.equal(lateOrder.status,201);
-      assert.equal(lateOrder.body.data.order.affiliateCommissionCents,800);
-      assert.equal((await beforeOrder.reload()).affiliateCommissionCents,200);
-      assert.equal((await req(`/business/events/${event.id}/people`,ids.manager,'PUT',{userId:ids.promoter,commissionBps:4000,status:'inactive'})).status,200);
+      assert.equal(lateOrder.body.data.order.affiliateCommissionCents,0);
+      assert.equal((await beforeOrder.reload()).affiliateCommissionCents,0);
+      assert.equal((await req(`/business/events/${event.id}/people`,ids.manager,'PUT',{userId:ids.promoter,commissionBps:0,status:'inactive'})).status,200);
       assert.equal((await buy(updatedTiers[1].id)).body.error.code,'INVALID_AFFILIATE');
       const orgCode = (await m.OrgAffiliate.findByPk(ids.affiliate)).code;
       assert.equal((await buy(updatedTiers[1].id,orgCode)).body.error.code,'INVALID_AFFILIATE','removal also blocks the organization referral code');
       const afterDetail = (await req(`/business/events/${event.id}/detail`,ids.owner)).body.data;
       assert.equal(afterDetail.summary.salesCents,5000);
-      assert.equal(afterDetail.summary.commissionCents,1250);
-      assert.equal(afterDetail.people.find((p) => p.userId === ids.promoter).commissionCents,1250);
+      assert.equal(afterDetail.summary.commissionCents,0);
+      assert.equal(afterDetail.people.find((p) => p.userId === ids.promoter).commissionCents,0);
       assert.equal(afterDetail.people.find((p) => p.userId === ids.employee).role,'Employee');
       assert.equal(afterDetail.people.find((p) => p.userId === ids.manager).commissionBps,0);
       assert.equal(afterDetail.customers.find((c) => c.id === ids.outsider).salesCents,5000);
@@ -750,11 +755,11 @@ test(
       assert.equal((await req(`/business/events/${employeeEventId}/guestlist/${staffRequest.body.data.entry.id}/decision`,ids.employee,'POST',{decision:'approve'})).status,200);
       const directStaffEvent = await req(`/events/${employeeEventId}/guestlist`,ids.owner,'POST',{partySize:1});
       assert.equal((await req(`/business/events/${employeeEventId}/guestlist/${directStaffEvent.body.data.entry.id}/decision`,ids.employee,'POST',{decision:'approve'})).status,403);
-      assert.equal((await req(`/business/events/${employeeEventId}/people`,ids.manager,'PUT',{userId:ids.employee,commissionBps:2000,status:'active'})).status,200);
-      assert.equal((await employeeBuy()).body.data.order.affiliateCommissionCents,200);
+      assert.equal((await req(`/business/events/${employeeEventId}/people`,ids.manager,'PUT',{userId:ids.employee,commissionBps:2000,status:'active'})).status,422);
+      assert.equal((await employeeBuy()).body.data.order.affiliateCommissionCents,0);
       assert.equal((await m.Order.findByPk(firstStaffSale.body.data.order.id)).affiliateCommissionCents,0,'new rate does not rewrite the first sale');
       assert.equal(await m.EventAffiliate.count({where:{eventId:employeeEventId,userId:ids.employee}}),1);
-      assert.equal((await req(`/business/events/${employeeEventId}/people`,ids.manager,'PUT',{userId:ids.employee,commissionBps:2000,status:'inactive'})).status,200);
+      assert.equal((await req(`/business/events/${employeeEventId}/people`,ids.manager,'PUT',{userId:ids.employee,commissionBps:0,status:'inactive'})).status,200);
       assert.equal((await employeeBuy()).body.error.code,'INVALID_AFFILIATE');
       const historicalStaffWorkspace = (await req(`/business/reports/events?organizationIds=${ids.org}`,ids.employee)).body.data;
       assert.equal(historicalStaffWorkspace.items.find((row)=>row.id===employeeEventId).salesCents,2000,'staff retain their own historical sales after an event override is removed');
@@ -778,23 +783,25 @@ test(
       assert.equal(firstInvite.status,201,JSON.stringify(firstInvite.body));
       assert.equal((await req(invitePath,ids.manager,'POST',{email:inviteEmail,commissionBps:4001})).status,422);
       assert.equal((await req(invitePath,ids.manager,'POST',{email:inviteEmail,commissionBps:-1})).status,422);
-      const renewedInvite = await req(invitePath,ids.manager,'POST',{email:inviteEmail,commissionBps:1250});
+      assert.equal((await req(invitePath,ids.manager,'POST',{email:inviteEmail,commissionBps:1250})).body.error.code,'COMMISSION_ONBOARDING_REQUIRED');
+      const renewedInvite = await req(invitePath,ids.manager,'POST',{email:inviteEmail,commissionBps:0});
       assert.equal((await req(`/team/invitations/${firstInvite.body.data.token}`,null)).status,404,'renewal invalidates old link');
       assert.equal((await req(invitePath,ids.owner)).body.data.length,1);
       const inviteToken = renewedInvite.body.data.token;
       const preview = await req(`/team/invitations/${inviteToken}`,null);
       assert.equal(preview.body.data.eventId,inviteEventId);
       assert.equal(preview.body.data.organizationName,undefined);
-      assert.equal(preview.body.data.commissionBps,1250);
+      assert.equal(preview.body.data.commissionBps,0);
+      assert.equal(preview.body.data.commissionEligibility.eligible,false);
       assert.equal((await req(`/team/invitations/${inviteToken}/accept`,ids.employee,'POST')).status,403);
       assert.equal((await req(`/team/invitations/${inviteToken}/accept`,ids.outsider,'POST')).status,200);
       assert.equal((await req(`/team/invitations/${inviteToken}/accept`,ids.outsider,'POST')).status,404);
       assert.equal(await m.OrgAffiliate.count({where:{organizationId:ids.org,userId:ids.outsider}}),0);
       assert.equal(await m.OrganizationEmployee.count({where:{organizationId:ids.org,userId:ids.outsider}}),0);
       const eventOnlyRef = await m.EventAffiliate.findOne({where:{eventId:inviteEventId,userId:ids.outsider}});
-      assert.equal(eventOnlyRef.commissionBps,1250,'accepted commission is the offered rate');
+      assert.equal(eventOnlyRef.commissionBps,0,'commission stays zero until individual onboarding');
       assert.equal(eventOnlyRef.orgAffiliateId,null);
-      assert.equal((await req(`/business/events/${inviteEventId}/people`,ids.manager,'PUT',{userId:ids.outsider,commissionBps:1500,status:'active'})).status,200,'event-only promoters can have their rates edited');
+      assert.equal((await req(`/business/events/${inviteEventId}/people`,ids.manager,'PUT',{userId:ids.outsider,commissionBps:1500,status:'active'})).status,422,'event-only promoters require individual onboarding for nonzero rates');
       const inviteTier = await m.Offering.findOne({where:{eventId:inviteEventId}});
       for (const affiliateCode of [eventOnlyRef.code,undefined]) {
         const sale = await req('/orders',ids.manager,'POST',{eventId:inviteEventId,idempotencyKey:randomUUID(),affiliateCode,items:[{offeringId:inviteTier.id,quantity:1}],payment:{provider: 'demo',reference:randomUUID(),status:'succeeded'}});
@@ -803,7 +810,7 @@ test(
       const ownDetail = (await req(`/business/events/${inviteEventId}/detail`,ids.outsider)).body.data;
       assert.equal(ownDetail.scope,'own');
       assert.equal(ownDetail.summary.salesCents,1000,'direct sales are excluded');
-      assert.equal(ownDetail.summary.commissionCents,150);
+      assert.equal(ownDetail.summary.commissionCents,0);
       assert.deepEqual(ownDetail.people.map((p)=>p.userId),[ids.outsider]);
       const ownReport = (await req(`/business/reports/summary?days=30&organizationIds=${ids.org}`,ids.outsider)).body.data;
       assert.equal(ownReport.summary.salesCents,1000);
@@ -844,13 +851,13 @@ test(
         assert.equal(first.status,201,JSON.stringify(first.body));
         assert.equal(first.body.data.order.affiliateCommissionCents,0);
         assert.equal((await m.EventAffiliate.findByPk(first.body.data.order.eventAffiliateId)).userId,leaderId);
-        assert.equal((await req(`/business/events/${leadershipEventId}/people`,leaderId,'PUT',{userId:leaderId,commissionBps:1000,status:'active'})).status,200);
-        assert.equal((await buyLeader()).body.data.order.affiliateCommissionCents,100);
+        assert.equal((await req(`/business/events/${leadershipEventId}/people`,leaderId,'PUT',{userId:leaderId,commissionBps:1000,status:'active'})).status,422);
+        assert.equal((await buyLeader()).body.data.order.affiliateCommissionCents,0);
         assert.equal((await m.Order.findByPk(first.body.data.order.id)).affiliateCommissionCents,0);
         const credited = (await req(`/business/events/${leadershipEventId}/detail`,leaderId)).body.data.people.find((p)=>p.userId===leaderId);
         assert.equal(credited.salesCents,2000);
         assert.equal(credited.orders,2);
-        assert.equal(credited.commissionCents,100);
+        assert.equal(credited.commissionCents,0);
       }
       const matrixEventResponse = await req('/business/events', ids.owner, 'POST', { ...input, title: 'Referral matrix event', slug: `matrix-${randomUUID()}`, guestlistCapacity: 20, offerings: [{ ...input.offerings[0], quantityTotal: 50 }] });
       assert.equal(matrixEventResponse.status, 201, JSON.stringify(matrixEventResponse.body));
@@ -872,7 +879,7 @@ test(
         await assignment.update({ commissionBps: actor.rate, guestlistAllocation: 10 });
         const purchase = await req('/orders', actor.buyerId, 'POST', { eventId: matrixEvent.id, idempotencyKey: randomUUID(), affiliateCode: link.body.data.code, items: [{ offeringId: matrixTier.id, quantity: 1 }], payment: { provider: 'demo', reference: randomUUID(), status: 'succeeded' } });
         assert.equal(purchase.status, 201, `${actor.role} purchase: ${JSON.stringify(purchase.body)}`);
-        assert.equal(purchase.body.data.order.affiliateCommissionCents, actor.rate / 10);
+        assert.equal(purchase.body.data.order.affiliateCommissionCents, 0);
         const guestlist = await req(`/events/${matrixEvent.id}/guestlist`, actor.buyerId, 'POST', { partySize: 1, affiliateCode: link.body.data.code });
         assert.equal(guestlist.status, 202, `${actor.role} guestlist: ${JSON.stringify(guestlist.body)}`);
       }
@@ -882,18 +889,20 @@ test(
         const person = matrixDetail.body.data.people.find((row) => row.userId === actor.userId);
         assert.equal(person.role, actor.role);
         assert.equal(person.salesCents, 1000);
-        assert.equal(person.commissionCents, actor.rate / 10);
+        assert.equal(person.commissionCents, 0);
+        assert.equal(person.configuredCommissionBps, actor.rate);
+        assert.equal(person.commissionEligibility.eligible, false);
         assert.equal(person.guestlistRequests, 1);
         assert.equal(person.guestlistPlaces, 1);
       }
       assert.equal(matrixDetail.body.data.summary.salesCents, 5000);
-      assert.equal(matrixDetail.body.data.summary.commissionCents, 775);
+      assert.equal(matrixDetail.body.data.summary.commissionCents, 0);
       const matrixWorkspace = await req('/business/reports/team?days=30', ids.owner);
       const matrixOverviewRows = matrixWorkspace.body.data.items;
       for (const actor of matrixActors) {
         const row = matrixOverviewRows.find((person) => person.id === actor.userId);
         assert.ok(row.salesCents >= 1000, `${actor.role} overview sale`);
-        assert.ok(row.commissionCents >= actor.rate / 10, `${actor.role} overview commission`);
+        assert.equal(row.commissionCents, 0, `${actor.role} overview commission`);
         assert.ok(row.guestlistPlaces >= 1, `${actor.role} overview guestlist`);
       }
       const matrixAnalytics = await req(`/business/reports/team?days=30&search=${encodeURIComponent(matrixEvent.title)}`, ids.owner);
@@ -901,7 +910,7 @@ test(
       for (const actor of matrixActors) {
         const row = matrixAnalytics.body.data.items.find((person) => person.id === actor.userId);
         assert.equal(row.salesCents, 1000, `${actor.role} analytics sale`);
-        assert.equal(row.commissionCents, actor.rate / 10, `${actor.role} analytics commission`);
+        assert.equal(row.commissionCents, 0, `${actor.role} analytics commission`);
         assert.equal(row.guestlistPlaces, 1, `${actor.role} analytics guestlist`);
       }
 
@@ -966,9 +975,9 @@ test(
       const nextTier = await m.Offering.findOne({ where: { eventId: nextNight.body.data.id } });
       const repeatSale = await req('/orders', ids.matrixCustomer, 'POST', { eventId: nextNight.body.data.id, idempotencyKey: randomUUID(), affiliateCode: nextLink.code, items: [{ offeringId: nextTier.id, quantity: 1 }], payment: { provider: 'demo', reference: randomUUID(), status: 'succeeded' } });
       assert.equal(repeatSale.status, 201, JSON.stringify(repeatSale.body));
-      assert.equal(repeatSale.body.data.order.affiliateCommissionCents, 250);
+      assert.equal(repeatSale.body.data.order.affiliateCommissionCents, 0);
       const nextDetail = await req(`/business/events/${nextNight.body.data.id}/detail`, ids.manager);
-      assert.equal(nextDetail.body.data.people.find((row) => row.userId === ids.eventPromoter).commissionCents, 250);
+      assert.equal(nextDetail.body.data.people.find((row) => row.userId === ids.eventPromoter).commissionCents, 0);
       assert.equal(nextDetail.body.data.people.find((row) => row.userId === ids.eventPromoter).guestlistPlaces, 2);
       await require('../src/services/notification-job-service').createNotificationJobService({ sequelize, models: m }).drain({ maxJobs: 100 });
       assert.ok((await req('/notifications', ids.eventPromoter)).body.data.items.some((item) => item.kind === 'referral_purchase' && item.metadata.orderId === repeatSale.body.data.order.id));

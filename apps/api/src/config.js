@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const ipaddr = require('ipaddr.js');
 const { databaseConnectionConfig } = require('./db/connection-config');
 
 const DEVELOPMENT_SECRETS = {
@@ -44,6 +45,7 @@ const schema = z.object({
   STRIPE_PUBLISHABLE_KEY: optionalR2(z.string()),
   STRIPE_WEBHOOK_SECRET: optionalR2(z.string()),
   STRIPE_ACCOUNT_WEBHOOK_SECRET: optionalR2(z.string()),
+  STRIPE_CONNECT_CLIENT_ID: optionalR2(z.string().regex(/^ca_[A-Za-z0-9]+$/)),
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).optional(),
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().optional(),
@@ -61,7 +63,26 @@ const schema = z.object({
   WORKER_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(10000).max(300000).default(150000),
 });
 
+function assertPublicStripeReturnUrl(value, name) {
+  const invalid = () => { throw new Error(`Hosted Stripe requires an explicit HTTPS public ${name}; localhost, private addresses and URL credentials are not allowed`); };
+  if (typeof value !== 'string' || !value.trim()) invalid();
+  let url;
+  try { url = new URL(value); } catch { invalid(); }
+  if (url.protocol !== 'https:' || url.username || url.password) invalid();
+  const hostname = url.hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
+  if (ipaddr.isValid(hostname)) {
+    if (ipaddr.process(hostname).range() !== 'unicast') invalid();
+  } else if (!hostname.includes('.') || /(?:^|\.)(?:localhost|local|internal|lan|home)$/.test(hostname)) invalid();
+}
+
 function getConfig(environment = process.env) {
+  // Account onboarding is available before payment webhooks are configured.
+  // Guard every hosted Stripe runtime, not only paid checkout or email setup.
+  // Validate the explicit environment values before defaults or demo derivation
+  // can turn missing deployment URLs into a local callback.
+  if (environment.STRIPE_MODE === 'test' && (environment.NODE_ENV === 'production' || environment.HOSTED_DEMO === 'true')) {
+    for (const name of ['CUSTOMER_APP_URL', 'BUSINESS_APP_URL']) assertPublicStripeReturnUrl(environment[name], name);
+  }
   const values = schema.parse(environment);
   // Live mode is deliberately not a configuration option in this integration.
   // Validate even disabled credentials so a live key cannot slip in unnoticed.

@@ -31,12 +31,15 @@ function observationCanApply(current, values) {
   return !values.chargesEnabled || !values.detailsSubmitted || !values.cardPaymentsActive || !values.controllerMatches || values.lifecycleState === 'archived';
 }
 function paymentsReady(account, now = new Date()) {
-  return Boolean(account && account.accountApiVersion === 'v2' && account.lifecycleState === 'active' && account.mode === 'test' && account.stripeAccountId && account.detailsSubmitted && account.chargesEnabled && account.cardPaymentsActive && account.controllerMatches && account.synchronizedAt && +now - +new Date(account.synchronizedAt) <= 300000 && +new Date(account.synchronizedAt) <= +now);
+  return Boolean(account && !account.paymentsDisabledAt && (!account.disconnectStatus || account.disconnectStatus === 'none') && account.accountApiVersion === 'v2' && account.lifecycleState === 'active' && account.mode === 'test' && account.stripeAccountId && account.detailsSubmitted && account.chargesEnabled && account.cardPaymentsActive && account.controllerMatches && account.synchronizedAt && +now - +new Date(account.synchronizedAt) <= 300000 && +new Date(account.synchronizedAt) <= +now);
 }
-function safeProfile(account) {
+function safeProfile(account, observedAt = new Date()) {
   const fields = ['id','organizationId','name','stripeAccountId','mode','chargesEnabled','payoutsEnabled','detailsSubmitted','cardPaymentsActive','controllerMatches','synchronizedAt','lifecycleState','createdAt','updatedAt'];
   const a = account.toJSON ? account.toJSON() : account;
-  return { ...Object.fromEntries(fields.map(key=>[key,a[key]])), requirements: { currentlyDue: a.requirements?.currently_due || [], disabledReason: a.requirements?.disabled_reason || null }, paymentsReady: paymentsReady(a) };
+  return { ...Object.fromEntries(fields.map(key=>[key,a[key]])), paymentsDisabledAt:a.paymentsDisabledAt || null,
+    disconnectStatus:a.disconnectStatus || 'none', disconnectRequestId:a.disconnectRequestId || null,
+    disconnectedAt:a.disconnectedAt || null, disconnectErrorCode:a.disconnectErrorCode || null,
+    requirements: { currentlyDue: a.requirements?.currently_due || [], disabledReason: a.requirements?.disabled_reason || null }, paymentsReady: paymentsReady(a, observedAt) };
 }
 async function synchronizeAccount(account, stripe, { models, now } = {}) {
   if (!models) throw new Error('Payment account synchronization requires scoped models.');
@@ -77,8 +80,10 @@ function createBusinessPaymentAccountService({ models, stripe = null, businessAp
   async function list(userId, organizationId, input = {}) {
     const page = z.coerce.number().int().min(1).max(10000).default(1).parse(input.page), pageSize = z.coerce.number().int().min(1).max(50).default(20).parse(input.pageSize);
     return transact(async transaction => { const org = await assertFinanceAccess(models,userId,organizationId,transaction);
-      const { rows, count } = await models.PaymentAccount.findAndCountAll({ where: { organizationId, lifecycleState: 'active' }, order: [['createdAt','ASC'],['id','ASC']], limit: pageSize, offset: (page-1)*pageSize, transaction });
-      return { items: rows.map(safeProfile), total: count, page, pageSize, hasMore: page*pageSize<count, defaultPaymentAccountId: org.defaultPaymentAccountId, canManageFinance: true }; });
+      const membership = await models.OrganizationOwner.findOne({where:{organizationId,userId,lifecycleState:'active'},transaction});
+      const { rows, count } = await models.PaymentAccount.findAndCountAll({ where: { organizationId }, order: [['createdAt','ASC'],['id','ASC']], limit: pageSize, offset: (page-1)*pageSize, transaction });
+      return { items: rows.map(a=>safeProfile(a,now())), total: count, page, pageSize, hasMore: page*pageSize<count, defaultPaymentAccountId: org.defaultPaymentAccountId, canManageFinance: true,
+        canDisconnectPayments:membership.role === 'owner' || Boolean(membership.paymentDisconnectAuthorized) }; });
   }
   async function create(userId, organizationId, body) {
     if (!stripe || stripe.mode !== 'test') throw conflict('Stripe sandbox is not configured.', 'PAYMENTS_NOT_ENABLED');
@@ -94,7 +99,7 @@ function createBusinessPaymentAccountService({ models, stripe = null, businessAp
       if (remote.livemode !== false || remote.closed || !controllerMatches(remote)) throw conflict('Unexpected Stripe account configuration.', 'PAYMENTS_NOT_READY');
       await transact(async transaction => { await assertFinanceAccess(models,userId,organizationId,transaction); const current = await get(organizationId,profile.id,transaction); await current.update({ stripeAccountId: remote.id },{ transaction }); profile.stripeAccountId = remote.id; });
     }
-    return safeProfile(profile);
+    return safeProfile(profile,now());
   }
   async function synchronize(userId, organizationId, id) {
     await assertFinanceAccess(models,userId,organizationId); const profile = await get(organizationId,id);
@@ -106,13 +111,14 @@ function createBusinessPaymentAccountService({ models, stripe = null, businessAp
       if (current.stripeAccountId !== profile.stripeAccountId) throw conflict('Payment account changed; refresh again.');
       const values = providerState(remote,current.stripeAccountId,observedAt);
       if (observationCanApply(current,values)) await current.update(values,{transaction});
-      return safeProfile(current);
+      return safeProfile(current,now());
     });
   }
   async function onboarding(userId,organizationId,id) {
     await assertFinanceAccess(models,userId,organizationId); const profile = await get(organizationId,id);
+    if (profile.disconnectStatus !== 'none') throw conflict('This account is disconnecting. Complete or check disconnection first.', 'DISCONNECT_PENDING');
     if (!stripe || stripe.mode !== 'test' || !profile.stripeAccountId) throw conflict('Create a Stripe sandbox account first.', 'PAYMENTS_NOT_READY');
-    const url = new URL(businessAppUrl); url.searchParams.set('section','team'); url.searchParams.set('teamOrganizationId',organizationId); url.searchParams.set('paymentAccountReturn',id); url.searchParams.set('paymentOrganization',organizationId);
+    const url = new URL(businessAppUrl); url.searchParams.set('section','payments'); url.searchParams.delete('teamOrganizationId'); url.searchParams.set('paymentAccountReturn',id); url.searchParams.set('paymentOrganization',organizationId);
     const link = await stripe.createAccountLink({ account: profile.stripeAccountId,use_case:{type:'account_onboarding',account_onboarding:{configurations:['merchant'],return_url:url.toString(),refresh_url:url.toString()}} });
     await assertFinanceAccess(models,userId,organizationId);
     if (link.livemode !== false || link.account !== profile.stripeAccountId || link.object !== 'v2.core.account_link') throw conflict('Unexpected Stripe onboarding link.','PAYMENTS_NOT_READY');
@@ -143,4 +149,4 @@ function createBusinessPaymentAccountService({ models, stripe = null, businessAp
   }
   return { list,create,onboarding,synchronize,selectDefault,selectEvent,synchronizeTrusted, resolveForEvent: (event, options = {}) => resolvePaymentAccount({ models,event,stripe,now,...options }) };
 }
-module.exports = { createBusinessPaymentAccountService, resolvePaymentAccount, synchronizeAccount, assertFinanceAccess, paymentsReady, controllerMatches, providerState, observationCanApply, RESPONSIBILITIES };
+module.exports = { createBusinessPaymentAccountService, resolvePaymentAccount, synchronizeAccount, assertFinanceAccess, paymentsReady, controllerMatches, providerState, observationCanApply, safeProfile, RESPONSIBILITIES };

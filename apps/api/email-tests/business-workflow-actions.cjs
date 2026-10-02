@@ -81,7 +81,7 @@ async function collectBusinessWorkflowMessages(run) {
     });
     let promoterInvite;
     await action('invite event promoter', TEMPLATES.promoterInvitation, async () => {
-      promoterInvite = await team.inviteEvent(inviter.id, event.id, { email: promoter.email, commissionBps: 500, phone: null });
+      promoterInvite = await team.inviteEvent(inviter.id, event.id, { email: promoter.email, commissionBps: 0, phone: null });
     });
     await action('accept organization invitation', TEMPLATES.accessAccepted, () => team.accept(member.id, orgInvite.token));
     await action('accept promoter invitation', TEMPLATES.accessAccepted, () => team.accept(promoter.id, promoterInvite.token));
@@ -103,7 +103,7 @@ async function collectBusinessWorkflowMessages(run) {
     const permissions = { assertManageEvent: async () => event };
     const workspace = createEventWorkspaceService({ models, permissions, email, businessAppUrl: BUSINESS_URL });
     await action('change event commission', TEMPLATES.eventTermsChanged, () => workspace.savePerson('manager', event.id,
-      { userId: person.id, commissionBps: 700, status: 'active' }));
+      { userId: person.id, commissionBps: 0, status: 'active' }));
     const controller = createManagementController({ models: {
       ...models,
       EventAffiliate: { findOne: async () => assignment },

@@ -7,6 +7,7 @@ const { resolvePaidRange } = require('./business-report-period');
 const { accessScopeSql } = require('./event-affiliate-access');
 const { hasInternalPermission } = require('./internal-admin-permissions');
 const { venueMemberSql,venueManagerSql } = require('./venue-access-policy');
+const { canViewEarningsSql } = require('./business-payment-report-policy');
 
 // Every collection and aggregate starts from this SQL scope. In particular, a
 // revoked automatic assignment cannot keep a former staff member in an event.
@@ -95,12 +96,13 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
   }
   async function bootstrap(userId) {
     const scope = await actor(userId);
+    const [earningsAccess] = await select(`SELECT ${canViewEarningsSql} AS "canViewEarnings"`, { userId });
     const orgs = await organizations(scope);
     const venueOptions = await venues(scope,orgs);
     return { organizations: orgs, venues: venueOptions,optionsTruncated: { organizations: orgs.hasMore,venues: venueOptions.hasMore },
       capabilities: { emailConfigured: Boolean(email?.enabled), deliveryTrackingConfigured,
         smsConfigured: false, instructions: Boolean(email?.enabled), notifications: true },
-      scope: { canCreateIndependent: Boolean(scope.canManageBusinesses || scope.user.independentCreator), isInternalAdmin: Boolean(scope.user.isInternalAdmin) } };
+      scope: { canCreateIndependent: Boolean(scope.canManageBusinesses || scope.user.independentCreator), isInternalAdmin: Boolean(scope.user.isInternalAdmin), canViewEarnings: Boolean(earningsAccess?.canViewEarnings) } };
   }
   async function filters(scope, input = {}, { dates = false, transaction } = {}) {
     const clauses = [];

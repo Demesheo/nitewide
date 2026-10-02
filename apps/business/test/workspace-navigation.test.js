@@ -23,11 +23,57 @@ test('section navigation drops unrelated filters, defaults, and selected records
     assert.equal(initial.teamSearch, '');
     writeWorkspaceLocation({ reportSort: 'orders_desc' }, { replace: true });
     assert.equal(window.location.search, '?section=analytics&reportTable=venues&reportSort=orders_desc');
-    for (const section of ['events', 'admissions', 'team', 'overview']) {
+    for (const section of ['events', 'admissions', 'team', 'payments', 'overview']) {
       writeWorkspaceLocation({ section });
       assert.equal(window.location.search, section === 'overview' ? '' : `?section=${section}`);
       assert.equal(readWorkspaceLocation().section, section);
     }
+  });
+});
+
+test('payments deep links preserve finance selection and onboarding return only within Payments', async () => {
+  const organizationA = '00000000-0000-4000-8000-000000000601';
+  const organizationB = '00000000-0000-4000-8000-000000000602';
+  const account = '00000000-0000-4000-8000-000000000603';
+  await withLocation(`/app?section=payments&paymentOrganization=${organizationA}&paymentAccountReturn=${account}&teamOrganizationId=stale&event=stale`, (window) => {
+    const initial = readWorkspaceLocation();
+    assert.equal(initial.section, 'payments');
+    assert.equal(initial.paymentOrganization, organizationA);
+    assert.equal(initial.eventId, null);
+    assert.equal(initial.teamOrganizationId, '');
+    writeWorkspaceLocation({ paymentOrganization: organizationB }, { replace: true });
+    assert.equal(window.location.search, `?section=payments&paymentAccountReturn=${account}&paymentOrganization=${organizationB}`);
+    writeWorkspaceLocation({ section: 'team' });
+    assert.equal(window.location.search, '?section=team');
+    assert.equal(readWorkspaceLocation().paymentOrganization, '');
+    writeWorkspaceLocation({ paymentOrganization: 'stale', paymentAccountReturn: 'stale' }, { replace: true });
+    assert.equal(window.location.search, '?section=team');
+  });
+});
+
+test('Back restores the selected payments business after section navigation', async () => {
+  const organizationA = '00000000-0000-4000-8000-000000000601';
+  const organizationB = '00000000-0000-4000-8000-000000000602';
+  await withLocation(`/app?section=payments&paymentOrganization=${organizationA}`, async (window) => {
+    writeWorkspaceLocation({ paymentOrganization: organizationB });
+    writeWorkspaceLocation({ section: 'events' });
+    await new Promise((resolve) => {
+      window.addEventListener('popstate', resolve, { once: true });
+      window.history.back();
+    });
+    assert.equal(readWorkspaceLocation().section, 'payments');
+    assert.equal(readWorkspaceLocation().paymentOrganization, organizationB);
+  });
+});
+
+test('legacy Stripe return links migrate from Team to Payments', async () => {
+  const organization = '00000000-0000-4000-8000-000000000601';
+  const account = '00000000-0000-4000-8000-000000000603';
+  await withLocation(`/app?section=team&teamOrganizationId=${organization}&paymentOrganization=${organization}&paymentAccountReturn=${account}`, window => {
+    assert.equal(readWorkspaceLocation().section, 'payments');
+    assert.equal(readWorkspaceLocation().paymentOrganization, organization);
+    writeWorkspaceLocation({}, { replace: true });
+    assert.equal(window.location.search, `?section=payments&paymentOrganization=${organization}&paymentAccountReturn=${account}`);
   });
 });
 

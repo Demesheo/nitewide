@@ -22,7 +22,7 @@ test('owner-only manager finance controls submit audited, versioned grants and r
   const requests = []; let status = 200; let saved = 0; let refreshed = 0; let unauthorized = 0;
   globalThis.fetch = async (path, options) => {
     requests.push({ path, ...options, body: JSON.parse(options.body) });
-    return new Response(JSON.stringify(status === 200 ? { data: { userId: 'manager', financeAuthorized: requests.at(-1).body.financeAuthorized, version: requests.at(-1).body.version + 1 } }
+    return new Response(JSON.stringify(status === 200 ? { data: { userId: 'manager', financeAuthorized: requests.at(-1).body.financeAuthorized, paymentDisconnectAuthorized:requests.at(-1).body.paymentDisconnectAuthorized,version: requests.at(-1).body.version + 1 } }
       : { error: { message: status === 409 ? 'Refresh and try again.' : 'Sign in again.' } }), { status, headers: { 'content-type': 'application/json' } });
   };
   let vite; let view;
@@ -37,7 +37,7 @@ test('owner-only manager finance controls submit audited, versioned grants and r
       canGrantFinance: true, organizationVersion: 4, session: { accessToken: 'fixture-token', user: { isInternalAdmin: true } },
       onSaved: () => { saved += 1; }, onRefresh: () => { refreshed += 1; }, onUnauthorized: () => { unauthorized += 1; } };
     view = render(React.createElement(ManagerFinancePermission, props), { container: dom.window.document.getElementById('root') });
-    assert.ok(screen.getByText(/future payment-account/));
+    assert.ok(screen.getByText(/authorizes business payment accounts and merchant refunds/));
     assert.equal(screen.getByRole('button', { name: 'Grant finance permission' }).disabled, true);
     await user.type(screen.getByRole('textbox', { name: 'Reason for finance change' }), 'Confirmed payment account delegation');
     await user.click(screen.getByRole('button', { name: 'Grant finance permission' }));
@@ -51,6 +51,7 @@ test('owner-only manager finance controls submit audited, versioned grants and r
     await user.click(screen.getByRole('button', { name: 'Revoke finance permission' }));
     await screen.findByText('Finance permission: Not granted');
     assert.equal(requests[1].body.financeAuthorized, false); assert.equal(requests[1].body.version, 5);
+    assert.equal(screen.queryByRole('button',{name:'Grant payment disconnect permission'}),null);
 
     status = 409;
     await user.type(screen.getByRole('textbox', { name: 'Reason for finance change' }), 'Try grant after another edit');
@@ -65,6 +66,15 @@ test('owner-only manager finance controls submit audited, versioned grants and r
     await user.click(screen.getByRole('button', { name: 'Grant finance permission' }));
     await waitFor(() => assert.equal(unauthorized, 1));
     assert.equal(saved, 2);
+
+    status=200;
+    view.rerender(React.createElement(ManagerFinancePermission,{...props,organizationVersion:9,member:{...props.member,financeAuthorized:true,paymentDisconnectAuthorized:false}}));
+    await user.clear(screen.getByRole('textbox',{name:'Reason for finance change'}));
+    await user.type(screen.getByRole('textbox',{name:'Reason for finance change'}),'Owner approved connection removal');
+    await user.click(screen.getByRole('button',{name:'Grant payment disconnect permission'}));
+    await screen.findByText('Payment disconnection: Granted');
+    assert.equal(requests.at(-1).path,'/api/business/organizations/business/members/manager/payment-disconnect');
+    assert.deepEqual(requests.at(-1).body,{paymentDisconnectAuthorized:true,reason:'Owner approved connection removal',version:9});
 
     for (const denied of [{ canGrantFinance: false }, { member: { ...props.member, role: 'Employee' } }, { member: { ...props.member, role: 'Owner' } }, { member: { ...props.member, status: 'inactive' } }]) {
       view.rerender(React.createElement(ManagerFinancePermission, { ...props, ...denied }));

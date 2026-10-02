@@ -211,7 +211,8 @@ function createStripeCheckoutService({ sequelize, models, stripe, checkout, appl
         subtotalCents, ...pricing, idempotencyKey: input.idempotencyKey, requestFingerprint, paymentAccountId: account.id, stripeAccountId: account.stripeAccountId,
         applicationFeeCents, providerMode: 'test', providerVerificationStatus: 'pending', reservationExpiresAt: new Date(now().getTime() + 35 * 60 * 1000),
         orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id,
-        pricingPlanSnapshot: { ...pricing.pricingPlanSnapshot, demo: false, providerCustomerEmail: buyer.email, commissionBps: affiliate.commissionBps, stripeFeeDecision: feeDecision, economicsBasis: 'modeled_sandbox_economics', merchant: { paymentAccountId: account.id, stripeAccountId: account.stripeAccountId, organizationId: event.organizationId } } }, { transaction });
+        pricingPlanSnapshot: { ...pricing.pricingPlanSnapshot, demo: false, providerCustomerEmail: buyer.email, commissionBps: affiliate.commissionBps,
+          configuredCommissionBps: affiliate.configuredCommissionBps, commissionEligibility: affiliate.commissionEligibility, stripeFeeDecision: feeDecision, economicsBasis: 'modeled_sandbox_economics', merchant: { paymentAccountId: account.id, stripeAccountId: account.stripeAccountId, organizationId: event.organizationId } } }, { transaction });
       const returnUrl = new URL(customerAppUrl); returnUrl.searchParams.set('paymentOrder', created.id); returnUrl.searchParams.set('session_id', '{CHECKOUT_SESSION_ID}');
       const lineItems = lines.map(({ offering, quantity }) => ({ quantity, price_data: { currency: created.currency.toLowerCase(), unit_amount: offering.priceCents, product_data: { name: offering.name } } }));
       if (created.platformFeeCents) lineItems.push({ quantity: 1, price_data: { currency: created.currency.toLowerCase(), unit_amount: created.platformFeeCents, product_data: { name: 'Booking fee' } } });

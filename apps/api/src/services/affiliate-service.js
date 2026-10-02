@@ -3,6 +3,12 @@ const { DomainError } = require('../domain/errors');
 const { accessScope, currentOrganizationMembership } = require('./event-affiliate-access');
 const { activeUser } = require('./lifecycle-service');
 const { venueAssignmentCurrent } = require('./venue-access-policy');
+const { commissionTerms } = require('../domain/commission-eligibility');
+
+function eligibleReferral(affiliate) {
+  const terms = commissionTerms(affiliate.commissionBps);
+  return { ...affiliate, ...terms, commissionBps: terms.effectiveCommissionBps };
+}
 
 const employeeReferralCode = (membershipId) => `STAFF-${membershipId}`;
 const leaderReferralCode = (membershipId) => `LEAD-${membershipId}`;
@@ -31,8 +37,8 @@ async function resolveVenueMember(models, { event, code, now, transaction, lock 
   if (!isActiveWindow(eventAffiliate, now)) throw invalidCode();
   const linked = eventAffiliate.orgAffiliateId ? await models.OrgAffiliate.findByPk(eventAffiliate.orgAffiliateId, common) : null;
   if (linked && !isActiveWindow(linked, now)) throw invalidCode();
-  return { eventAffiliate, orgAffiliate: linked, commissionBps: eventAffiliate.commissionBps ?? linked?.defaultCommissionBps ?? 0,
-    guestlistAllocation: eventAffiliate.guestlistAllocation ?? linked?.defaultGuestlistAllocation ?? 0 };
+  return eligibleReferral({ eventAffiliate, orgAffiliate: linked, commissionBps: eventAffiliate.commissionBps ?? linked?.defaultCommissionBps ?? 0,
+    guestlistAllocation: eventAffiliate.guestlistAllocation ?? linked?.defaultGuestlistAllocation ?? 0 });
 }
 
 function isActiveWindow(record, now) {
@@ -40,7 +46,7 @@ function isActiveWindow(record, now) {
 }
 
 async function resolveAffiliate(models, { event, code, now = new Date(), transaction, lock }) {
-  if (!code) return { commissionBps: 0, guestlistAllocation: 0, orgAffiliate: null, eventAffiliate: null };
+  if (!code) return eligibleReferral({ commissionBps: 0, guestlistAllocation: 0, orgAffiliate: null, eventAffiliate: null });
   if (code.startsWith('STAFF-') || code.startsWith('LEAD-')) return resolveVenueMember(models, { event, code, now, transaction, lock });
   const common = { transaction, ...(lock ? { lock } : {}) };
   let eventAffiliate = await models.EventAffiliate.findOne({ where: { eventId: event.id, code }, ...common });
@@ -68,11 +74,11 @@ async function resolveAffiliate(models, { event, code, now = new Date(), transac
   if (eventAffiliate && accessScope(eventAffiliate) === 'organization' &&
       !await currentOrganizationMembership(models, event.organizationId, eventAffiliate.userId, transaction, now)) throw invalidCode();
   if (eventAffiliate && accessScope(eventAffiliate) === 'venue' && !await venueAssignmentCurrent(models, eventAffiliate, event, transaction)) throw invalidCode();
-  return {
+  return eligibleReferral({
     eventAffiliate,
     orgAffiliate,
     commissionBps: eventAffiliate?.commissionBps ?? orgAffiliate?.defaultCommissionBps ?? 0,
     guestlistAllocation: eventAffiliate?.guestlistAllocation ?? orgAffiliate?.defaultGuestlistAllocation ?? 0,
-  };
+  });
 }
 module.exports = { resolveAffiliate, isActiveWindow, employeeReferralCode, leaderReferralCode };

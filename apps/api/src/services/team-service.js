@@ -9,13 +9,14 @@ const { revokePendingGuestlistInvitations } = require('./guestlist-invitation-po
 const { mutationTransaction } = require('./mutation-transaction');
 const { assertCommissionPricing } = require('../domain/editor-pricing-policy');
 const { revokeOrganizationVenueAccess } = require('./venue-access-transition');
+const { commissionTerms, assertCommissionEligible } = require('../domain/commission-eligibility');
 
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 function rosterPeople(leaders, employees, promoters) {
   const people = new Map();
   const add = (entry, role) => {
     if (!entry.user || people.has(entry.userId)) return;
-    people.set(entry.userId, { id: entry.userId, name: entry.user.displayName || 'Unknown', email: entry.user.email || '', role, status: entry.status || 'active', joined: entry.createdAt, financeAuthorized: role === 'Owner' || (role === 'Manager' && Boolean(entry.financeAuthorized)) });
+    people.set(entry.userId, { id: entry.userId, name: entry.user.displayName || 'Unknown', email: entry.user.email || '', role, status: entry.status || 'active', joined: entry.createdAt, financeAuthorized: role === 'Owner' || (role === 'Manager' && Boolean(entry.financeAuthorized)), paymentDisconnectAuthorized:role === 'Owner' || (role === 'Manager' && Boolean(entry.paymentDisconnectAuthorized)), ...commissionTerms(entry.defaultCommissionBps ?? 0) });
   };
   for (const entry of leaders.filter((row) => row.role === 'owner')) add(entry, 'Owner');
   for (const entry of leaders.filter((row) => row.role !== 'owner')) add(entry, 'Manager');
@@ -39,7 +40,7 @@ function createTeamService({ models, permissions, email: emailService = null, bu
       models.TeamInvitation.findAll({ where: { organizationId, acceptedAt: null, expiresAt: { [Op.gt]: new Date() } }, attributes: ['id', 'email', 'phone', 'role', 'expiresAt', 'createdAt'], order: [['createdAt', 'DESC']] }),
     ]);
     const promoters = affiliates.filter((affiliate) => affiliate.status === 'active' && !affiliate.code.endsWith('-STAFF'));
-    return { leaders, employees, affiliates: promoters, people: rosterPeople(leaders, employees, promoters), invitations,
+    return { leaders, employees, affiliates: promoters.map((row) => ({ ...(row.toJSON ? row.toJSON() : row), ...commissionTerms(row.defaultCommissionBps ?? 0) })), people: rosterPeople(leaders, employees, promoters), invitations,
       organizationVersion: organization.version, canGrantFinance: leaders.some((row) => row.userId === userId && row.role === 'owner' && row.lifecycleState !== 'archived' && row.lifecycleState !== 'suspended') };
   }
   async function invite(userId, organizationId, input) {
@@ -128,17 +129,20 @@ function createTeamService({ models, permissions, email: emailService = null, bu
     const row = await models.TeamInvitation.findOne({ where: { tokenHash: hash(token), acceptedAt: null, expiresAt: { [Op.gt]: new Date() } }, include: [{ model: models.Organization, as: 'organization', attributes: ['id', 'name'] }, { model: models.Event, as: 'event', attributes: ['id','title','endsAt','status'] }] });
     if (!row) throw notFound('Active invitation');
     if (row.eventId) assertEventEditable(row.event);
-    return { email: row.email, phone: row.phone, role: row.role, organizationName: row.organization?.name, eventId:row.eventId, eventTitle:row.event?.title, commissionBps:row.commissionBps, expiresAt: row.expiresAt };
+    const terms = commissionTerms(row.commissionBps ?? 0);
+    return { email: row.email, phone: row.phone, role: row.role, organizationName: row.organization?.name, eventId:row.eventId, eventTitle:row.event?.title, commissionBps:terms.effectiveCommissionBps, ...terms, expiresAt: row.expiresAt };
   }
   async function eventInvitations(userId, eventId) {
     await permissions.assertManageEvent(userId,eventId);
-    return models.TeamInvitation.findAll({where:{eventId,acceptedAt:null,expiresAt:{[Op.gt]:new Date()}},attributes:['id','email','phone','expiresAt','commissionBps'],order:[['createdAt','DESC']]});
+    const invitations = await models.TeamInvitation.findAll({where:{eventId,acceptedAt:null,expiresAt:{[Op.gt]:new Date()}},attributes:['id','email','phone','expiresAt','commissionBps'],order:[['createdAt','DESC']]});
+    return invitations.map((row) => { const terms = commissionTerms(row.commissionBps ?? 0); return { ...(row.toJSON ? row.toJSON() : row), ...terms, commissionBps: terms.effectiveCommissionBps }; });
   }
   async function inviteEvent(userId, eventId, input) {
     return mutationTransaction(models.TeamInvitation.sequelize, async (transaction) => {
       const event = await models.Event.findByPk(eventId,{transaction,lock:transaction.LOCK.UPDATE});
       await permissions.assertManageEvent(userId,eventId,transaction);
       assertEventEditable(event);
+      assertCommissionEligible(input.commissionBps ?? 0);
       if (models.Offering) await assertCommissionPricing({ models, eventId, commissionBps: input.commissionBps ?? 0, transaction });
       const email = input.email.trim().toLowerCase();
       const token = crypto.randomBytes(32).toString('base64url');
@@ -201,7 +205,9 @@ function createTeamService({ models, permissions, email: emailService = null, bu
         await assertActiveEvent(models, event, transaction);
         assertEventEditable(event);
         await permissions.assertManageEvent(row.invitedByUserId,row.eventId,transaction);
-        if (models.Offering) await assertCommissionPricing({ models, eventId: row.eventId, commissionBps: row.commissionBps ?? 0, transaction });
+        // Accept legacy access without silently rewriting its configured terms.
+        // Only the effective, individually eligible rate applies to future sales.
+        if (models.Offering) await assertCommissionPricing({ models, eventId: row.eventId, commissionBps: commissionTerms(row.commissionBps ?? 0).effectiveCommissionBps, transaction });
         const [assignment,created] = await models.EventAffiliate.findOrCreate({where:{eventId:row.eventId,userId},defaults:{code:`NW-${crypto.randomUUID()}`,commissionBps:row.commissionBps,guestlistAllocation:0,status:'active',accessScope:'event'},transaction});
         const before = created ? null : assignment.toJSON();
         if (!created) {

@@ -7,7 +7,6 @@ import { usePagedResource } from '@/hooks/usePagedResource';
 import { ServerPager } from './ServerPager';
 import { LoadingState } from './LoadingState';
 import { ManagerFinancePermission } from './ManagerFinancePermission';
-import { PaymentAccounts } from './PaymentAccounts';
 import BusinessVenueWorkspace from './BusinessVenueWorkspace';
 import { Choice } from './controls';
 import { Button } from './ui/button';
@@ -100,7 +99,6 @@ export function BusinessTeam({ session, organizations, onUnauthorized }) {
     {organizations.length > 1 && <label>Organization<select value={organizationId} onChange={(event) => { const id = event.target.value;
       setOrganizationId(id); setSelected(null); setInviteLink(''); setUrlPage(1); setInvitationPage(1);
       writeWorkspaceLocation({ teamOrganizationId: id, teamPage: 1, teamInvitationPage: 1 }); }}>{organizations.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>}
-    <div key={`payments-${organizationId}`}><PaymentAccounts session={session} organization={organization} /></div>
     {canManage && <><section className="panel team-invite-summary"><div><span className="eyebrow">TEAM ACCESS</span><h2>Build your team</h2><p>Invite managers, employees and promoters into this organization.</p></div><Button onClick={() => { setError(''); setInviteOpen(true); }}>Invite team member</Button></section>
     <section ref={rosterRef} className="panel team-roster" aria-busy={roster.loading}><h2>Current team</h2><p className="team-caption">Showing referred paid sales from the last 30 days. Click a member for details.</p>
         <div className="team-roster-filters"><MultiSelect label="Roles" options={roles} selected={selectedRoles} onChange={chooseRoles}/></div>

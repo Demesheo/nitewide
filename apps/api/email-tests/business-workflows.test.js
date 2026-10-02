@@ -31,7 +31,7 @@ test('fourteen business actions queue the eight intended templates without provi
   assert.doesNotThrow(() => validateBusinessMessages(messages, 'a1b2c3d4'));
   assert.throws(() => validateBusinessMessages([{ ...messages[0], to: 'someone@example.com' }, ...messages.slice(1)], 'a1b2c3d4'));
   assert.equal(messages[6].variables.OLD_VALUE, '5%');
-  assert.equal(messages[6].variables.NEW_VALUE, '7%');
+  assert.equal(messages[6].variables.NEW_VALUE, '0%');
   assert.equal(messages[7].variables.OLD_VALUE, '5');
   assert.equal(messages[7].variables.NEW_VALUE, '8');
   assert.equal(messages[13].variables.DELIVERY_STATUS, 'Queued for delivery');

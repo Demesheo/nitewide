@@ -87,7 +87,9 @@ test('event team includes the full active venue roster with zero activity withou
     assert.match(employee.code,/^STAFF-/);
     assert.equal(employee.id,null,'visibility must not create an event assignment');
     for (const key of ['salesCents','orders','customers','commissionCents']) assert.equal(employee[key],0);
-    assert.equal(report.people.find((p) => p.userId === 'selected').commissionBps,1500);
+    assert.equal(report.people.find((p) => p.userId === 'selected').commissionBps,0);
+    assert.equal(report.people.find((p) => p.userId === 'selected').configuredCommissionBps,1500);
+    assert.equal(report.people.find((p) => p.userId === 'selected').commissionEligibility.eligible,false);
     assert.equal(report.people.find((p) => p.userId === 'selected').email,'selected@example.test');
     assert.equal(report.people.find((p) => p.userId === 'removed').status,'inactive');
   }

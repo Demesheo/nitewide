@@ -4,6 +4,7 @@ const { conflict, forbidden } = require('../domain/errors');
 const { assertEventEditable } = require('../domain/event-policy');
 const { accessScopeSql } = require('./event-affiliate-access');
 const { assertCommissionPricing } = require('../domain/editor-pricing-policy');
+const { effectiveCommissionBps } = require('../domain/commission-eligibility');
 
 function createBusinessEventReuseService({ models, permissions, now = () => new Date() }) {
   async function copyAccess(userId, targetEventId, { sourceEventId, copyTeam, copyAllocations }) {
@@ -48,7 +49,9 @@ function createBusinessEventReuseService({ models, permissions, now = () => new 
           AND NOT EXISTS (SELECT 1 FROM event_affiliates existing WHERE existing.event_id=:targetEventId AND existing.user_id=source.user_id)`;
       const [terms] = await models.Event.sequelize.query(`SELECT COALESCE(MAX(COALESCE(source.commission_bps,oa.default_commission_bps,0)),0)::integer AS "commissionBps" ${eligible}`,
         {replacements,type:QueryTypes.SELECT,transaction});
-      if (models.Offering) await assertCommissionPricing({models,eventId:targetEventId,commissionBps:Number(terms.commissionBps),transaction,now:replacements.now});
+      // Reusing access preserves stored terms; current individual eligibility
+      // determines the effective rate for future bookings.
+      if (models.Offering) await assertCommissionPricing({models,eventId:targetEventId,commissionBps:effectiveCommissionBps(Number(terms.commissionBps)),transaction,now:replacements.now});
       const rows = await models.Event.sequelize.query(`INSERT INTO event_affiliates
         (id, event_id, user_id, org_affiliate_id, source_org_affiliate_id, access_scope, venue_access_id, code, commission_bps, guestlist_allocation, starts_at, ends_at, status, created_at, updated_at)
         SELECT gen_random_uuid(), :targetEventId, source.user_id,

@@ -4,6 +4,7 @@ const { activeUser } = require('./lifecycle-service');
 const { eventFinished, offeringSaleState } = require('../domain/event-policy');
 const { base, organizationMember,manages,orderAccess, guestAccess, pageResult } = require('./business-read-service');
 const { hasInternalPermission } = require('./internal-admin-permissions');
+const { commissionTerms, effectiveCommissionBps } = require('../domain/commission-eligibility');
 
 function createBusinessEventReadService({ models, now = () => new Date() }) {
   const select = (sql, replacements) => models.Event.sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
@@ -193,7 +194,7 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
           WHERE va.organization_id=:organizationId AND va.location_id=:locationId AND va.status='active'
         UNION SELECT :userId WHERE :organizationId IS NULL AND :canManage),
       members AS (SELECT u.id, u.display_name AS name, u.email, ea.id AS "assignmentId", ea.code,
-        ea.status, COALESCE(ea.commission_bps, rate_oa.default_commission_bps, 0) AS "commissionBps", oa.id AS "orgAffiliateId",
+        ea.status, COALESCE(ea.commission_bps, rate_oa.default_commission_bps, 0) AS "configuredCommissionBps", oa.id AS "orgAffiliateId",
         (oo.id IS NOT NULL OR oe.id IS NOT NULL OR oa.id IS NOT NULL OR va.id IS NOT NULL OR
           (u.id = :userId AND :organizationId IS NULL AND :canManage)) AS "isCurrentMember",
         CASE WHEN oo.role = 'owner' THEN 'Owner' WHEN oo.id IS NOT NULL OR va.role='manager' THEN 'Manager'
@@ -213,7 +214,7 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
     const [count] = await select(`${cte} SELECT COUNT(*)::integer AS total FROM members m ${predicate}`, values);
     const rows = await select(`${cte} SELECT m.id AS "userId", m."assignmentId" AS id, m.name, m.email, m.role,
       CASE WHEN m.status IS NOT NULL THEN m.status ELSE 'default' END AS status,
-      m.code, COALESCE(m."commissionBps",0)::integer AS "commissionBps", m."orgAffiliateId", m."isCurrentMember",
+      m.code, m."configuredCommissionBps", ${effectiveCommissionBps(0)}::integer AS "commissionBps", m."orgAffiliateId", m."isCurrentMember",
       COALESCE((SELECT SUM(vo.subtotal_cents) FROM visible_orders vo WHERE vo.event_affiliate_id = m."assignmentId"
         OR (vo.event_affiliate_id IS NULL AND vo.org_affiliate_id = m."orgAffiliateId")),0)::bigint AS "salesCents",
       (SELECT COUNT(*)::integer FROM visible_orders vo WHERE vo.event_affiliate_id = m."assignmentId"
@@ -226,7 +227,11 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
       COALESCE((SELECT SUM(g.party_size) FROM visible_guests g WHERE g.event_affiliate_id = m."assignmentId"),0)::integer AS "guestlistPlaces",
       COALESCE((SELECT SUM(g.party_size) FROM visible_guests g WHERE g.event_affiliate_id = m."assignmentId" AND g.status IN ('confirmed','checked_in')),0)::integer AS "approvedGuestlistPlaces"
       FROM members m ${predicate} ORDER BY ${({name: 'm.name', role: 'm.role', commissionBps: '"commissionBps"', salesCents: '"salesCents"', orders: 'orders', customers: 'customers', guestlistPlaces: '"guestlistPlaces"', approvedGuestlistPlaces: '"approvedGuestlistPlaces"', commissionCents: '"commissionCents"'})[sortKey] || '"salesCents"'} ${descending === 'false' ? 'ASC' : 'DESC'}, m.name ASC, m.id ASC LIMIT :pageSize OFFSET :offset`, values);
-    return pageResult(rows.map((r) => ({ ...r, id: r.id || r.userId, salesCents: Number(r.salesCents), commissionCents: Number(r.commissionCents) })), count.total, page, pageSize);
+    return pageResult(rows.map((r) => {
+      const terms = commissionTerms(Number(r.configuredCommissionBps || 0));
+      return { ...r, ...terms, commissionBps: terms.effectiveCommissionBps, id: r.id || r.userId,
+        salesCents: Number(r.salesCents), commissionCents: Number(r.commissionCents) };
+    }), count.total, page, pageSize);
   }
 
   async function guestlistSettings(userId, eventId, { page, pageSize, search = '' }) {

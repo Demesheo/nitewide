@@ -9,8 +9,10 @@ const { createStripeCheckoutService } = require('../src/services/stripe-checkout
 const { createStripeWebhookService } = require('../src/services/stripe-webhook-service');
 const { createStripeRefundService } = require('../src/services/stripe-refund-service');
 const { createPermissionService } = require('../src/services/permission-service');
+const {createBusinessPaymentAccountService}=require('../src/services/business-payment-account-service');
+const {createBusinessPaymentDisconnectService}=require('../src/services/business-payment-disconnect-service');
 
-function mockProvider() {
+function mockProvider(namespace = '') {
   const sessions = new Map(), keys = new Map(), refunds = new Map(), charges = new Map(), fees = new Map(), thinEvents = new Map();
   let unavailable = false, loseCreationResponse = false, loseRefundResponse = false, creations = 0, refundCreations = 0;
   const check = () => { if (unavailable) throw new Error('Provider transport unavailable'); };
@@ -21,7 +23,7 @@ function mockProvider() {
       configuration: { merchant: { applied: true, capabilities: { card_payments: { status: 'active' }, stripe_balance: { payouts: { status: 'active' } } } } }, requirements: { entries: [] } }),
     createCheckoutSession: async (params, options) => {
       check(); if (keys.has(options.idempotencyKey)) return scoped(sessions.get(keys.get(options.idempotencyKey)), options);
-      const id = `cs_${++creations}`, session = { id, account: options.stripeAccount, client_secret: `${id}_secret`, livemode: false,
+      const id = `cs_${namespace}${++creations}`, session = { id, account: options.stripeAccount, client_secret: `${id}_secret`, livemode: false,
         mode: params.mode, status: 'open', payment_status: 'unpaid', metadata: params.metadata, client_reference_id: params.client_reference_id,
         amount_total: params.line_items.reduce((sum, line) => sum + line.quantity * line.price_data.unit_amount, 0), currency: params.line_items[0].price_data.currency,
         fee: params.payment_intent_data.application_fee_amount, params };
@@ -64,6 +66,38 @@ function mockProvider() {
   return { stripe, sessions, refunds, charges, fees, thinEvents, pay, unavailable: value => { unavailable = value; }, loseNextRefund: () => { loseRefundResponse = true; }, loseNextCreation: () => { loseCreationResponse = true; }, creations: () => creations, refundCreations: () => refundCreations };
 }
 
+async function checkDisabledMerchant() {
+  assertManagedTestDatabase();const config=require('../src/config').getConfig(),sequelize=createSequelize(config),models=initModels(sequelize);
+  try {
+    const owner=await models.User.create({displayName:'Pause owner',email:`${randomUUID()}@offline.nitewide.test`});
+    const buyer=await models.User.create({displayName:'Pause buyer',email:`${randomUUID()}@offline.nitewide.test`});
+    const organization=await models.Organization.create({name:'Paused merchant',slug:`pause-${randomUUID()}`,onboardingEstablished:true});
+    await models.OrganizationOwner.create({organizationId:organization.id,userId:owner.id,role:'owner'});
+    const account=await models.PaymentAccount.create({organizationId:organization.id,name:'Pause fixture',stripeAccountId:`acct_${randomUUID().replaceAll('-','')}`});
+    await organization.update({defaultPaymentAccountId:account.id});
+    const event=await models.Event.create({creatorUserId:owner.id,organizationId:organization.id,title:'Paused sales',slug:`paused-${randomUUID()}`,
+      status:'published',startsAt:new Date(Date.now()+86400000),endsAt:new Date(Date.now()+172800000)});
+    const paid=await models.Offering.create({eventId:event.id,name:'Paid ticket',priceCents:2000,quantityTotal:10});
+    const free=await models.Offering.create({eventId:event.id,name:'Free RSVP',priceCents:0,quantityTotal:10});
+    const provider=mockProvider('paused_'),stripe=provider.stripe;
+    const accounts=createBusinessPaymentAccountService({models,stripe});
+    const controls=createBusinessPaymentDisconnectService({models,stripe,paymentAccounts:accounts});
+    const checkout=createCheckoutService({sequelize,models,environment:'test',email:null});
+    const payments=createStripeCheckoutService({sequelize,models,stripe,checkout,email:null});
+    const input={buyerUserId:buyer.id,eventId:event.id,idempotencyKey:randomUUID(),items:[{offeringId:paid.id,quantity:1}]};
+    const started=await payments.prepare(input);
+    await controls.disable(owner.id,organization.id,account.id,{confirmed:true,reason:'Pause new sales',idempotencyKey:randomUUID()});
+    await assert.rejects(payments.prepare({...input,idempotencyKey:randomUUID()}),{code:'PAYMENTS_NOT_READY'});
+    const retry=await payments.prepare(input);assert.equal(retry.orderId,started.orderId);assert.equal(retry.clientSecret,started.clientSecret);
+    const rsvp=await payments.prepare({...input,idempotencyKey:randomUUID(),items:[{offeringId:free.id,quantity:1}]});
+    assert.equal(rsvp.status,'paid');assert.equal(await models.Ticket.count({where:{eventId:event.id}}),1);
+    const order=await models.Order.findByPk(started.orderId);provider.pay(order.checkoutSessionId);
+    assert.equal((await payments.verify(buyer.id,order.id)).status,'paid');
+    assert.equal(await models.Ticket.count({where:{eventId:event.id,status:'valid'}}),2);
+    assert.equal(provider.creations(),1,'free bookings and failed new checkout create no extra paid session');
+  } finally {await sequelize.close();}
+}
+
 test('sandbox provider reservations, verified webhook races and full refunds use durable server identity', { timeout: 60000 }, async (t) => {
   assertManagedTestDatabase();
   const sequelize = createSequelize(require('../src/config').getConfig()), models = initModels(sequelize);
@@ -82,17 +116,23 @@ test('sandbox provider reservations, verified webhook races and full refunds use
     await organization.update({ defaultPaymentAccountId: account.id });
     const event = await models.Event.create({ creatorUserId: owner, organizationId: organization.id, title: 'Stripe fixture', slug: `stripe-${randomUUID()}`, status: 'published', startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 172800000) });
     const offering = await models.Offering.create({ eventId: event.id, name: 'Ticket', priceCents: 2000, quantityTotal: 3 });
+    const affiliate = await models.EventAffiliate.create({ eventId: event.id, userId: other, code: `legacy-${randomUUID()}`, commissionBps: 2500, status: 'active', accessScope: 'event' });
     const checkout = createCheckoutService({ sequelize, models, email: null, environment: 'test' });
     const payments = createStripeCheckoutService({ sequelize, models, stripe: provider.stripe, checkout, email });
     const refunds = createStripeRefundService({ sequelize, models, stripe: provider.stripe, permissions: createPermissionService(models) });
     const webhook = createStripeWebhookService({ sequelize, models, stripe: provider.stripe, paymentCheckouts: payments, refunds });
-    const input = { buyerUserId: buyer, eventId: event.id, idempotencyKey: randomUUID(), items: [{ offeringId: offering.id, quantity: 2 }] };
+    const input = { buyerUserId: buyer, eventId: event.id, affiliateCode: affiliate.code, idempotencyKey: randomUUID(), items: [{ offeringId: offering.id, quantity: 2 }] };
     let prepared, order;
     await t.test('reserve without admissions; concurrent retries restore same provider session and stop oversell', async () => {
       const results = await Promise.all([payments.prepare(input), payments.prepare(input)]);
       prepared = results[0]; assert.equal(prepared.status, 'pending'); assert.equal(prepared.stripeAccountId, account.stripeAccountId);
       assert.equal(results[1].orderId, prepared.orderId); assert.equal(results[1].clientSecret, prepared.clientSecret); assert.equal(provider.creations(), 1);
       order = await models.Order.findByPk(prepared.orderId);
+      assert.equal(order.affiliateCommissionCents, 0, 'merchant onboarding does not unlock an individual commission recipient');
+      assert.equal(order.pricingPlanSnapshot.commissionBps, 0);
+      assert.equal(order.pricingPlanSnapshot.configuredCommissionBps, 2500);
+      assert.equal(order.pricingPlanSnapshot.commissionEligibility.eligible, false);
+      assert.equal((await affiliate.reload()).commissionBps, 2500, 'legacy configured terms remain intact');
       assert.equal(await models.Order.count(), 1); assert.equal(await models.OrderItem.count(), 1); assert.equal(await models.Ticket.count(), 0);
       assert.equal(await models.Payment.count(), 0); assert.equal(await models.EmailOutbox.count(), 0); assert.equal(await models.NotificationJob.count(), 0);
       assert.equal((await offering.reload()).quantityReserved, 2); assert.equal(offering.quantitySold, 0);
@@ -170,7 +210,7 @@ test('sandbox provider reservations, verified webhook races and full refunds use
     await t.test('Dashboard partial and fee-incomplete refunds hold admissions; full verified external return settles without invented approval', async () => {
       const externalEvent = await models.Event.create({ creatorUserId: owner, organizationId: organization.id, title: 'Dashboard refund', slug: randomUUID(), status: 'published', startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 172800000) });
       const externalOffering = await models.Offering.create({ eventId: externalEvent.id, name: 'Ticket', priceCents: 2000, quantityTotal: 2 });
-      const attempt = await payments.prepare({ ...input, eventId: externalEvent.id, idempotencyKey: randomUUID(), items: [{ offeringId: externalOffering.id, quantity: 1 }] });
+      const attempt = await payments.prepare({ ...input, affiliateCode: undefined, eventId: externalEvent.id, idempotencyKey: randomUUID(), items: [{ offeringId: externalOffering.id, quantity: 1 }] });
       let externalOrder = await models.Order.findByPk(attempt.orderId);
       provider.pay(externalOrder.checkoutSessionId); await payments.verify(buyer, externalOrder.id); await externalOrder.reload();
       const charge = provider.charges.get(externalOrder.stripeChargeId), fee = provider.fees.get(charge.application_fee);
@@ -221,3 +261,8 @@ test('sandbox provider reservations, verified webhook races and full refunds use
     });
   } finally { await sequelize.close(); }
 });
+
+// The original suite checks whole-database counts against its empty fixture.
+// This additional scenario runs afterward and scopes assertions to its event;
+// its provider IDs also have a separate namespace to mirror Stripe uniqueness.
+test('disabled merchant stops new paid sessions but preserves in-flight checkout and free bookings',{timeout:30000},checkDisabledMerchant);

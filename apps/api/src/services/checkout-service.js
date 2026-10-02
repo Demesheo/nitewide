@@ -83,7 +83,8 @@ function createCheckoutService({ sequelize, models, now = () => new Date(), envi
       if (pricing.totalCents > 0 && !isPaid) throw new DomainError('Successful payment confirmation is required', { code: 'PAYMENT_REQUIRED', status: 402 });
       const order = await models.Order.create({
         buyerUserId: input.buyerUserId, eventId: event.id, status: 'paid', currency: offerings[0].currency,
-        subtotalCents, ...pricing, pricingPlanSnapshot: { ...pricing.pricingPlanSnapshot, commissionBps: affiliate.commissionBps, demo }, orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id,
+        subtotalCents, ...pricing, pricingPlanSnapshot: { ...pricing.pricingPlanSnapshot, commissionBps: affiliate.commissionBps,
+          configuredCommissionBps: affiliate.configuredCommissionBps, commissionEligibility: affiliate.commissionEligibility, demo }, orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id,
         idempotencyKey: input.idempotencyKey, requestFingerprint, paidAt: current,
       }, { transaction });
       const credentials = await fulfillCheckout({ models, order, event, lines, affiliate, demo,

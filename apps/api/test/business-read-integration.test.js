@@ -176,6 +176,11 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     assert.deepEqual([teamPageOne.body.data.total, teamPageOne.body.data.items.length, teamPageTwo.body.data.items.length], [110, 100, 10]);
     assert.deepEqual([...teamPageOne.body.data.items, ...teamPageTwo.body.data.items].map((row) => row.name),
       [...teamPageOne.body.data.items, ...teamPageTwo.body.data.items].map((row) => row.name).toSorted((a, b) => a.localeCompare(b)));
+    const commissionRoster=[...teamPageOne.body.data.items,...teamPageTwo.body.data.items].find(row=>row.id===ids.promoter);
+    assert.equal(commissionRoster.configuredCommissionBps,1000);
+    assert.equal(commissionRoster.commissionBps,0);assert.equal(commissionRoster.effectiveCommissionBps,0);
+    assert.equal(commissionRoster.commissionEligibility.reasonCode,'INDIVIDUAL_STRIPE_ONBOARDING_REQUIRED');
+    assert.equal(commissionRoster.commissionCents,500,'individual onboarding gate preserves historical roster earnings');
     assert.equal((await request(`/business/organizations/${ids.organization}/team-page?search=Roster%20010&role=Employee`, ids.manager)).body.data.total, 1);
     assert.equal((await request(`/business/organizations/${ids.organization}/team-page?role=Promoter`, ids.manager)).body.data.total, 2);
     assert.equal((await request(`/business/organizations/${ids.organization}/team-page`, ids.employee)).status, 403);
@@ -274,13 +279,19 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     assert.equal(people.body.data.items.find((row) => row.role === 'Owner').isCurrentMember, true);
     assert.equal(peopleById.get(ids.employee).isCurrentMember, true);
     assert.equal(peopleById.get(ids.promoter).isCurrentMember, true, 'organization affiliates remain marked as current members in the event roster');
+    assert.equal(peopleById.get(ids.promoter).configuredCommissionBps,1000);
+    assert.equal(peopleById.get(ids.promoter).commissionBps,0);assert.equal(peopleById.get(ids.promoter).effectiveCommissionBps,0);
+    assert.equal(peopleById.get(ids.promoter).commissionEligibility.eligible,false);
+    assert.equal(peopleById.get(ids.promoter).commissionCents,500,'individual onboarding gate preserves historical event earnings');
     const promoterAssignment = await m.EventAffiliate.findByPk(ids.promoterEventAffiliate);
     await promoterAssignment.update({ commissionBps: null });
     const inheritedCommission = await request(`/business/events/${ids.mainEvent}/people-page?search=Fixture%20Promoter&page=1&pageSize=5`, ids.owner);
     await promoterAssignment.update({ commissionBps: 0 });
     const explicitZeroCommission = await request(`/business/events/${ids.mainEvent}/people-page?search=Fixture%20Promoter&page=1&pageSize=5`, ids.owner);
     await promoterAssignment.update({ commissionBps: 1000 });
-    assert.equal(inheritedCommission.body.data.items[0].commissionBps, 1000, 'a null event commission inherits the organization affiliate rate');
+    assert.equal(inheritedCommission.body.data.items[0].configuredCommissionBps, 1000, 'a null event commission preserves the configured organization affiliate rate');
+    assert.equal(inheritedCommission.body.data.items[0].commissionBps, 0, 'the effective inherited rate remains locked before individual onboarding');
+    assert.equal(explicitZeroCommission.body.data.items[0].configuredCommissionBps, 0, 'an explicit configured zero overrides the organization affiliate rate');
     assert.equal(explicitZeroCommission.body.data.items[0].commissionBps, 0, 'an explicit zero commission overrides the organization affiliate rate');
     const guestlistPromoter = await request(`/business/events/${ids.mainEvent}/guestlist-page?page=1&pageSize=10`, ids.promoter);
     assert.deepEqual([guestlistPromoter.body.data.total, guestlistPromoter.body.data.items[0].guestName], [1, 'Buyer A']);
@@ -627,6 +638,11 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     assert.deepEqual([copied.status, copied.body.data.copied, copied.body.data.copyAllocations, copiedAgain.body.data.copied], [200, 2, false, 0], 'completed source teams can be copied idempotently into a new draft');
     const targetAssignments = await m.EventAffiliate.findAll({ where: { eventId: reuseIds.targetEvent }, order: [['userId', 'ASC']] });
     assert.equal(targetAssignments.length, 2);
+    assert.deepEqual(targetAssignments.map(row=>row.commissionBps).sort((a,b)=>a-b),[800,1200],'copy preserves historical configured terms');
+    const copiedPeople=await request(`/business/events/${reuseIds.targetEvent}/people-page?search=Promoter&page=1&pageSize=20`,ids.manager);
+    const copiedPromoters=copiedPeople.body.data.items.filter(row=>[ids.promoter,ids.otherPromoter].includes(row.userId));
+    assert.deepEqual(copiedPromoters.map(row=>row.configuredCommissionBps).sort((a,b)=>a-b),[800,1200]);
+    assert.ok(copiedPromoters.every(row=>row.commissionBps===0&&row.effectiveCommissionBps===0),'copied configured terms do not activate individual commission eligibility');
     assert.ok(targetAssignments.every((row) => !sourceAssignments.some((source) => source.code === row.code)), 'new assignments receive fresh referral codes');
     assert.ok(targetAssignments.every((row) => row.guestlistAllocation === 0), 'guestlist capacity does not copy without opt-in');
     assert.deepEqual([await m.Order.count({ where: { eventId: reuseIds.sourceEvent } }), await m.Order.count({ where: { eventId: reuseIds.targetEvent } }),

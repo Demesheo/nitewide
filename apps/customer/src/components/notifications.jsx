@@ -24,14 +24,18 @@ export function Notifications({ session, onNotification }) {
   }, []);
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
     const current = revision.current;
     setLoading(true);
-    api(`/notifications?page=${page}&pageSize=20`, { token: session.accessToken }).then((data) => {
+    api(`/notifications?page=${page}&pageSize=20`, { token: session.accessToken, signal }).then((data) => {
       if (!active || current !== revision.current) return;
-      setItems((current) => page === 1 ? data.items : [...new Map([...current, ...data.items].map((item) => [item.id, item])).values()]);
+      if (!Array.isArray(data?.items)) throw new Error('We couldn’t load notifications. Please try again.');
+      const nextItems = data.items;
+      setItems((current) => page === 1 ? nextItems : [...new Map([...current, ...nextItems].map((item) => [item.id, item])).values()]);
       setUnread(data.unreadCount); setHasMore(data.hasMore); setError('');
     }).catch((err) => { if (active && current === revision.current) setError(err.message); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    return () => { active = false; controller.abort(); };
   }, [session.accessToken, page, refresh]);
   async function read(item) {
     if (opening) return;

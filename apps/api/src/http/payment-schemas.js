@@ -5,6 +5,8 @@ const paymentCheckoutSchema = checkout.omit({ payment: true }).strict();
 const refundSchema = z.object({ reason: z.string().trim().min(1).max(500), idempotencyKey: z.string().min(8).max(100) }).strict();
 const createProfile = z.object({ name: z.string().trim().min(1).max(160), idempotencyKey: z.uuid() }).strict();
 const selection = z.object({ paymentAccountId: z.uuid().nullable() }).strict();
+const paymentControl = z.object({ reason:z.string().trim().min(3).max(500), confirmed:z.literal(true), idempotencyKey:z.uuid() }).strict();
+const disconnectPermission = z.object({paymentDisconnectAuthorized:z.boolean(),reason:z.string().trim().min(3).max(500),version:z.number().int().nonnegative()}).strict();
 const paymentAccountQuery = z.object({
   page: z.coerce.number().int().min(1).max(10000).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
@@ -22,13 +24,37 @@ const paymentAccount = z.object({ id: z.uuid(), organizationId: z.uuid(), name: 
   cardPaymentsActive: z.boolean(), controllerMatches: z.boolean(), synchronizedAt: time.nullable(),
   lifecycleState: z.enum(['active', 'suspended', 'archived']), createdAt: time, updatedAt: time,
   requirements: z.object({ currentlyDue: z.array(z.string()), disabledReason: z.string().nullable() }).strict(),
-  paymentsReady: z.boolean() }).strict();
+  paymentsDisabledAt:time.nullable(), disconnectStatus:z.enum(['none','pending','disconnected']), disconnectRequestId:z.uuid().nullable(),
+  disconnectedAt:time.nullable(),disconnectErrorCode:z.string().nullable(),paymentsReady: z.boolean() }).strict();
 const paymentAccountPage = z.object({ items: z.array(paymentAccount), total: z.number().int().nonnegative(),
   page: z.number().int().positive(), pageSize: z.number().int().positive(), hasMore: z.boolean(),
-  defaultPaymentAccountId: z.uuid().nullable(), canManageFinance: z.literal(true) }).strict();
+  defaultPaymentAccountId: z.uuid().nullable(), canManageFinance: z.literal(true),canDisconnectPayments:z.boolean() }).strict();
 const onboardingLink = z.object({ url: z.url(), expiresAt: time }).strict();
 const webhookAcknowledgment = z.object({ received: z.literal(true), replayed: z.boolean().optional(), ignored: z.boolean().optional() }).strict();
+const count = z.number().int().nonnegative();
+const disconnectImpact = z.object({account:paymentAccount,pendingPayments:count,reviewPayments:count,unresolvedRefunds:count,
+  unfulfilledPaidBookings:count,historicalBookings:count,affectedEvents:count,blockedReasons:z.array(z.string()),
+  providerDisconnectConfigured:z.boolean(),canDisconnect:z.boolean()}).strict();
+const disconnectResult = z.object({account:paymentAccount,retryable:z.boolean()}).strict();
+const paymentOverviewCurrency = z.object({ currency: z.string().length(3),
+  collectedCents: count.describe('All-time verified sandbox customer payment totals, including subsequently refunded orders.'),
+  refundedCents: count.describe('All-time verified fully refunded sandbox customer payment totals.'),
+  netCollectedCents: count.describe('Collected customer payments less verified full refunds. This is not the merchant Stripe balance or net proceeds.'),
+  paidOrders: count, refundedOrders: count, pendingOrders: count, reviewOrders: count }).strict();
+const paymentOverview = z.object({ organizationId: z.uuid(), period: z.literal('all_time'), mode: z.literal('test'),
+  currencies: z.array(paymentOverviewCurrency), pendingOrders: count, reviewOrders: count,
+  merchantBalance: z.null().describe('Unavailable: merchant balances are owned by Stripe and are not tracked here.'),
+  payouts: z.null().describe('Unavailable: merchant payouts are owned by Stripe and are not tracked here.') }).strict();
+const earningsCurrency = z.object({ currency: z.string().length(3), verifiedEarnedCents: count, verifiedRefundedCents: count,
+  demoEarnedCents: count, demoRefundedCents: count, verifiedPaidOrders: count, verifiedRefundedOrders: count,
+  demoPaidOrders: count, demoRefundedOrders: count }).strict();
+const paymentEarnings = z.object({ period: z.literal('all_time'), scope: z.literal('own'), currencies: z.array(earningsCurrency),
+  receivedPayouts: z.null().describe('Unavailable: no commission payout ledger or verified individual Stripe recipient onboarding is connected. Business merchant readiness does not establish individual payout eligibility.'),
+  dashboardConnected: z.null().describe('Unavailable until individual Stripe onboarding and recipient connectivity are implemented.'),
+  dashboardUrl: z.null(), payoutsUnavailableReason: z.literal('not_connected') }).strict();
+const emptyPaymentQuery = z.object({}).strict();
 
 module.exports = { paymentCheckoutSchema, refundSchema, createProfile, selection, paymentAccountQuery,
+  paymentControl,disconnectPermission,disconnectImpact,disconnectResult,
   paymentConfiguration, checkoutSummary, checkoutPreparation, refundSummary, paymentAccount, paymentAccountPage,
-  onboardingLink, webhookAcknowledgment };
+  onboardingLink, webhookAcknowledgment, paymentOverviewCurrency, paymentOverview, earningsCurrency, paymentEarnings, emptyPaymentQuery };

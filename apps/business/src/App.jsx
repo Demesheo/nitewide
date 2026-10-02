@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleUserRound,
   Command,
+  CreditCard,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -28,6 +29,7 @@ import { MultiSelect } from "@/components/MultiSelect";
 import { Notifications } from "@/components/Notifications";
 import { TeamInviteLanding } from "@/components/Team";
 import { BusinessTeam } from "@/components/BusinessTeam";
+import { BusinessPayments } from "@/components/BusinessPayments";
 import { OnboardingSetup } from "@/components/OnboardingSetup";
 import { BusinessProfile } from "@/components/BusinessProfile";
 import { BusinessSignIn } from "@/components/BusinessSignIn";
@@ -47,6 +49,7 @@ const navigation = [
   ["analytics", BarChart3, "Analytics"],
   ["events", CalendarDays, "Events"],
   ["admissions", QrCode, "Admissions"],
+  ["payments", CreditCard, "Payments"],
   ["team", Users, "Organization"],
 ];
 function Brand() {
@@ -105,6 +108,9 @@ export default function App() {
   const expire = useCallback(() => signOut(true), [signOut]);
   const requireBusinessAccess = useCallback(() => signOut(true, false, 'Your Nitewide account does not have active Business access. Request access below, or accept your invitation to complete onboarding.'), [signOut]);
   const { data, loading, error, revision, setRevision } = useBusinessBootstrap(session, onboardingToken || inviteToken, expire, requireBusinessAccess);
+  useEffect(() => {
+    if (data && page === 'payments' && !data.organizations?.some(org => org.canManageFinance) && !data.scope?.canViewEarnings) navigateRoute('overview');
+  }, [data, page, navigateRoute]);
   useEffect(() => {
     if (!session || onboardingToken || inviteToken) return;
     const accessChanged = (event) => { if (event.detail?.accessToken === session.accessToken) requireBusinessAccess(); };
@@ -179,6 +185,8 @@ export default function App() {
         ? "Your organization, together."
       : page === "admissions"
         ? "A smooth start to their night."
+      : page === "payments"
+        ? "Your payments, clearly."
         : "The right people. A great night.";
   const hasIndependentWorkspace = Boolean(data?.scope?.canCreateIndependent);
   const activeOrg = selectedOrganizations.length === 1 ? data?.organizations.find((o) => o.id === selectedOrganizations[0]) : data?.organizations.length === 1 && !hasIndependentWorkspace ? data.organizations[0] : null;
@@ -188,8 +196,9 @@ export default function App() {
   const canManageTeam = data
     ? Boolean(session.user.isInternalAdmin || data.organizations?.some((org) => org.canManage || org.canCreateEvents))
     : Boolean(session.user.isInternalAdmin || session.roles?.some((role) => ['organization_owner', 'venue_manager'].includes(role)));
-  const visibleNavigation = navigation.filter(([id]) => id !== 'team' || canManageTeam);
-  const visiblePage = page === 'team' && !canManageTeam ? 'overview' : page;
+  const canViewPayments = Boolean(data.organizations?.some(org => org.canManageFinance) || data.scope?.canViewEarnings);
+  const visibleNavigation = navigation.filter(([id]) => (id !== 'team' || canManageTeam) && (id !== 'payments' || canViewPayments));
+  const visiblePage = (page === 'team' && !canManageTeam) || (page === 'payments' && !canViewPayments) ? 'overview' : page;
   const sidebarContent = <>
         <Brand />
         <div className="workspace-label">WORKSPACE</div>
@@ -327,6 +336,8 @@ export default function App() {
                       ? "Invite employees and promoters into your authorized organizations."
                     : page === "admissions"
                       ? "Scan passes or admit guests manually for your events."
+                    : page === "payments"
+                      ? "Review your authorized business payments and personal commissions."
                     : "Review requests and keep every guestlist in balance."}
               </p>
             </div>
@@ -337,7 +348,7 @@ export default function App() {
               </Button>
             )}
           </div>}
-          {visiblePage !== "analytics" && visiblePage !== "team" && visiblePage !== "admissions" && <div className="page-controls">
+          {visiblePage !== "analytics" && visiblePage !== "team" && visiblePage !== "admissions" && visiblePage !== "payments" && <div className="page-controls">
             {showOrganizationSelector && <MultiSelect
               label="Organizations"
               selected={selectedOrganizations}
@@ -433,6 +444,7 @@ export default function App() {
                 />
               )}
               {visiblePage === "team" && data && canManageTeam && <BusinessTeam session={session} organizations={data.organizations.filter((org) => org.canManage || org.canCreateEvents)} onUnauthorized={expire} />}
+              {visiblePage === "payments" && canViewPayments && <BusinessPayments session={session} organizations={data.organizations} canViewEarnings={Boolean(data.scope?.canViewEarnings)} />}
             </div>
           )}
           <footer className="app-footer">

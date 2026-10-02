@@ -55,7 +55,10 @@ const error = z.object({ error: z.object({ code: z.string(), message: z.string()
 // Dynamic management resources retain JSON extension fields by design.
 const responses = { entity, event, offering, user, session, guest, sales, reportRow, exportJob, accessRequest, onboardingInvitation, error, page, envelope };
 const queries = {
+  '/business/organizations/:organizationId/payment-overview': payments.emptyPaymentQuery,
+  '/business/payments/earnings': payments.emptyPaymentQuery,
   '/business/organizations/:organizationId/payment-accounts': payments.paymentAccountQuery,
+  '/business/organizations/:organizationId/payment-accounts/:accountId/disconnect-impact': payments.emptyPaymentQuery,
   '/events': z.union([publicQuery.discoveryQuery, publicQuery.legacyDiscoveryQuery]), '/events/batch': publicQuery.batchQuery,
   '/customer/bookings': domainQuery.bookings, '/customer/saved': domainQuery.saved, '/customer/saved/ids': domainQuery.savedIds,
   '/customer/connections': domainQuery.connections, '/customer/connections/summary': domainQuery.connectionPeople, '/customer/connections/people': domainQuery.connectionPeople,
@@ -99,11 +102,17 @@ function paramsFor(path) {
 }
 
 function responseFor(method, path) {
+  if (path === '/business/organizations/:organizationId/payment-overview') return payments.paymentOverview;
+  if (path === '/business/payments/earnings') return payments.paymentEarnings;
   if (path === '/customer/payment-config') return payments.paymentConfiguration;
   if (path === '/customer/payment-checkouts') return payments.checkoutPreparation;
   if (path.startsWith('/customer/payment-checkouts/')) return payments.checkoutSummary;
   if (/^\/(business|admin)\/orders\/:orderId\/refunds$/.test(path)) return payments.refundSummary;
   if (path === '/business/organizations/:organizationId/payment-accounts') return method === 'get' ? payments.paymentAccountPage : payments.paymentAccount;
+  if (path.endsWith('/payment-accounts/:accountId/disconnect-impact')) return payments.disconnectImpact;
+  if (/\/payment-accounts\/:accountId\/(disable|resume)$/.test(path)) return payments.paymentAccount;
+  if (path.endsWith('/payment-accounts/:accountId/disconnect')) return payments.disconnectResult;
+  if (path.endsWith('/members/:userId/payment-disconnect')) return z.object({paymentDisconnectAuthorized:z.boolean(),version:count}).strict();
   if (path.endsWith('/payment-accounts/:accountId/synchronize')) return payments.paymentAccount;
   if (path.endsWith('/payment-accounts/:accountId/onboarding')) return payments.onboardingLink;
   if (path.endsWith('/payment-accounts/default')) return z.object({ defaultPaymentAccountId: uuid.nullable() }).strict();

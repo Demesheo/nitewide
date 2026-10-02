@@ -10,7 +10,7 @@ function fixture({role='owner',financeAuthorized=false,active=true}={}) {
   const models = { Organization:{sequelize:{transaction:async (_opts,fn)=>fn(transaction)},findByPk:async()=>organization},
     User:{findByPk:async()=>({id:'user',isActive:active})},OrganizationOwner:{findOne:async()=>({role,financeAuthorized})},
     PaymentAccount:{findByPk:async id=>profiles.get(id),findOne:async ({where})=>{const a=where.id?profiles.get(where.id):[...profiles.values()].find(p=>p.stripeAccountId===where.stripeAccountId);return a && (!where.organizationId || a.organizationId===where.organizationId) && (!where.lifecycleState || a.lifecycleState===where.lifecycleState)?a:null;},
-      create:async v=>{const a={...v,lifecycleState:'active',update:async function(values){Object.assign(this,values);},toJSON:function(){const {update,toJSON,...values}=this;return values;}};profiles.set(a.id,a);return a;},
+      create:async v=>{const a={...v,lifecycleState:'active',disconnectStatus:'none',update:async function(values){Object.assign(this,values);},toJSON:function(){const {update,toJSON,...values}=this;return values;}};profiles.set(a.id,a);return a;},
       findAndCountAll:async()=>({rows:[...profiles.values()],count:profiles.size})},Event:{findAll:async()=>[],findByPk:async()=>null},Order:{count:async()=>0} };
   let remote = readyRemote();
   const stripe = {mode:'test',createAccount:async (params,options)=>{calls.push({params,options});return remote;},retrieveAccount:async ()=>remote,createAccountLink:async params=>{calls.push(params);return {object:'v2.core.account_link',account:params.account,livemode:false,url:'https://connect.stripe.test/single-use',expires_at:'2033-05-18T03:33:20.000Z'};}};
@@ -30,7 +30,10 @@ test('only active owners and explicitly finance-authorized managers can manage p
 test('hosted onboarding returns one-time URL but never grants readiness',async()=>{
   const f=fixture();const a=await f.service.create('user','org',{name:'Nightclub',idempotencyKey:randomUUID()});
   const link=await f.service.onboarding('user','org',a.id);assert.match(link.url,/single-use/);assert.equal(f.profiles.get(a.id).chargesEnabled,undefined);
-  const params=f.calls[1];assert.equal(params.use_case.type,'account_onboarding');assert.deepEqual(params.use_case.account_onboarding.configurations,['merchant']);assert.equal(new URL(params.use_case.account_onboarding.return_url).searchParams.get('section'),'team');
+  const params=f.calls[1];assert.equal(params.use_case.type,'account_onboarding');assert.deepEqual(params.use_case.account_onboarding.configurations,['merchant']);
+  const returned=new URL(params.use_case.account_onboarding.return_url);
+  assert.equal(returned.searchParams.get('section'),'payments');assert.equal(returned.searchParams.get('paymentOrganization'),'org');
+  assert.equal(returned.searchParams.get('paymentAccountReturn'),a.id);assert.equal(returned.searchParams.has('teamOrganizationId'),false);
 });
 test('provider synchronization and exact scoped profile enable sandbox readiness',async()=>{
   const f=fixture();const a=await f.service.create('user','org',{name:'Nightclub',idempotencyKey:randomUUID()});await f.service.synchronize('user','org',a.id);

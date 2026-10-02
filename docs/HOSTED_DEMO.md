@@ -42,8 +42,11 @@ Routes on the single HTTPS origin:
 Existing seed accounts use
 `NitewideDemo!2026` (see README identities). Visitors share sample records; do not
 enter real personal information. Hosted mode uses production authentication and
-does not accept `x-user-id`. Checkout accepts mock payments only. No Stripe,
-Resend, Plivo or other paid delivery credentials should be set on this service.
+does not accept `x-user-id`. The Render demo now uses explicitly configured Stripe
+sandbox payments (`STRIPE_MODE=test`); mock paid checkout is disabled there.
+An individually verified merchant payment profile is required before a paid
+event can accept sandbox bookings. Free events and guestlists do not require Stripe.
+Never set live Stripe keys or enable quota-consuming email tests on this service.
 
 ## Data lifecycle
 

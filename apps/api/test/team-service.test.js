@@ -84,8 +84,10 @@ test('event promoter invitations keep their optional contact phone on renewal', 
     AuditLog: { create: async () => {} },
   };
   const service = createTeamService({ models, permissions: { assertManageEvent: async () => {} } });
-  await service.inviteEvent('owner', event.id, { email: 'promoter@example.com', phone: '+14075550123', commissionBps: 500 });
-  const renewed = await service.inviteEvent('owner', event.id, { email: 'promoter@example.com', phone: '+14075550123', commissionBps: 500 });
+  await assert.rejects(service.inviteEvent('owner', event.id, { email: 'promoter@example.com', phone: '+14075550123', commissionBps: 500 }), { code: 'COMMISSION_ONBOARDING_REQUIRED' });
+  assert.equal(saved.length, 0);
+  await service.inviteEvent('owner', event.id, { email: 'promoter@example.com', phone: '+14075550123', commissionBps: 0 });
+  const renewed = await service.inviteEvent('owner', event.id, { email: 'promoter@example.com', phone: '+14075550123', commissionBps: 0 });
   assert.equal(saved.length, 1);
   assert.equal(renewed.phone, '+14075550123');
   assert.equal(pending.phone, '+14075550123');
@@ -144,7 +146,35 @@ test('event invitation commission terms cannot be prepared or activated for an i
     EventAffiliate: { findOrCreate: async () => { assignmentWrites += 1; } },
   };
   const service = createTeamService({ models, permissions: { assertManageEvent: async () => {} } });
-  await assert.rejects(service.inviteEvent('actor', event.id, { email: invitation.email, commissionBps: 500 }), { code: 'PRICING_EDITOR_INVALID' });
+  await assert.rejects(service.inviteEvent('actor', event.id, { email: invitation.email, commissionBps: 500 }), { code: 'COMMISSION_ONBOARDING_REQUIRED' });
   await assert.rejects(service.accept('member', 'known-hashed-invitation'), { code: 'PRICING_EDITOR_INVALID' });
   assert.equal(invitationWrites, 0); assert.equal(assignmentWrites, 0);
+});
+
+test('legacy invitation preview and acceptance preserve configured terms while showing effective zero', async () => {
+  const event = { id: 'event', title: 'Legacy invitation event', status: 'published', endsAt: new Date(Date.now() + 86400000) };
+  const invitation = { id: 'invitation', eventId: event.id, event, email: 'recipient@example.test', role: 'affiliate',
+    invitedByUserId: 'actor', commissionBps: 1500, expiresAt: new Date(Date.now() + 60000),
+    async update(values) { Object.assign(this, values); } };
+  let createdAssignment;
+  const models = {
+    Event: { findByPk: async () => event },
+    User: { findByPk: async (id) => ({ id, email: invitation.email, isActive: true }) },
+    TeamInvitation: { sequelize: { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: 'UPDATE' } }) },
+      findOne: async () => invitation, findAll: async () => [invitation] },
+    EventAffiliate: { findOrCreate: async ({ where, defaults }) => {
+      createdAssignment = { id: 'assignment', ...where, ...defaults, toJSON() { return { id: this.id, commissionBps: this.commissionBps }; } };
+      return [createdAssignment, true];
+    } }, AuditLog: { create: async () => ({}) },
+  };
+  const service = createTeamService({ models, permissions: { assertManageEvent: async () => {} } });
+  for (const preview of [await service.invitation('legacy-link'), ...(await service.eventInvitations('actor', event.id))]) {
+    assert.equal(preview.commissionBps, 0);
+    assert.equal(preview.configuredCommissionBps, 1500);
+    assert.equal(preview.commissionEligibility.eligible, false);
+  }
+  assert.deepEqual(await service.accept('recipient', 'legacy-link'), { eventId: event.id, role: 'affiliate' });
+  assert.equal(createdAssignment.commissionBps, 1500, 'accepting access does not silently rewrite legacy configured terms');
+  assert.equal(invitation.commissionBps, 1500);
+  assert.ok(invitation.acceptedAt);
 });

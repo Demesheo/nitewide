@@ -205,7 +205,7 @@ test('platform reporting and support preserve canonical scopes, snapshots, finan
       const saved = [];
       for (const items of carts) {
         const quote = quoteOrder({ items: items.map(item => ({ unitPriceCents: offerings.find(o => o.id === item.offeringId).priceCents,quantity: item.quantity,
-          feeMode: item.offeringId === offerings[0].id ? 'absorbed' : 'buyer' })),commissionBps: 1000 });
+          feeMode: item.offeringId === offerings[0].id ? 'absorbed' : 'buyer' })),commissionBps: 0 });
         const body = { eventId: event.id,idempotencyKey: randomUUID(),affiliateCode: affiliate.code,items,expectedTotalCents: quote.totalCents,
           payment: { provider: 'demo',reference: randomUUID(),status: 'succeeded' } };
         const customer = (await api('post','/orders',ids.guest).send(body).expect(201)).body.data.order;
@@ -215,6 +215,9 @@ test('platform reporting and support preserve canonical scopes, snapshots, finan
         assert.equal(order.pricingPlanSnapshot.pricingDecision.businessFeeCents,quote.businessFeeCents);
         assert.equal(customer.pricingPlanSnapshot.pricingDecision,undefined);
         assert.equal(order.affiliateCommissionCents,quote.commissionCents);
+        assert.equal(order.pricingPlanSnapshot.commissionBps,0);
+        assert.equal(order.pricingPlanSnapshot.configuredCommissionBps,1000);
+        assert.equal(order.pricingPlanSnapshot.commissionEligibility.eligible,false);
         assert.equal(order.eventAffiliateId,affiliate.id);
         await api('post','/orders',ids.guest).send(body).expect(200);
       }

@@ -109,6 +109,10 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
         if (existing.idempotencyKey !== input.idempotencyKey || existing.reason !== input.reason.trim()) throw conflict('A refund request already exists for this order', 'REFUND_IDEMPOTENCY_CONFLICT');
         return existing;
       }
+      const merchant = await models.PaymentAccount.findByPk(order.paymentAccountId,{transaction});
+      if (!merchant || merchant.lifecycleState !== 'active' || merchant.disconnectStatus !== 'none') {
+        throw conflict('This Stripe connection is disconnected or disconnecting. Manage any later refund in the merchant Stripe dashboard.', 'PAYMENT_ACCOUNT_DISCONNECTED');
+      }
       const created = await models.Refund.create({ orderId, paymentAccountId: order.paymentAccountId, stripeAccountId: order.stripeAccountId,
         amountCents: order.totalCents, currency: order.currency, status: 'pending', idempotencyKey: input.idempotencyKey,
         requestedByUserId: userId, approvedByUserId: userId, adminOverride: internalOverride, reason: input.reason.trim() }, { transaction });

@@ -11,6 +11,13 @@ function initPaymentAccount(sequelize) {
     controllerMatches: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }, requirements: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
     capabilities: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} }, synchronizedAt: DataTypes.DATE,
     lifecycleState: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'active' },
+    paymentsDisabledAt: DataTypes.DATE,
+    controlVersion: {type:DataTypes.INTEGER,allowNull:false,defaultValue:0},
+    disconnectStatus: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'none' },
+    disconnectRequestId: DataTypes.UUID,
+    disconnectAttemptAt: DataTypes.DATE,
+    disconnectedAt: DataTypes.DATE,
+    disconnectErrorCode: DataTypes.STRING(80),
   }, { sequelize, modelName: 'PaymentAccount', tableName: 'payment_accounts', indexes: [{ fields: ['organization_id','lifecycle_state','created_at'] }] });
   return PaymentAccount;
 }

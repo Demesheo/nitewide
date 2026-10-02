@@ -2,13 +2,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createBusinessEventReuseService } = require('../src/services/business-event-reuse-service');
 
-function fixture({invalidPricing = false} = {}) {
+function fixture({invalidPricing = false, commissionBps = 0} = {}) {
   const queries = [],transaction = {LOCK:{UPDATE:'UPDATE'}},now = new Date('2030-10-01');
   const source = {id:'source',organizationId:'org',locationId:'venue'},target = {id:'target',organizationId:'org',locationId:'venue',status:'draft',endsAt:new Date('2030-10-02')};
   const models = {Event:{findByPk:async () => target,sequelize:{transaction:async (_,work) => work(transaction),query:async (sql,options) => {
     queries.push({sql,options});
     if (sql.includes('pg_advisory')) return [];
-    if (sql.startsWith('SELECT COALESCE(MAX')) return [{commissionBps:4000}];
+    if (sql.startsWith('SELECT COALESCE(MAX')) return [{commissionBps}];
     if (sql.startsWith('SELECT e.id AS')) return invalidPricing ? [{eventId:'target',eventFeeMode:'absorbed',offeringId:'tier',name:'Unsafe tier',priceCents:100,minPerOrder:1,maxPerOrder:1,feeMode:'inherit',currency:'USD',isActive:true}] : [];
     if (sql.startsWith('SELECT e.id')) return [{id:'target'}];
     if (sql.startsWith('INSERT')) return [{id:'copy'}];
@@ -38,4 +38,9 @@ test('unsafe copied commission terms are rejected before any assignment insert',
   const f = fixture({invalidPricing:true});
   await assert.rejects(f.service.copyAccess('actor','target',{sourceEventId:'source',copyTeam:true,copyAllocations:true}),{code:'PRICING_EDITOR_INVALID'});
   assert.equal(f.queries.some(query => query.sql.startsWith('INSERT')),false);
+});
+test('legacy copied terms preserve team access while individual eligibility holds future commissions at zero', async () => {
+  const f = fixture({ commissionBps: 4000 });
+  assert.equal((await f.service.copyAccess('actor','target',{sourceEventId:'source',copyTeam:true,copyAllocations:true})).copied,1);
+  assert.match(f.queries.find(query => query.sql.startsWith('INSERT')).sql, /source\.commission_bps/);
 });

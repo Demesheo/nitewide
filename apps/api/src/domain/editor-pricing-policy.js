@@ -1,6 +1,7 @@
 const { QueryTypes } = require('sequelize');
 const { quoteOrder,DEMO_COSTS,effectiveFeeMode,MINIMUM_FEE_ELIGIBLE_SUBTOTAL_CENTS } = require('@nitewide/pricing');
 const { DomainError } = require('./errors');
+const { effectiveCommissionBps, assertCommissionEligible } = require('./commission-eligibility');
 
 function editorPricingIssues({ eventFeeMode = 'buyer',offerings = [],commissionBps = 0,costs = DEMO_COSTS,now = new Date() }) {
   const issues = [];
@@ -47,7 +48,7 @@ async function configuredCommissionBps({ models,eventId,organizationId,transacti
       FROM event_affiliates ea LEFT JOIN org_affiliates oa ON oa.id=ea.org_affiliate_id
       WHERE ea.event_id=:eventId AND ea.status='active') rates`,
   { replacements: { organizationId: organizationId || null,eventId: eventId || null },transaction,type: QueryTypes.SELECT });
-  return Number(row.rate);
+  return effectiveCommissionBps(Number(row.rate));
 }
 async function assertEditorPricing({ models,eventId,organizationId,eventFeeMode = 'buyer',offerings,transaction,now = new Date() }) {
   const commissionBps = await configuredCommissionBps({ models,eventId,organizationId,transaction });
@@ -55,6 +56,7 @@ async function assertEditorPricing({ models,eventId,organizationId,eventFeeMode 
 }
 async function assertCommissionPricing({ models,organizationId,eventId,commissionBps,transaction,now = new Date() }) {
   if (!Number.isSafeInteger(commissionBps) || commissionBps<0 || commissionBps>4000) throw new DomainError('Choose a commission from 0% through 40%.',{ status: 422,code: 'INVALID_COMMISSION' });
+  assertCommissionEligible(commissionBps);
   if (!organizationId && !eventId) throw new DomainError('A business or event scope is required for commission changes.',{ status: 422,code: 'COMMISSION_SCOPE_REQUIRED' });
   const replacements = { eventId: eventId || null,organizationId: organizationId || null,now };
   // Price edits lock the same event before replacing its offerings. Lock even

@@ -16,6 +16,8 @@ Readiness requires an active local profile, test-mode v2 account, full Dashboard
 
 The user has configured a local test secret securely. Credentials remain server-side, are not pasted into chat, and are not included in frontend bundles. Configure `STRIPE_MODE=test`, `STRIPE_SECRET_KEY=sk_test_…`, `STRIPE_PUBLISHABLE_KEY=pk_test_…`, and separate signing secrets for both destinations below. Payment enablement requires the account and payment webhook destinations to be configured. A secret key alone supports onboarding but does not enable paid publication or checkout. Live secret/publishable keys are rejected by this implementation.
 
+Before enabling hosted Stripe, explicitly configure `CUSTOMER_APP_URL=https://<public-customer-host>` and `BUSINESS_APP_URL=https://<public-business-host>/app` on the API and worker environments. For the shared demo these are `https://nitewide-demo.onrender.com` and `https://nitewide-demo.onrender.com/app`. Production/hosted Stripe startup rejects missing, insecure, credential-bearing, localhost or private-address return URLs—even before webhooks or email delivery are configured. Local development can still use localhost. Callback URLs are server configuration, never inferred from a request's Host header. Updating a URL does not change an already-issued one-time onboarding link; issue a fresh link.
+
 In Stripe Workbench, create two sandbox event destinations. Repeat these settings in production only after a separately authorized production implementation and validation; this code currently supports test mode only.
 
 | Destination | Event source / payload | Events | Signing secret |
@@ -47,7 +49,7 @@ Approved refund creation responses lost in transit are recoverable with the orig
 
 Checkout Session creation parameters are saved privately with the order before the reservation commits: account/key, prices, fees, email, return URL, payment methods and expiry remain immutable across retries and configuration changes. A missing original snapshot, an unknown creation older than 23 hours, or insufficient time remaining to satisfy Stripe's 30-minute minimum creation expiry moves the order to audited review, retaining inventory. The initial session expiry is 35 minutes; an unknown creation therefore requires manual reconciliation after approximately five minutes. A known session ID can still be retrieved after that creation-replay window. Provider parameters and customer-email snapshots are excluded from customer order responses; client secrets are not persisted.
 
-See [Stripe event destinations](https://docs.stripe.com/event-destinations) and [Accounts v2 integration](https://docs.stripe.com/connect/accounts-v2). The user created both sandbox Dashboard destinations and configured their distinct signing secrets locally. Their Render receiver routes have not yet been deployed or tested with Stripe delivery.
+See [Stripe event destinations](https://docs.stripe.com/event-destinations) and [Accounts v2 integration](https://docs.stripe.com/connect/accounts-v2). The user created both sandbox Dashboard destinations and configured their distinct signing secrets locally and on Render. Both Render receivers are deployed; unsigned payloads are rejected. Actual provider delivery remains part of the pending end-to-end onboarding/purchase/refund check.
 
 ## Refunds and fees
 
@@ -57,8 +59,88 @@ Refunds initiated outside Nitewide, including in the merchant's Stripe Dashboard
 
 ## Verification and current limits
 
-Account, payment, refund, webhook, merchant-selection, and customer recovery code is verified with mocked providers and isolated generated PostgreSQL databases. The full browser regression passed 182 tests across customer, business and rebuilt admin on iPhone and desktop; all workspace builds passed. No actual Stripe account, onboarding link, Checkout Session, charge or refund has been created by the agent, and no real email has been sent. The two additive Stripe migrations were applied to the local development database without reseeding. No Render variables, database or deployment were changed. Local credential formats are valid and the webhook secrets are distinct, but their ownership/validity has not been checked with Stripe. `STRIPE_MODE` remains disabled. End-to-end provider sandbox verification, deployed receivers, Render migrations/configuration and final operational review remain outstanding. Disputes and full production operations require further work before live money can be enabled.
+Account, payment, refund, webhook, merchant-selection, and customer recovery code is verified with mocked providers and isolated generated PostgreSQL databases. The initial full browser regression passed 182 tests across customer, business and rebuilt admin on iPhone and desktop; all workspace builds passed. Stripe integration and the subsequent CI isolation fix are deployed on Render (commits `3e62ed4` and `99ce05d`). Both additive Stripe migrations were applied there without reseeding; API readiness, public sandbox configuration and both receiver signature checks passed. The platform-account lookup and Accounts v2 listing succeeded using the sandbox key. Local and Render runtimes are now explicitly in test mode, with mock paid purchases disabled. Local test mode was enabled after the user encountered a disabled-mode error while adding a local payment profile; the existing test credentials were already present. Local and Render databases have separate organization IDs and payment-profile records, so an account created for Aura on Render is not automatically selectable on localhost. Use the intended environment and create its organization-scoped profile rather than importing or sharing bindings implicitly. End-to-end verified merchant readiness, an actual sandbox purchase, verified webhook fulfillment and a full refund are still outstanding. Dashboard webhook destinations currently target Render; local webhook tests require their own listener/tunnel and listener signing secrets. No live money or quota-consuming email test is authorized. Disputes and full production operations require further work before live money can be enabled.
 
 Final offline verification on October 1, 2026: `npm test` passed all 773 unit/interaction tests and 116 database tests across 24 required isolated suites, with no failures or skips. `npm run api:contract:check` passed. Local `/health/live`, `/health/ready` and public `/api/customer/payment-config` returned HTTP 200 after the API restart; payment configuration reported `enabled: false`, `mode: disabled`. Provider calls were mocked and credential scrubbing remained enabled throughout standard tests.
 
+The subsequent Payments workspace verification passed 790 unit/interaction tests and 117 database tests across 24 isolated suites. The later API unit run passed 457 tests, the customer abort-response fix passed 133 unit tests, and the full browser rerun passed 186 tests across all three apps on iPhone and desktop. These are offline checks, not proof of actual Stripe verification. The earlier disabled-mode configuration above was superseded when local `STRIPE_MODE=test` was explicitly enabled.
+
+Sandbox setup reference data and the supplied Stripe success image are stored in `e2e/test-data/stripe-connect/`. Generate an identity once per test with `createStripeTestIdentity(scenario)` and reuse it for retries: `test+<scenario>-<New York date>-<random suffix>@nitewide.com`. This user-approved email convention is not a Stripe verification token. Standard tests mock provider calls and never contact Stripe or send Resend email. Hosted onboarding still needs user entry for new passwords and agreement acceptance.
+
+The local Aura payment profile is a different sandbox merchant from the Render QA profile. Its hosted setup successfully opened with a generated test email on October 1; it reached Stripe's new-password step, which is handed to the user. No password was entered by the agent, and no local onboarding completion or test-image upload is claimed. Setup controls now display progress, errors and an expiring in-memory fallback link; account access and readiness checks remain enforced.
+
+Setup-recovery verification passed all 176 Business unit/interaction tests, the three source/image/email-identity fixture checks, and all 12 focused payment browser tests on iPhone and desktop. After the final expiry-message adjustment, its focused recovery/fixture rerun passed all 10 tests. Browser coverage includes delayed requests, explicit provider errors, expired links, fresh retries, correct finance access, hosted navigation and the labeled test-email convention. All workspace builds passed during that browser run. No real Stripe purchases, refunds or email-delivery tests were executed by these automated tests.
+
+## Explicit sandbox tests and account reuse
+
+The real-provider runner is separate from ordinary unit, PostgreSQL and Playwright tests. Run it locally with the sandbox secret and publishable keys in the ignored root `.env`, `STRIPE_MODE=test`, and Docker/PostGIS running on port 5433:
+
+```sh
+npm run test:stripe:sandbox
+```
+
+This command first runs mocked payment, account, webhook and runner tests, then the isolated PostgreSQL checkout integration suite. Only after these pass does it contact Stripe. It creates one tagged Accounts v2 test merchant using the synthetic reference data in `e2e/test-data/stripe-connect/`. The generated email follows `test+api-onboarding-<date>-<random suffix>@nitewide.com`; the same identity and account are retained for retries. The runner refuses live keys, production/hosted deployments, CI and untagged or differently configured accounts. No normal test, build or deployment command invokes it.
+
+Reports are stored outside source control at `test-results/stripe-sandbox/<test identifier>.json`. Reuse the exact account in that report rather than creating another merchant or Stripe login:
+
+```sh
+npm run test:stripe:sandbox -- --resume <test identifier>
+```
+
+Each run uses generated local test databases, not the development or Render databases. Database fixtures are removed on completion; tagged Stripe sandbox accounts remain available for inspection and reuse. The runner never imports that account into an existing business, changes a merchant default, or alters existing event/account bindings. It has a ten-minute overall deadline, bounded subprocess/provider/browser operations and interruption cleanup. A failed cleanup is reported with the exact generated database name.
+
+### Full Dashboard activation requires a manual step
+
+API provisioning does **not** fully activate our chosen full-Dashboard, Stripe-owned-pricing account model. On October 1, sandbox API calls rejected both platform acceptance of merchant terms (`tos_acceptance_on_behalf_not_allowed`) and platform addition of the payout bank. The fixture therefore does neither. The merchant must complete the bank/terms and any remaining requirements through Stripe's hosted/Dashboard flow once, after which repeated automation can reuse that account. Do not change Dashboard type, fee/loss responsibilities or local readiness flags to bypass this boundary.
+
+Use the same tagged account when completing those requirements and resuming the API fixture. Do not silently substitute the existing Aura merchant or copy account bindings between local and Render databases. For the separate real business signup check below, keep using its own explicitly selected QA merchant profile.
+
+Stripe's [Connect testing guide](https://docs.stripe.com/connect/testing) documents synthetic verification inputs and warns that sandbox capability enforcement may differ from live mode. A successful test charge alone cannot establish readiness. Nitewide independently retrieves capabilities and current requirements and stops before paid checkout unless the actual account is ready.
+
+### Automated checks and their limits
+
+The runner retrieves a real account-update event after changing only tagged test-account metadata. It replays that thin notification through our actual HTTP webhook receiver with private, newly generated local signing secrets. It checks forged-signature rejection, independent provider retrieval, readiness synchronization and duplicate-event deduplication. Deployed signing secrets are never reused or changed.
+
+After provider-confirmed readiness, the additional flow is designed to exercise customer Stripe Elements using a synthetic test card, one direct-charge booking, durable retry/session identity, signed payment-webhook fulfillment, exact QR pass recovery and a full customer/application-fee refund. The cart is limited to one $20 test ticket and at most $50 simulated total. These checks remain explicitly **not run** when activation is blocked; completing mocked tests does not establish that the real payment flow works.
+
+The local webhook checks use independently retrieved Stripe events and locally generated test signatures. They verify our receiver and reconciliation, **not** actual Stripe-to-Render or tunnel delivery. Delivery from the configured Stripe destination must be checked separately in Workbench and the corresponding application environment. The runner records this distinction in its report.
+
+Real money and Nitewide/Resend email sends are disabled. The intended successful run creates one simulated paid booking and one full refund; no Stripe login credentials, client secrets, bank details, traces, HARs or video are written to the report. Test accounts can still cause Stripe's own sandbox account communications; the zero-email statement applies to Nitewide/Resend, not to Stripe's services.
+
+October 1 checkpoint: API provisioning and the real account-update HTTP replay passed. Provider synchronization correctly retained restricted capabilities. The final prerequisite run passed 25 offline tests and 10 isolated PostgreSQL checkout tests; the broader API unit run passed 467 tests. Paid checkout, payment webhook fulfillment, QR recovery and refund were not run because this test merchant still needs hosted activation. All disposable databases were removed. This is not a completed real-payment end-to-end test.
+
+### Separate manual hosted onboarding check
+
+Keep this human-operated check separate from recurring API tests:
+
+1. Sign into Nitewide Business as an owner or explicitly finance-authorized manager. Select the intended local or Render QA organization and merchant profile in Payments. Confirm that unauthorized people cannot open its setup link.
+2. Start or resume Stripe setup from Nitewide. Check visible loading, navigation/fallback-link behavior and expired-link recovery on iPhone and desktop. Confirm that the account belongs to the mock business, not the Nitewide platform or a commission recipient.
+3. Enter only documented sandbox verification data. The user handles Stripe login, passwords, MFA, merchant agreement acceptance and any verification prompts; automation does not bypass or accept these. Use the supplied test image, never a real identity document.
+4. Return to the same Nitewide environment. Refresh provider status and confirm that missing requirements remain visible and paid actions stay blocked until server-retrieved capabilities are active. Free events and guestlists must remain available.
+5. Record the selected environment/profile, verified capability result and any outstanding requirements. Check actual destination deliveries separately; a redirect or locally signed replay is not delivery proof.
+
+See the [fixture reference](../e2e/test-data/stripe-connect/README.md) for the safe test values and email convention. Resume the tagged API fixture only after its own provider requirements are complete.
+
+The user chose the existing Aura demo organization for provider end-to-end testing. Its separate **QA sandbox · October 2026** merchant payment profile has been created, and the user completed the hosted form. Independent Stripe retrieval still reports restricted card-payment and payout capabilities with an outstanding primary identity-document verification requirement; a form return alone therefore does not grant readiness. Use Stripe's documented [test document images or file tokens](https://docs.stripe.com/connect/testing#test-government-issued-id-documents), never real identity documents, to finish sandbox verification. Aura's default payment account, existing events and bookings were not changed. This is mock-business merchant onboarding, not Nitewide platform/admin or individual commission-recipient onboarding. No sandbox purchase or refund has been performed at this checkpoint.
+
+The hosted form exposed missing public callback configuration by returning to the local customer application. With explicit user authorization, both public URL variables were merged into Render without replacing secrets, and the existing verified image was restarted (no reseed or code deployment). The restart became Live and `/health/ready` returned HTTP 200. Future links use the Render origin; already-issued links retain their original callback.
+
 Checkout recovery persists a stable buyer-specific attempt before submission and reuses its idempotency key after refresh or uncertain responses. Existing confirmed purchases reopen their passes; pending/unverified attempts do not issue admissions or display successful payment. Terminal rejection allows the customer to review a new selection. Browser storage contains attempt data, not card details; cross-device recovery and complete provider lifecycle verification are separate requirements. Stripe payment confirmation must be independently reconciled on the server, including amounts, currency, application fee, account identity, and reservation state.
+
+## Business Payments workspace and individual commissions
+
+The dedicated **Payments** workspace separates business finances from **My commissions**. Owners and explicitly finance-authorized managers can see their organization's verified sandbox booking totals and manage merchant payment accounts. Commission earners can see only their own historical earnings, even when their effective rate is currently zero. No role grants access to another person's earnings. Organization settings no longer duplicate payment-account controls. Already-issued onboarding links returning to Organization still open the new Payments workspace.
+
+`GET /business/organizations/:organizationId/payment-overview` aggregates all-time verified Stripe test bookings by currency. Customer payments include subsequently refunded bookings; remaining payments subtract verified full refunds. Pending/review counts are separate. Legacy mock payments are excluded. These figures are **not** the merchant's bank balance, Stripe processing-fee statement or payout history. Stripe manages those; the full Dashboard link requires Stripe sign-in and Stripe account/team authorization independently of Nitewide permissions.
+
+`GET /business/payments/earnings` uses the authenticated user's identity, never a supplied recipient ID. It separates verified sandbox commissions, refunded commissions and explicitly evidenced mock commissions. Historical order snapshots are retained. `receivedPayouts`, personal dashboard connection and payout history are explicitly unavailable—not reported as zero or paid—because an individual account repository and reconciled commission payout ledger do not yet exist. The general Dashboard link opens the user's own Stripe sign-in; it does not connect a personal Stripe account to Nitewide.
+
+Agreed commission rules:
+
+- Businesses fund commissions separately from Nitewide's platform fee. Merchant-of-record direct charges and Stripe-owned pricing remain unchanged.
+- Without completed **individual** Stripe onboarding and freshly verified recipient/payout eligibility, the person's effective commission is **locked at 0%**. Merchant/business onboarding cannot satisfy this rule.
+- New booking calculation enforces the lock server-side. Nonzero commission invitations/edits are rejected while individual eligibility is unavailable. Zero-rate access invitations still work, including acceptance of legacy invitations. Copying existing assignments retains historical/configured terms but cannot activate unverified commission earnings.
+- Saved historical rates and completed order commission snapshots are not rewritten. Read projections show the effective zero rate separately from configured historical terms; editing controls explain the lock.
+- The shared policy fails closed today: no current code path loads an individually verified Stripe profile, so **no current user can unlock nonzero new commission earnings or initiate automated commission payouts**. Future integration must use a server-owned, user-bound individual account, re-check provider readiness at earning/payout time and implement funded, idempotent, reconciled payouts/refund reversals before enabling transfers. A hypothetical readiness object in a browser request is never accepted as evidence.
+
+Individual hosted onboarding, business-funding authorization, transfer settlement/reversal rules, payout reconciliation and verified payout-history UI are the next separate implementation; the current workspace must not suggest these have already shipped.

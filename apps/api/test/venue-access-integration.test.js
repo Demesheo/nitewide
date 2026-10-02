@@ -73,8 +73,10 @@ test('exclusive managed venues preserve scoped staff, reporting, referrals, admi
       await api('get',`/business/events/${eventA.id}/summary`,ids.manager).expect(404);
       await api('get',`${venuePath(ids.org,false)}/${venueB.id}/team`,ids.employee).expect(403);
       assert.equal(await m.EventAffiliate.count({ where: { eventId: eventB.id,userId: ids.employee } }),0);
-      const firstTerms = (await api('put',`/business/events/${eventB.id}/people`,ids.manager).send({ userId: ids.employee,commissionBps: 500,status: 'active' }).expect(200)).body.data;
-      assert.equal(firstTerms.accessScope,'venue'); assert.equal(firstTerms.venueAccessId,grantEmployee.id); assert.equal(firstTerms.commissionBps,500);
+      const deniedTerms = await api('put',`/business/events/${eventB.id}/people`,ids.manager).send({ userId: ids.employee,commissionBps: 500,status: 'active' }).expect(422);
+      assert.equal(deniedTerms.body.error.code,'COMMISSION_ONBOARDING_REQUIRED');
+      const firstTerms = (await api('put',`/business/events/${eventB.id}/people`,ids.manager).send({ userId: ids.employee,commissionBps: 0,status: 'active' }).expect(200)).body.data;
+      assert.equal(firstTerms.accessScope,'venue'); assert.equal(firstTerms.venueAccessId,grantEmployee.id); assert.equal(firstTerms.commissionBps,0);
       const ownLink = (await api('get',`/business/events/${eventB.id}/referral-link`,ids.employee).expect(200)).body.data;
       assert.equal(ownLink.code,firstTerms.code,'first terms precede and preserve the employee’s own referral link');
     });
@@ -250,7 +252,7 @@ test('exclusive managed venues preserve scoped staff, reporting, referrals, admi
       const employeeAssignment = await m.EventAffiliate.findOne({ where: { eventId: eventB.id,userId: ids.employee } });
       grantEmployee = await grant(venueB.id,ids.employee,'employee',grantEmployee,'inactive');
       await api('put',`/business/events/${eventB.id}/people`,ids.manager).send({ userId: ids.employee,commissionBps: 700,status: 'active' }).expect(403);
-      assert.equal((await m.EventAffiliate.findByPk(employeeAssignment.id)).commissionBps,500);
+      assert.equal((await m.EventAffiliate.findByPk(employeeAssignment.id)).commissionBps,0);
       grantEmployee = await grant(venueB.id,ids.employee,'employee',grantEmployee,'active');
       await api('put',`/business/events/${eventA.id}/people`,ids.owner).send({ userId: ids.employee,commissionBps: 500,status: 'active' }).expect(403);
       await employeeAssignment.update({ guestlistAllocation: 3 });
@@ -269,7 +271,7 @@ test('exclusive managed venues preserve scoped staff, reporting, referrals, admi
       const copied = await m.EventAffiliate.findAll({ where: { eventId: same.id } });
       assert.equal(copied.length,2); assert.ok(copied.every(row => row.accessScope==='venue'));
       const employeeCopy = copied.find(row => row.userId===ids.employee),promoterCopy = copied.find(row => row.userId===ids.promoter);
-      assert.equal(employeeCopy.venueAccessId,grantEmployee.id); assert.equal(employeeCopy.commissionBps,500); assert.equal(employeeCopy.guestlistAllocation,3);
+      assert.equal(employeeCopy.venueAccessId,grantEmployee.id); assert.equal(employeeCopy.commissionBps,0); assert.equal(employeeCopy.guestlistAllocation,3);
       assert.notEqual(employeeCopy.code,employeeAssignment.code); assert.equal(promoterCopy.venueAccessId,grantPromoter.id);
       assert.ok(!copied.some(row => invalid.some(person => person.id===row.userId)));
       assert.equal((await copy(other.id)).copied,0); assert.equal(await m.EventAffiliate.count({ where: { eventId: other.id } }),0);

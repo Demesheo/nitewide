@@ -4,14 +4,16 @@ test('event terms override organization defaults rather than stacking', async ()
   const eventAffiliate = { id: 'event-aff', userId: 'u1', status: 'active', commissionBps: 1100, guestlistAllocation: 9, orgAffiliateId: 'org-aff' };
   const models = { EventAffiliate: { findOne: async ({ where }) => where.code === 'EVENT' ? eventAffiliate : null }, OrgAffiliate: { findOne: async () => orgAffiliate, findByPk: async () => orgAffiliate }, User: { findByPk: async () => ({ isActive: true }) }, Organization: { findByPk: async () => ({ id: 'o1', status: 'active' }) }, OrganizationOwner: { findOne: async () => null, unscoped() { return this; } }, OrganizationEmployee: { findOne: async () => null } };
   const result = await resolveAffiliate(models, { event: { id: 'e1', organizationId: 'o1' }, code: 'EVENT' });
-  assert.equal(result.commissionBps, 1100); assert.equal(result.guestlistAllocation, 9);
+  assert.equal(result.commissionBps, 0); assert.equal(result.configuredCommissionBps, 1100); assert.equal(result.guestlistAllocation, 9);
+  assert.equal(eventAffiliate.commissionBps, 1100, 'stored terms are preserved');
+  assert.equal(result.commissionEligibility.reasonCode, 'INDIVIDUAL_STRIPE_ONBOARDING_REQUIRED');
 });
 test('an org code adopts the selected event override for the same user', async () => {
   const orgAffiliate = { id: 'org-aff', userId: 'u1', status: 'active', defaultCommissionBps: 700, defaultGuestlistAllocation: 5 };
   const eventAffiliate = { id: 'event-aff', userId: 'u1', status: 'active', accessScope: 'organization', orgAffiliateId: 'org-aff', commissionBps: null, guestlistAllocation: 12 };
   const models = { EventAffiliate: { findOne: async ({ where }) => where.code ? null : eventAffiliate, findOrCreate: async () => [eventAffiliate, true] }, OrgAffiliate: { findOne: async () => orgAffiliate, findByPk: async () => orgAffiliate }, User: { findByPk: async () => ({ isActive: true }) }, Organization: { findByPk: async () => ({ id: 'o1', status: 'active' }) }, OrganizationOwner: { findOne: async () => null, unscoped() { return this; } }, OrganizationEmployee: { findOne: async () => null } };
   const result = await resolveAffiliate(models, { event: { id: 'e1', organizationId: 'o1' }, code: 'ORG' });
-  assert.equal(result.commissionBps, 700); assert.equal(result.guestlistAllocation, 12);
+  assert.equal(result.commissionBps, 0); assert.equal(result.configuredCommissionBps, 700); assert.equal(result.guestlistAllocation, 12);
 });
 
 function employeeFixture({leaderRole} = {}) {
@@ -50,7 +52,8 @@ test('employee event overrides, including explicit zero and removal, take preced
   const f = employeeFixture();
   const {eventAffiliate} = await f.resolve();
   eventAffiliate.commissionBps = 2500;
-  assert.equal((await f.resolve()).commissionBps,2500);
+  assert.equal((await f.resolve()).commissionBps,0);
+  assert.equal((await f.resolve()).configuredCommissionBps,2500);
   eventAffiliate.commissionBps = 0;
   assert.equal((await f.resolve()).commissionBps,0);
   eventAffiliate.status = 'inactive';
@@ -82,8 +85,9 @@ for (const leaderRole of ['owner','admin']) {
     assert.equal(first.guestlistAllocation,0);
     assert.match(first.eventAffiliate.code,/^LEADEV-/);
     first.eventAffiliate.commissionBps = 1750;
-    assert.equal((await f.resolve()).commissionBps,1750);
-    assert.equal((await f.resolve({code:first.eventAffiliate.code})).commissionBps,1750);
+    assert.equal((await f.resolve()).commissionBps,0);
+    assert.equal((await f.resolve()).configuredCommissionBps,1750);
+    assert.equal((await f.resolve({code:first.eventAffiliate.code})).commissionBps,0);
     assert.equal((await f.resolve({event:{id:'another-event',organizationId:'venue'}})).commissionBps,0);
     assert.equal(f.assignments.size,2);
     await assert.rejects(f.resolve({event:{id:'foreign',organizationId:'other'}}),{code:'INVALID_AFFILIATE'});

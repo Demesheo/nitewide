@@ -7,7 +7,8 @@ function createStripeWebhookService({ sequelize, models, stripe, paymentCheckout
       const locked = await models.PaymentAccount.findByPk(account.id, { transaction, lock: transaction.LOCK.UPDATE });
       if (locked.lifecycleState === 'archived' && !locked.chargesEnabled) return;
       await locked.update({ chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false, cardPaymentsActive: false,
-        controllerMatches: false, lifecycleState: 'archived', synchronizedAt: now() }, { transaction });
+        controllerMatches: false, lifecycleState: 'archived', synchronizedAt: now(),paymentsDisabledAt:locked.paymentsDisabledAt || now(),
+        disconnectStatus:'disconnected',disconnectedAt:now(),disconnectErrorCode:null }, { transaction });
       await models.AuditLog.create({ organizationId: locked.organizationId, entityType: 'PaymentAccount', entityId: locked.id,
         action: 'payment_account.deauthorized', after: { stripeAccountId: locked.stripeAccountId, stripeEventId: eventId } }, { transaction });
     }, { accessChange: true });

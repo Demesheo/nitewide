@@ -21,6 +21,7 @@
     "test:api": "npm test --workspace @nitewide/api",
     "test:api:unit": "npm run test:unit --workspace @nitewide/api",
     "test:api:integration": "node apps/api/scripts/run-tests.cjs --integration",
+    "test:stripe:sandbox": "node apps/api/stripe-tests/run.cjs --run",
     "test:e2e": "node e2e/run.cjs",
     "test:e2e:headed": "node e2e/run.cjs --headed",
     "test:e2e:ui": "node e2e/run.cjs --ui",

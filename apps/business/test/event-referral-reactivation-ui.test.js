@@ -38,7 +38,7 @@ test('manager can reactivate an inactive event assignment through the event team
     vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { EventPeople } = await vite.ssrLoadModule('/src/components/EventDetail.jsx');
     const React = await import('react');
-    const { render, screen } = await import('@testing-library/react');
+    const { render, screen, within } = await import('@testing-library/react');
     const user = (await import('@testing-library/user-event')).default.setup({ document: dom.window.document });
     const member = { id: 'event-affiliate-1', userId: 'manager-1', name: 'Morgan Manager', email: 'morgan@fixture.test', role: 'Manager', status: 'inactive', code: 'NW-fixture', commissionBps: 1000, guestlistAllocation: 10, salesCents: 12000, commissionCents: 1200, orders: 1, customers: 1, guestlistPlaces: 3, approvedGuestlistPlaces: 3 };
     const view = render(React.createElement(EventPeople, {
@@ -49,11 +49,15 @@ test('manager can reactivate an inactive event assignment through the event team
 
     await user.click(await screen.findByRole('button', { name: /Morgan Manager/ }));
     await screen.findByRole('heading', { name: 'Morgan Manager' });
+    assert.ok(within(screen.getByRole('dialog')).getByText('$12.00'), 'historical earned commissions remain visible');
     await user.click(screen.getByRole('button', { name: 'Edit member' }));
+    assert.equal(screen.getByRole('slider', { name: 'Event commission percentage' }).getAttribute('aria-valuenow'), '0');
+    assert.equal(screen.getByRole('slider', { name: 'Event commission percentage' }).hasAttribute('data-disabled'), true);
+    assert.ok(screen.getByText(/Locked at 0% until this person completes their individual Stripe onboarding/));
     await user.click(screen.getByRole('button', { name: 'Save commission' }));
     const save = requests.find((entry) => entry.url.endsWith('/business/events/event-1/people') && entry.method === 'PUT');
     assert.ok(save, 'the member dialog submits through the event assignment save endpoint');
-    assert.deepEqual(save.body, { userId: 'manager-1', commissionBps: 1000, status: 'active' }, 'saving an inactive assignment explicitly requests reactivation with the current terms');
+    assert.deepEqual(save.body, { userId: 'manager-1', commissionBps: 0, status: 'active' }, 'reactivation starts future commissions at zero until individual Stripe eligibility is verified');
   } finally {
     try { unmount?.(); } catch {}
     await new Promise((resolve) => setTimeout(resolve, 0));

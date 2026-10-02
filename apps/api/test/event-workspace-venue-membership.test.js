@@ -26,10 +26,12 @@ function fixture({ grantRole = 'promoter', grantCurrent = true, wrongVenue = fal
 test('first event terms for a current venue employee or promoter retain exact venue scope', async () => {
   for (const grantRole of ['employee','promoter']) {
     const f = fixture({grantRole});
-    await f.service.savePerson('actor','event',{userId:'recipient',commissionBps:500,status:'active'});
+    await assert.rejects(f.service.savePerson('actor','event',{userId:'recipient',commissionBps:500,status:'active'}), { code: 'COMMISSION_ONBOARDING_REQUIRED' });
+    assert.equal(f.created,null); assert.equal(f.audited,0);
+    await f.service.savePerson('actor','event',{userId:'recipient',commissionBps:0,status:'active'});
     assert.equal(f.created.accessScope,'venue'); assert.equal(f.created.venueAccessId,'venue-grant');
-    assert.equal(f.created.orgAffiliateId,null); assert.equal(f.created.commissionBps,500);
-    assert.equal(f.authorizations,1); assert.equal(f.audited,1);
+    assert.equal(f.created.orgAffiliateId,null); assert.equal(f.created.commissionBps,0);
+    assert.equal(f.authorizations,2); assert.equal(f.audited,1);
   }
 });
 
@@ -44,7 +46,7 @@ test('wrong-venue and revoked grants cannot create or revive event terms through
 
 test('an authorized explicit standalone regrant clears a revoked venue binding without replacing attribution identity', async () => {
   const f = fixture({grantCurrent:false,existing:{status:'inactive'}});
-  await f.service.savePerson('actor','event',{userId:'recipient',commissionBps:700,status:'active'},{legacyCreate:true});
+  await f.service.savePerson('actor','event',{userId:'recipient',commissionBps:0,status:'active'},{legacyCreate:true});
   assert.equal(f.assignment.id,'assignment'); assert.equal(f.assignment.accessScope,'event'); assert.equal(f.assignment.venueAccessId,null);
   assert.equal(f.assignment.status,'active'); assert.equal(f.authorizations,1); assert.equal(f.audited,1);
 });

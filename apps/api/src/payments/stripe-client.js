@@ -20,6 +20,7 @@ function createStripeClient(config = {}, { sdk } = {}) {
   const configuration = stripeConfiguration(config);
   if (!configuration.configured) return null;
   const stripe = sdk || new (require('stripe'))(config.STRIPE_SECRET_KEY, { apiVersion: STRIPE_API_VERSION, timeout: 12000, maxNetworkRetries: 1 });
+  const disconnect = require('./stripe-disconnect').createStripeDisconnect(stripe, config.STRIPE_CONNECT_CLIENT_ID);
   const paymentGuard = () => { if (!configuration.enabled) throw unavailable(); };
   const scope = options => {
     if (!/^acct_[A-Za-z0-9]+$/.test(options?.stripeAccount || '')) throw new DomainError('A verified merchant account is required', { code: 'PAYMENTS_NOT_READY', status: 409 });
@@ -27,6 +28,7 @@ function createStripeClient(config = {}, { sdk } = {}) {
   };
   return {
     mode: 'test', enabled: configuration.enabled, apiVersion: STRIPE_API_VERSION,
+    disconnectEnabled: disconnect.enabled, disconnectAccount: disconnect.disconnect,
     checkoutPaymentMethodOptions: { payment_method_types: ['card'] },
     createAccount: (params, options) => stripe.v2.core.accounts.create(params, options),
     retrieveAccount: id => stripe.v2.core.accounts.retrieve(id, { include: ['configuration.merchant', 'defaults', 'requirements'] }),

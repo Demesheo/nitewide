@@ -15,6 +15,42 @@ const { generateSecrets, main: generate } = require('../../../scripts/generate-s
 const production = { NODE_ENV: 'production', DATABASE_URL: 'postgres://app:password@database.example/nitewide', DATABASE_SSL: 'true',
   ...Object.fromEntries(SECRET_NAMES.map(name => [name, randomBytes(32).toString('hex')])) };
 
+test('hosted Stripe requires explicit HTTPS public return URLs even without email or checkout webhooks', () => {
+  const stripe = { ...production, STRIPE_MODE: 'test', STRIPE_SECRET_KEY: 'sk_test_offlinefixture',
+    CUSTOMER_APP_URL: 'https://customer.example.test', BUSINESS_APP_URL: 'https://business.example.test/app' };
+  for (const HOSTED_DEMO of ['false', 'true']) {
+    const environment = { ...stripe, HOSTED_DEMO };
+    const configured = getConfig(environment);
+    assert.equal(configured.CUSTOMER_APP_URL, stripe.CUSTOMER_APP_URL);
+    assert.equal(configured.businessAppUrl, stripe.BUSINESS_APP_URL);
+    assert.equal(configured.RESEND_API_KEY, undefined);
+    assert.equal(configured.STRIPE_WEBHOOK_SECRET, undefined,'onboarding URL checks apply before paid checkout enablement');
+    for (const name of ['CUSTOMER_APP_URL', 'BUSINESS_APP_URL']) {
+      for (const value of [undefined, '', 'not-a-url', 'http://public.example.test/app', 'https://localhost/app',
+        'https://LOCALHOST./app', 'https://dev.localhost/app', 'https://server.local/app', 'https://api.internal/app',
+        'https://server/app', 'https://127.0.0.1/app', 'https://127.1/app', 'https://2130706433/app',
+        'https://0.0.0.0/app', 'https://10.0.0.1/app', 'https://172.16.0.1/app', 'https://192.168.1.1/app',
+        'https://169.254.1.1/app', 'https://100.64.0.1/app', 'https://[::1]/app', 'https://[::]/app',
+        'https://[fc00::1]/app', 'https://[fe80::1]/app', 'https://[::ffff:127.0.0.1]/app',
+        'https://user:password@public.example.test/app']) {
+        assert.throws(() => getConfig({ ...environment, [name]: value }), new RegExp(`explicit HTTPS public ${name}`));
+      }
+    }
+    assert.throws(() => getConfig({ ...environment, BUSINESS_APP_URL: undefined }), /BUSINESS_APP_URL/,'hosted business callbacks must not silently derive from the customer app');
+  }
+});
+
+test('local Stripe keeps localhost return URLs and offline hosted tests retain disabled payment defaults', () => {
+  for (const NODE_ENV of ['development','test']) {
+    const local = getConfig({ NODE_ENV, STRIPE_MODE:'test', STRIPE_SECRET_KEY:'sk_test_offlinefixture' });
+    assert.equal(local.CUSTOMER_APP_URL,'http://localhost:5173');assert.equal(local.businessAppUrl,'http://localhost:5174/app');
+    assert.equal(getConfig({ NODE_ENV, STRIPE_MODE:'test', STRIPE_SECRET_KEY:'sk_test_offlinefixture',
+      CUSTOMER_APP_URL:'http://127.0.0.1:5173', BUSINESS_APP_URL:'http://localhost:5174/app' }).businessAppUrl,'http://localhost:5174/app');
+  }
+  assert.equal(getConfig({ ...production, HOSTED_DEMO:'true' }).STRIPE_MODE,'disabled');
+  assert.equal(getConfig({ ...production, HOSTED_DEMO:'true' }).businessAppUrl,'http://localhost:5173/app');
+});
+
 test('proxy headers are not trusted by default and only bounded explicit hop counts are accepted', () => {
   assert.equal(getConfig({}).trustProxy, false);
   assert.equal(getConfig(production).trustProxy, false);

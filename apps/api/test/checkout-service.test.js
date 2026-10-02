@@ -1,5 +1,5 @@
 const test = require('node:test'); const assert = require('node:assert/strict'); const { createCheckoutService } = require('../src/services/checkout-service');
-function fixture({ sold = 0, total = 5, environment = 'development', hostedDemo = false, priceCents = 2000 } = {}) {
+function fixture({ sold = 0, total = 5, environment = 'development', hostedDemo = false, priceCents = 2000, commissionBps = 0 } = {}) {
   let increments = 0; const offering = { id: '50000000-0000-4000-8000-000000000001', eventId: 'e1', name: 'GA', kind: 'ticket', priceCents: 2000, currency: 'USD', inventoryMode: 'finite', quantityTotal: total, quantitySold: sold, entriesPerUnit: 1, minPerOrder: 1, maxPerOrder: 4, isActive: true, increment: async (_field, { by }) => { increments += by; } };
   offering.priceCents = priceCents;
   const created = { tickets: 0, payment: null, notificationJobs: [], userReads: 0 }; const tx = { LOCK: { UPDATE: 'UPDATE' } };
@@ -9,7 +9,8 @@ function fixture({ sold = 0, total = 5, environment = 'development', hostedDemo 
     Notification: { create: async () => { throw new Error('Fan-out writes belong outside checkout'); } },
     Order: { findOne: async () => null, create: async (data) => ({ id: 'order-1', ...data }) },
     Event: { findByPk: async () => ({ id: 'e1', status: 'published', organizationId: 'o1' }) },
-    Organization: { findByPk: async () => ({ id: 'o1', status: 'active', planTier: 'free' }) }, Offering: { findAll: async () => [offering] }, EventAffiliate: {}, OrgAffiliate: {},
+    Organization: { findByPk: async () => ({ id: 'o1', status: 'active', planTier: 'free' }) }, Offering: { findAll: async () => [offering] },
+    EventAffiliate: { findOne: async () => ({ id: 'legacy-referral', userId: 'promoter', code: 'LEGACY', accessScope: 'event', status: 'active', commissionBps }) }, OrgAffiliate: {},
     OrderItem: { create: async (data) => ({ id: 'item-1', ...data }) }, Ticket: { create: async () => ({ id: `ticket-${++created.tickets}` }) },
     Payment: { create: async (data) => { created.payment = data; return data; } }, AffiliateAttribution: { create: async () => ({}) }, AuditLog: { create: async () => ({}) },
   };
@@ -27,6 +28,16 @@ test('checkout snapshots a sale, increments inventory, and creates credentials',
 });
 test('checkout rejects inventory oversells before writing an order', async () => {
   const f = fixture({ sold: 4, total: 5 }); await assert.rejects(() => f.checkout({ buyerUserId: 'u1', eventId: 'e1', idempotencyKey: 'unique-key', items: [{ offeringId: '50000000-0000-4000-8000-000000000001', quantity: 2 }], payment: { provider: 'test', reference: 'pay-1', status: 'succeeded' } }), (error) => error.code === 'INSUFFICIENT_INVENTORY'); assert.equal(f.getIncrements(), 0);
+});
+test('new demo bookings lock legacy nonzero terms at zero until individual Stripe onboarding', async () => {
+  const f = fixture({ commissionBps: 2500 });
+  const result = await f.checkout({ buyerUserId: 'u1', eventId: 'e1', affiliateCode: 'LEGACY', idempotencyKey: 'legacy-referral-sale',
+    items: [{ offeringId: '50000000-0000-4000-8000-000000000001', quantity: 1 }], payment: { provider: 'demo', status: 'succeeded' } });
+  assert.equal(result.order.eventAffiliateId, 'legacy-referral', 'referral attribution remains available');
+  assert.equal(result.order.affiliateCommissionCents, 0);
+  assert.equal(result.order.pricingPlanSnapshot.commissionBps, 0);
+  assert.equal(result.order.pricingPlanSnapshot.configuredCommissionBps, 2500);
+  assert.equal(result.order.pricingPlanSnapshot.commissionEligibility.reasonCode, 'INDIVIDUAL_STRIPE_ONBOARDING_REQUIRED');
 });
 test('local demo checkout records a labeled order, payment and inventory movement', async () => {
   const f = fixture();

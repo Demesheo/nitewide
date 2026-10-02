@@ -107,13 +107,17 @@ test('authorized event save reactivates a manager referral while preserving snap
     const managerBypass = await request(`/business/events/${ids.event}/people`, 'promoter', 'PUT', { userId: ids.promoter, commissionBps: 1500, status: 'active' });
     assert.equal(managerBypass.status, 403, 'an ordinary promoter cannot use the manager save endpoint');
     assert.equal((await m.EventAffiliate.findOne({ where: { eventId: ids.event, userId: ids.promoter } })).status, 'inactive');
-    const stalePromoterSave = await request(`/business/events/${ids.event}/people`, 'owner', 'PUT', { userId: ids.promoter, commissionBps: 1500, status: 'active' });
+    const blockedPromoterSave = await request(`/business/events/${ids.event}/people`, 'owner', 'PUT', { userId: ids.promoter, commissionBps: 1500, status: 'active' });
+    assert.equal(blockedPromoterSave.status,422);
+    assert.equal(blockedPromoterSave.error.code,'COMMISSION_ONBOARDING_REQUIRED');
+    assert.equal((await m.EventAffiliate.findOne({ where: { eventId: ids.event, userId: ids.promoter } })).commissionBps,1500,'rejected terms leave stored rates intact');
+    const stalePromoterSave = await request(`/business/events/${ids.event}/people`, 'owner', 'PUT', { userId: ids.promoter, commissionBps: 0, status: 'active' });
     assert.equal(stalePromoterSave.status, 200, JSON.stringify(stalePromoterSave));
     assert.equal(stalePromoterSave.data.id, (await m.EventAffiliate.findOne({ where: { eventId: ids.event, userId: ids.promoter } })).id);
     assert.equal(stalePromoterSave.data.accessScope, 'event', 'an explicit manager re-add without current org membership restores only event scope');
     assert.equal(stalePromoterSave.data.orgAffiliateId, null);
     assert.equal(stalePromoterSave.data.sourceOrgAffiliateId, null);
-    assert.equal(stalePromoterSave.data.commissionBps, 1500);
+    assert.equal(stalePromoterSave.data.commissionBps, 0);
     assert.equal(stalePromoterSave.data.guestlistAllocation, 6);
     assert.equal((await request(referralPath, 'promoter')).status, 200, 'the explicitly restored event assignment returns its referral URL');
     const stalePromoterPools = await request(`/business/events/${ids.event}/guestlist-invite-pools`, 'promoter');
@@ -126,7 +130,7 @@ test('authorized event save reactivates a manager referral while preserving snap
     await stalePromoterAffiliate.update({ endsAt: new Date(Date.now() - 60_000) });
     const sourceRegrantAssignment = await m.EventAffiliate.findOne({ where: { eventId: ids.sourceRegrantEvent, userId: ids.promoter } });
     const sourceRegrant = await request(`/business/events/${ids.sourceRegrantEvent}/people`, 'owner', 'PUT', {
-      userId: ids.promoter, commissionBps: 1500, status: 'active',
+      userId: ids.promoter, commissionBps: 0, status: 'active',
     });
     assert.equal(sourceRegrant.status, 200, JSON.stringify(sourceRegrant));
     assert.equal(sourceRegrant.data.id, sourceRegrantAssignment.id);
@@ -141,23 +145,23 @@ test('authorized event save reactivates a manager referral while preserving snap
     assert.equal((await request(`/business/events/${ids.sourceRegrantEvent}/referral-link`, 'promoter')).status, 200,
       'the source-only detached event referral remains usable after its former org source expires');
 
-    const saved = await request(`/business/events/${ids.event}/people`, 'owner', 'PUT', { userId: ids.owner, commissionBps: 1000, status: 'active' });
+    const saved = await request(`/business/events/${ids.event}/people`, 'owner', 'PUT', { userId: ids.owner, commissionBps: 0, status: 'active' });
     assert.equal(saved.status, 200, JSON.stringify(saved));
     assert.equal(saved.data.id, ids.eventAffiliate);
     assert.equal(saved.data.code, `NW-${ids.eventAffiliate.slice(0, 8)}`);
     assert.equal(saved.data.status, 'active');
     assert.equal(saved.data.orgAffiliateId, null, 'the inactive organization affiliate is detached');
-    assert.equal(saved.data.commissionBps, 1000);
+    assert.equal(saved.data.commissionBps, 0);
     assert.equal(saved.data.guestlistAllocation, 10, 'the event allocation survives detachment');
     assert.equal(new Date(saved.data.startsAt).getTime(), organizationWindowStart.getTime(), 'detaching retains the later effective start');
     assert.equal(new Date(saved.data.endsAt).getTime(), organizationWindowEnd.getTime(), 'detaching retains the earlier effective end');
 
-    const inheritedSave = await request(`/business/events/${ids.event}/people`, 'ownerInherited', 'PUT', { userId: ids.ownerInherited, commissionBps: 700, status: 'active' });
+    const inheritedSave = await request(`/business/events/${ids.event}/people`, 'ownerInherited', 'PUT', { userId: ids.ownerInherited, commissionBps: 0, status: 'active' });
     assert.equal(inheritedSave.status, 200, JSON.stringify(inheritedSave));
-    assert.equal(inheritedSave.data.commissionBps, 700, 'the existing linked organization default is retained as the explicit event term');
+    assert.equal(inheritedSave.data.commissionBps, 0, 'an explicit zero commission overrides the linked organization default');
     assert.equal(inheritedSave.data.guestlistAllocation, 10, 'the inherited allocation is materialized before the inactive organization link is removed');
     assert.equal(inheritedSave.data.orgAffiliateId, null);
-    assert.equal(queuedEmails.length, 0, 'saving the same effective commission does not send a terms-change email');
+    assert.equal(queuedEmails.length, 4, 'explicitly replacing legacy configured terms with zero sends terms-change messages');
 
     const roleChange = await request(`/business/organizations/${ids.organization}/team/${ids.rolePromoter}`, 'owner', 'PATCH', { role: 'manager' });
     assert.equal(roleChange.status, 200, JSON.stringify(roleChange));
@@ -172,12 +176,12 @@ test('authorized event save reactivates a manager referral while preserving snap
     assert.equal(roleAssignment.sourceOrgAffiliateId, ids.roleOrgAffiliate, 'converted staff referral retains its organization source for a later role removal');
     assert.equal((await m.OrgAffiliate.findByPk(ids.roleOrgAffiliate)).status, 'inactive');
     const managerCommissionEdit = await request(`/business/events/${ids.event}/people`, 'owner', 'PUT', {
-      userId: ids.rolePromoter, commissionBps: 975, status: 'active',
+      userId: ids.rolePromoter, commissionBps: 0, status: 'active',
     });
     assert.equal(managerCommissionEdit.status, 200, JSON.stringify(managerCommissionEdit));
     assert.equal(managerCommissionEdit.data.accessScope, 'organization', 'an active commission edit by a current venue manager does not widen organization scope');
     assert.equal(managerCommissionEdit.data.sourceOrgAffiliateId, ids.roleOrgAffiliate);
-    assert.equal(managerCommissionEdit.data.commissionBps, 975);
+    assert.equal(managerCommissionEdit.data.commissionBps, 0);
     const transitionVisit = await request(`/events/${ids.event}/referral-visits`, null, 'POST', { code: roleAssignment.code });
     assert.equal(transitionVisit.status, 200, JSON.stringify(transitionVisit));
     const adminTarget = await m.User.findByPk(ids.adminRolePromoter);
@@ -199,7 +203,7 @@ test('authorized event save reactivates a manager referral while preserving snap
     assert.equal(revokedConvertedAssignment.status, 'inactive', 'removing staff revokes event scope converted from the organization promoter');
     assert.equal(revokedConvertedAssignment.code, roleAssignment.code, 'revocation retains the existing code and history');
     assert.equal(revokedConvertedAssignment.sourceOrgAffiliateId, ids.roleOrgAffiliate);
-    assert.equal(revokedConvertedAssignment.commissionBps, 975, 'an active commission edit does not prevent later organization removal from revoking access');
+    assert.equal(revokedConvertedAssignment.commissionBps, 0, 'an active commission edit does not prevent later organization removal from revoking access');
     assert.equal(retainedIndependentAssignment.status, 'active', 'staff removal preserves an independent event promoter assignment');
     assert.equal(retainedIndependentAssignment.sourceOrgAffiliateId, null);
     assert.equal((await request(`/events/${ids.secondaryEvent}/referral-visits`, null, 'POST', { code: independentAssignment.code })).status, 200);
@@ -224,7 +228,7 @@ test('authorized event save reactivates a manager referral while preserving snap
     ]);
     assert.equal(assignmentAfter.id, ids.eventAffiliate);
     assert.equal(assignmentAfter.code, saved.data.code);
-    assert.equal(assignmentAfter.commissionBps, 1000);
+    assert.equal(assignmentAfter.commissionBps, 0);
     assert.equal(assignmentAfter.guestlistAllocation, 10);
     assert.equal(assignmentAfter.orgAffiliateId, null);
     assert.equal((await m.OrgAffiliate.findByPk(ids.orgAffiliate)).status, 'inactive', 'reactivating an event assignment leaves organization access inactive');
@@ -242,7 +246,7 @@ test('authorized event save reactivates a manager referral while preserving snap
     assert.equal(audit.after.status, 'active');
     assert.equal(audit.after.orgAffiliateId, null);
     assert.equal(audit.after.code, saved.data.code);
-    assert.equal(audit.after.commissionBps, 1000);
+    assert.equal(audit.after.commissionBps, 0);
     assert.equal(audit.after.guestlistAllocation, 10);
 
     const futureEventInput = (title, status) => ({
@@ -401,7 +405,7 @@ test('authorized event save reactivates a manager referral while preserving snap
       commissionBps: 900, guestlistAllocation: 8, status: 'inactive', accessScope: 'organization' });
     assert.equal((await request(`/business/events/${futureEventId}/referral-link`, 'rolePromoter')).status, 403);
     const eventOnlyInvite = await request(`/business/events/${ids.event}/invitations`, 'owner', 'POST', {
-      email: (await m.User.findByPk(ids.rolePromoter)).email, commissionBps: 900,
+      email: (await m.User.findByPk(ids.rolePromoter)).email, commissionBps: 0,
     });
     assert.equal(eventOnlyInvite.status, 201, JSON.stringify(eventOnlyInvite));
     const eventOnlyAcceptance = await request(`/team/invitations/${eventOnlyInvite.data.token}/accept`, 'rolePromoter', 'POST');
@@ -443,7 +447,7 @@ test('authorized event save reactivates a manager referral while preserving snap
     assert.equal((await request(`/business/events/${independentCreatorEventId}/referral-link`, 'rolePromoter')).status, 403,
       'independent creator event removal denies access until an explicit restoration');
     const independentCreatorInvite = await request(`/business/events/${independentCreatorEventId}/invitations`, 'rolePromoter', 'POST', {
-      email: (await m.User.findByPk(ids.rolePromoter)).email, commissionBps: 600,
+      email: (await m.User.findByPk(ids.rolePromoter)).email, commissionBps: 0,
     });
     assert.equal(independentCreatorInvite.status, 201, JSON.stringify(independentCreatorInvite));
     const independentCreatorAcceptance = await request(`/team/invitations/${independentCreatorInvite.data.token}/accept`, 'rolePromoter', 'POST');
