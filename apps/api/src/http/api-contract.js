@@ -156,8 +156,12 @@ function responseFor(method, path) {
   if (path === '/customer/events/:eventId/guestlist') return z.object({ entry: guest.nullable(), maxPartySize: count, requestsOpen: z.boolean() });
   if (path === '/business/admissions/events') return page(admissionEvent).extend({ serverTime: dateTime, nextEvent: admissionEvent.nullable() });
   if (path === '/business/admissions/events/:eventId') return z.object({ total: count, expected: count, admitted: count,
-    entries: z.array(z.object({ id: uuid, kind: z.enum(['ticket', 'guestlist']), name: z.string(), email: z.email(), spots: count, status: z.string() }).catchall(z.json())), page: count, pageSize: count, serverTime: dateTime });
-  if (path === '/check-ins') return z.object({ kind: z.enum(['ticket', 'guestlist']), credential: entity,
+    entries: z.array(z.object({ id: uuid, kind: z.enum(['ticket', 'guestlist', 'guestlist_pass']), name: z.string(), email: z.email().nullable(), spots: count, status: z.string() }).catchall(z.json())), page: count, pageSize: count, serverTime: dateTime });
+  if (path === '/guestlist-invitations/:token/claim') return z.object({ status: z.enum(['confirmed','unavailable','event_closed','full']), entryId: uuid.nullable().optional(), eventId: uuid.optional() });
+  if (path === '/guestlist-invitations/:token/pass') return z.object({ id: uuid, kind: z.literal('guestlist'), status: guest.shape.status, guestName: z.string(), event: admissionEvent, partySize: count,
+    tickets: z.array(z.object({ id: uuid, offering: z.string(), status: z.string(), spots: count, checkedInAt: dateTime.nullable(), qrImage: z.string().nullable() })) });
+  if (path.endsWith('/invitation-link')) return z.object({ token: z.string().min(20).max(200) });
+  if (path === '/check-ins') return z.object({ kind: z.enum(['ticket', 'guestlist', 'guestlist_pass']), credential: entity,
     checkIn: z.object({ id: uuid, method: z.string(), checkedInAt: dateTime }) });
   if (path.endsWith('/reports/exports')) return z.array(exportJob);
   if (path.includes('/reports/exports/:id')) return exportJob;

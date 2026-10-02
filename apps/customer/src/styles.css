@@ -2027,6 +2027,31 @@ main:not([hidden]), .account-modal [role="tabpanel"][data-state="active"],
 .checked_in .pass-info small { color: #cac3e4; }
 .checked_in .pass-info code { border-top-color: #ffffff25; }
 .pass-no-code { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; font-size: 11px; }
+.guest-invitation-page { width: min(100%, 980px); margin: 0 auto; padding: 24px clamp(16px, 4vw, 36px) 48px; }
+.guest-invitation-page > header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.guest-invitation-home { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--text-muted); font-size: 13px; }
+.guest-invitation-page main { margin-top: 32px; }
+.guest-invitation-heading h1 { font-size: clamp(23px, 4vw, 34px); margin: 10px 0; overflow-wrap: anywhere; }
+.guest-invitation-heading > p:not(.eyebrow) { color: var(--text-muted); font-size: 13px; line-height: 1.7; margin: 8px 0; }
+.guest-invitation-page .ticket-view { padding: 12px 0; }
+.guest-invitation-page .purchase-ticket-heading { margin: 12px 0 18px; }
+.guest-invitation-page .ticket-list-summary { margin-bottom: 8px; }
+@media (min-width: 760px) {
+  .guest-invitation-page .ticket-view { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 24px; align-items: center; }
+  .guest-invitation-page .purchase-ticket-heading { grid-column: 1; grid-row: 1; margin: 0; }
+  .guest-invitation-page .ticket-list-summary { grid-column: 1; grid-row: 2; flex-wrap: wrap; margin: 0; }
+  .guest-invitation-page .pass-pager { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
+  .guest-invitation-page .admission-pass { grid-column: 1 / -1; }
+}
+.guest-invitation-page .pass-code { width: clamp(180px, 25vw, 260px); max-width: 100%; }
+.guest-invitation-page .pass-info small, .guest-invitation-page .pass-info p { font-size: 13px; }
+.guest-invitation-error { margin-top: 24px; padding: 20px; border: 1px solid var(--border); border-radius: 14px; }
+.guest-invitation-error p { margin-bottom: 16px; }
+@media (max-width: 540px) {
+  .guest-invitation-page .brand { font-size: 19px; }
+  .guest-invitation-home { font-size: 11px; }
+  .guest-invitation-page .pass-code { width: min(260px, 100%); }
+}
 .purchase-receipt { padding: 24px 0 0; }
 @media (max-width: 540px) {
   .purchase-card { gap: 13px; padding: 14px; }

@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const request = require('supertest');
-const { randomUUID } = require('node:crypto');
+const { randomUUID, randomBytes, createHash } = require('node:crypto');
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 
 test('exclusive managed venues preserve scoped staff, reporting, referrals, admission, and paged directories', { timeout: 120000 },async t => {
@@ -22,6 +22,14 @@ test('exclusive managed venues preserve scoped staff, reporting, referrals, admi
     await m.OrganizationOwner.bulkCreate([ids.org,ids.otherOrg,ids.zero].map(organizationId => ({ organizationId,userId: ids.owner,role: 'owner' })));
     const app = createApp({ sequelize: db,models: m,config,services: { email: { enabled: false } } });
     const api = (method,path,userId = ids.admin) => request(app)[method](`/api${path}`).set('x-user-id',userId);
+    // These regressions intentionally exercise outstanding legacy invitations,
+    // not new invitations (which are capacity-checked and approved at issuance).
+    const legacyInvite = async (eventId, invitedByUserId, email, eventAffiliateId = null) => {
+      const token = randomBytes(32).toString('base64url');
+      const invitation = await m.GuestlistInvitation.create({ eventId, invitedByUserId, email, eventAffiliateId, partySize: 1,
+        status: 'pending', tokenHash: createHash('sha256').update(token).digest('hex'), expiresAt: new Date(Date.now()+86400000) });
+      return { invitation, token };
+    };
     const venuePath = (org = ids.org,internal = true) => `${internal ? '/admin/businesses' : '/business/organizations'}/${org}/venues`;
     const createVenue = async (name,organizationId = ids.org) => {
       const org = await m.Organization.findByPk(organizationId);
@@ -137,7 +145,7 @@ test('exclusive managed venues preserve scoped staff, reporting, referrals, admi
       await exports.request(ids.manager,reportDetailQuery.parse({ exportTable: 'customers',pageSize: 1 }),{ status(code) { assert.equal(code,202); return this; },json(body) { job = body.data; } });
       await exports.drain(); assert.equal((await exports.status(ids.manager,job.id)).totalRows,2);
       const directEmail = `direct-claim-${randomUUID()}@venue.nitewide.test`;
-      const direct = (await api('post',`/business/events/${eventB.id}/guestlist-invitations`,ids.manager).send({ pool: 'direct',email: directEmail,partySize: 1 }).expect(201)).body.data;
+      const direct = await legacyInvite(eventB.id,ids.manager,directEmail);
       grantManager = await grant(venueB.id,ids.manager,'manager',grantManager,'inactive');
       await assert.rejects(exports.status(ids.manager,job.id),{ code: 'FORBIDDEN' }); await exports.stop();
       assert.equal((await m.GuestlistInvitation.findByPk(direct.invitation.id)).status,'revoked');
@@ -147,7 +155,7 @@ test('exclusive managed venues preserve scoped staff, reporting, referrals, admi
       const assignment = await m.EventAffiliate.findOne({ where: { eventId: futureB.id,userId: ids.promoter } });
       await assignment.update({ guestlistAllocation: 5 });
       const email = `claim-${randomUUID()}@venue.nitewide.test`;
-      const invite = (await api('post',`/business/events/${futureB.id}/guestlist-invitations`,ids.promoter).send({ pool: 'own',eventAffiliateId: assignment.id,email,partySize: 1 }).expect(201)).body.data;
+      const invite = await legacyInvite(futureB.id,ids.promoter,email,assignment.id);
       assert.ok(invite.token); assert.equal(invite.invitation.status,'pending');
       grantPromoter = await grant(venueB.id,ids.promoter,'promoter',grantPromoter,'inactive');
       await api('get',`/business/events/${eventB.id}/referral-link`,ids.promoter).expect(403);
@@ -196,7 +204,7 @@ test('exclusive managed venues preserve scoped staff, reporting, referrals, admi
     await t.test('manager demotion and same-business owner removal revoke only scoped access and unused invitations',async () => {
       const makeInvite = async actor => {
         const email = `scope-revoke-${randomUUID()}@venue.nitewide.test`;
-        const invitation = (await api('post',`/business/events/${eventB.id}/guestlist-invitations`,actor).send({ pool: 'direct',email,partySize: 1 }).expect(201)).body.data;
+        const invitation = await legacyInvite(eventB.id,actor,email);
         return { ...invitation,email };
       };
       const demotion = await makeInvite(ids.manager);

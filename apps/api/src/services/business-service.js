@@ -115,7 +115,8 @@ function aggregateSales(orders, events, affiliates, memberships, employees = [],
       const event = byEvent.get(guest.eventId);
       summary.guestlistPlaces += spots;
       if (event) event.guestlistPlaces += spots;
-      if (guest.status === 'checked_in') { summary.checkedIn += spots; if (event) event.checkedIn += spots; }
+      const checkedIn = guest.status === 'checked_in' ? spots : Number(guest.checkedInSpots || 0);
+      summary.checkedIn += checkedIn; if (event) event.checkedIn += checkedIn;
     }
     const affiliate = affiliateById.get(guest.eventAffiliateId);
     const person = affiliate && people.get(affiliate.userId);

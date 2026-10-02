@@ -88,7 +88,7 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
           FROM visible_items GROUP BY order_id) item_totals ON item_totals.order_id = eo.id
         WHERE NOT :hasOffering OR item_totals.order_id IS NOT NULL),
       visible_guests AS MATERIALIZED (
-        SELECT g.id, g.event_id, g.user_id, g.event_affiliate_id, g.party_size, g.status
+        SELECT g.id, g.event_id, g.user_id, g.event_affiliate_id, g.party_size, g.status, g.checked_in_spots
         FROM guestlist_entries g JOIN scoped_events se ON se.id = g.event_id
         LEFT JOIN event_affiliates ea ON ea.id = g.event_affiliate_id
         WHERE g.created_at >= :since AND g.created_at < :until AND (:isAdmin OR se.can_manage OR ea.user_id = :userId)
@@ -114,7 +114,7 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
       COUNT(*) FILTER (WHERE t.status = 'checked_in')::integer AS "checkedIn"
       FROM tickets t JOIN visible_items oi ON oi.id = t.order_item_id JOIN visible_orders vo ON vo.id = oi.order_id),
       summary_guests AS (SELECT COALESCE(SUM(party_size) FILTER (WHERE status IN ('confirmed','checked_in')),0)::integer AS "guestlistPlaces",
-      COALESCE(SUM(party_size) FILTER (WHERE status = 'checked_in'),0)::integer AS "checkedIn" FROM visible_guests),
+      COALESCE(SUM(CASE WHEN status = 'checked_in' THEN party_size ELSE checked_in_spots END) FILTER (WHERE status IN ('confirmed','checked_in')),0)::integer AS "checkedIn" FROM visible_guests),
       summary_eventCount AS (SELECT COUNT(*)::integer AS events FROM report_events),
       summary_activeEventCount AS (SELECT COUNT(*)::integer AS events FROM report_events se
       JOIN events e ON e.id = se.id WHERE e.status = 'published' AND e.ends_at >= :currentTime),
@@ -236,7 +236,7 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
         JOIN report_events se ON se.id = vo.event_id GROUP BY ${groupKey('se')}) ts ON ts.id = groups.id
       LEFT JOIN (SELECT ${groupKey('se')} AS id,
         SUM(g.party_size) FILTER (WHERE g.status IN ('confirmed','checked_in'))::integer AS "guestlistPlaces",
-        SUM(g.party_size) FILTER (WHERE g.status = 'checked_in')::integer AS "checkedIn"
+        SUM(CASE WHEN g.status = 'checked_in' THEN g.party_size ELSE g.checked_in_spots END) FILTER (WHERE g.status IN ('confirmed','checked_in'))::integer AS "checkedIn"
         FROM visible_guests g JOIN report_events se ON se.id = g.event_id GROUP BY ${groupKey('se')}) gs ON gs.id = groups.id`;
   }
 
@@ -266,7 +266,7 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
           COUNT(*) FILTER (WHERE t.status = 'checked_in')::integer AS "checkedIn"
           FROM tickets t JOIN visible_items oi ON oi.id = t.order_item_id JOIN visible_orders vo ON vo.id = oi.order_id GROUP BY vo.event_id) ts ON ts.event_id = se.id
         LEFT JOIN (SELECT event_id, SUM(party_size) FILTER (WHERE status IN ('confirmed','checked_in'))::integer AS "guestlistPlaces",
-          SUM(party_size) FILTER (WHERE status = 'checked_in')::integer AS "checkedIn" FROM visible_guests GROUP BY event_id) gs ON gs.event_id = se.id`,
+          SUM(CASE WHEN status = 'checked_in' THEN party_size ELSE checked_in_spots END) FILTER (WHERE status IN ('confirmed','checked_in'))::integer AS "checkedIn" FROM visible_guests GROUP BY event_id) gs ON gs.event_id = se.id`,
       sorts: { sales_desc: '"salesCents" DESC, id ASC', sales_asc: '"salesCents" ASC, id ASC', name_asc: 'label ASC, id ASC', name_desc: 'label DESC, id ASC', orders_desc: 'orders DESC, id ASC', orders_asc: 'orders ASC, id ASC', starts_asc: '"startsAt" ASC, id ASC', starts_desc: '"startsAt" DESC, id ASC' },
     },
     offerings: {

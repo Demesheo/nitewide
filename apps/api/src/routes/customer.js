@@ -31,7 +31,9 @@ function registerCustomerRoutes({ router, commerceController, paymentController,
   router.get('/customer/connections/summary', connectionPeople);
   router.get('/customer/connections/people', connectionPeople);
   router.patch('/customer/profile', validate(z.object({ displayName: z.string().trim().min(1).max(120), phone: optionalPhone, confirmPhone: optionalPhone.optional(), marketingConsent: z.boolean(), transactionalSmsConsent: z.boolean(), marketingSmsConsent: z.boolean() }).strict()), asyncHandler(async (req, res) => res.json({ data: await account.updateProfile(req.userId, req.body) })));
-  router.post('/guestlist-invitations/:token/claim', requireUser, asyncHandler(async (req, res) => res.json({ data: await invitations.claim(req.params.token, req.userId) })));
+  // The private link is the authority; no login or customer ID is required.
+  router.post('/guestlist-invitations/:token/claim', asyncHandler(async (req, res) => res.json({ data: await invitations.claim(req.params.token) })));
+  router.get('/guestlist-invitations/:token/pass', asyncHandler(async (req, res) => res.json({ data: await invitations.pass(req.params.token) })));
   router.get('/notifications', requireUser, asyncHandler(async (req, res) => {
     if (req.query.page === undefined && req.query.pageSize === undefined) {
       const [items, unreadCount] = await Promise.all([notifications.list(req.userId), notifications.unreadCount(req.userId)]);

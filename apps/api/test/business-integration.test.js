@@ -299,8 +299,12 @@ test(
       assert.equal((await req('/notifications', ids.invitedDirect)).body.data.unreadCount, 0);
       assert.ok((await req('/notifications', ids.invitedReferral)).body.data.items.length > 0);
       const pending = await req(guestInvitePath, ids.owner, 'POST', { pool: 'direct', email: `new-${randomUUID()}@integration.nitewide.test`, partySize: 1 });
-      assert.equal(pending.body.data.invitation.status, 'pending');
+      assert.equal(pending.body.data.invitation.status, 'accepted');
       assert.ok(pending.body.data.token);
+      const anonymousPass = await req(`/guestlist-invitations/${pending.body.data.token}/pass`, null);
+      assert.equal(anonymousPass.status, 200, JSON.stringify(anonymousPass.body));
+      assert.equal(anonymousPass.body.data.tickets.length, 1);
+      assert.ok(anonymousPass.body.data.tickets[0].qrImage);
       assert.equal((await req(guestInvitePath, ids.owner, 'POST', { pool: 'direct', email: pending.body.data.invitation.email, partySize: 1 })).status, 409);
       const registered = await req('/auth/register', null, 'POST', { displayName: 'New guest', email: pending.body.data.invitation.email, password: 'NitewideDemo!2026', guestlistInviteToken: pending.body.data.token });
       assert.equal(registered.status, 201, JSON.stringify(registered.body));
@@ -316,10 +320,8 @@ test(
       assert.equal(phoneRegistered.body.data.guestlistInvite.status, 'confirmed');
       users.push(phoneRegistered.body.data.user.id);
       const fullPending = await req(guestInvitePath, ids.owner, 'POST', { pool: 'direct', email: `full-${randomUUID()}@integration.nitewide.test`, partySize: 1 });
-      const fullRegistered = await req('/auth/register', null, 'POST', { displayName: 'Waitlisted guest', email: fullPending.body.data.invitation.email, password: 'NitewideDemo!2026', guestlistInviteToken: fullPending.body.data.token });
-      assert.equal(fullRegistered.status, 201, JSON.stringify(fullRegistered.body));
-      assert.equal(fullRegistered.body.data.guestlistInvite.status, 'full');
-      users.push(fullRegistered.body.data.user.id);
+      assert.equal(fullPending.status, 409, JSON.stringify(fullPending.body));
+      assert.equal(fullPending.body.error.code, 'GUESTLIST_FULL');
       assert.equal(await m.GuestlistEntry.count({ where: { eventId: guestInviteEventId, eventAffiliateId: null, status: 'confirmed' } }), 3);
       const checkoutInput = {
         eventId: event.id,

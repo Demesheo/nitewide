@@ -89,7 +89,7 @@ test('guest invitation stays in event details Share this event card without show
   assert.doesNotMatch(shareCardSource, /aria-label="Your event referral link"|value=\{referralUrl\}/);
   assert.match(styles, /\.guestlist-share-invite \{ display: grid; justify-items: start;/);
   const inviteDialogSource = readFileSync(new URL('../src/components/GuestlistInviteDialog.jsx', import.meta.url), 'utf8');
-  assert.match(inviteDialogSource, /className="guestlist-invitation-actions"><Button[^>]*type="submit">\{busy \? 'Checking…' : 'Create invitation'\}/);
+  assert.match(inviteDialogSource, /className="guestlist-invitation-actions">[\s\S]*?type="submit">[\s\S]*?\{busy \? 'Checking…' : 'Create invitation'\}/);
   assert.match(styles, /\.guestlist-invitation-actions \{ display: flex; justify-content: flex-end; \}/);
 });
 
@@ -102,9 +102,32 @@ test('saving an event allocation refreshes the invite pools without a page reloa
   assert.match(eventDetailSource, /setInvitePoolRevision\(\(value\) => value \+ 1\); setInviteOpen\(true\);/);
 });
 
-test('guestlist invitations default to phone and reset to phone when reopened', () => {
+test('guestlist invitations default to personal sharing and reset when reopened', () => {
   const inviteDialogSource = readFileSync(new URL('../src/components/GuestlistInviteDialog.jsx', import.meta.url), 'utf8');
-  assert.match(inviteDialogSource, /const \[contact, setContact\] = useState\('phone'\)/);
-  assert.match(inviteDialogSource, /if \(!next\) \{ setResult\(null\); setError\(''\); setContact\('phone'\); \}/);
-  assert.match(inviteDialogSource, /contact === 'email' \? <Field[^>]*name="email"[\s\S]*?: <Field[^>]*name="phone"/);
+  assert.match(inviteDialogSource, /const \[contact, setContact\] = useState\('personal'\)/);
+  assert.match(inviteDialogSource, /if \(!next\) \{ setResult\(null\); setError\(''\); setContact\('personal'\);/);
+  assert.match(inviteDialogSource, /contact === 'email' \? <Field[^>]*name="email"[\s\S]*?contact === 'phone' \? <Field[^>]*name="phone"/);
+  assert.match(inviteDialogSource, /name="name" label="Guest name"/);
+  assert.match(inviteDialogSource, /name="partySize" label="Spots"/);
+});
+
+test('invitation dialog uses a compact, accessible success summary and scoped responsive styling', () => {
+  const inviteDialogSource = readFileSync(new URL('../src/components/GuestlistInviteDialog.jsx', import.meta.url), 'utf8');
+  assert.match(inviteDialogSource, /className="guestlist-invite-dialog"/);
+  assert.match(inviteDialogSource, /aria-label="Invitation summary"/);
+  assert.match(inviteDialogSource, /<h3>\{result.name\}<\/h3>/);
+  assert.match(inviteDialogSource, /<dt>Entry passes<\/dt>/);
+  assert.match(inviteDialogSource, /copyButton.current\?\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(inviteDialogSource, /ref=\{copyButton\}/);
+  assert.match(inviteDialogSource, /<fieldset disabled=\{busy\}>/);
+  assert.match(styles, /\.guestlist-invite-dialog\[data-slot="dialog-content"\][^}]*max-height: calc\(100dvh - 32px\)[^}]*overflow-y: auto/);
+  assert.match(styles, /\.guestlist-invite-recipient \{ display: grid;/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{ \.guestlist-invite-success \{ animation: none;/);
+});
+
+test('guestlist invitation links are copied from details, not the high-level table or cards', () => {
+  assert.match(guestlistsSource, /canCopy\(activeEntry\)[\s\S]*?copyInvitation\(activeEntry\)/);
+  assert.doesNotMatch(guestlistsSource, /copyInvitation\(entry\)\}/);
+  assert.doesNotMatch(guestlistsSource, /className="guestlist-copy-link"|Copy link for/);
+  assert.doesNotMatch(styles, /\.guestlist-copy-link\s*\{/);
 });

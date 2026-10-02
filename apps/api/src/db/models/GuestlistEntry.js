@@ -3,7 +3,9 @@ const { id } = require('./helpers');
 class GuestlistEntry extends Model {}
 function initGuestlistEntry(sequelize) {
   GuestlistEntry.init({
-    id: id(), eventId: { type: DataTypes.UUID, allowNull: false }, userId: { type: DataTypes.UUID, allowNull: false }, eventAffiliateId: DataTypes.UUID,
+    id: id(), eventId: { type: DataTypes.UUID, allowNull: false }, userId: { type: DataTypes.UUID, allowNull: true }, eventAffiliateId: DataTypes.UUID,
+    guestName: DataTypes.STRING(120), guestEmail: DataTypes.STRING(320), guestPhone: DataTypes.STRING(32),
+    checkedInSpots: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     source: { type: DataTypes.ENUM('event', 'affiliate'), allowNull: false }, partySize: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1, validate: { min: 1 } },
     status: { type: DataTypes.ENUM('pending', 'confirmed', 'rejected', 'checked_in', 'no_show'), allowNull: false, defaultValue: 'pending' },
     qrTokenHash: { type: DataTypes.STRING(64), allowNull: true, unique: true },

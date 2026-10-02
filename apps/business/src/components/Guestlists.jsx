@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, X, Save, Pencil, Search } from "lucide-react";
+import { Check, X, Save, Pencil, Search, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Empty, Field } from "./controls";
 import { api } from "@/lib/api";
+import { guestlistInvitationLink } from '@/lib/guestlist-invitation-link';
 import { usePagedResource } from '@/hooks/usePagedResource';
 import { ServerPager } from './ServerPager';
 import { sortTableRows } from '@/lib/table-sort';
@@ -36,6 +37,7 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
   const entriesEventRef = useRef(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [copyingId, setCopyingId] = useState(null);
   const [revision, setRevision] = useState(0);
   const [sortKey, setSortKey] = useState('guestName');
   const [descending, setDescending] = useState(false);
@@ -103,6 +105,19 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
       setBusy(false);
     }
   }
+  async function copyInvitation(entry) {
+    if (copyingId) return;
+    setCopyingId(entry.id); setError(''); setNotice('');
+    try {
+      const { token } = await api(`/business/events/${eventId}/guestlist/${entry.id}/invitation-link`, session);
+      await navigator.clipboard.writeText(guestlistInvitationLink(token));
+      setNotice('Link copied. Share it privately with the guest.');
+    } catch (err) {
+      if (err.status === 401) expire();
+      else setError(err.message || 'Could not copy the link. Allow clipboard access and try again.');
+    } finally { setCopyingId(null); }
+  }
+  const canCopy = entry => entry.hasInvitation && ['confirmed', 'checked_in'].includes(entry.status);
   async function saveLimit(e, promoter) {
     e.preventDefault();
     const form = e.currentTarget;
@@ -162,7 +177,7 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
           </DialogHeader>
           <dl className="guestlist-detail-grid">
             <div><dt>Status</dt><dd><span className="status-pill guestlist-status" data-guestlist-status={activeEntry.status}>{guestlistStatuses.find((item) => item.id === activeEntry.status)?.label || activeEntry.status}</span></dd></div>
-            <div><dt>Party size</dt><dd>{activeEntry.partySize} {activeEntry.partySize === 1 ? 'person' : 'people'}</dd></div>
+            <div><dt>Spots</dt><dd>{activeEntry.partySize}{activeEntry.checkedInSpots > 0 ? ` · ${activeEntry.checkedInSpots} admitted` : ''}</dd></div>
             <div><dt>Source</dt><dd>{activeEntry.source === 'affiliate' ? `Referred by ${activeEntry.eventAffiliate?.user?.displayName || 'Unknown referrer'}` : 'Direct'}</dd></div>
             {activeEntry.user?.phone && <div><dt>Phone</dt><dd>{activeEntry.user.phone}</dd></div>}
             <div><dt>Requested</dt><dd>{new Date(activeEntry.createdAt).toLocaleString()}</dd></div>
@@ -176,11 +191,12 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
           {confirmCancel && <p className="guestlist-cancel-warning">Revoking approval invalidates this guest’s entry credential and releases {activeEntry.partySize} {activeEntry.partySize === 1 ? 'place' : 'places'} from the {activeEntry.source === 'affiliate' ? 'referrer' : 'venue'} guestlist. You can approve this request again later if space is available.</p>}
           <DialogFooter className="guestlist-detail-actions">
             <DialogClose asChild><Button className="guestlist-dialog-close" variant="outline" disabled={busy}>Close</Button></DialogClose>
+            {canCopy(activeEntry) && <Button variant="outline" disabled={Boolean(copyingId)} onClick={() => copyInvitation(activeEntry)}><Copy aria-hidden="true"/>{copyingId === activeEntry.id ? 'Copying…' : 'Copy link'}</Button>}
             {activeEntry.status === 'pending' && (confirmDecline
               ? <><Button variant="outline" disabled={busy} onClick={() => setConfirmDecline(false)}>Keep request</Button><Button variant="destructive" disabled={busy} onClick={() => decide(activeEntry.id, 'reject')}>Confirm decline</Button></>
               : <><Button variant="outline" disabled={busy} onClick={() => setConfirmDecline(true)}><X /> Decline</Button><Button disabled={busy} onClick={() => decide(activeEntry.id, 'approve')}><Check /> Approve</Button></>)}
             {activeEntry.status === 'rejected' && <Button disabled={busy} onClick={() => decide(activeEntry.id, 'approve')}><Check /> Approve</Button>}
-            {activeEntry.status === 'confirmed' && (confirmCancel
+            {activeEntry.status === 'confirmed' && !activeEntry.checkedInAt && (confirmCancel
               ? <><Button variant="outline" disabled={busy} onClick={() => setConfirmCancel(false)}>Keep approval</Button><Button variant="destructive" disabled={busy} onClick={() => decide(activeEntry.id, 'cancel')}>Confirm revocation</Button></>
               : <Button variant="destructive" disabled={busy} onClick={() => setConfirmCancel(true)}>Revoke approval</Button>)}
           </DialogFooter>
@@ -246,7 +262,7 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
                       <button type="button" className="guestlist-guest-link" onClick={(event) => { entryTriggerRef.current = event.currentTarget; setError(''); setConfirmCancel(false); setActiveEntryId(entry.id); }}>{entry.user?.displayName || 'Guest'}</button>
                       <span className="guestlist-mobile-status status-pill guestlist-status" data-guestlist-status={entry.status}>{guestlistStatuses.find((item) => item.id === entry.status)?.label || entry.status.replaceAll('_', ' ')}</span>
                     </td>
-                    <td data-label="Spots">{entry.partySize}</td>
+                    <td data-label="Spots">{entry.partySize}{entry.checkedInSpots > 0 && <small className="block">{entry.checkedInSpots} admitted</small>}</td>
                     <td data-label="Source"><span className="guestlist-source-full">{entry.sourceValue}</span><span className="guestlist-source-compact">{compactGuestlistSourceName(entry.sourceValue)}</span></td>
                     <td data-label="Request">{new Date(entry.createdAt).toLocaleDateString()}</td>
                     <td data-label="Status"><span className="status-pill guestlist-status" data-guestlist-status={entry.status}>{guestlistStatuses.find((item) => item.id === entry.status)?.label || entry.status.replaceAll('_', ' ')}</span></td>

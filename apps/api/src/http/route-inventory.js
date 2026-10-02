@@ -850,6 +850,16 @@ const routeInventory = [
     ]
   },
   {
+    "method": "get",
+    "path": "/guestlist-invitations/:token/pass",
+    "successStatuses": [200]
+  },
+  {
+    "method": "get",
+    "path": "/business/events/:eventId/guestlist/:entryId/invitation-link",
+    "successStatuses": [200]
+  },
+  {
     "method": "delete",
     "path": "/notifications",
     "successStatuses": [

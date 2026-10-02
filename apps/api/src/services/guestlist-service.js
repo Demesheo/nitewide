@@ -65,7 +65,7 @@ function createGuestlistService({ sequelize, models, permissions = createPermiss
           entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.approval_revoked',
           before: { status: 'confirmed', partySize: entry.partySize, eventAffiliateId: entry.eventAffiliateId },
           after: { status: 'rejected', note: input.note || null } }, { transaction });
-        if (models.Notification) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_declined', title: 'Guestlist approval revoked', message: `Your guestlist approval for ${event.title} was revoked.`, metadata: { entryId: entry.id } }, transaction);
+        if (models.Notification && entry.userId) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_declined', title: 'Guestlist approval revoked', message: `Your guestlist approval for ${event.title} was revoked.`, metadata: { entryId: entry.id } }, transaction);
         await queueGuestlistEmail({ email, models, entry, event, kind: 'declined', customerAppUrl, transaction });
         if (context.onReviewed) await context.onReviewed(entry, event, transaction);
         return { entry, qrToken: null };
@@ -75,7 +75,7 @@ function createGuestlistService({ sequelize, models, permissions = createPermiss
       if (input.decision === 'reject') {
         await entry.update({ status: 'rejected', reviewedByUserId: input.reviewedByUserId, reviewedAt, reviewNote: input.note || null }, { transaction });
         await models.AuditLog.create({ actorUserId: input.reviewedByUserId, organizationId: event.organizationId, entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.rejected', after: { note: input.note || null } }, { transaction });
-        if (models.Notification) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_declined', title: 'Guestlist request declined', message: `Your request for ${event.title} was declined.`, metadata: { entryId: entry.id } }, transaction);
+        if (models.Notification && entry.userId) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_declined', title: 'Guestlist request declined', message: `Your request for ${event.title} was declined.`, metadata: { entryId: entry.id } }, transaction);
         await queueGuestlistEmail({ email, models, entry, event, kind: 'declined', customerAppUrl, transaction });
         if (context.onReviewed) await context.onReviewed(entry, event, transaction);
         return { entry, qrToken: null };
@@ -85,7 +85,7 @@ function createGuestlistService({ sequelize, models, permissions = createPermiss
       const qr = createQrToken();
       await entry.update({ status: 'confirmed', qrTokenHash: qr.hash, reviewedByUserId: input.reviewedByUserId, reviewedAt, reviewNote: input.note || null }, { transaction });
       await models.AuditLog.create({ actorUserId: input.reviewedByUserId, organizationId: event.organizationId, entityType: 'GuestlistEntry', entityId: entry.id, action: 'guestlist.approved', after: { partySize: entry.partySize } }, { transaction });
-      if (models.Notification) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_approved', title: 'Guestlist approved', message: `You're on the guestlist for ${event.title}.`, metadata: { entryId: entry.id } }, transaction);
+      if (models.Notification && entry.userId) await notifications.emit({ userId: entry.userId, eventId: event.id, kind: 'guestlist_approved', title: 'Guestlist approved', message: `You're on the guestlist for ${event.title}.`, metadata: { entryId: entry.id } }, transaction);
       await queueGuestlistEmail({ email, models, entry, event, kind: 'approved', customerAppUrl, transaction });
       if (context.onReviewed) await context.onReviewed(entry, event, transaction);
       return { entry, qrToken: qr.token };

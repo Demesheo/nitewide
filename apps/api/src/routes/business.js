@@ -63,6 +63,7 @@ function registerBusinessRoutes({ router, managementController, commerceControll
   router.get('/business/events/:eventId/guestlist-settings', requireUser, asyncHandler(managementController.guestlistSettings));
   router.get('/business/events/:eventId/guestlist-invite-pools', requireUser, asyncHandler(async (req, res) => res.json({ data: await invitations.pools(req.userId, req.params.eventId) })));
   router.post('/business/events/:eventId/guestlist-invitations', requireUser, validate(schemas.guestlistInvite), asyncHandler(async (req, res) => res.status(201).json({ data: await invitations.invite(req.userId, req.params.eventId, req.body) })));
+  router.get('/business/events/:eventId/guestlist/:entryId/invitation-link', requireUser, asyncHandler(async (req, res) => res.json({ data: await invitations.link(req.userId, req.params.eventId, req.params.entryId) })));
   router.get('/business/events/:eventId/guestlist', requireUser, asyncHandler(commerceController.listGuestlistRequests));
   router.post('/business/events/:eventId/guestlist/:entryId/decision', requireUser, validate(schemas.guestlistDecision), asyncHandler(commerceController.reviewGuestlist));
 }

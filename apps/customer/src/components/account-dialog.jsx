@@ -61,7 +61,7 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
           setCachedPass(false);
           if (updated.tickets.some((row) => row.qrImage)) savePassCache(session.user.id, updated);
           else removePassCache(session.user.id, ticket.kind, updated.id);
-          setData((current) => current && ({ ...current, guestlists: current.guestlists.map((guest) => updated.kind === 'guestlist' && guest.id === updated.id ? { ...guest, status: updated.tickets[0].status } : guest), orders: current.orders.map((order) => order.id !== updated.id ? order : ({ ...order, items: order.items.map((item) => ({ ...item, tickets: item.tickets.map((t) => ({ ...t, ...(updated.tickets.find((row) => row.id === t.id) || {}) })) })) })) }));
+          setData((current) => current && ({ ...current, guestlists: current.guestlists.map((guest) => updated.kind === 'guestlist' && guest.id === updated.id ? { ...guest, status: updated.status || updated.tickets[0]?.status } : guest), orders: current.orders.map((order) => order.id !== updated.id ? order : ({ ...order, items: order.items.map((item) => ({ ...item, tickets: item.tickets.map((t) => ({ ...t, ...(updated.tickets.find((row) => row.id === t.id) || {}) })) })) })) }));
         }
       } catch (error) {
         if (controller.signal.aborted) return;

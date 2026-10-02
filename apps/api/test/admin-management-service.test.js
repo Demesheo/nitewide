@@ -512,7 +512,7 @@ test('guestlist invitation uses capacity workflow and exposes the claim token on
 });
 
 test('guestlist invitation capability metadata reflects its schema and the default domain workflow creates a handoff', async () => {
-  const event = record(EVENT, { organizationId: ORG, status: 'published', endsAt: '2030-01-01T04:00:00Z' });
+  const event = record(EVENT, { organizationId: ORG, status: 'published', guestlistCapacity: 10, endsAt: '2030-01-01T04:00:00Z' });
   const context = fixture({ rows: {
     Event: [event],
     Organization: [record(ORG, { lifecycleState: 'active', status: 'active' })],
@@ -520,6 +520,8 @@ test('guestlist invitation capability metadata reflects its schema and the defau
   } });
   context.models.GuestlistInvitation.findOne = async () => null;
   context.models.User.findOne = async () => null;
+  context.models.GuestlistEntry.sum = async () => 0;
+  context.models.GuestlistPass = { bulkCreate: async values => values };
 
   const [inviteResource] = (await context.service.metadata(ADMIN)).filter((item) => item.key === 'guestlist_invitations');
   assert.ok(inviteResource);
@@ -529,7 +531,7 @@ test('guestlist invitation capability metadata reflects its schema and the defau
     eventId: EVENT, email: 'new-guest@example.test', partySize: 1, reason: WHY,
   });
   assert.equal(result.email, 'new-guest@example.test');
-  assert.equal(result.status, 'pending');
+  assert.equal(result.status, 'accepted');
   assert.ok(new URL(result.handoff.url).searchParams.get('guestlistInvite'));
   assert.equal(context.calls.some(([kind, model]) => kind === 'create' && model === 'GuestlistInvitation'), true);
   assert.equal(context.calls.some(([kind, model]) => kind === 'create' && model === 'AuditLog'), true);

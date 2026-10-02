@@ -55,6 +55,7 @@ import { bookingFromSearch } from './lib/booking-link';
 import { parseCustomerRoute, updateCustomerRoute } from './lib/customer-route';
 import { mapsUrlForLocation } from './lib/maps-link';
 import { clearPassCache } from './lib/pass-cache';
+import { GuestlistInvitationPage } from './components/guestlist-invitation-page';
 import brandLogo from './assets/nitewide-logo-v1.png';
 import { isPremiumHost } from './lib/premium-host';
 import {
@@ -91,6 +92,11 @@ function validSession() {
 }
 
 export default function App() {
+  const invitation = new URLSearchParams(window.location.search).get('guestlistInvite');
+  return invitation ? <GuestlistInvitationPage token={invitation}/> : <CustomerApp/>;
+}
+
+function CustomerApp() {
   const initialRoute = useRef(parseCustomerRoute(window.location.search)).current;
   const [city, setCity] = useState(initialRoute.city),
     [date, setDate] = useState(initialRoute.date),
@@ -162,7 +168,6 @@ export default function App() {
   useEffect(() => {
     if (view === 'connections' && (!session || (connectionsHistory && !hasConnections))) navigateView('discover');
   }, [view, hasConnections, connectionsHistory, session]);
-  const guestlistInviteToken = new URLSearchParams(window.location.search).get('guestlistInvite');
   const [referral, setReferral] = useState(null);
   const [demoBusy, setDemoBusy] = useState(false);
   const [demoError, setDemoError] = useState('');
@@ -181,7 +186,6 @@ export default function App() {
   const recoveryBuyer = useRef(null);
   const currentCheckoutBuyer = useRef(session?.user.id);
   currentCheckoutBuyer.current = session?.user.id;
-  const inviteClaimAttempted = useRef(false);
   const [selected, setSelected] = useState(null),
     [offeringId, setOfferingId] = useState(""),
     [quantity, setQuantity] = useState(1),
@@ -450,27 +454,11 @@ export default function App() {
     setSession(data);
     writeStorage("nitewide.session", data);
     setNotice(data.verificationEmailQueued ? 'Account created. Check your email for a verification link.' : `You're in, ${data.user.displayName.split(" ")[0]}.`);
-    if (guestlistInviteToken) {
-      inviteClaimAttempted.current = true;
-      try {
-        const result = data.guestlistInvite || await api(`/guestlist-invitations/${encodeURIComponent(guestlistInviteToken)}/claim`, { token: data.accessToken, method: 'POST' });
-        setNotice(result.status === 'confirmed' ? 'You are confirmed on the guestlist.' : result.status === 'full' ? 'The guestlist is full. Your invitation link can be tried again if space opens.' : 'Your account is ready, but this guestlist invitation could not be claimed.');
-        if (result.status === 'confirmed') { refreshConnections(); const url = new URL(window.location.href); url.searchParams.delete('guestlistInvite'); window.history.replaceState({}, '', url); if (result.entryId) await openGuestlistEntry(result.entryId, data.accessToken); }
-      } catch (error) { setNotice(`Signed in, but the guestlist invitation could not be claimed: ${error.message}`); }
-    }
     const next = pendingAuth.current;
     pendingAuth.current = null;
     if (next === "checkout") setStage("checkout");
     if (next === "wallet") navigateView('booked');
   }
-  useEffect(() => {
-    if (!guestlistInviteToken || inviteClaimAttempted.current) return;
-    if (!session) { setAuthOpen(true); return; }
-    inviteClaimAttempted.current = true;
-    api(`/guestlist-invitations/${encodeURIComponent(guestlistInviteToken)}/claim`, { token: session.accessToken, method: 'POST' })
-      .then(async (result) => { setNotice(result.status === 'confirmed' ? 'You are confirmed on the guestlist.' : 'Your invitation is not confirmed; the guestlist may be full or closed.'); if (result.status === 'confirmed') { refreshConnections(); const url = new URL(window.location.href); url.searchParams.delete('guestlistInvite'); window.history.replaceState({}, '', url); if (result.entryId) await openGuestlistEntry(result.entryId, session.accessToken); } })
-      .catch((error) => setNotice(`Guestlist invitation could not be claimed: ${error.message}`));
-  }, [guestlistInviteToken, session]);
   async function checkout() {
     if (checkoutLock.current) return;
     const pending = session && readCheckoutAttempt(session.user.id);
@@ -1105,7 +1093,6 @@ export default function App() {
                     </form>}
                     {guestState === 'pending' && <Button variant="ghost" disabled={guestBusy} onClick={withdrawGuestRequest}>Withdraw request</Button>}
                     {guestEntry && <Button variant="outline" onClick={() => openGuestlistEntry(guestEntry.id)}>View entry in Booked</Button>}
-                    {!session && guestlistInviteToken && <p>Have an invitation? Sign in to claim it.</p>}
                   </div>
                 </TabsContent>
               </Tabs>
@@ -1188,7 +1175,6 @@ export default function App() {
       </Dialog>
       <AuthDialog
         open={authOpen}
-        guestlistInviteToken={guestlistInviteToken}
         onOpenChange={(value) => {
           setAuthOpen(value);
           if (!value) pendingAuth.current = null;

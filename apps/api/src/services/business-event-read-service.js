@@ -50,7 +50,7 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
       FROM tickets t JOIN order_items oi ON oi.id = t.order_item_id JOIN visible_orders vo ON vo.id = oi.order_id`, auth);
     const [guests] = await select(`WITH visible_guests AS (${scopedGuests}) SELECT
       COALESCE(SUM(party_size) FILTER (WHERE status IN ('confirmed','checked_in')),0)::integer AS "guestlistPlaces",
-      COALESCE(SUM(party_size) FILTER (WHERE status = 'checked_in'),0)::integer AS "checkedIn"
+      COALESCE(SUM(CASE WHEN status = 'checked_in' THEN party_size ELSE checked_in_spots END) FILTER (WHERE status IN ('confirmed','checked_in')),0)::integer AS "checkedIn"
       FROM visible_guests`, auth);
     const sold = await select(`WITH visible_orders AS (${scopedOrders}),
       item_sales AS (SELECT oi.offering_id AS id, SUM(oi.quantity)::integer AS units,
@@ -117,7 +117,7 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
       (SELECT COUNT(*)::integer FROM visible_orders vo WHERE vo.buyer_user_id = a.id) AS orders,
       (SELECT COUNT(*)::integer FROM tickets t JOIN order_items oi ON oi.id = t.order_item_id JOIN visible_orders vo ON vo.id = oi.order_id WHERE t.holder_user_id = a.id AND t.status IN ('valid','checked_in')) AS admissions,
       (SELECT COUNT(*)::integer FROM tickets t JOIN order_items oi ON oi.id = t.order_item_id JOIN visible_orders vo ON vo.id = oi.order_id WHERE t.holder_user_id = a.id AND t.status = 'checked_in') +
-        COALESCE((SELECT SUM(g.party_size) FROM visible_guests g WHERE g.user_id = a.id AND g.status = 'checked_in'),0)::integer AS "checkedIn",
+        COALESCE((SELECT SUM(CASE WHEN g.status = 'checked_in' THEN g.party_size ELSE g.checked_in_spots END) FROM visible_guests g WHERE g.user_id = a.id AND g.status IN ('confirmed','checked_in')),0)::integer AS "checkedIn",
       COALESCE((SELECT SUM(g.party_size) FROM visible_guests g WHERE g.user_id = a.id AND g.status IN ('confirmed','checked_in')),0)::integer AS "guestlistPlaces"
       FROM attendees a ${predicate} ORDER BY ${({name: 'a.name', orders: 'orders', salesCents: '"salesCents"', admissions: 'admissions', guestlistPlaces: '"guestlistPlaces"', checkedIn: '"checkedIn"'})[sortKey] || '"salesCents"'} ${descending === 'false' ? 'ASC' : 'DESC'}, a.name ASC, a.id ASC LIMIT :pageSize OFFSET :offset`, values);
     return pageResult(rows.map((r) => ({ ...r, salesCents: Number(r.salesCents) })), count.total, page, pageSize);
@@ -151,21 +151,22 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
   async function guestlist(userId, eventId, { page, pageSize, search = '', status = 'all', statuses = [], sortKey = 'requestedValue', descending = 'true' }) {
     const auth = await scope(userId, eventId);
     const values = { ...auth, pageSize, offset: (page - 1) * pageSize, search: `%${search.replace(/[\\%_]/g, '\\$&')}%`, status, statuses };
-    const predicate = `${statuses.length ? 'AND g.status IN (:statuses)' : status === 'all' ? '' : 'AND g.status = :status'} ${search ? `AND (u.display_name ILIKE :search ESCAPE '\\' OR u.email ILIKE :search ESCAPE '\\'
-      OR u.phone ILIKE :search ESCAPE '\\' OR COALESCE(ref_user.display_name,'Direct') ILIKE :search ESCAPE '\\'
+    const predicate = `${statuses.length ? 'AND g.status IN (:statuses)' : status === 'all' ? '' : 'AND g.status = :status'} ${search ? `AND (COALESCE(g.guest_name,u.display_name) ILIKE :search ESCAPE '\\' OR COALESCE(g.guest_email,u.email) ILIKE :search ESCAPE '\\'
+      OR COALESCE(g.guest_phone,u.phone) ILIKE :search ESCAPE '\\' OR COALESCE(ref_user.display_name,'Direct') ILIKE :search ESCAPE '\\'
       OR (CASE g.status WHEN 'confirmed' THEN 'Approved' WHEN 'rejected' THEN 'Declined' ELSE g.status::text END) ILIKE :search ESCAPE '\\')` : ''}`;
     const [count] = await select(`WITH visible_guests AS (${scopedGuests}) SELECT COUNT(*)::integer AS total
-      FROM visible_guests g JOIN users u ON u.id = g.user_id
+      FROM visible_guests g LEFT JOIN users u ON u.id = g.user_id
       LEFT JOIN event_affiliates ea ON ea.id = g.event_affiliate_id LEFT JOIN users ref_user ON ref_user.id = ea.user_id
       WHERE true ${predicate}`, values);
     const rows = await select(`WITH visible_guests AS (${scopedGuests}) SELECT g.id, g.event_id AS "eventId", g.user_id AS "userId",
       g.event_affiliate_id AS "eventAffiliateId", g.source, g.party_size AS "partySize", g.status,
       g.created_at AS "createdAt", g.reviewed_at AS "reviewedAt", g.review_note AS "reviewNote", g.checked_in_at AS "checkedInAt",
-      u.display_name AS "guestName", u.email AS "guestEmail", u.phone AS "guestPhone", reviewer.display_name AS "reviewerName", ref_user.display_name AS "referrerName"
-      FROM visible_guests g JOIN users u ON u.id = g.user_id
+      COALESCE(g.guest_name,u.display_name,'Guest') AS "guestName", COALESCE(g.guest_email,u.email) AS "guestEmail", COALESCE(g.guest_phone,u.phone) AS "guestPhone", reviewer.display_name AS "reviewerName", ref_user.display_name AS "referrerName",
+      g.checked_in_spots AS "checkedInSpots", EXISTS (SELECT 1 FROM guestlist_invitations i WHERE i.guestlist_entry_id=g.id AND i.status='accepted') AS "hasInvitation"
+      FROM visible_guests g LEFT JOIN users u ON u.id = g.user_id
       LEFT JOIN users reviewer ON reviewer.id = g.reviewed_by_user_id
       LEFT JOIN event_affiliates ea ON ea.id = g.event_affiliate_id LEFT JOIN users ref_user ON ref_user.id = ea.user_id
-      WHERE true ${predicate} ORDER BY ${({guestName: 'u.display_name', partyValue: 'g.party_size', sourceValue: "COALESCE(ref_user.display_name,'Direct')", requestedValue: 'g.created_at', status: 'g.status'})[sortKey] || 'g.created_at'} ${descending === 'false' ? 'ASC' : 'DESC'}, g.id DESC LIMIT :pageSize OFFSET :offset`, values);
+      WHERE true ${predicate} ORDER BY ${({guestName: "COALESCE(g.guest_name,u.display_name,'Guest')", partyValue: 'g.party_size', sourceValue: "COALESCE(ref_user.display_name,'Direct')", requestedValue: 'g.created_at', status: 'g.status'})[sortKey] || 'g.created_at'} ${descending === 'false' ? 'ASC' : 'DESC'}, g.id DESC LIMIT :pageSize OFFSET :offset`, values);
     return pageResult(rows, count.total, page, pageSize);
   }
 
@@ -174,8 +175,9 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
     const [row] = await select(`WITH visible_guests AS (${scopedGuests}) SELECT g.id, g.event_id AS "eventId", g.user_id AS "userId",
       g.event_affiliate_id AS "eventAffiliateId", g.source, g.party_size AS "partySize", g.status,
       g.created_at AS "createdAt", g.reviewed_at AS "reviewedAt", g.review_note AS "reviewNote", g.checked_in_at AS "checkedInAt",
-      u.display_name AS "guestName", u.email AS "guestEmail", u.phone AS "guestPhone", reviewer.display_name AS "reviewerName", ref_user.display_name AS "referrerName"
-      FROM visible_guests g JOIN users u ON u.id = g.user_id
+      COALESCE(g.guest_name,u.display_name,'Guest') AS "guestName", COALESCE(g.guest_email,u.email) AS "guestEmail", COALESCE(g.guest_phone,u.phone) AS "guestPhone", reviewer.display_name AS "reviewerName", ref_user.display_name AS "referrerName",
+      g.checked_in_spots AS "checkedInSpots", EXISTS (SELECT 1 FROM guestlist_invitations i WHERE i.guestlist_entry_id=g.id AND i.status='accepted') AS "hasInvitation"
+      FROM visible_guests g LEFT JOIN users u ON u.id = g.user_id
       LEFT JOIN users reviewer ON reviewer.id = g.reviewed_by_user_id
       LEFT JOIN event_affiliates ea ON ea.id = g.event_affiliate_id LEFT JOIN users ref_user ON ref_user.id = ea.user_id
       WHERE g.id = :entryId`, { ...auth, entryId });

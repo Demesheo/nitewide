@@ -111,7 +111,7 @@ test('event details invite guests in place without navigating to Guestlists', ()
   assert.match(eventDetail, /<GuestlistInviteDialog open=\{inviteOpen\}/);
   assert.match(inviteDialog, /guestlist-invitations/);
   assert.match(inviteDialog, /eventAffiliateId: selectedPool/);
-  assert.match(inviteDialog, /guestlistInvite/);
+  assert.match(inviteDialog, /guestlistInvitationLink/);
   assert.doesNotMatch(eventDetail, /<code className="break-all text-sm">\{url\.toString\(\)\}<\/code>/);
   assert.doesNotMatch(app, /guestlistInviteToOpen|navigate\('guestlists'/);
 });

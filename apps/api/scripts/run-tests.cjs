@@ -13,6 +13,7 @@ INTEGRATION_TESTS.push('payment-safety-integration.test.js');
 INTEGRATION_TESTS.push('stripe-checkout-integration.test.js');
 INTEGRATION_TESTS.push('business-payment-account-integration.test.js');
 INTEGRATION_TESTS.push('business-payment-disconnect-integration.test.js');
+INTEGRATION_TESTS.push('guestlist-passes-integration.test.js');
 const DEMO_TESTS = ['orlando-seed-integration.test.js', 'posh-importer-integration.test.js', 'seed-cleanup-integration.test.js', 'seed-guestlists-integration.test.js', 'venue-selection-integration.test.js'];
 let activeChild = null; let interrupted = null;
 

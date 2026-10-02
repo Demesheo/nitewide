@@ -203,7 +203,7 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
         FROM orders o JOIN events e ON e.id = o.event_id JOIN scoped_events se ON se.id = e.id
         WHERE o.status = 'paid' AND o.currency = 'USD' AND o.paid_at >= :since AND o.paid_at < :until AND ${orderAccess}),
       visible_guests AS (
-        SELECT g.id, g.event_id, g.user_id, g.party_size, g.status
+        SELECT g.id, g.event_id, g.user_id, g.party_size, g.status, g.checked_in_spots
         FROM guestlist_entries g JOIN events e ON e.id = g.event_id JOIN scoped_events se ON se.id = e.id
         WHERE g.created_at >= :since AND g.created_at < :until AND ${guestAccess})`;
     const [financial] = await select(`${cte}
@@ -217,7 +217,7 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
       COUNT(*) FILTER (WHERE t.status = 'checked_in')::integer AS "checkedIn"
       FROM tickets t JOIN order_items oi ON oi.id = t.order_item_id JOIN visible_orders vo ON vo.id = oi.order_id`, values);
     const [guests] = await select(`${cte} SELECT COALESCE(SUM(party_size) FILTER (WHERE status IN ('confirmed','checked_in')),0)::integer AS "guestlistPlaces",
-      COALESCE(SUM(party_size) FILTER (WHERE status = 'checked_in'),0)::integer AS "checkedIn" FROM visible_guests`, values);
+      COALESCE(SUM(CASE WHEN status = 'checked_in' THEN party_size ELSE checked_in_spots END) FILTER (WHERE status IN ('confirmed','checked_in')),0)::integer AS "checkedIn" FROM visible_guests`, values);
     const days = await select(`${cte} SELECT to_char(paid_at AT TIME ZONE :timezone, 'YYYY-MM-DD') AS date,
       SUM(subtotal_cents)::bigint AS "salesCents" FROM visible_orders GROUP BY 1 ORDER BY 1`, values);
     const daily = new Map(days.map((row) => [row.date, cents(row.salesCents)]));

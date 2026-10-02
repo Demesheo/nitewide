@@ -21,4 +21,13 @@ function verifyGuestlistWalletToken(token, entry, secret) {
   const supplied = Buffer.from(token);
   return expected.length === supplied.length && timingSafeEqual(expected, supplied);
 }
-module.exports = { walletToken, verifyWalletToken, guestlistWalletToken, verifyGuestlistWalletToken };
+function guestlistPassToken(pass, entry, secret = getConfig().QR_TOKEN_SECRET) {
+  const signature = createHmac('sha256', secret).update(`nitewide-guestlist-pass-v1:${pass.id}:${entry.id}:${entry.eventId}:${pass.position}:${pass.qrTokenHash}:${entry.qrTokenHash}`).digest('base64url');
+  return `nwgp1.${pass.id}.${signature}`;
+}
+function verifyGuestlistPassToken(token, pass, entry, secret) {
+  const expected = Buffer.from(guestlistPassToken(pass, entry, secret));
+  const supplied = Buffer.from(token);
+  return expected.length === supplied.length && timingSafeEqual(expected, supplied);
+}
+module.exports = { walletToken, verifyWalletToken, guestlistWalletToken, verifyGuestlistWalletToken, guestlistPassToken, verifyGuestlistPassToken };

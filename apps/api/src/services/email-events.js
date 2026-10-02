@@ -47,7 +47,7 @@ async function queuePurchaseEmail({ email, models, order, event, lines, demo, bu
 }
 
 async function queueGuestlistEmail({ email, models, entry, event, kind, customerAppUrl, transaction }) {
-  if (!email?.enabled) return;
+  if (!email?.enabled || !entry.userId) return;
   const user = await models.User.findByPk(entry.userId, { transaction });
   if (!user?.email) return;
   const timezone = await timezoneForEvent(models, event, transaction);
@@ -75,7 +75,7 @@ async function audienceForEvent(models, eventId, transaction) {
     models.Order.findAll({ where: { eventId, status: 'paid' }, attributes: ['id', 'buyerUserId'], transaction }),
     models.GuestlistEntry.findAll({ where: { eventId, status: ['pending', 'confirmed', 'checked_in'] }, attributes: ['id', 'userId'], transaction }),
   ]);
-  const userIds = [...new Set([...orders.map((row) => row.buyerUserId), ...entries.map((row) => row.userId)])];
+  const userIds = [...new Set([...orders.map((row) => row.buyerUserId), ...entries.map((row) => row.userId)].filter(Boolean))];
   if (!userIds.length) return [];
   const users = await models.User.findAll({ where: { id: userIds, isActive: true }, attributes: ['id', 'email', 'displayName'], transaction });
   return users.map((user) => {

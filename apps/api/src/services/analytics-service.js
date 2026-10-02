@@ -74,13 +74,13 @@ function aggregateHierarchy(eventsInput, ordersInput, { admin = false, includeCu
     const region = regionKey(event.location), entity = groupEntity(event);
     for (const id of ['all', `region:${region}`, `region:${region}:entity:${entity.id}`, `event:${event.id}`]) {
       rows.get(id).guestlistPlaces += amount(guest.partySize);
-      if (guest.status === 'checked_in') rows.get(id).checkedIn += amount(guest.partySize);
+      rows.get(id).checkedIn += guest.status === 'checked_in' ? amount(guest.partySize) : amount(guest.checkedInSpots);
     }
     if (includeCustomers && guest.userId) {
       const key = `${event.id}:${guest.userId}`;
       const person = customer.get(key) || { id: key, eventId: event.id, buyerUserId: guest.userId, label: guest.user?.displayName || 'Guest', email: guest.user?.email || null, orders: 0, salesCents: 0, units: 0, admissions: 0, checkedIn: 0, guestlistPlaces: 0 };
       person.guestlistPlaces += amount(guest.partySize);
-      if (guest.status === 'checked_in') person.checkedIn += amount(guest.partySize);
+      person.checkedIn += guest.status === 'checked_in' ? amount(guest.partySize) : amount(guest.checkedInSpots);
       customer.set(key, person);
       addChild(`event:${event.id}`, `customer:${key}`);
     }

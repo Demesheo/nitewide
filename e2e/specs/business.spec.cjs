@@ -264,18 +264,115 @@ test('overview charts switch categories and team pagination uses the backend', a
   await expect(pager).toContainText('Page 1');
 });
 
-test('manager referral and personal pool support a ten-spot private invitation', async ({ page, fixture }) => {
+test('manager personal invitation opens four account-free individual passes and can be copied again', async ({ page, context, fixture }, testInfo) => {
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__copiedGuestlistLink = text; } } });
+  });
   await eventDetails(page, fixture);
   const share = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Your referral link', exact: true }) }).last();
   await expect(share.getByRole('button', { name: 'Copy link', exact: true })).toBeVisible();
   await share.getByRole('button', { name: 'Invite guest', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Invite to guestlist', exact: true });
-  await expect(dialog.getByLabel('Invite by')).toHaveValue('phone');
+  await expect(dialog.getByLabel('Invite by')).toHaveValue('personal');
   await dialog.getByLabel('Guestlist pool').selectOption({ label: 'My allocation · 10 places' });
-  await dialog.getByLabel('Phone number').fill('+14075550123');
-  await dialog.getByLabel('People').fill('10');
+  await dialog.getByLabel('Guest name').fill('Alex and friends');
+  await expect(dialog.getByLabel('Phone number')).toHaveCount(0);
+  await expect(dialog.getByLabel('Email address')).toHaveCount(0);
+  await dialog.getByLabel('Spots').fill('4');
+  await dialog.getByLabel('Invite by').selectOption('email');
+  await expect(dialog.getByLabel('Email address')).toBeVisible();
+  await dialog.getByLabel('Invite by').selectOption('phone');
+  await expect(dialog.getByLabel('Phone number')).toBeVisible();
+  await dialog.getByLabel('Invite by').selectOption('personal');
+  await expectNoOverflow(page);
+  const formBounds = await dialog.boundingBox();
+  expect(formBounds.width).toBeLessThanOrEqual(540);
+  expect(formBounds.height).toBeLessThanOrEqual(page.viewportSize().height - 30);
+  if (page.viewportSize().width < 480) {
+    const viewport = page.viewportSize();
+    await page.setViewportSize({ width: 320, height: viewport.height });
+    await expectNoOverflow(page);
+    await expect(dialog.getByRole('button', { name: 'Create invitation', exact: true })).toBeInViewport();
+    await page.setViewportSize(viewport);
+  }
+  await testInfo.attach('guestlist-invitation-form', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
   await dialog.getByRole('button', { name: /Create invitation|Invite guest|Send invite/ }).click();
-  await expect(dialog.getByLabel('Guestlist invitation link')).toHaveValue(/guestlistInvite=/);
+  await expect(dialog).toContainText('4 spots approved');
+  await expect(dialog.getByRole('heading', { name: 'Alex and friends', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('region', { name: 'Invitation summary' })).toContainText('4 separate passes');
+  await expect(dialog.getByRole('region', { name: 'Invitation summary' })).toContainText('My allocation');
+  await expect(dialog.getByRole('button', { name: 'Copy link', exact: true })).toBeFocused();
+  await testInfo.attach('guestlist-invitation-success', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+  await expect(dialog.locator('input')).toHaveCount(0);
+  await dialog.getByRole('button',{ name: 'Copy link',exact: true }).click();
+  const link = await page.evaluate(() => window.__copiedGuestlistLink);
+  expect(new URL(link).searchParams.has('guestlistInvite')).toBe(true);
+  await expectNoOverflow(page);
+  await dialog.getByRole('button',{ name: 'Close',exact: true }).click();
+  await page.getByRole('tab',{ name: 'Guestlist',exact: true }).click();
+  // Guest experience defaults to pending requests; include approved invites.
+  await page.getByRole('button',{ name: /Request status/ }).click();
+  await page.getByRole('checkbox',{ name: 'Approved',exact: true }).check();
+  await page.getByRole('button',{ name: /Request status/ }).click();
+  await expect(page.locator('.guest-experience-content').getByRole('button', { name: /Copy link/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Alex and friends', exact: true }).click();
+  const details = page.getByRole('dialog', { name: 'Alex and friends', exact: true });
+  const copyAgain = details.getByRole('button',{ name: 'Copy link',exact: true });
+  await expect(copyAgain).toBeVisible(); await copyAgain.click();
+  await expect(copyAgain).toHaveText('Copy link');
+  expect(await page.evaluate(() => window.__copiedGuestlistLink)).toBe(link);
+  await expectNoOverflow(page);
+  await details.locator('.guestlist-detail-actions').getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Link copied' })).toBeVisible();
+  const guest = await context.newPage();
+  await guest.goto(link);
+  await expect(guest.getByRole('heading',{ name: "You're on the list, Alex and friends." })).toBeVisible();
+  await expect(guest.getByRole('dialog')).toHaveCount(0);
+  await expect(guest.locator('.pass-pager')).toContainText('Pass 1 of 4');
+  const qr = guest.getByRole('img',{ name: /QR code for guest list pass/ });
+  const codes = [];
+  for (let index = 0; index < 4; index++) {
+    await expect(guest.locator('.pass-pager')).toContainText(`Pass ${index+1} of 4`);
+    await expect(qr).toBeVisible(); codes.push(await qr.getAttribute('src'));
+    await expectNoOverflow(guest);
+    if (index < 3) await guest.getByRole('button',{ name: 'Next pass' }).click();
+  }
+  expect(new Set(codes).size).toBe(4);
+  await testInfo.attach('account-free-guestlist-passes',{ body: await guest.screenshot(),contentType: 'image/png' });
+  await guest.close();
+});
+
+test('guestlist invitation copy failure can retry and Done resets the form for the next guest', async ({ page, context, fixture }, testInfo) => {
+  await context.addInitScript(() => {
+    let attempts = 0;
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {
+      if (++attempts === 1) throw new Error('Clipboard unavailable');
+    } } });
+  });
+  await eventDetails(page, fixture);
+  await page.getByRole('button', { name: 'Invite guest', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Invite to guestlist', exact: true });
+  const name = 'Alexandra Rivera and friends visiting for a birthday celebration';
+  await dialog.getByLabel('Guest name').fill(name);
+  await dialog.getByRole('button', { name: 'Create invitation', exact: true }).click();
+  await expect(dialog).toContainText('1 spot approved');
+  await expect(dialog.getByRole('heading', { name, exact: true })).toBeVisible();
+  await expect(dialog.getByRole('region', { name: 'Invitation summary' })).toContainText('1 individual pass');
+  await dialog.getByRole('button', { name: 'Copy link', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Could not copy the link');
+  await expectNoOverflow(page);
+  await testInfo.attach('guestlist-invitation-copy-retry', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+  await dialog.getByRole('button', { name: 'Copy link', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Link copied', exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'Invite guest', exact: true }).click();
+  await expect(dialog.getByLabel('Guest name')).toHaveValue('');
+  await expect(dialog.getByLabel('Spots')).toHaveValue('1');
+  await expect(dialog.getByLabel('Invite by')).toHaveValue('personal');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
 });
 
 test('analytics chart labels are readable and tooltips show Sales instead of the internal cents field', async ({ page, fixture }, testInfo) => {

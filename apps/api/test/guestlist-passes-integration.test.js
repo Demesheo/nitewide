@@ -1,0 +1,106 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const request = require('supertest');
+const { createFixture, cleanupFixture } = require('./admissions-fixture.cjs');
+const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
+const { guestlistPassToken, guestlistWalletToken } = require('../src/domain/wallet-qr');
+
+test('private guestlist links: anonymous approval, four separate passes, scope, capacity races, revocation and single-use admission', async () => {
+  assertManagedTestDatabase();
+  const { getConfig } = require('../src/config');
+  const { createSequelize } = require('../src/db/sequelize');
+  const { initModels } = require('../src/db/models');
+  const { createApp } = require('../src/app');
+  const config = getConfig(), db = createSequelize(config), m = initModels(db);
+  let fixture;
+  try {
+    fixture = await createFixture(m, config);
+    const { ids } = fixture;
+    const app = createApp({ sequelize: db, models: m, config, services: { email: { enabled: false } } });
+    const api = (method, path, actor) => {
+      const call = request(app)[method](`/api${path}`);
+      return actor ? call.set('x-user-id', ids[actor]) : call;
+    };
+    const create = (name, partySize = 4, actor = 'manager') => api('post', `/business/events/${ids.event}/guestlist-invitations`, actor).send({ pool: 'direct', name, inviteBy: 'personal', partySize });
+    await create('Unauthorized', 4, 'outsider').expect(403);
+    await create('Invalid spots', 21).expect(422);
+    await create('', 4).expect(422);
+    const originalUsers = await m.User.count();
+    const invitation = (await create('Alex and friends').expect(201)).body.data;
+    assert.equal(invitation.invitation.status, 'accepted');
+    assert.equal(await m.User.count(), originalUsers, 'no phantom account for a personal invitation');
+    let entry = await m.GuestlistEntry.findByPk(invitation.entryId);
+    assert.equal(entry.userId, null); assert.equal(entry.guestName, 'Alex and friends');
+    assert.equal(entry.status, 'confirmed'); assert.equal(entry.partySize, 4);
+    const path = `/guestlist-invitations/${invitation.token}`;
+    const claims = await Promise.all([1,2,3].map(() => api('post', `${path}/claim`).expect(200)));
+    assert.ok(claims.every(row => row.body.data.entryId === entry.id));
+    assert.equal(await m.GuestlistPass.count({ where: { guestlistEntryId: entry.id } }), 4);
+    const pass = (await api('get', `${path}/pass`).expect(200)).body.data;
+    assert.equal(pass.guestName, 'Alex and friends'); assert.equal(pass.tickets.length, 4);
+    assert.equal(new Set(pass.tickets.map(ticket => ticket.qrImage)).size, 4);
+    assert.ok(pass.tickets.every(ticket => ticket.spots === 1 && ticket.qrImage.startsWith('data:image/png')));
+    for (const sensitive of ['guestEmail','guestPhone','userId','tokenHash','qrTokenHash']) assert.ok(!JSON.stringify(pass).includes(sensitive), sensitive);
+    const badToken = `${invitation.token.slice(0,-1)}${invitation.token.endsWith('A') ? 'B' : 'A'}`;
+    await api('get', `/guestlist-invitations/${badToken}/pass`).expect(404);
+    await api('post', `/guestlist-invitations/${badToken}/claim`).expect(404);
+    await api('get', `/customer/guestlists/${entry.id}/pass`).expect(401);
+    const copied = await api('get', `/business/events/${ids.event}/guestlist/${entry.id}/invitation-link`, 'manager').expect(200);
+    assert.equal(copied.body.data.token, invitation.token);
+    await api('get', `/business/events/${ids.event}/guestlist/${entry.id}/invitation-link`, 'promoter').expect(404);
+    await api('get', `/business/events/${ids.otherEvent}/guestlist/${entry.id}/invitation-link`, 'manager').expect(404);
+    const guestPage = (await api('get', `/business/events/${ids.event}/guestlist-page?search=Alex`, 'manager').expect(200)).body.data;
+    assert.equal(guestPage.items[0].hasInvitation, true); assert.equal(guestPage.items[0].guestName, 'Alex and friends');
+    // Only three direct spots remain. Event-first locking prevents overselling.
+    const race = await Promise.all([create('Last three A',3),create('Last three B',3)]);
+    assert.deepEqual(race.map(row => row.status).sort(), [201,409]);
+    const winner = race.find(row => row.status === 201).body.data;
+    const originallyApproved = await m.GuestlistEntry.findByPk(winner.entryId);
+    const originalChild = await m.GuestlistPass.findOne({ where: { guestlistEntryId: winner.entryId } });
+    const oldCode = guestlistPassToken(originalChild,originallyApproved,config.QR_TOKEN_SECRET);
+    await api('post', `/business/events/${ids.event}/guestlist/${winner.entryId}/decision`, 'manager').send({ decision: 'cancel' }).expect(200);
+    assert.ok((await api('get', `/guestlist-invitations/${winner.token}/pass`).expect(200)).body.data.tickets.every(ticket => !ticket.qrImage));
+    // Already approved admissions survive removal of the inviter. New issuance
+    // still requires current access; pending legacy invitations remain revocable.
+    await m.OrganizationOwner.update({ lifecycleState: 'archived' }, { where: { userId: ids.manager } });
+    await create('Removed manager',1).expect(403);
+    await api('post', `${path}/claim`).expect(200);
+    await m.OrganizationOwner.unscoped().update({ lifecycleState: 'active' }, { where: { userId: ids.manager } });
+    await m.Event.update({ lifecycleState: 'archived' }, { where: { id: ids.event } });
+    assert.ok((await api('get', `${path}/pass`).expect(200)).body.data.tickets.every(ticket => !ticket.qrImage));
+    await m.Event.update({ lifecycleState: 'active' }, { where: { id: ids.event } });
+    // Revoked bearer passes cannot be scanned even if someone kept a screenshot.
+    const cancelled = await m.GuestlistEntry.findByPk(winner.entryId);
+    const cancelledPass = await m.GuestlistPass.findOne({ where: { guestlistEntryId: cancelled.id } });
+    const cancelledScan = await api('post', '/check-ins', 'manager').send({ eventId: ids.event, qrToken: guestlistPassToken(cancelledPass,cancelled,config.QR_TOKEN_SECRET) });
+    assert.equal(cancelledScan.status,422, JSON.stringify(cancelledScan.body));
+    const children = await m.GuestlistPass.findAll({ where: { guestlistEntryId: entry.id }, order: [['position','ASC']] });
+    const tokens = children.map(child => guestlistPassToken(child,entry,config.QR_TOKEN_SECRET));
+    const scan = token => api('post','/check-ins','manager').send({ eventId: ids.event, qrToken: token });
+    await api('post','/check-ins','manager').send({ eventId: ids.otherEvent,qrToken: tokens[0] }).expect(422);
+    await scan(guestlistWalletToken(entry,config.QR_TOKEN_SECRET)).expect(422);
+    const parallel = await Promise.all([scan(tokens[0]),scan(tokens[0])]);
+    assert.deepEqual(parallel.map(row => row.status).sort(), [201,409]);
+    entry = await entry.reload(); assert.equal(entry.checkedInSpots,1); assert.equal(entry.status,'confirmed');
+    const roster = (await api('get',`/business/admissions/events/${ids.event}`,'manager').expect(200)).body.data;
+    assert.equal(roster.admitted,1); assert.equal(roster.expected,9);
+    assert.equal(roster.entries.filter(row => row.name === 'Alex and friends').length,4);
+    assert.ok(roster.entries.filter(row => row.name === 'Alex and friends').every(row => row.kind === 'guestlist_pass' && row.spots === 1 && row.email === null));
+    const summary = (await api('get',`/business/events/${ids.event}/summary`,'manager').expect(200)).body.data;
+    assert.equal(summary.summary.checkedIn,1);
+    await api('post',`/business/events/${ids.event}/guestlist/${entry.id}/decision`,'manager').send({ decision: 'cancel' }).expect(409);
+    for (const token of tokens.slice(1,3)) await scan(token).expect(201);
+    const manual = (await api('post','/check-ins','manager').send({ eventId: ids.event,credentialId: children[3].id,kind: 'guestlist_pass' }).expect(201)).body.data;
+    assert.equal(manual.credential.spots,1); assert.equal(manual.checkIn.method,'manual');
+    entry = await entry.reload(); assert.equal(entry.checkedInSpots,4); assert.equal(entry.status,'checked_in');
+    assert.equal(await m.CheckIn.count({ where: { guestlistPassId: children.map(row => row.id) } }),4);
+    const final = (await api('get',`${path}/pass`).expect(200)).body.data;
+    assert.ok(final.tickets.every(ticket => ticket.status === 'checked_in'));
+    await scan(tokens[3]).expect(409);
+    await api('post',`/business/events/${ids.event}/guestlist/${winner.entryId}/decision`,'manager').send({ decision: 'approve' }).expect(200);
+    await scan(oldCode).expect(422);
+    const renewed = await originallyApproved.reload();
+    await scan(guestlistPassToken(originalChild,renewed,config.QR_TOKEN_SECRET)).expect(201);
+    assert.equal(await m.EmailOutbox.count(),0);
+  } finally { if (fixture) await cleanupFixture(m,fixture); await db.close(); }
+});

@@ -26,7 +26,7 @@ export function ShareEventCard({ referralUrl, canInviteGuest = false, onInviteGu
     {copyMessage && <p className="guestlist-referral-status" role="status">{copyMessage}</p>}
     {canInviteGuest && <div className="guestlist-share-invite">
       <h3>Invite to guestlist</h3>
-      <p>Add an existing customer to the guestlist, or create a private invitation link using their email or phone.</p>
+      <p>Approve guestlist spots and share private entry passes. Invite by name, email, or phone—no guest account is required.</p>
       <Button className="guestlist-invite-button" type="button" onClick={onInviteGuest}><UserPlus size={16}/> Invite guest</Button>
     </div>}
   </section>;

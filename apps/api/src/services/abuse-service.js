@@ -10,6 +10,7 @@ const POLICIES = {
   recovery: { seconds: 3600, ip: 30, account: 5, user: 5 },
   password_change: { seconds: 3600, ip: 30, user: 5 },
   invitation: { seconds: 3600, ip: 300, user: 100 },
+  guestlist_link: { seconds: 60, ip: 120 },
   upload: { seconds: 3600, ip: 120, user: 40 },
   report: { seconds: 60, ip: 300, user: 120 },
   export: { seconds: 60, ip: 30, user: 10 },
@@ -30,6 +31,7 @@ function routePolicy(method, path) {
   if (method === 'POST' && path === '/business/access-requests') return 'access_request';
   if (method === 'POST' && path === '/auth/register') return 'registration';
   if (method === 'POST' && path === '/auth/password/change') return 'password_change';
+  if (['GET','POST'].includes(method) && /^\/guestlist-invitations\/[^/]+\/(claim|pass)$/.test(path)) return 'guestlist_link';
   if (method === 'POST' && /^\/auth\/(password-reset|email|onboarding)/.test(path)) return 'recovery';
   if (/^\/auth\/sessions/.test(path) || path === '/auth/logout') return 'session';
   if (method === 'POST' && /\/(invitations|guestlist-invitations|guestlist_invitations|team_invitations|onboarding|instructions)(\/|$)/.test(path)) return 'invitation';

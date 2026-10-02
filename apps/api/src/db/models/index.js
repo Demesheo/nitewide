@@ -14,6 +14,7 @@ const initializers = [
   require('./TeamInvitation').initTeamInvitation,
   require('./OrganizationEmployee').initOrganizationEmployee,
   require('./GuestlistInvitation').initGuestlistInvitation,
+  require('./GuestlistPass').initGuestlistPass,
   require('./Notification').initNotification,
   require('./NotificationJob').initNotificationJob,
   require('./UserActionToken').initUserActionToken,
@@ -63,6 +64,10 @@ function initModels(sequelize) {
   m.GuestlistEntry.belongsTo(m.User, { as: 'reviewer', foreignKey: 'reviewedByUserId' });
   m.EventAffiliate.hasMany(m.GuestlistEntry, { as: 'guestlistEntries', foreignKey: 'eventAffiliateId' }); m.GuestlistEntry.belongsTo(m.EventAffiliate, { as: 'eventAffiliate', foreignKey: 'eventAffiliateId' });
   m.GuestlistInvitation.belongsTo(m.Event, { as: 'event', foreignKey: 'eventId' });
+  m.GuestlistInvitation.belongsTo(m.GuestlistEntry, { as: 'entry', foreignKey: 'guestlistEntryId' });
+  m.GuestlistEntry.hasOne(m.GuestlistInvitation, { as: 'invitation', foreignKey: 'guestlistEntryId' });
+  m.GuestlistEntry.hasMany(m.GuestlistPass, { as: 'passes', foreignKey: 'guestlistEntryId' });
+  m.GuestlistPass.belongsTo(m.GuestlistEntry, { as: 'entry', foreignKey: 'guestlistEntryId' });
   m.Notification.belongsTo(m.Event, { as: 'event', foreignKey: 'eventId' });
   m.SavedEvent.belongsTo(m.User, { as: 'user', foreignKey: 'userId' });
   m.SavedEvent.belongsTo(m.Event, { as: 'event', foreignKey: 'eventId' });

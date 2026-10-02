@@ -9,6 +9,7 @@ const { ADMISSION_WINDOW_MS } = require('../domain/admission-policy');
 const { orderAdmissionEligible } = require('../domain/order-admission-policy');
 const { assertActiveEvent, assertActiveUser, assertAdmissionEvent } = require('./lifecycle-service');
 const { connectionHistorySql, pagedConnections } = require('./customer-connections-page-service');
+const { guestlistPassTickets } = require('./guestlist-pass-service');
 
 function profile(user) {
   return { id: user.id, displayName: user.displayName, email: user.email, phone: user.phone,
@@ -139,9 +140,8 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     if (!entry) throw notFound('Guest list entry');
     const showCode = ['confirmed', 'checked_in'].includes(entry.status) && entry.qrTokenHash && entry.event.status === 'published' && +new Date(entry.event.endsAt) + ADMISSION_WINDOW_MS >= +now() && await eventActiveForAdmission(entry.event);
     const addressEvents = await attendeeLocationEventIds(userId, [entry.eventId]);
-    return { id: entry.id, kind: 'guestlist', event: eventSummary(entry.event, { canViewAttendeeAddress: addressEvents.has(entry.eventId) }), partySize: entry.partySize,
-      tickets: [{ id: entry.id, offering: 'Guest list entry', status: entry.status, checkedInAt: entry.checkedInAt,
-        qrImage: showCode ? await QRCode.toDataURL(guestlistWalletToken(entry, tokenSecret), { width: 320, margin: 4, errorCorrectionLevel: 'M' }) : null }] };
+    return { id: entry.id, kind: 'guestlist', status: entry.status, event: eventSummary(entry.event, { canViewAttendeeAddress: addressEvents.has(entry.eventId) }), partySize: entry.partySize,
+      tickets: await guestlistPassTickets(models, entry, tokenSecret, showCode) };
   }
   async function purchaseTickets(userId, orderId) {
     const order = await models.Order.findOne({ where: { id: orderId, buyerUserId: userId }, include: [eventInclude,

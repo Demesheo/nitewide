@@ -310,7 +310,7 @@ function createAdminManagementService({ models, permissions, email = null, custo
         },
       });
       const url = result.token ? new URL(customerAppUrl) : null; if (url) url.searchParams.set('guestlistInvite', result.token);
-      return { ...(createdInvitation || result.invitation), handoff: { url: url?.toString() || null, message: result.entryId ? 'The existing recipient has been confirmed through the guestlist admission workflow.' : 'Share this claim link with the intended recipient. Capacity is checked when they claim it.' } };
+      return { ...(createdInvitation || result.invitation), handoff: { url: url?.toString() || null, message: result.entryId ? 'Guestlist spots are approved. Share this private link with the guest; no account is needed.' : 'Share this claim link with the intended recipient. Capacity is checked when they claim it.' } };
     }
     return mutationTransaction(models.User.sequelize, async (transaction) => {
       await authorize(actor, transaction, capability(key, true));

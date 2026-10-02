@@ -82,7 +82,7 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   const notifications = createNotificationService(models);
   app.locals.emailService = email;
   app.locals.notificationJobs = notificationJobs;
-  const invitations = createGuestlistInvitationService({ sequelize, models, permissions, email, customerAppUrl: config.CUSTOMER_APP_URL });
+  const invitations = createGuestlistInvitationService({ sequelize, models, permissions, email, customerAppUrl: config.CUSTOMER_APP_URL, tokenSecret: config.QR_TOKEN_SECRET });
   const auth = services.auth || createAuthService({ sequelize, models, tokenSecret: config.AUTH_TOKEN_SECRET, invitations, email, customerAppUrl: config.CUSTOMER_APP_URL });
   const abuse = services.abuse || createAbuseService({ sequelize, secret: config.AUTH_TOKEN_SECRET });
   app.use('/api', asyncHandler(async (req, res, next) => { res.set('Cache-Control', 'no-store'); await abuse.before(req); next(); }));

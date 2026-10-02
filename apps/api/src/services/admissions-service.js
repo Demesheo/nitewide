@@ -46,7 +46,8 @@ function createAdmissionsService({ models: m, permissions, now = () => new Date(
     const event = await permissions.assertAdmitEvent(userId, eventId);
     assertAdmissionOpen(event, now());
     // One snapshot for the roster and headcounts; no financial or QR secrets are
-    // exposed to admissions staff. A guestlist pass represents its whole party.
+    // exposed to admissions staff. New invitations have one credential per spot;
+    // already issued legacy guestlist QR codes still represent their whole party.
     const [result] = await m.Event.sequelize.query(`WITH credentials AS (
       SELECT t.id, 'ticket' AS kind, u.display_name AS name, u.email,
         i.name_snapshot AS offering, 1 AS spots, t.status, t.checked_in_at AS "checkedInAt"
@@ -54,9 +55,15 @@ function createAdmissionsService({ models: m, permissions, now = () => new Date(
       JOIN order_items i ON i.id = t.order_item_id JOIN orders o ON o.id = i.order_id
       WHERE t.event_id = :eventId AND ${orderAdmissionSql('o')} AND t.status IN ('valid', 'checked_in')
       UNION ALL
-      SELECT g.id, 'guestlist', u.display_name, u.email, 'Guest list entry', g.party_size, g.status, g.checked_in_at
-      FROM guestlist_entries g JOIN users u ON u.id = g.user_id
+      SELECT g.id, 'guestlist', COALESCE(g.guest_name,u.display_name,'Guest'), COALESCE(g.guest_email,u.email), 'Guest list entry', g.party_size, g.status, g.checked_in_at
+      FROM guestlist_entries g LEFT JOIN users u ON u.id = g.user_id
       WHERE g.event_id = :eventId AND g.status IN ('confirmed', 'checked_in')
+        AND NOT EXISTS (SELECT 1 FROM guestlist_passes p WHERE p.guestlist_entry_id = g.id)
+      UNION ALL
+      SELECT p.id, 'guestlist_pass', COALESCE(g.guest_name,u.display_name,'Guest'), COALESCE(g.guest_email,u.email),
+        'Guest list · Spot ' || p.position || ' of ' || g.party_size, 1, p.status, p.checked_in_at
+      FROM guestlist_passes p JOIN guestlist_entries g ON g.id = p.guestlist_entry_id LEFT JOIN users u ON u.id = g.user_id
+      WHERE g.event_id = :eventId AND g.status IN ('confirmed','checked_in')
     ), matched AS (
       SELECT * FROM credentials WHERE (:status = 'all' OR (:status = 'ready' AND status <> 'checked_in') OR (:status = 'admitted' AND status = 'checked_in'))
       AND (:search = '' OR name ILIKE :term OR email ILIKE :term OR id::text ILIKE :term)
