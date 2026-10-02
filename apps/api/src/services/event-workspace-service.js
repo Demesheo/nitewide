@@ -11,6 +11,7 @@ const { queueEventTermsChanged, percent } = require('./business-email-events');
 const { accessScope, accessWindowCurrent, currentOrganizationMembership } = require('./event-affiliate-access');
 const { currentVenueMembership } = require('./venue-access-policy');
 const { commissionTerms, assertCommissionEligible } = require('../domain/commission-eligibility');
+const { individualCommissionContext, persistedCommissionTerms } = require('./commission-profile-repository');
 
 function summarizeEvent({ orders, offerings, people, guests }) {
   const tiers = new Map(offerings.map((o) => [o.id, { id: o.id, name: o.name, kind: o.kind, units: 0, salesCents: 0, admissions: 0 }]));
@@ -121,10 +122,13 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
     const activeAssignment = assignments.some((a) => a.userId === userId && a.status === 'active' && accessWindowCurrent(a, now()) && (accessScope(a) === 'event' || (accessScope(a) === 'venue' && a.venueAccessId === venueMember?.id)));
     const ownOrg = event.organizationId ? await m.OrgAffiliate.findOne({ where: { organizationId: event.organizationId, userId, status: 'active' } }) : null;
     if (!canManage && !members.some((p) => p.userId === userId) && !activeAssignment) throw forbidden('Event access required');
-    const allPeople = assignments.map((a) => ({ id: a.id, userId: a.userId, name: a.user.displayName, email: a.user.email, role: members.find((p) => p.userId === a.userId)?.role || (a.userId === event.creatorUserId && !event.organizationId ? 'Creator' : 'Promoter'), orgAffiliateId: a.orgAffiliateId, status: a.status, code: a.code, commissionBps: 0, ...commissionTerms(a.commissionBps ?? a.orgAffiliate?.defaultCommissionBps ?? 0) }));
+    const allPeople = await Promise.all(assignments.map(async (a) => {
+      const terms = await persistedCommissionTerms(m, a.userId, a.commissionBps ?? a.orgAffiliate?.defaultCommissionBps ?? 0, { now: now() });
+      return { id: a.id, userId: a.userId, name: a.user.displayName, email: a.user.email, role: members.find((p) => p.userId === a.userId)?.role || (a.userId === event.creatorUserId && !event.organizationId ? 'Creator' : 'Promoter'), orgAffiliateId: a.orgAffiliateId, status: a.status, code: a.code, commissionBps: terms.effectiveCommissionBps, ...terms };
+    }));
     // Show the full current venue team, even without an event assignment or sales.
     // Owners, managers and employees can refer at 0% immediately.
-    for (const member of members) if (!allPeople.some((p) => p.userId === member.userId)) allPeople.push({ ...member, id: null, code: member.defaultReferralCode, status: member.defaultReferralCode ? 'default' : 'not_selected', commissionBps: 0, ...commissionTerms(0) });
+    for (const member of members) if (!allPeople.some((p) => p.userId === member.userId)) allPeople.push({ ...member, id: null, code: member.defaultReferralCode, status: member.defaultReferralCode ? 'default' : 'not_selected', commissionBps: 0, ...await persistedCommissionTerms(m, member.userId, 0, { now: now() }) });
     const orderWhere = { eventId, status: 'paid' };
     if (!canManage) orderWhere[Op.or] = [{ eventAffiliateId: ownAssignments }, ...(ownOrg ? [{ eventAffiliateId: null, orgAffiliateId: ownOrg.id }] : [])];
     const guestWhere = { eventId };
@@ -215,8 +219,9 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
         }
       }
       if (eventRegrant) { values.sourceOrgAffiliateId = null; values.venueAccessId = null; }
-      assertCommissionEligible(input.commissionBps);
-      if (m.Offering && input.status === 'active') await assertCommissionPricing({ models: m, eventId, commissionBps: input.commissionBps, transaction, now: now() });
+      const commissionContext = await individualCommissionContext(m, person.id, { transaction, now: now() });
+      assertCommissionEligible(input.commissionBps, commissionContext);
+      if (m.Offering && input.status === 'active') await assertCommissionPricing({ models: m, eventId, commissionBps: input.commissionBps, commissionContext, transaction, now: now() });
       if (assignment) await assignment.update(values, { transaction });
       else assignment = await m.EventAffiliate.create({ eventId, userId: person.id, orgAffiliateId: member?.orgAffiliateId || null,
         code: legacyCreate ? input.code : `NW-${randomUUID()}`, guestlistAllocation: 0, ...values }, { transaction });

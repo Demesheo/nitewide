@@ -1,0 +1,24 @@
+.booking-messages-dialog { width: min(720px, calc(100vw - 24px)); max-width: 720px !important; max-height: calc(100dvh - 24px); overflow-y: auto; padding: 24px; }
+.booking-messages-dialog[data-slot="dialog-content"] { background: #17141f; color: #f3eff8; }
+.booking-messages-dialog [data-slot="dialog-title"] { font-family: inherit; font-size: 22px; line-height: 1.25; }
+.booking-messages-dialog > *, .booking-messages-dialog form, .booking-thread-list { min-width: 0; }
+.booking-message-trigger { position: relative; }
+.booking-message-count { position: absolute; right: -2px; top: -2px; border-radius: 20px; padding: 1px 5px; background: var(--primary, #b6a6ff); color: var(--primary-foreground, #16111f); font-size: 10px; }
+.booking-thread-list, .booking-message-history, .booking-message-form { display: grid; gap: 12px; }
+.booking-thread { display: grid; gap: 6px; width: 100%; text-align: left; border: 1px solid var(--border, #39333e); border-radius: 12px; padding: 16px; background: transparent; color: inherit; min-height: 64px; }
+.booking-thread[data-unread="true"] { border-color: var(--primary, #b6a6ff); background: #b6a6ff0a; }
+.booking-thread strong, .booking-thread span, .booking-message-body { overflow-wrap: anywhere; }
+.booking-thread small, .booking-message-meta, .booking-message-help { font-size: 12px; color: var(--muted-foreground, #aba4b5); line-height: 1.6; }
+.booking-message-history { margin-block: 12px; }
+.booking-message { padding: 14px; border-radius: 12px; border: 1px solid var(--border, #39333e); background: #ffffff04; }
+.booking-message[data-side="business"] { background: #b6a6ff0a; }
+.booking-message-body { white-space: pre-wrap; margin: 8px 0 0; line-height: 1.6; }
+.booking-message-form label, .booking-message-resolution label { display: grid; gap: 8px; font-size: 13px; }
+.booking-message-form textarea, .booking-message-resolution textarea, .booking-message-form select { width: 100%; border: 1px solid var(--border, #39333e); border-radius: 10px; background: var(--background, #17121e); color: inherit; padding: 12px; font: inherit; min-height: 44px; }
+.booking-message-form textarea, .booking-message-resolution textarea { min-height: 112px; resize: vertical; max-height: 250px; }
+.booking-message-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.booking-message-actions button { min-height: 44px; }
+.booking-message-request, .booking-message-resolution { display: grid; gap: 12px; border: 1px solid var(--border, #39333e); border-radius: 12px; padding: 16px; line-height: 1.6; }
+.booking-message-request p { margin: 0; }
+.booking-message-error { color: #fb94a4; overflow-wrap: anywhere; }
+@media (max-width: 640px) { .booking-messages-dialog { padding: 20px 16px; } .booking-message-actions > button { flex: 1; } }

@@ -18,16 +18,14 @@ test('platform reporting and support preserve canonical scopes, snapshots, finan
   const { createReportExportService } = require('../src/services/report-export-service');
   const config = getConfig(),db = createSequelize(config),m = initModels(db);
   try {
-    const { ids } = await createFixture(m,config);
+    const { ids } = await createFixture(m,config, { orderValues: { paidAt: '2026-03-08T06:00:00Z',subtotalCents: 4000,platformFeeCents: 400,totalCents: 4400,
+      pricingPlanSnapshot: { demo: true,pricingDecision: { processingCents: 160,contributionCents: 240 } } }, itemValues: { lineTotalCents: 3000,unitPriceCents: 3000 } });
     const supportAdmin = await m.User.create({ email: `${randomUUID()}@support.nitewide.test`,displayName: 'Support staff',isInternalAdmin: true,internalAdminRole: 'support' });
     const reader = await m.User.create({ email: `${randomUUID()}@support.nitewide.test`,displayName: 'Read-only staff',isInternalAdmin: true,internalAdminRole: 'read_only' });
     const zero = await m.Organization.create({ name: 'Zero event workspace',slug: `zero-${randomUUID()}` });
     const firstOffering = await m.Offering.findOne({ where: { eventId: ids.event } });
     const secondOffering = await m.Offering.create({ eventId: ids.event,name: firstOffering.name,kind: 'ticket',priceCents: 1000,inventoryMode: 'unlimited' });
     const otherOffering = await m.Offering.create({ eventId: ids.otherEvent,name: firstOffering.name,kind: 'package',priceCents: 2000,inventoryMode: 'unlimited' });
-    await m.Order.update({ paidAt: '2026-03-08T06:00:00Z',subtotalCents: 4000,platformFeeCents: 400,totalCents: 4400,
-      pricingPlanSnapshot: { demo: true,pricingDecision: { processingCents: 160,contributionCents: 240 } } },{ where: { id: ids.order } });
-    await m.OrderItem.update({ lineTotalCents: 3000,unitPriceCents: 3000 },{ where: { id: ids.item } });
     await m.OrderItem.create({ orderId: ids.order,offeringId: secondOffering.id,nameSnapshot: firstOffering.name,kindSnapshot: 'ticket',quantity: 1,
       entriesPerUnitSnapshot: 1,lineTotalCents: 1000,unitPriceCents: 1000 });
     const createOrder = async paidAt => {
@@ -88,12 +86,13 @@ test('platform reporting and support preserve canonical scopes, snapshots, finan
       assert.equal(frozen.status,'ready'); assert.equal(frozen.totalRows,2);
       await m.Event.update({ lifecycleState: 'archived' },{ where: { id: ids.otherEvent } });
       assert.equal((await exports.status(ids.admin,job.id)).status,'ready','global admin authority is independent of later event archival');
-      await m.Order.update({ subtotalCents: 99999 },{ where: { id: inRange.id } });
+      await assert.rejects(m.Order.update({ subtotalCents: 99999 },{ where: { id: inRange.id } }), /immutable/);
+      await m.User.update({ displayName: 'Customer renamed after export snapshot' }, { where: { id: ids.guest } });
       let csv = '';
       await exports.download(ids.admin,job.id,{ destroyed: false,set() {},write(value) { csv += value; return true; },end() {} });
-      assert.match(csv,new RegExp(ids.order)); assert.match(csv,new RegExp(inRange.id)); assert.doesNotMatch(csv,/999.99/);
+      assert.match(csv,new RegExp(ids.order)); assert.match(csv,new RegExp(inRange.id)); assert.doesNotMatch(csv,/999.99|Customer renamed after export snapshot/);
       assert.equal(csv.trim().split('\r\n').length,3);
-      await m.Order.update({ subtotalCents: 2000 },{ where: { id: inRange.id } });
+      await m.User.update({ displayName: 'Admissions QA guest' }, { where: { id: ids.guest } });
       await m.Event.update({ lifecycleState: 'active' },{ where: { id: ids.otherEvent } });
       await m.User.update({ isInternalAdmin: false },{ where: { id: ids.admin } });
       await assert.rejects(exports.status(ids.admin,job.id),{ code: 'FORBIDDEN' });

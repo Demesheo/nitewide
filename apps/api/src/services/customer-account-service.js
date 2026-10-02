@@ -11,6 +11,7 @@ const { assertActiveEvent, assertActiveUser, assertAdmissionEvent } = require('.
 const { connectionHistorySql, pagedConnections } = require('./customer-connections-page-service');
 const { guestlistPassTickets } = require('./guestlist-pass-service');
 const { MAX_GUESTLIST_REQUEST_PARTY_SIZE, assertGuestlistPartySize } = require('../domain/guestlist-party-size');
+const { paidBooking, canRequestRefund } = require('../domain/organizer-message-policy');
 
 function profile(user) {
   return { id: user.id, displayName: user.displayName, email: user.email, phone: user.phone,
@@ -158,7 +159,7 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
         qrImage: showCode ? await QRCode.toDataURL(walletToken(credential, tokenSecret), { width: 320, margin: 4, errorCorrectionLevel: 'M' }) : null });
     }
     const addressEvents = await attendeeLocationEventIds(userId, [order.eventId]);
-    return { id: order.id, status: order.status, canResumePayment: order.status === 'pending' && order.providerMode === 'test', event: eventSummary(order.event, { canViewAttendeeAddress: addressEvents.has(order.eventId) }), demo: Boolean(order.pricingPlanSnapshot?.demo),
+    return { id: order.id, status: order.status, canContactOrganizer: paidBooking(order), canRequestRefund: canRequestRefund(order, order.event, now()), canResumePayment: order.status === 'pending' && order.providerMode === 'test', event: eventSummary(order.event, { canViewAttendeeAddress: addressEvents.has(order.eventId) }), demo: Boolean(order.pricingPlanSnapshot?.demo),
       subtotalCents: order.subtotalCents, totalCents: order.totalCents, currency: order.currency, tickets };
   }
   async function updateProfile(userId, input) {

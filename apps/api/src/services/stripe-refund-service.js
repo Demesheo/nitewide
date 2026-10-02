@@ -21,6 +21,14 @@ function verifyRefund(order, refund, evidence, charge, applicationFee) {
       && providerId(applicationFee.account) === order.stripeAccountId && providerId(applicationFee.charge) === order.stripeChargeId));
 }
 function createStripeRefundService({ sequelize, models, stripe, permissions, now = () => new Date() }) {
+  async function applyAdjustments(order, cumulativeRefundedTotalCents, refundId, transaction, full) {
+    if (models.CommissionEarning) {
+      const ledger = require('./commission-ledger-service').createCommissionLedgerService({ sequelize, models, now });
+      await ledger.adjustRefund({ order, cumulativeRefundedTotalCents, refundId, transaction });
+      if (full) await ledger.setRefundHold({ orderId: order.id, hold: false, transaction });
+    }
+    if (full && models.OrderRefundRequest) await models.OrderRefundRequest.update({ status: 'resolved' }, { where: { orderId: order.id, status: ['pending', 'approved'] }, transaction });
+  }
   function enabled() { if (!stripe?.enabled || stripe.mode !== 'test') throw new DomainError('Sandbox refunds unavailable', { code: 'PAYMENTS_NOT_ENABLED', status: 503 }); }
   async function reconcile(refund) {
     enabled();
@@ -87,6 +95,7 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
       await models.Ticket.update({ status: 'void' }, { where: { orderItemId: items.map((item) => item.id) }, transaction });
       await models.Payment.update({ status: 'refunded' }, { where: { orderId: order.id, provider: 'stripe' }, transaction });
       await lockedOrder.update({ status: 'refunded', providerVerificationStatus: 'verified', reservationReleasedAt: lockedOrder.reservationReleasedAt || now() }, { transaction });
+      await applyAdjustments(lockedOrder, lockedOrder.totalCents, lockedRefund.id, transaction, true);
       await lockedRefund.update({ status: 'succeeded' }, { transaction });
       await models.AuditLog.create({ actorUserId: lockedRefund.requestedByUserId, organizationId: event.organizationId, entityType: 'Order', entityId: order.id, action: 'order.refunded', after: { refundId: refund.id, amountCents: order.totalCents, reason: lockedRefund.reason, applicationFeeRefunded: true } }, { transaction });
       return refundSummary(lockedRefund);
@@ -208,6 +217,7 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
       const alreadyReview = locked.providerVerificationStatus === 'review';
       await locked.update(full ? { status: 'refunded', providerVerificationStatus: 'verified', reservationReleasedAt: locked.reservationReleasedAt || now() }
         : { providerVerificationStatus: 'review' }, { transaction });
+      await applyAdjustments(locked, charge.amount_refunded, event.id, transaction, full);
       if (full) await models.Payment.update({ status: 'refunded' }, { where: { orderId: order.id, provider: 'stripe' }, transaction });
       if (full || !alreadyReview) await models.AuditLog.create({ actorUserId: null, organizationId: eventRow.organizationId,
         entityType: 'Order', entityId: order.id, action: full ? 'order.external_refund_verified' : 'order.external_refund_review',

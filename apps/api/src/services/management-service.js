@@ -8,6 +8,7 @@ const { createEventWorkspaceService } = require('./event-workspace-service');
 const { fn, col } = require('sequelize');
 const { assertCommissionPricing } = require('../domain/editor-pricing-policy');
 const { createBusinessSlug } = require('../domain/business-slug');
+const { individualCommissionContext } = require('./commission-profile-repository');
 
 function createManagementService({ models, permissions, email = null, businessAppUrl = 'http://localhost:5174/app', customerAppUrl = 'http://localhost:5173', environment = process.env.NODE_ENV || 'development', hostedDemo = false, stripe = null }) {
   const eventWorkspace = createEventWorkspaceService({ models, permissions, email, businessAppUrl });
@@ -34,7 +35,8 @@ function createManagementService({ models, permissions, email = null, businessAp
       await permissions.assertManageOrganization(userId, ids.organizationId, transaction);
       await require('./lifecycle-service').assertActiveOrganization(models, ids.organizationId, transaction);
       assertActiveUser(await models.User.findByPk(input.userId, { transaction }));
-      await assertCommissionPricing({ models, organizationId: ids.organizationId, commissionBps: input.defaultCommissionBps ?? 0, transaction });
+      const commissionContext = await individualCommissionContext(models, input.userId, { transaction });
+      await assertCommissionPricing({ models, organizationId: ids.organizationId, commissionBps: input.defaultCommissionBps ?? 0, commissionContext, transaction });
       const before = await models.OrgAffiliate.findOne({ where: { organizationId: ids.organizationId, userId: input.userId }, transaction, lock: transaction.LOCK.UPDATE });
       if (before?.status === 'active') throw conflict('This organization referrer is already active');
       const data = before ? await before.update({ ...input, status: 'active' }, { transaction }) : await models.OrgAffiliate.create({ ...input, organizationId: ids.organizationId }, { transaction });

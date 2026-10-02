@@ -4,7 +4,8 @@ const { accessScopeSql } = require('./event-affiliate-access');
 // matching payment record. EXISTS keeps duplicate evidence from multiplying sums.
 // Cross-business sandbox history additionally requires the immutable server
 // snapshot's strict boolean marker and original event/account bindings.
-const verifiedStripeOrderSql = (o = 'o') => `(${o}.provider_mode = 'test' AND ${o}.provider_verification_status = 'verified'
+const verifiedStripeOrderSql = (o = 'o') => `(${o}.provider_mode = 'test' AND (${o}.provider_verification_status = 'verified'
+  OR (${o}.provider_verification_status='review' AND ${o}.refunded_total_cents>0 AND ${o}.status='paid'))
   AND ${o}.payment_account_id IS NOT NULL AND ${o}.stripe_account_id ~ '^acct_[A-Za-z0-9]+$'
   AND ${o}.stripe_payment_intent_id ~ '^pi_[A-Za-z0-9]+$' AND ${o}.stripe_charge_id ~ '^ch_[A-Za-z0-9]+$'
   AND EXISTS (SELECT 1 FROM payment_accounts pa JOIN events merchant_event ON merchant_event.id=${o}.event_id
@@ -34,7 +35,9 @@ const member = `EXISTS (SELECT 1 FROM organization_owners oo WHERE oo.organizati
   OR EXISTS (SELECT 1 FROM org_affiliates oa WHERE oa.organization_id=e.organization_id AND oa.user_id=:userId AND oa.status='active'
     AND (oa.starts_at IS NULL OR oa.starts_at<=NOW()) AND (oa.ends_at IS NULL OR oa.ends_at>=NOW()))`;
 const canViewEarningsSql = `(
-  EXISTS (SELECT 1 FROM org_affiliates oa JOIN organizations org ON org.id=oa.organization_id
+  EXISTS (SELECT 1 FROM individual_commission_profiles icp WHERE icp.user_id=:userId)
+  OR EXISTS (SELECT 1 FROM commission_earnings ce WHERE ce.recipient_user_id=:userId)
+  OR EXISTS (SELECT 1 FROM org_affiliates oa JOIN organizations org ON org.id=oa.organization_id
     WHERE oa.user_id=:userId AND oa.status='active'
       AND (oa.starts_at IS NULL OR oa.starts_at<=NOW()) AND (oa.ends_at IS NULL OR oa.ends_at>=NOW())
       AND org.lifecycle_state='active' AND org.status='active')

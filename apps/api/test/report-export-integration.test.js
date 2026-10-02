@@ -136,7 +136,7 @@ test('scaled SQL reports and durable snapshot exports', { timeout: 180000 }, asy
           inserted = true;
           await m.Order.create({ eventId: ids.event, buyerUserId: ids.pendingGuest, status: 'paid',
             paidAt: new Date(), subtotalCents: 999999, totalCents: 999999, idempotencyKey: 'snapshot-concurrent-purchase' });
-          await m.Order.update({ subtotalCents: 888888 }, { where: { id: ids.order } });
+          await m.User.update({ displayName: 'Customer renamed during export' }, { where: { id: ids.guest } });
         }
         return result;
       };
@@ -151,7 +151,7 @@ test('scaled SQL reports and durable snapshot exports', { timeout: 180000 }, asy
       assert.equal(rows.length, 12002);
       assert.equal(new Set(rows.slice(1).map((row) => row.split(',')[0])).size, 12001);
       assert.match(csv.text, /"300\.00"/);
-      assert.doesNotMatch(csv.text, /9999\.99|8888\.88/);
+      assert.doesNotMatch(csv.text, /9999\.99|Customer renamed during export/);
       assert.equal((await q('SELECT COUNT(*)::integer AS count FROM report_export_rows WHERE job_id=:id', { id }))[0].count, 0, 'completed jobs retain only downloadable CSV chunks');
     });
     await t.test('revoked access cannot read a previously prepared download, and expiry cleans durable data', async () => {

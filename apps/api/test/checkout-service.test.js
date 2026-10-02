@@ -1,5 +1,5 @@
 const test = require('node:test'); const assert = require('node:assert/strict'); const { createCheckoutService } = require('../src/services/checkout-service');
-function fixture({ sold = 0, total = 5, environment = 'development', hostedDemo = false, priceCents = 2000, commissionBps = 0 } = {}) {
+function fixture({ sold = 0, total = 5, environment = 'development', hostedDemo = false, priceCents = 2000, commissionBps = 0, verifiedIndividual = false, minimumSubtotalCents } = {}) {
   let increments = 0; const offering = { id: '50000000-0000-4000-8000-000000000001', eventId: 'e1', name: 'GA', kind: 'ticket', priceCents: 2000, currency: 'USD', inventoryMode: 'finite', quantityTotal: total, quantitySold: sold, entriesPerUnit: 1, minPerOrder: 1, maxPerOrder: 4, isActive: true, increment: async (_field, { by }) => { increments += by; } };
   offering.priceCents = priceCents;
   const created = { tickets: 0, payment: null, notificationJobs: [], userReads: 0 }; const tx = { LOCK: { UPDATE: 'UPDATE' } };
@@ -8,9 +8,15 @@ function fixture({ sold = 0, total = 5, environment = 'development', hostedDemo 
     OrganizationOwner: { findAll: async () => { throw new Error('Recipient resolution belongs outside checkout'); } },
     Notification: { create: async () => { throw new Error('Fan-out writes belong outside checkout'); } },
     Order: { findOne: async () => null, create: async (data) => ({ id: 'order-1', ...data }) },
-    Event: { findByPk: async () => ({ id: 'e1', status: 'published', organizationId: 'o1' }) },
+    Event: { findByPk: async () => ({ id: 'e1', title: 'Night', endsAt: new Date(Date.now() + 86400000), status: 'published', organizationId: 'o1', commissionMinimumSubtotalCents: minimumSubtotalCents }) },
     Organization: { findByPk: async () => ({ id: 'o1', status: 'active', planTier: 'free' }) }, Offering: { findAll: async () => [offering] },
     EventAffiliate: { findOne: async () => ({ id: 'legacy-referral', userId: 'promoter', code: 'LEGACY', accessScope: 'event', status: 'active', commissionBps }) }, OrgAffiliate: {},
+    IndividualCommissionProfile: { findOne: async () => verifiedIndividual ? { id: 'profile', userId: 'promoter', provider: 'stripe', providerMode: 'test',
+      lifecycleState: 'active', status: 'active', stripeAccountId: 'acct_person', verifiedAt: new Date(), verifiedStripeAccount: {
+        id: 'acct_person', object: 'v2.core.account', livemode: false, identity: { entity_type: 'individual' }, dashboard: 'full', applied_configurations: ['merchant'],
+        defaults: { responsibilities: { fees_collector: 'stripe', losses_collector: 'stripe', requirements_collector: 'stripe' } },
+        configuration: { merchant: { applied: true, capabilities: { card_payments: { status: 'active' }, stripe_balance: { payouts: { status: 'active' } } } } }, requirements: { entries: [] },
+      } } : null },
     OrderItem: { create: async (data) => ({ id: 'item-1', ...data }) }, Ticket: { create: async () => ({ id: `ticket-${++created.tickets}` }) },
     Payment: { create: async (data) => { created.payment = data; return data; } }, AffiliateAttribution: { create: async () => ({}) }, AuditLog: { create: async () => ({}) },
   };
@@ -38,6 +44,24 @@ test('new demo bookings lock legacy nonzero terms at zero until individual Strip
   assert.equal(result.order.pricingPlanSnapshot.commissionBps, 0);
   assert.equal(result.order.pricingPlanSnapshot.configuredCommissionBps, 2500);
   assert.equal(result.order.pricingPlanSnapshot.commissionEligibility.reasonCode, 'INDIVIDUAL_STRIPE_ONBOARDING_REQUIRED');
+});
+test('verified personal referrals use the combined paid subtotal and snapshot the event minimum', async () => {
+  const buy = (f, quantity) => f.checkout({ buyerUserId: 'u1', eventId: 'e1', affiliateCode: 'LEGACY', idempotencyKey: 'threshold-test',
+    items: [{ offeringId: '50000000-0000-4000-8000-000000000001', quantity }], payment: { provider: 'demo', status: 'succeeded' } });
+  const below = await buy(fixture({ priceCents: 600, commissionBps: 1000, verifiedIndividual: true }), 1);
+  assert.equal(below.order.affiliateCommissionCents, 0);
+  assert.equal(below.order.commissionSnapshot.configuredCommissionBps, 1000);
+  assert.equal(below.order.commissionSnapshot.effectiveCommissionBps, 0);
+  const combined = await buy(fixture({ priceCents: 600, commissionBps: 1000, verifiedIndividual: true }), 2);
+  assert.equal(combined.order.affiliateCommissionCents, 120);
+  assert.equal(combined.order.commissionSnapshot.recipientUserId, 'promoter');
+  assert.equal(combined.order.commissionSnapshot.individualCommissionProfileId, 'profile');
+  const raised = await buy(fixture({ priceCents: 600, commissionBps: 1000, verifiedIndividual: true, minimumSubtotalCents: 1500 }), 2);
+  assert.equal(raised.order.affiliateCommissionCents, 0);
+  assert.equal(raised.order.commissionSnapshot.minimumSubtotalCents, 1500);
+  const free = await buy(fixture({ priceCents: 0, commissionBps: 1000, verifiedIndividual: true }), 1);
+  assert.equal(free.order.totalCents, 0);
+  assert.equal(free.order.commissionSnapshot.effectiveCommissionBps, 0);
 });
 test('local demo checkout records a labeled order, payment and inventory movement', async () => {
   const f = fixture();

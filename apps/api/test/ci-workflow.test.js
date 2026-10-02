@@ -105,7 +105,7 @@ test('legacy admin browser projects remain paused while rebuild workflows have d
     assert.ok(!project.testMatch.includes('admin.spec.cjs'));
   }
   for (const project of config.projects.filter(project => project.name.startsWith('business-'))) {
-    assert.deepEqual(project.testMatch, ['business.spec.cjs', 'business-access.spec.cjs', 'business-payments.spec.cjs']);
+    assert.deepEqual(project.testMatch, ['business.spec.cjs', 'business-access.spec.cjs', 'business-payments.spec.cjs','commissions-messages.spec.cjs']);
   }
   assert.ok(fs.existsSync(path.join(root, 'e2e/specs/admin.spec.cjs')));
   const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');

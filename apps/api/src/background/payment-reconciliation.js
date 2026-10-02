@@ -1,7 +1,7 @@
 // Payment creation/reconciliation is durable and idempotent in the domain
 // services. A small independent worker lane recovers lost provider responses
 // without dispatching work from API timers or overlapping a previous batch.
-function createPaymentReconciliationLane({ paymentCheckouts, refunds, enabled = false, intervalMs = 30000 }) {
+function createPaymentReconciliationLane({ paymentCheckouts, refunds, commissionPayments, enabled = false, intervalMs = 30000 }) {
   let stopping = false, active;
   function drain() {
     if (!enabled || stopping) return Promise.resolve();
@@ -12,6 +12,9 @@ function createPaymentReconciliationLane({ paymentCheckouts, refunds, enabled = 
       const results = await Promise.allSettled([
         paymentCheckouts.sweepReservations({ limit: 1 }), refunds.sweepPendingRefunds({ limit: 1 }),
       ]);
+      // Keep commission recovery in the same bounded lane so it cannot add an
+      // unbounded third provider chain alongside checkout and refund recovery.
+      if (commissionPayments) results.push(...await Promise.allSettled([commissionPayments.sweepPendingCommissions({ limit: 1 })]));
       const failed = results.find(result => result.status === 'rejected');
       if (failed) throw failed.reason;
     })().finally(() => { active = undefined; });

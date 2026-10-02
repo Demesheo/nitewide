@@ -26,7 +26,7 @@ const sectionKeys = {
   events: new Set([...scopeKeys, 'event', 'entry', 'tab', 'eventView', 'eventSort', 'eventSearch',
     'eventFrom', 'eventTo', 'eventPage', 'eventPageSize']),
   admissions: new Set(),
-  payments: new Set(['paymentOrganization', 'paymentView', 'paymentAccountReturn']),
+  payments: new Set(['paymentOrganization', 'paymentView', 'paymentAccountReturn', 'commissionProfileReturn']),
   team: new Set(['teamOrganizationId', 'teamRoles', 'teamSearch', 'teamSort', 'teamPage',
     'teamPageSize', 'teamInvitationPage', 'teamInvitationPageSize', 'managedVenueBusinessId', 'managedVenueId',
     'managedVenueTab', 'venueSearch', 'venuesPage', 'venuesRefresh', 'venueTeamSearch', 'venueTeamPage']),

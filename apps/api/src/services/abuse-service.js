@@ -15,6 +15,8 @@ const POLICIES = {
   report: { seconds: 60, ip: 300, user: 120 },
   export: { seconds: 60, ip: 30, user: 10 },
   session: { seconds: 60, ip: 120, user: 30 },
+  message: { seconds: 60, ip: 120, user: 30 },
+  commission_payment: { seconds: 60, ip: 90, user: 30 },
 };
 function clientNetwork(value) {
   try {
@@ -34,6 +36,8 @@ function routePolicy(method, path) {
   if (['GET','POST'].includes(method) && /^\/guestlist-invitations\/[^/]+\/(claim|pass)$/.test(path)) return 'guestlist_link';
   if (method === 'POST' && /^\/auth\/(password-reset|email|onboarding)/.test(path)) return 'recovery';
   if (/^\/auth\/sessions/.test(path) || path === '/auth/logout') return 'session';
+  if (['POST','PATCH'].includes(method) && (/^\/(customer|business)\/(?:messages(?:\/|$)|orders\/[^/]+\/(messages|refund-request)$)/.test(path))) return 'message';
+  if (method === 'POST' && (/^\/account\/commission-payment-profile(?:\/|$)/.test(path) || /\/commission-(payments|statements)(?:\/|$)/.test(path))) return 'commission_payment';
   if (method === 'POST' && /\/(invitations|guestlist-invitations|guestlist_invitations|team_invitations|onboarding|instructions)(\/|$)/.test(path)) return 'invitation';
   if (method === 'POST' && /\/uploads\//.test(path)) return 'upload';
   if (method === 'GET' && /(?:export|\.csv)(?:\/|$)/.test(path)) return 'export';

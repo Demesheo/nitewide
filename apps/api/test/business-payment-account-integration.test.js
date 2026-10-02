@@ -241,16 +241,17 @@ test('payment overview and own earnings retain verified currency evidence and fi
     for(const denied of [ordinary,promoter,other,outsider]) await assert.rejects(reports.overview(denied.id,org.id),{code:'FORBIDDEN'});
     const earnings=paymentSchemas.paymentEarnings.parse(await reports.earnings(promoter.id));
     assert.deepEqual(earnings.currencies.find(row=>row.currency==='USD'),{currency:'USD',verifiedEarnedCents:500,verifiedRefundedCents:200,demoEarnedCents:600,demoRefundedCents:700,
-      verifiedPaidOrders:2,verifiedRefundedOrders:1,demoPaidOrders:1,demoRefundedOrders:1});
+      verifiedPaidOrders:2,verifiedRefundedOrders:1,demoPaidOrders:1,demoRefundedOrders:1,
+      unpaidCommissionCents:0,heldCommissionCents:0,payableCommissionCents:0,reservedCommissionCents:0,paidCommissionCents:0,businessLossCents:0});
     assert.equal(earnings.currencies.find(row=>row.currency==='EUR').verifiedEarnedCents,300);
-    assert.equal(earnings.receivedPayouts,null);assert.equal(earnings.dashboardConnected,null);
+    assert.deepEqual(earnings.receivedPayouts,{currencies:[],bankPayouts:null});assert.equal(earnings.dashboardConnected,null);
     await merchant.update({chargesEnabled:true,detailsSubmitted:true,cardPaymentsActive:true,controllerMatches:true,payoutsEnabled:true,synchronizedAt:new Date()});
     assert.deepEqual(await reports.earnings(promoter.id),earnings,'merchant readiness cannot substitute for individual Stripe onboarding or prove received payouts');
     const otherEarnings=await reports.earnings(other.id);assert.equal(otherEarnings.currencies[0].verifiedEarnedCents,500,'event attribution wins over organization fallback');
     await ea.update({status:'inactive'});await oa.update({status:'inactive'});
     assert.deepEqual(await reports.earnings(promoter.id),earnings,'historical commission survives revoked grants with business access');
     assert.equal((await reads.bootstrap(promoter.id)).scope.canViewEarnings,true);
-    await assert.rejects(reports.earnings(outsider.id),{code:'BUSINESS_ACCESS_REQUIRED'});
+    await assert.rejects(reports.earnings(outsider.id),{code:'FORBIDDEN'});
     await assert.rejects(reports.earnings(ordinary.id),{code:'FORBIDDEN'});
     const app=createApp({sequelize:db,models:m,config});
     const api=(path,userId)=>request(app).get(`/api${path}`).set('x-user-id',userId);
@@ -262,6 +263,8 @@ test('payment overview and own earnings retain verified currency evidence and fi
     await m.OrganizationOwner.update({financeAuthorized:false},{where:{organizationId:org.id,userId:manager.id}});
     await assert.rejects(reports.overview(manager.id,org.id),{code:'FORBIDDEN'},'finance revocation takes effect on the next read');
     await m.OrganizationEmployee.update({status:'inactive'},{where:{organizationId:org.id,userId:promoter.id}});
-    await assert.rejects(reports.earnings(promoter.id),{code:'BUSINESS_ACCESS_REQUIRED'},'historical earnings do not grant business admission');
+    assert.deepEqual(await reports.earnings(promoter.id),earnings,'own historical earnings remain available outside business admission');
+    await api('/business/bootstrap',promoter.id).expect(403);
+    await api('/account/commission-earnings',promoter.id).expect(200);
   } finally {await db.close();}
 });

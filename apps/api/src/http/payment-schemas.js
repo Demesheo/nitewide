@@ -44,8 +44,8 @@ const disconnectImpact = z.object({account:paymentAccount,pendingPayments:count,
 const disconnectResult = z.object({account:paymentAccount,retryable:z.boolean()}).strict();
 const paymentOverviewCurrency = z.object({ currency: z.string().length(3),
   collectedCents: count.describe('All-time verified sandbox customer payment totals, including subsequently refunded orders.'),
-  refundedCents: count.describe('All-time verified fully refunded sandbox customer payment totals.'),
-  netCollectedCents: count.describe('Collected customer payments less verified full refunds. This is not the merchant Stripe balance or net proceeds.'),
+  refundedCents: count.describe('Cumulative provider-verified full and partial sandbox refunds.'),
+  netCollectedCents: count.describe('Collected customer payments less verified refunds. This is not the merchant Stripe balance or net proceeds.'),
   paidOrders: count, refundedOrders: count, pendingOrders: count, reviewOrders: count }).strict();
 const paymentOverview = z.object({ organizationId: z.uuid(), period: z.literal('all_time'), mode: z.literal('test'),
   currencies: z.array(paymentOverviewCurrency), pendingOrders: count, reviewOrders: count,
@@ -53,11 +53,12 @@ const paymentOverview = z.object({ organizationId: z.uuid(), period: z.literal('
   payouts: z.null().describe('Unavailable: merchant payouts are owned by Stripe and are not tracked here.') }).strict();
 const earningsCurrency = z.object({ currency: z.string().length(3), verifiedEarnedCents: count, verifiedRefundedCents: count,
   demoEarnedCents: count, demoRefundedCents: count, verifiedPaidOrders: count, verifiedRefundedOrders: count,
-  demoPaidOrders: count, demoRefundedOrders: count }).strict();
+  demoPaidOrders: count, demoRefundedOrders: count, unpaidCommissionCents: count, heldCommissionCents: count,
+  payableCommissionCents: count, reservedCommissionCents: count, paidCommissionCents: count, businessLossCents: count }).strict();
 const paymentEarnings = z.object({ period: z.literal('all_time'), scope: z.literal('own'), currencies: z.array(earningsCurrency),
-  receivedPayouts: z.null().describe('Unavailable: no commission payout ledger or verified individual Stripe recipient onboarding is connected. Business merchant readiness does not establish individual payout eligibility.'),
+  receivedPayouts: z.object({ currencies: z.array(z.object({currency:z.string().length(3),creditedCents:count,verifiedNetCents:count,merchantReviewedNetCents:count,feeReviewPayments:count}).strict()),bankPayouts:z.null() }).strict(),
   dashboardConnected: z.null().describe('Unavailable until individual Stripe onboarding and recipient connectivity are implemented.'),
-  dashboardUrl: z.null(), payoutsUnavailableReason: z.literal('not_connected') }).strict();
+  dashboardUrl: z.null(), payoutsUnavailableReason: z.literal('bank_payouts_not_tracked') }).strict();
 const emptyPaymentQuery = z.object({}).strict();
 
 module.exports = { paymentCheckoutSchema, refundSchema, createProfile, selection, paymentAccountQuery,

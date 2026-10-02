@@ -15,6 +15,7 @@ async function mockPaymentSummaries(page) {
     return route.fulfill({ json: { data: merchantOverview(organizationId) } });
   });
   await page.route('**/api/business/payments/earnings', route => route.fulfill({ json: { data: ownEarnings() } }));
+  await page.route('**/api/account/commission-earnings', route => route.fulfill({ json: { data: ownEarnings() } }));
 }
 
 async function enableDisconnectFixture(page) {
@@ -359,7 +360,7 @@ test('commission-only access shows personal earnings without merchant requests o
   await expect(page.getByText('$18.00', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Payment accounts' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Business payments', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('link', { name: /Stripe dashboard/ })).toHaveAttribute('href', 'https://dashboard.stripe.com/');
+  await expect(page.getByRole('button', { name: 'Connect personal Stripe account', exact: true })).toBeVisible();
   expect(merchantRequests).toEqual([]);
   await expectNoOverflow(page);
 });

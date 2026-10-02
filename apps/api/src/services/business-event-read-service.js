@@ -5,7 +5,9 @@ const { eventFinished, offeringSaleState } = require('../domain/event-policy');
 const { base, organizationMember,manages,orderAccess, guestAccess, pageResult } = require('./business-read-service');
 const { hasInternalPermission } = require('./internal-admin-permissions');
 const { commissionTerms, effectiveCommissionBps } = require('../domain/commission-eligibility');
+const { persistedCommissionTerms, commissionEligibilitySql } = require('./commission-profile-repository');
 const { unsettledMerchantSql } = require('../domain/payment-merchant-policy');
+const { netSubtotalSql, commissionExpenseSql: netCommissionSql, financialOrderSql, netItemSql } = require('./refund-report-policy');
 
 function createBusinessEventReadService({ models, now = () => new Date() }) {
   const select = (sql, replacements) => models.Event.sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
@@ -23,8 +25,12 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
     if (!rows.length) throw notFound('Event');
     return { ...replacements, canManage: rows[0].canManage, canManageFinance: rows[0].canManageFinance, canChangePaymentAccount: rows[0].canChangePaymentAccount, organizationWideAccess: rows[0].organizationWideAccess,organizationId: rows[0].organizationId,locationId: rows[0].locationId,isManagedVenue: rows[0].isManagedVenue };
   }
-  const scopedOrders = `SELECT o.* FROM orders o JOIN events e ON e.id = o.event_id
-    WHERE o.event_id = :eventId AND o.status = 'paid' AND o.currency = 'USD' AND ${orderAccess}`;
+  const orderScope = financial => `SELECT o.id,o.event_id,o.buyer_user_id,o.event_affiliate_id,o.org_affiliate_id,o.paid_at,o.pricing_plan_snapshot,
+    o.subtotal_cents AS original_subtotal_cents,o.status,o.refunded_subtotal_cents,
+    ${netSubtotalSql()} AS subtotal_cents,${netCommissionSql()} AS affiliate_commission_cents
+    FROM orders o JOIN events e ON e.id = o.event_id
+    WHERE o.event_id = :eventId AND ${financial ? financialOrderSql() : "o.status = 'paid'"} AND o.currency = 'USD' AND ${orderAccess}`;
+  const scopedOrders = orderScope(false), scopedFinancialOrders = orderScope(true);
   const scopedGuests = `SELECT g.* FROM guestlist_entries g JOIN events e ON e.id = g.event_id
     WHERE g.event_id = :eventId AND ${guestAccess}`;
 
@@ -41,9 +47,11 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
       if (!auth.canManage) delete tier.quantitySold;
       return { ...tier, saleState: offeringSaleState(offering, offerings, now()) };
     });
-    const [sales] = await select(`WITH visible_orders AS (${scopedOrders}) SELECT
+    // Refunded bookings are not active purchases, but paid referral costs do
+    // not disappear when the business absorbs a later customer refund.
+    const [sales] = await select(`WITH visible_orders AS (${scopedFinancialOrders}) SELECT
       COALESCE(SUM(subtotal_cents),0)::bigint AS "salesCents", COALESCE(SUM(affiliate_commission_cents),0)::bigint AS "commissionCents",
-      COUNT(*)::integer AS orders, COUNT(DISTINCT buyer_user_id)::integer AS customers FROM visible_orders`, auth);
+      COUNT(*) FILTER (WHERE status='paid')::integer AS orders, COUNT(DISTINCT buyer_user_id) FILTER (WHERE status='paid')::integer AS customers FROM visible_orders`, auth);
     const [tickets] = await select(`WITH visible_orders AS (${scopedOrders}) SELECT
       COUNT(*) FILTER (WHERE t.status IN ('valid','checked_in'))::integer AS admissions,
       COUNT(*) FILTER (WHERE t.status = 'checked_in')::integer AS "checkedIn"
@@ -53,8 +61,10 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
       COALESCE(SUM(CASE WHEN status = 'checked_in' THEN party_size ELSE checked_in_spots END) FILTER (WHERE status IN ('confirmed','checked_in')),0)::integer AS "checkedIn"
       FROM visible_guests`, auth);
     const sold = await select(`WITH visible_orders AS (${scopedOrders}),
+      adjusted_items AS (SELECT oi.*,CASE WHEN original.subtotal_cents=0 THEN 0 ELSE ${netItemSql('oi','original')} END AS net_line_total_cents
+        FROM order_items oi JOIN visible_orders vo ON vo.id=oi.order_id JOIN orders original ON original.id=oi.order_id),
       item_sales AS (SELECT oi.offering_id AS id, SUM(oi.quantity)::integer AS units,
-        SUM(oi.line_total_cents)::bigint AS "salesCents" FROM order_items oi
+        SUM(oi.net_line_total_cents)::bigint AS "salesCents" FROM adjusted_items oi
         JOIN visible_orders vo ON vo.id = oi.order_id GROUP BY oi.offering_id),
       admissions AS (SELECT oi.offering_id AS id, COUNT(*) FILTER (WHERE t.status IN ('valid','checked_in'))::integer AS admissions
         FROM tickets t JOIN order_items oi ON oi.id = t.order_item_id JOIN visible_orders vo ON vo.id = oi.order_id
@@ -87,7 +97,7 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
 
   async function purchases(userId, eventId, { page, pageSize, search = '' }) {
     const auth = await scope(userId, eventId);
-    const values = { ...auth, pageSize, offset: (page - 1) * pageSize, search: `%${search.replace(/[\\%_]/g, '\\$&')}%` };
+    const values = { ...auth, pageSize, offset: (page - 1) * pageSize, search: `%${search.replace(/[\\%_]/g, '\\$&')}%`, commissionNow: now() };
     const predicate = search ? `AND (u.display_name ILIKE :search ESCAPE '\\' OR u.email ILIKE :search ESCAPE '\\')` : '';
     const [count] = await select(`WITH visible_orders AS (${scopedOrders}) SELECT COUNT(*)::integer AS total
       FROM visible_orders vo JOIN users u ON u.id = vo.buyer_user_id WHERE true ${predicate}`, values);
@@ -136,12 +146,15 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
     if (!user) throw notFound('Attendee');
     const [count] = await select(`WITH visible_orders AS (${scopedOrders}) SELECT COUNT(*)::integer AS total
       FROM order_items oi JOIN visible_orders vo ON vo.id = oi.order_id WHERE vo.buyer_user_id = :attendeeId`, values);
-    const purchases = await select(`WITH visible_orders AS (${scopedOrders}) SELECT oi.id, oi.name_snapshot AS name,
-      oi.quantity, oi.line_total_cents AS "salesCents", vo.paid_at AS "paidAt", COALESCE(ref.display_name, 'Direct') AS "referredBy"
-      FROM order_items oi JOIN visible_orders vo ON vo.id = oi.order_id
+    const purchases = await select(`WITH visible_orders AS (${scopedOrders}),
+      adjusted_items AS (SELECT oi.*,CASE WHEN original.subtotal_cents=0 THEN 0 ELSE ${netItemSql('oi','original')} END AS net_line_total_cents
+        FROM order_items oi JOIN visible_orders vo ON vo.id=oi.order_id JOIN orders original ON original.id=oi.order_id)
+      SELECT oi.id, oi.name_snapshot AS name,
+      oi.quantity, oi.net_line_total_cents AS "salesCents", vo.paid_at AS "paidAt", COALESCE(ref.display_name, 'Direct') AS "referredBy"
+      FROM adjusted_items oi JOIN visible_orders vo ON vo.id = oi.order_id
       LEFT JOIN event_affiliates ea ON ea.id = vo.event_affiliate_id LEFT JOIN org_affiliates oa ON oa.id = vo.org_affiliate_id
       LEFT JOIN users ref ON ref.id = COALESCE(ea.user_id, oa.user_id) WHERE vo.buyer_user_id = :attendeeId
-      ORDER BY ${({name: 'oi.name_snapshot', quantity: 'oi.quantity', salesCents: 'oi.line_total_cents', referredBy: "COALESCE(ref.display_name,'Direct')"})[sortKey] || 'oi.line_total_cents'} ${descending === 'false' ? 'ASC' : 'DESC'}, oi.id ASC LIMIT :pageSize OFFSET :offset`, values);
+      ORDER BY ${({name: 'oi.name_snapshot', quantity: 'oi.quantity', salesCents: 'oi.net_line_total_cents', referredBy: "COALESCE(ref.display_name,'Direct')"})[sortKey] || 'oi.net_line_total_cents'} ${descending === 'false' ? 'ASC' : 'DESC'}, oi.id ASC LIMIT :pageSize OFFSET :offset`, values);
     const guestlist = await select(`WITH visible_guests AS (${scopedGuests}) SELECT status, party_size AS "partySize" FROM visible_guests WHERE user_id = :attendeeId`, values);
     return { id: user.id, name: user.displayName, email: user.email,
       guestlistStatuses: guestlist.map((row) => row.status),
@@ -188,7 +201,7 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
   async function people(userId, eventId, { page, pageSize, search = '', roles = [], sortKey = 'salesCents', descending = 'true' }) {
     const auth = await scope(userId, eventId);
     const values = { ...auth, pageSize, offset: (page - 1) * pageSize, search: `%${search.replace(/[\\%_]/g, '\\$&')}%` };
-    const cte = `WITH visible_orders AS (${scopedOrders}), visible_guests AS (${scopedGuests}),
+    const cte = `WITH visible_orders AS (${scopedFinancialOrders}), visible_guests AS (${scopedGuests}),
       member_ids AS (SELECT user_id AS id FROM event_affiliates WHERE event_id = :eventId
         UNION SELECT user_id FROM organization_owners WHERE organization_id = :organizationId AND lifecycle_state = 'active'
         UNION SELECT user_id FROM organization_employees WHERE organization_id = :organizationId AND status = 'active'
@@ -197,7 +210,7 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
           WHERE va.organization_id=:organizationId AND va.location_id=:locationId AND va.status='active'
         UNION SELECT :userId WHERE :organizationId IS NULL AND :canManage),
       members AS (SELECT u.id, u.display_name AS name, u.email, ea.id AS "assignmentId", ea.code,
-        ea.status, COALESCE(ea.commission_bps, rate_oa.default_commission_bps, 0) AS "configuredCommissionBps", oa.id AS "orgAffiliateId",
+        ea.status, COALESCE(ea.commission_bps, rate_oa.default_commission_bps, oa.default_commission_bps, 0) AS "configuredCommissionBps", oa.id AS "orgAffiliateId",
         (oo.id IS NOT NULL OR oe.id IS NOT NULL OR oa.id IS NOT NULL OR va.id IS NOT NULL OR
           (u.id = :userId AND :organizationId IS NULL AND :canManage)) AS "isCurrentMember",
         CASE WHEN oo.role = 'owner' THEN 'Owner' WHEN oo.id IS NOT NULL OR va.role='manager' THEN 'Manager'
@@ -217,24 +230,24 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
     const [count] = await select(`${cte} SELECT COUNT(*)::integer AS total FROM members m ${predicate}`, values);
     const rows = await select(`${cte} SELECT m.id AS "userId", m."assignmentId" AS id, m.name, m.email, m.role,
       CASE WHEN m.status IS NOT NULL THEN m.status ELSE 'default' END AS status,
-      m.code, m."configuredCommissionBps", ${effectiveCommissionBps(0)}::integer AS "commissionBps", m."orgAffiliateId", m."isCurrentMember",
+      m.code, m."configuredCommissionBps", CASE WHEN ${commissionEligibilitySql('cp')} THEN m."configuredCommissionBps" ELSE 0 END::integer AS "commissionBps", m."orgAffiliateId", m."isCurrentMember",
       COALESCE((SELECT SUM(vo.subtotal_cents) FROM visible_orders vo WHERE vo.event_affiliate_id = m."assignmentId"
         OR (vo.event_affiliate_id IS NULL AND vo.org_affiliate_id = m."orgAffiliateId")),0)::bigint AS "salesCents",
-      (SELECT COUNT(*)::integer FROM visible_orders vo WHERE vo.event_affiliate_id = m."assignmentId"
+      (SELECT COUNT(*) FILTER (WHERE vo.status='paid')::integer FROM visible_orders vo WHERE vo.event_affiliate_id = m."assignmentId"
         OR (vo.event_affiliate_id IS NULL AND vo.org_affiliate_id = m."orgAffiliateId")) AS orders,
-      (SELECT COUNT(DISTINCT vo.buyer_user_id)::integer FROM visible_orders vo WHERE vo.event_affiliate_id = m."assignmentId"
+      (SELECT COUNT(DISTINCT vo.buyer_user_id) FILTER (WHERE vo.status='paid')::integer FROM visible_orders vo WHERE vo.event_affiliate_id = m."assignmentId"
         OR (vo.event_affiliate_id IS NULL AND vo.org_affiliate_id = m."orgAffiliateId")) AS customers,
       COALESCE((SELECT SUM(vo.affiliate_commission_cents) FROM visible_orders vo WHERE vo.event_affiliate_id = m."assignmentId"
         OR (vo.event_affiliate_id IS NULL AND vo.org_affiliate_id = m."orgAffiliateId")),0)::bigint AS "commissionCents",
       (SELECT COUNT(*)::integer FROM visible_guests g WHERE g.event_affiliate_id = m."assignmentId") AS "guestlistRequests",
       COALESCE((SELECT SUM(g.party_size) FROM visible_guests g WHERE g.event_affiliate_id = m."assignmentId"),0)::integer AS "guestlistPlaces",
       COALESCE((SELECT SUM(g.party_size) FROM visible_guests g WHERE g.event_affiliate_id = m."assignmentId" AND g.status IN ('confirmed','checked_in')),0)::integer AS "approvedGuestlistPlaces"
-      FROM members m ${predicate} ORDER BY ${({name: 'm.name', role: 'm.role', commissionBps: '"commissionBps"', salesCents: '"salesCents"', orders: 'orders', customers: 'customers', guestlistPlaces: '"guestlistPlaces"', approvedGuestlistPlaces: '"approvedGuestlistPlaces"', commissionCents: '"commissionCents"'})[sortKey] || '"salesCents"'} ${descending === 'false' ? 'ASC' : 'DESC'}, m.name ASC, m.id ASC LIMIT :pageSize OFFSET :offset`, values);
-    return pageResult(rows.map((r) => {
-      const terms = commissionTerms(Number(r.configuredCommissionBps || 0));
+      FROM members m LEFT JOIN individual_commission_profiles cp ON cp.user_id=m.id ${predicate} ORDER BY ${({name: 'm.name', role: 'm.role', commissionBps: '"commissionBps"', salesCents: '"salesCents"', orders: 'orders', customers: 'customers', guestlistPlaces: '"guestlistPlaces"', approvedGuestlistPlaces: '"approvedGuestlistPlaces"', commissionCents: '"commissionCents"'})[sortKey] || '"salesCents"'} ${descending === 'false' ? 'ASC' : 'DESC'}, m.name ASC, m.id ASC LIMIT :pageSize OFFSET :offset`, { ...values, commissionNow: now() });
+    return pageResult(await Promise.all(rows.map(async (r) => {
+      const terms = await persistedCommissionTerms(models, r.userId, Number(r.configuredCommissionBps || 0), { now: now() });
       return { ...r, ...terms, commissionBps: terms.effectiveCommissionBps, id: r.id || r.userId,
         salesCents: Number(r.salesCents), commissionCents: Number(r.commissionCents) };
-    }), count.total, page, pageSize);
+    })), count.total, page, pageSize);
   }
 
   async function guestlistSettings(userId, eventId, { page, pageSize, search = '' }) {

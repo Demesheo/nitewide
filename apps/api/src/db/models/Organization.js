@@ -7,6 +7,7 @@ function initOrganization(sequelize) {
   Organization.init({
     id: id(),
     defaultPaymentAccountId: { type: DataTypes.UUID, allowNull: true },
+    commissionMinimumSubtotalCents: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1000, validate: { min: 1000, max: 100000000 } },
     lifecycleState: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'active', validate: { isIn: [['active', 'suspended', 'archived']] } },
     businessType: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'organization', validate: { isIn: [['organization', 'venue', 'independent_creator']] } },
     onboardingEstablished: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },

@@ -18,7 +18,7 @@ test('customer experience HTTP: account saved events, paged history, guestlist s
   let fixture, server;
   const extraEvents = [], extraAffiliates = [], extraLocations = [], extraUsers = [], extraOrderIds = [], notificationIds = [];
   try {
-    fixture = await createFixture(m, config);
+    fixture = await createFixture(m, config, { referred: true });
     const { ids } = fixture;
     await m.Event.update({ guestlistCapacity: 30 }, { where: { id: ids.event } });
     // A quota-free email mock exercises the real verification throttle through
@@ -208,8 +208,6 @@ test('customer experience HTTP: account saved events, paged history, guestlist s
 
     // Connection rows use a bounded numbered page; generating more than one
     // page guards against loading all relationship events into the customer UI.
-    const attributed = await m.EventAffiliate.findOne({ where: { eventId: ids.event, userId: ids.promoter } });
-    await m.Order.update({ eventAffiliateId: attributed.id }, { where: { id: ids.order } });
     const connectionEventRows = Array.from({ length: 11 }, (_, index) => {
       const startsAt = new Date(Date.now() + (24 + index) * 60 * 60 * 1000);
       return { id: randomUUID(), creatorUserId: ids.owner, organizationId: ids.org, title: `Connection page ${index}`, slug: `connection-page-${index}-${randomUUID()}`, category: 'nightlife', status: 'published', lifecycleState: 'active', isDiscoverable: true, startsAt, endsAt: new Date(startsAt.getTime() + 4 * 60 * 60 * 1000) };

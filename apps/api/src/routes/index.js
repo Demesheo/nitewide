@@ -48,6 +48,7 @@ function createRouter(options) {
   const account = createCustomerAccountService({ models, tokenSecret: qrTokenSecret });
   const saved = createCustomerSavedService({ models });
   const admissions = createAdmissionsService({ models, permissions });
+  const organizerMessages = require('../services/organizer-message-service').createOrganizerMessageService({ models, notifications, refunds: options.refunds });
   const context = { router, publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl, businessAppUrl, qrTokenSecret, deliveryTrackingConfigured, business, businessRead, businessReports, adminReports, reportExports, businessTeamRead, businessEventReuse, businessEventRead, businessInstructionsRead, admin, adminSupport, analytics, team, eventWorkspace, referralLinks, myEvents, account, saved, admissions, stripe, paymentAccounts, paymentController };
   require('./public').registerPublicRoutes(context);
   require('./account').registerAccountRoutes(context);
@@ -57,8 +58,26 @@ function createRouter(options) {
   router.get('/customer/payment-config', (_req, res) => res.set('Cache-Control', 'no-store').json({ data: paymentConfiguration }));
   require('./customer-my-events').registerCustomerMyEventsRoutes(context);
   require('./customer').registerCustomerRoutes(context);
+  require('./organizer-messages').registerOrganizerMessageRoutes({ ...context, organizerMessages });
+  const commissionSettings = require('../services/commission-settings-service').createCommissionSettingsService({ models, permissions });
+  const commissionSchemas = require('../http/commission-schemas');
+  router.patch('/business/organizations/:organizationId/people/:userId/commission-settings', requireUser, require('./contract-router').validate(commissionSchemas.organizationPersonCommissionSettings), require('./contract-router').asyncHandler(async (req,res) => {
+    res.json({ data: await commissionSettings.personRate(req.userId,req.params.organizationId,req.params.userId,req.body) });
+  }));
+  for (const target of ['organizations', 'events']) {
+    const name = target === 'organizations' ? 'organization' : 'event';
+    const id = target === 'organizations' ? 'organizationId' : 'eventId';
+    const path = `/business/${target}/:${id}/commission-settings`;
+    const { asyncHandler, validate } = require('./contract-router');
+    router.get(path, requireUser, asyncHandler(async (req, res) => res.json({ data: await commissionSettings[name](req.userId, req.params[id]) })));
+    router.patch(path, requireUser, validate(commissionSchemas[`${name}CommissionSettings`]), asyncHandler(async (req, res) => res.json({ data: await commissionSettings[name](req.userId, req.params[id], req.body) })));
+  }
   require('./payments').registerPaymentRoutes(context);
   require('./business-payments').registerBusinessPaymentRoutes(context);
+  require('./commission-payments').registerCommissionPaymentRoutes({ ...context, commissionPayments: options.commissionPayments, individualCommissionProfiles: options.individualCommissionProfiles });
+  router.get('/account/commission-earnings', requireUser, require('./contract-router').asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'no-store').json({ data: await require('../services/business-payment-overview-service').createBusinessPaymentOverviewService({ models }).earnings(req.userId) });
+  }));
   require('./admissions').registerAdmissionsRoutes(context);
   require('./reporting').registerReportingRoutes(context);
   require('./business').registerBusinessRoutes(context);

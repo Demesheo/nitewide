@@ -26,6 +26,7 @@ import { BusinessOverview } from '@/components/BusinessOverview';
 import { BusinessAnalytics } from "@/components/BusinessAnalytics";
 import { MultiSelect } from "@/components/MultiSelect";
 import { Notifications } from "@/components/Notifications";
+import { Messages } from '@/components/Messages';
 import { TeamInviteLanding } from "@/components/Team";
 import { BusinessTeam } from "@/components/BusinessTeam";
 import { BusinessPayments } from "@/components/BusinessPayments";
@@ -67,6 +68,7 @@ export default function App() {
   const verificationAttempted = useRef(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [messageThread, setMessageThread] = useState(null);
   const menuTrigger = useRef(null);
   useEffect(() => {
     const screen = window.matchMedia("(min-width: 851px)");
@@ -285,7 +287,8 @@ export default function App() {
             <strong>{visibleNavigation.find(([id]) => id === visiblePage)?.[2] || 'Overview'}</strong>
           </div>
           <div className="topbar-right">
-            <Notifications session={session} onNavigate={navigate} capabilities={data?.capabilities} />
+            <Notifications session={session} onNavigate={navigate} onMessage={setMessageThread} capabilities={data?.capabilities} />
+            <Messages session={session} initialThreadId={messageThread} onOpened={() => setMessageThread(null)} />
             <span className="live-label">
               <span />
               Connected workspace

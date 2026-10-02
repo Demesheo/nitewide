@@ -9,6 +9,7 @@ const { createHash } = require('node:crypto');
 const { QueryTypes } = require('sequelize');
 const { mutationTransaction } = require('./mutation-transaction');
 const { effectiveFeeMode } = require('@nitewide/pricing');
+const { commissionSnapshot } = require('../domain/commission-policy');
 
 function canonicalCart(eventId, items) {
   if (!Array.isArray(items) || !items.length) throw new DomainError('At least one item is required', { code: 'EMPTY_ORDER' });
@@ -70,8 +71,9 @@ function createCheckoutService({ sequelize, models, now = () => new Date(), envi
       }
       const affiliate = await resolveAffiliate(models, { event, code: input.affiliateCode, now: current, transaction, lock: transaction.LOCK.UPDATE });
       if (affiliate.eventAffiliate?.userId === input.buyerUserId || affiliate.orgAffiliate?.userId === input.buyerUserId) throw new DomainError('Self-referrals do not earn commission', { code: 'SELF_REFERRAL' });
+      const commission = commissionSnapshot({ event, organization, affiliate, subtotalCents, currency: offerings[0].currency, now: current });
       const pricing = calculatePricing({ subtotalCents, items: lines.map(({ offering, quantity }) => ({ unitPriceCents: offering.priceCents, quantity,
-        feeMode: effectiveFeeMode(event.feeMode || 'buyer',offering.feeMode || 'inherit') })), currency: offerings[0].currency, now: current, planTier: organization?.planTier || 'free', commissionBps: affiliate.commissionBps });
+        feeMode: effectiveFeeMode(event.feeMode || 'buyer',offering.feeMode || 'inherit') })), currency: offerings[0].currency, now: current, planTier: organization?.planTier || 'free', commissionBps: commission.effectiveCommissionBps });
       if (input.expectedTotalCents !== undefined && input.expectedTotalCents !== pricing.totalCents)
         throw conflict('Pricing changed. Review the updated total before confirming.', 'PRICE_CHANGED');
       const demo = hostedDemo || input.payment?.provider === 'demo';
@@ -83,7 +85,7 @@ function createCheckoutService({ sequelize, models, now = () => new Date(), envi
       if (pricing.totalCents > 0 && !isPaid) throw new DomainError('Successful payment confirmation is required', { code: 'PAYMENT_REQUIRED', status: 402 });
       const order = await models.Order.create({
         buyerUserId: input.buyerUserId, eventId: event.id, status: 'paid', currency: offerings[0].currency,
-        subtotalCents, ...pricing, pricingPlanSnapshot: { ...pricing.pricingPlanSnapshot, commissionBps: affiliate.commissionBps,
+        subtotalCents, ...pricing, commissionSnapshot: commission, pricingPlanSnapshot: { ...pricing.pricingPlanSnapshot, commissionBps: commission.effectiveCommissionBps,
           configuredCommissionBps: affiliate.configuredCommissionBps, commissionEligibility: affiliate.commissionEligibility, demo }, orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id,
         idempotencyKey: input.idempotencyKey, requestFingerprint, paidAt: current,
       }, { transaction });

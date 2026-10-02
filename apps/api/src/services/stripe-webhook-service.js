@@ -1,7 +1,7 @@
 const { DomainError, notFound } = require('../domain/errors');
 const { mutationTransaction } = require('./mutation-transaction');
 
-function createStripeWebhookService({ sequelize, models, stripe, paymentCheckouts, paymentAccounts, refunds, now = () => new Date() }) {
+function createStripeWebhookService({ sequelize, models, stripe, paymentCheckouts, paymentAccounts, refunds, disputes, individualCommissionProfiles, commissionPayments, now = () => new Date() }) {
   async function invalidateAccount(account, eventId) {
     await mutationTransaction(sequelize, async (transaction) => {
       const locked = await models.PaymentAccount.findByPk(account.id, { transaction, lock: transaction.LOCK.UPDATE });
@@ -19,13 +19,24 @@ function createStripeWebhookService({ sequelize, models, stripe, paymentCheckout
     try { event = stripe.constructWebhookEvent(rawBody, signature); } catch { throw new DomainError('Invalid Stripe signature', { code: 'INVALID_WEBHOOK', status: 400 }); }
     if (event.livemode !== false || !event.account || !event.id) throw new DomainError('Only connected sandbox events are accepted', { code: 'INVALID_WEBHOOK', status: 400 });
     const account = await models.PaymentAccount.findOne({ where: { stripeAccountId: event.account, mode: 'test' } });
-    if (!account) return { received: true, ignored: true };
+    const individual = models.IndividualCommissionProfile && await models.IndividualCommissionProfile.findOne({ where: { stripeAccountId: event.account, providerMode: 'test' } });
+    if (!account && !individual) return { received: true, ignored: true };
+    if (account && individual) throw new DomainError('Stripe account has conflicting business and individual bindings', { code: 'INVALID_WEBHOOK', status: 400 });
     const [receipt] = await models.StripeWebhookReceipt.findOrCreate({ where: { stripeEventId: event.id, stripeAccountId: event.account, mode: 'test' }, defaults: { type: event.type, status: 'pending' } });
     if (receipt.stripeAccountId !== event.account || receipt.mode !== 'test') throw new DomainError('Webhook account mismatch', { code: 'INVALID_WEBHOOK', status: 400 });
     if (receipt.status === 'processed') return { received: true, replayed: true };
     // Payload status never fulfills an order. The signed event only identifies
     // which immutable provider object to independently retrieve and verify.
-    if (event.type.startsWith('checkout.session.')) {
+    if (individual) {
+      if (event.type === 'account.application.deauthorized') await individualCommissionProfiles.deauthorizeTrusted(individual.stripeAccountId);
+      else if (event.type === 'account.updated') {
+        if (!individual.deauthorizedAt && individual.lifecycleState === 'active') await individualCommissionProfiles.synchronizeTrusted(individual.stripeAccountId);
+      } else if (/^(invoice\.|payment_intent\.|charge\.|refund\.)/.test(event.type)) {
+        if (!commissionPayments?.reconcileCommissionEvent) throw new DomainError('Commission reconciliation unavailable', { code: 'COMMISSION_RECONCILIATION_PENDING', status: 503 });
+        const result = await commissionPayments.reconcileCommissionEvent(event, individual);
+        if (result?.retryable) throw new DomainError('Commission reconciliation is pending', { code: 'COMMISSION_RECONCILIATION_PENDING', status: 503 });
+      }
+    } else if (event.type.startsWith('checkout.session.')) {
       const session = await stripe.retrieveCheckoutSession(event.data.object.id, { stripeAccount: account.stripeAccountId, expand: ['payment_intent.latest_charge'] });
       const orderId = session.metadata?.orderId;
       const order = orderId && await models.Order.findOne({ where: { id: orderId, paymentAccountId: account.id, stripeAccountId: account.stripeAccountId, providerMode: 'test' } });
@@ -53,6 +64,10 @@ function createStripeWebhookService({ sequelize, models, stripe, paymentCheckout
         else if (paymentAccounts?.refreshAccount) await paymentAccounts.refreshAccount(account.id);
         else throw new DomainError('Account synchronization unavailable', { code: 'STRIPE_ACCOUNT_SYNC_UNAVAILABLE', status: 503 });
       }
+    } else if (event.type.startsWith('charge.dispute.')) {
+      if (!disputes?.reconcileDisputeEvent) throw new DomainError('Dispute reconciliation unavailable', {code:'STRIPE_DISPUTE_SYNC_UNAVAILABLE',status:503});
+      const result = await disputes.reconcileDisputeEvent(event,account);
+      if (result?.retryable) throw new DomainError('Dispute reconciliation is pending', {code:'STRIPE_RECONCILIATION_PENDING',status:503});
     } else if (event.type.startsWith('refund.') || event.type === 'charge.refunded') {
       // Refund reconciliation is separately authenticated and provider-bound.
       // Root injects the service here once configured; unhandled evidence stays
@@ -77,10 +92,16 @@ function createStripeWebhookService({ sequelize, models, stripe, paymentCheckout
       throw new DomainError('Invalid retrieved sandbox account event', { code: 'INVALID_WEBHOOK', status: 400 });
     }
     const account = await models.PaymentAccount.findOne({ where: { stripeAccountId: event.related_object.id, mode: 'test' } });
-    if (!account) return { received: true, ignored: true };
-    const [receipt] = await models.StripeWebhookReceipt.findOrCreate({ where: { stripeEventId: event.id, stripeAccountId: account.stripeAccountId, mode: 'test' }, defaults: { type: event.type, status: 'pending' } });
+    const individual = models.IndividualCommissionProfile && await models.IndividualCommissionProfile.findOne({ where: { stripeAccountId: event.related_object.id, providerMode: 'test' } });
+    if (!account && !individual) return { received: true, ignored: true };
+    if (account && individual) throw new DomainError('Stripe account has conflicting business and individual bindings', { code: 'INVALID_WEBHOOK', status: 400 });
+    const boundAccount = account || individual;
+    const [receipt] = await models.StripeWebhookReceipt.findOrCreate({ where: { stripeEventId: event.id, stripeAccountId: boundAccount.stripeAccountId, mode: 'test' }, defaults: { type: event.type, status: 'pending' } });
     if (receipt.status === 'processed') return { received: true, replayed: true };
-    if (event.type === 'v2.core.account.closed') await invalidateAccount(account, event.id);
+    if (individual) {
+      if (event.type === 'v2.core.account.closed') await individualCommissionProfiles.deauthorizeTrusted(individual.stripeAccountId);
+      else if (!individual.deauthorizedAt && individual.lifecycleState === 'active') await individualCommissionProfiles.synchronizeTrusted(individual.stripeAccountId);
+    } else if (event.type === 'v2.core.account.closed') await invalidateAccount(account, event.id);
     else if (account.lifecycleState !== 'archived') await paymentAccounts.synchronizeTrusted(account.stripeAccountId);
     await receipt.update({ status: 'processed', processedAt: now() });
     return { received: true, replayed: false };

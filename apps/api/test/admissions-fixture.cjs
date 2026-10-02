@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { createQrToken } = require('../src/domain/qr');
 const { createPasswordRecord } = require('../src/services/auth-service');
-async function createFixture(m, config) {
+async function createFixture(m, config, { orderValues = {}, itemValues = {}, referred = false } = {}) {
   assert.notEqual(config.NODE_ENV, 'production');
   assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(new URL(config.DATABASE_URL).hostname), 'Local test database only');
   const ids = Object.fromEntries(['owner', 'manager', 'employee', 'promoter', 'admin', 'independentCreator', 'guest', 'pendingGuest', 'outsider', 'org', 'location', 'event', 'otherEvent', 'future', 'expired', 'draft', 'order', 'item', 'ticket', 'manualTicket', 'voidTicket', 'entry'].map((key) => [key, randomUUID()]));
@@ -22,10 +22,11 @@ async function createFixture(m, config) {
       const offset = key === 'future' ? 48 : key === 'expired' ? -72 : 1;
       await m.Event.create({ id: ids[key], organizationId: ids.org, creatorUserId: ids.owner, locationId: key === 'event' ? ids.location : null, title: key === 'event' ? 'Admissions QA Night' : `Admissions QA ${key}`, slug: `admissions-${ids[key]}`, status: key === 'draft' ? 'draft' : 'published', startsAt: new Date(Date.now() + offset * 3600000), endsAt: new Date(Date.now() + (offset + 4) * 3600000), guestlistCapacity: 10, isDiscoverable: false }, options);
     }
-    await m.EventAffiliate.create({ eventId: ids.event, userId: ids.promoter, code: `QA-${ids.org}`, status: 'active', guestlistAllocation: 5 }, options);
+    const affiliate = await m.EventAffiliate.create({ eventId: ids.event, userId: ids.promoter, code: `QA-${ids.org}`, status: 'active', guestlistAllocation: 5 }, options);
     const offering = await m.Offering.create({ eventId: ids.event, name: 'VIP · 2 admissions', kind: 'package', priceCents: 30000, entriesPerUnit: 2, inventoryMode: 'unlimited' }, options);
-    await m.Order.create({ id: ids.order, eventId: ids.event, buyerUserId: ids.guest, status: 'paid', subtotalCents: 30000, totalCents: 32200, platformFeeCents: 2200, paidAt: new Date(), idempotencyKey: ids.order }, options);
-    await m.OrderItem.create({ id: ids.item, orderId: ids.order, offeringId: offering.id, nameSnapshot: offering.name, kindSnapshot: 'package', quantity: 1, entriesPerUnitSnapshot: 2, unitPriceCents: 30000, lineTotalCents: 30000 }, options);
+    await m.Order.create({ id: ids.order, eventId: ids.event, buyerUserId: ids.guest, status: 'paid', subtotalCents: 30000, totalCents: 32200, platformFeeCents: 2200, paidAt: new Date(), idempotencyKey: ids.order,
+      ...orderValues, ...(referred ? { eventAffiliateId: affiliate.id } : {}) }, options);
+    await m.OrderItem.create({ id: ids.item, orderId: ids.order, offeringId: offering.id, nameSnapshot: offering.name, kindSnapshot: 'package', quantity: 1, entriesPerUnitSnapshot: 2, unitPriceCents: 30000, lineTotalCents: 30000, ...itemValues }, options);
     for (const key of ['ticket', 'manualTicket', 'voidTicket']) await m.Ticket.create({ id: ids[key], eventId: ids.event, orderItemId: ids.item, holderUserId: ids.guest, status: key === 'voidTicket' ? 'void' : 'valid', qrTokenHash: createQrToken().hash }, options);
     await m.GuestlistEntry.create({ id: ids.entry, eventId: ids.event, userId: ids.guest, source: 'event', partySize: 3, status: 'confirmed', qrTokenHash: createQrToken().hash }, options);
     await m.GuestlistEntry.create({ eventId: ids.event, userId: ids.pendingGuest, source: 'event', partySize: 2, status: 'pending' }, options);

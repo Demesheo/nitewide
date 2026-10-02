@@ -13,6 +13,8 @@ function initOrder(sequelize) {
     subtotalCents: cents(false, 0), platformFeeCents: cents(false, 0), totalCents: cents(false, 0), affiliateCommissionCents: cents(false, 0),
     orgAffiliateId: DataTypes.UUID, eventAffiliateId: DataTypes.UUID,
     pricingPlanSnapshot: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
+    commissionSnapshot: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
+    refundedTotalCents: cents(false, 0), refundedSubtotalCents: cents(false, 0), refundedCommissionCents: cents(false, 0),
     idempotencyKey: { type: DataTypes.STRING(100), allowNull: false }, requestFingerprint: DataTypes.STRING(64), paidAt: DataTypes.DATE,
   }, { sequelize, modelName: 'Order', tableName: 'orders', indexes: [{ unique: true, fields: ['buyer_user_id', 'idempotency_key'] }, { fields: ['event_id', 'status', 'created_at'] }] });
   return Order;

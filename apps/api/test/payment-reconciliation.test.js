@@ -34,3 +34,13 @@ test('a failed reconciliation waits for the other chain and permits a later boun
   release(); await first; await assert.rejects(lane.drain(), /provider unavailable/); assert.equal(calls, 2);
   await lane.stop();
 });
+test('commission recovery runs one bounded chain after checkout/refund work and stops cleanly', async () => {
+  const calls = []; let release;
+  const blocker = new Promise(resolve => { release = resolve; });
+  const lane = createPaymentReconciliationLane({ enabled: true,
+    paymentCheckouts: { sweepReservations: async () => { calls.push('checkout'); await blocker; } },
+    refunds: { sweepPendingRefunds: async () => { calls.push('refund'); } },
+    commissionPayments: { sweepPendingCommissions: async options => { assert.deepEqual(options, { limit: 1 }); calls.push('commission'); } } });
+  const drain = lane.drain(); assert.deepEqual(calls, ['checkout', 'refund']); assert.equal(lane.drain(), drain);
+  release(); await drain; assert.deepEqual(calls, ['checkout', 'refund', 'commission']); await lane.stop(); await lane.drain(); assert.equal(calls.length, 3);
+});

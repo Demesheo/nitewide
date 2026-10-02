@@ -14,6 +14,9 @@ const { sharedSandboxOrderMatches } = require('../domain/shared-sandbox-merchant
 const { stripeApplicationFee } = require('../domain/stripe-pricing');
 const { eventSummary } = require('./customer-account-service');
 const { ensureCheckoutReminder } = require('./checkout-reminder-policy');
+const { commissionSnapshot, effectiveCommissionMinimum } = require('../domain/commission-policy');
+const { commissionEligibility } = require('../domain/commission-eligibility');
+const { createCommissionLedgerService } = require('./commission-ledger-service');
 
 const summary = (order) => ({ orderId: order.id, status: order.status, verificationStatus: order.providerMode === 'test' ? order.providerVerificationStatus || null : null });
 const providerMismatch = () => new DomainError('Payment verification needs review', { code: 'PAYMENT_VERIFICATION_FAILED', status: 409 });
@@ -41,9 +44,43 @@ function verifySession(order, session) {
 
 function createStripeCheckoutService({ sequelize, models, stripe, checkout, applicationFeeForOrder = stripeApplicationFee,
   accountResolver = resolvePaymentAccount, now = () => new Date(), customerAppUrl = 'http://localhost:5173',
-  email = null, notificationJobs = createNotificationJobService({ sequelize, models, now }) }) {
+  individualProfiles = null, email = null, notificationJobs = createNotificationJobService({ sequelize, models, now }) }) {
   const tx = (work) => mutationTransaction(sequelize, work);
   function enabled() { if (!stripe?.enabled || stripe.mode !== 'test') throw new DomainError('Sandbox payments are unavailable', { code: 'PAYMENTS_NOT_ENABLED', status: 503 }); }
+  const recipientId = affiliate => affiliate.eventAffiliate?.userId || affiliate.orgAffiliate?.userId;
+  // Recognize previously ready server evidence without treating its old age as
+  // current readiness. Disabled/disconnected bindings remain intentionally zero.
+  const previouslyReady = affiliate => affiliate.individualProfile?.verifiedAt && commissionEligibility({
+    userId: recipientId(affiliate), individualProfile: affiliate.individualProfile, now: affiliate.individualProfile.verifiedAt,
+  }).eligible;
+  const recipientUnavailable = () => new DomainError('Commission recipient verification is temporarily unavailable. Retry checkout shortly.', {
+    code: 'COMMISSION_RECIPIENT_VERIFICATION_UNAVAILABLE', status: 503, details: { retryable: true },
+  });
+  async function preflightRecipient(input, event, offerings) {
+    if (!input.affiliateCode) return;
+    assertActiveUser(await models.User.findByPk(input.buyerUserId));
+    await assertActiveEvent(models, event);
+    // Read-only attribution resolution: neither browser readiness nor a supplied
+    // account id is accepted, and preflight cannot create event assignments.
+    const affiliate = await resolveAffiliate(models, { event, code: input.affiliateCode, now: now(), persist: false });
+    if (recipientId(affiliate) === input.buyerUserId) throw conflict('Self referrals cannot earn commission', 'SELF_REFERRAL');
+    const organization = await models.Organization.findByPk(event.organizationId);
+    const subtotal = input.items.reduce((sum, item) => sum + (offerings.find(o => o.id === item.offeringId)?.priceCents || 0) * item.quantity, 0);
+    if (affiliate.configuredCommissionBps <= 0 || subtotal < effectiveCommissionMinimum(event, organization) || affiliate.commissionEligibility.eligible) return;
+    const profile = affiliate.individualProfile;
+    if (!profile?.stripeAccountId || profile.provider !== 'stripe' || profile.providerMode !== 'test' || profile.lifecycleState !== 'active'
+      || profile.paymentsDisabledAt || profile.deauthorizedAt || profile.disconnectStatus && profile.disconnectStatus !== 'none') return;
+    const wasReady = previouslyReady(affiliate);
+    try {
+      if (!individualProfiles?.synchronizeTrusted) { if (wasReady) throw recipientUnavailable(); return; }
+      await individualProfiles.synchronizeTrusted(profile.stripeAccountId);
+    } catch (error) {
+      if (wasReady) throw recipientUnavailable();
+      // A genuinely unonboarded person continues with the documented zero-rate
+      // policy. A previously verified recipient may never silently lose earnings
+      // merely because retrieval failed.
+    }
+  }
   async function buyerOrder(buyerUserId, orderId) {
     const order = await models.Order.findOne({ where: { id: orderId, buyerUserId } });
     if (!order) throw notFound('Order');
@@ -117,6 +154,7 @@ function createStripeCheckoutService({ sequelize, models, stripe, checkout, appl
         reserved: true, current: now(), transaction, email, customerAppUrl, notificationJobs });
       await order.update({ status: 'paid', paidAt: now(), providerVerificationStatus: 'verified', reservationReleasedAt: now(),
         stripePaymentIntentId: evidence.intent.id, stripeChargeId: evidence.charge.id }, { transaction });
+      await createCommissionLedgerService({ sequelize, models, now }).recordPaidOrder({ order, event, transaction });
       return summary(order);
     });
   }
@@ -179,7 +217,10 @@ function createStripeCheckoutService({ sequelize, models, stripe, checkout, appl
     }
     enabled();
     const previous = await models.Order.findOne({ where: { buyerUserId: input.buyerUserId, idempotencyKey: input.idempotencyKey } });
-    if (!previous) await accountResolver({ models, event: eventPreview, stripe });
+    if (!previous) {
+      await accountResolver({ models, event: eventPreview, stripe });
+      await preflightRecipient(input, eventPreview, previewOfferings);
+    }
     let order = await tx(async (transaction) => {
       await sequelize.query('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))', { replacements: { key: `checkout/${input.buyerUserId}/${input.idempotencyKey}` }, transaction, type: QueryTypes.SELECT });
       const buyer = assertActiveUser(await models.User.findByPk(input.buyerUserId, { transaction, lock: transaction.LOCK.SHARE || 'SHARE' }));
@@ -208,17 +249,23 @@ function createStripeCheckoutService({ sequelize, models, stripe, checkout, appl
       if (affiliate.eventAffiliate?.userId === input.buyerUserId || affiliate.orgAffiliate?.userId === input.buyerUserId) throw conflict('Self referrals cannot earn commission', 'SELF_REFERRAL');
       const organization = await models.Organization.findByPk(event.organizationId, { transaction });
       const subtotalCents = lines.reduce((sum, { offering, quantity }) => sum + offering.priceCents * quantity, 0);
-      const pricing = calculatePricing({ subtotalCents, items: lines.map(({ offering, quantity }) => ({ unitPriceCents: offering.priceCents, quantity, feeMode: effectiveFeeMode(event.feeMode || 'buyer', offering.feeMode || 'inherit') })), currency: selected[0].currency, planTier: organization.planTier, commissionBps: affiliate.commissionBps, now: now() });
+      // Re-resolved membership/rate and the persisted personal profile are
+      // locked above. A delayed refresh, changed binding or exhausted freshness
+      // window cannot freeze an accidentally zero commission attempt.
+      if (affiliate.configuredCommissionBps > 0 && subtotalCents >= effectiveCommissionMinimum(event, organization)
+        && !affiliate.commissionEligibility.eligible && previouslyReady(affiliate)) throw recipientUnavailable();
+      const commission = commissionSnapshot({ event, organization, affiliate, subtotalCents, currency: selected[0].currency, now: now() });
+      const pricing = calculatePricing({ subtotalCents, items: lines.map(({ offering, quantity }) => ({ unitPriceCents: offering.priceCents, quantity, feeMode: effectiveFeeMode(event.feeMode || 'buyer', offering.feeMode || 'inherit') })), currency: selected[0].currency, planTier: organization.planTier, commissionBps: commission.effectiveCommissionBps, now: now() });
       if (input.expectedTotalCents !== undefined && input.expectedTotalCents !== pricing.totalCents) throw conflict('Pricing changed', 'PRICE_CHANGED');
       if (lines.length + (pricing.platformFeeCents > 0 ? 1 : 0) > 100) throw new DomainError('This cart has too many offerings', { code: 'CHECKOUT_TOO_LARGE', status: 422 });
       const feeDecision = applicationFeeForOrder(pricing);
       const applicationFeeCents = typeof feeDecision === 'number' ? feeDecision : feeDecision.applicationFeeCents;
       if (!Number.isSafeInteger(applicationFeeCents) || applicationFeeCents < 0 || applicationFeeCents > pricing.totalCents) throw conflict('Application fee needs review', 'INVALID_APPLICATION_FEE');
       const created = await models.Order.create({ buyerUserId: input.buyerUserId, eventId: event.id, status: 'pending', currency: selected[0].currency,
-        subtotalCents, ...pricing, idempotencyKey: input.idempotencyKey, requestFingerprint, paymentAccountId: account.id, stripeAccountId: account.stripeAccountId,
+        subtotalCents, ...pricing, commissionSnapshot: commission, idempotencyKey: input.idempotencyKey, requestFingerprint, paymentAccountId: account.id, stripeAccountId: account.stripeAccountId,
         applicationFeeCents, providerMode: 'test', providerVerificationStatus: 'pending', reservationExpiresAt: new Date(now().getTime() + 35 * 60 * 1000),
         orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id,
-        pricingPlanSnapshot: { ...pricing.pricingPlanSnapshot, demo: false, providerCustomerEmail: buyer.email, commissionBps: affiliate.commissionBps,
+        pricingPlanSnapshot: { ...pricing.pricingPlanSnapshot, demo: false, providerCustomerEmail: buyer.email, commissionBps: commission.effectiveCommissionBps,
           configuredCommissionBps: affiliate.configuredCommissionBps, commissionEligibility: affiliate.commissionEligibility, stripeFeeDecision: feeDecision, economicsBasis: 'modeled_sandbox_economics', merchant: { paymentAccountId: account.id, stripeAccountId: account.stripeAccountId, organizationId: event.organizationId,
             ...(stripe.sandboxSharedAccountId === account.stripeAccountId ? { sharedSandbox: true } : {}) } } }, { transaction });
       const returnUrl = new URL(customerAppUrl); returnUrl.searchParams.set('paymentOrder', created.id); returnUrl.searchParams.set('session_id', '{CHECKOUT_SESSION_ID}');

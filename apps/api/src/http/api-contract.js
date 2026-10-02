@@ -13,6 +13,8 @@ const adminSupport = require('./admin-support-schemas');
 const businessAccess = require('./business-access-schemas');
 const { venuePageSchema } = require('../services/business-venue-service');
 const payments = require('./payment-schemas');
+const organizerMessages = require('./organizer-message-schemas');
+const commissions = require('./commission-payment-schemas');
 const { MAX_GUESTLIST_REQUEST_PARTY_SIZE } = require('../domain/guestlist-party-size');
 
 const uuid = z.uuid();
@@ -66,6 +68,13 @@ const guestlistRow = guest.extend({ eventId: uuid, userId: uuid.nullable(), even
 // Dynamic management resources retain JSON extension fields by design.
 const responses = { entity, event, offering, user, session, guest, sales, reportRow, exportJob, accessRequest, onboardingInvitation, error, page, envelope };
 const queries = {
+  '/account/commissions': commissions.commissionPage,
+  '/account/commission-earnings': payments.emptyPaymentQuery,
+  '/business/organizations/:organizationId/commission-statements': commissions.commissionPage,
+  '/customer/messages': organizerMessages.pageQuery,
+  '/business/messages': organizerMessages.pageQuery,
+  '/customer/messages/:threadId': organizerMessages.pageQuery,
+  '/business/messages/:threadId': organizerMessages.pageQuery,
   '/business/organizations/:organizationId/payment-overview': payments.emptyPaymentQuery,
   '/business/payments/earnings': payments.emptyPaymentQuery,
   '/business/organizations/:organizationId/payment-accounts': payments.paymentAccountQuery,
@@ -114,6 +123,22 @@ function paramsFor(path) {
 }
 
 function responseFor(method, path) {
+  if (path === '/account/commission-payment-profile') return commissions.commissionProfileResponse;
+  if (path === '/account/commission-payment-profile/onboarding') return commissions.commissionOnboardingResponse;
+  if (path === '/account/commission-payment-profile/dashboard') return commissions.commissionDashboardResponse;
+  if (path.startsWith('/account/commission-payment-profile/')) return commissions.commissionProfileResponse;
+  if (path === '/account/commissions' || path === '/business/organizations/:organizationId/commission-statements') return commissions.commissionStatementPageResponse;
+  if (path.endsWith('/commission-statements/:statementId/approve')) return commissions.commissionStatementResponse;
+  if (path.endsWith('/commission-payments/quote')) return commissions.commissionQuoteResponse;
+  if (/\/commission-payments(\/:paymentId(\/(reconcile|invoicing-fee-review))?)?$/.test(path)) return commissions.commissionPaymentResponse;
+  if (path === '/account/commission-earnings') return payments.paymentEarnings;
+  if (path === '/business/organizations/:organizationId/people/:userId/commission-settings') return z.object({ organizationId:uuid,userId:uuid,defaultCommissionBps:count,configuredCommissionBps:count,effectiveCommissionBps:count,commissionEligibility:z.object({eligible:z.boolean()}).catchall(z.json()),appliesTo:z.literal('future_orders') }).strict();
+  if (/^\/(customer|business)\/messages$/.test(path)) return organizerMessages.inbox;
+  if (/^\/(customer|business)\/messages\/:threadId(\/replies)?$/.test(path) || path === '/customer/orders/:orderId/messages') return organizerMessages.detail;
+  if (/^\/(customer|business)\/messages\/:threadId\/read$/.test(path)) return z.object({ read: z.literal(true) });
+  if (path === '/business/orders/:orderId/refund-request') return organizerMessages.resolution;
+  if (path.endsWith('/commission-settings')) return z.object({ organizationId: uuid.nullable(), eventId: uuid.optional(), minimumSubtotalCents: count.nullable(),
+    effectiveMinimumSubtotalCents: count, floorSubtotalCents: z.literal(1000), appliesTo: z.literal('future_orders') });
   if (path === '/customer/my-events/access') return z.object({ eligible: z.boolean() });
   if (path === '/customer/my-events') return page(myEvent).extend({ counts: z.object({ upcoming: count, past: count, draft: count }) });
   if (path === '/customer/my-events/:eventId') return z.object({ event, scope: z.enum(['event', 'own']), summary: eventSummary,

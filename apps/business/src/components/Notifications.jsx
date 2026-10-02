@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { api } from '@/lib/api';
 import { ServerPager } from './ServerPager';
 
-export function Notifications({ session, onNavigate, capabilities = {} }) {
+export function Notifications({ session, onNavigate, onMessage, capabilities = {} }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [result, setResult] = useState(null);
@@ -32,7 +32,9 @@ export function Notifications({ session, onNavigate, capabilities = {} }) {
   async function openItem(item) {
     try {
       await markRead(item);
-      if (item.eventId) {
+      if (item.metadata?.threadId && onMessage) {
+        setOpen(false); onMessage(item.metadata.threadId);
+      } else if (item.eventId) {
         setOpen(false);
         onNavigate('events', item.eventId, item.metadata?.entryId,
           item.kind === 'guestlist_request' ? 'guestlist' : null);

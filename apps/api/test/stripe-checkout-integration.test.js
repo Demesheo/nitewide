@@ -332,6 +332,100 @@ test('sandbox provider reservations, verified webhook races and full refunds use
 // its provider IDs also have a separate namespace to mirror Stripe uniqueness.
 test('disabled merchant stops new paid sessions but preserves in-flight checkout and free bookings',{timeout:30000},checkDisabledMerchant);
 
+test('checkout refreshes only server-bound stale personal recipients outside purchase locks and revalidates before snapshot', { timeout: 60000 }, async t => {
+  assertManagedTestDatabase();
+  const sequelize = createSequelize(require('../src/config').getConfig()), models = initModels(sequelize);
+  let current = new Date(), purchaseDepth = 0, refreshCount = 0, failRefresh = false;
+  const now = () => current;
+  const checkoutSequelize = { query: sequelize.query.bind(sequelize), transaction: (options, work) => sequelize.transaction(options, async transaction => {
+    purchaseDepth++; try { return await work(transaction); } finally { purchaseDepth--; }
+  }) };
+  try {
+    const owner = await models.User.create({ displayName: 'Refresh owner', email: `${randomUUID()}@offline.nitewide.test` });
+    const person = await models.User.create({ displayName: 'Refresh recipient', email: `${randomUUID()}@offline.nitewide.test` });
+    const buyer = await models.User.create({ displayName: 'Refresh buyer', email: `${randomUUID()}@offline.nitewide.test` });
+    const organization = await models.Organization.create({ name: 'Refresh business', slug: `refresh-${randomUUID()}` });
+    await models.OrganizationOwner.create({ organizationId: organization.id, userId: owner.id, role: 'owner' });
+    const merchant = await models.PaymentAccount.create({ organizationId: organization.id, name: 'Refresh merchant', stripeAccountId: `acct_merchant_${randomUUID()}` });
+    await organization.update({ defaultPaymentAccountId: merchant.id });
+    const event = await models.Event.create({ creatorUserId: owner.id, organizationId: organization.id, title: 'Refresh night', slug: `refresh-${randomUUID()}`,
+      status: 'published', startsAt: new Date(+current + 86400000), endsAt: new Date(+current + 172800000) });
+    const offering = await models.Offering.create({ eventId: event.id, name: 'Refresh ticket', priceCents: 2000, quantityTotal: 40 });
+    const affiliate = await models.OrgAffiliate.create({ organizationId: organization.id, userId: person.id, code: `REFRESH-${randomUUID()}`, defaultCommissionBps: 2500 });
+    const accountId = `acct_person_${randomUUID()}`;
+    const evidence = { id: accountId, object: 'v2.core.account', livemode: false, dashboard: 'full', identity: { entity_type: 'individual' }, applied_configurations: ['merchant'],
+      defaults: { responsibilities: { fees_collector: 'stripe', losses_collector: 'stripe', requirements_collector: 'stripe' } },
+      configuration: { merchant: { applied: true, capabilities: { card_payments: { status: 'active' }, stripe_balance: { payouts: { status: 'active' } } } } }, requirements: { entries: [] } };
+    const profile = await models.IndividualCommissionProfile.create({ userId: person.id, name: 'Refresh person', creationRequestId: randomUUID(),
+      stripeAccountId: accountId, verifiedAt: new Date(+current - 6 * 60000), verifiedStripeAccount: evidence });
+    const provider = mockProvider(`refresh_${randomUUID()}_`);
+    provider.stripe.retrieveIndividualAccount = async id => {
+      assert.equal(purchaseDepth, 0, 'personal provider retrieval must never hold event/inventory transaction locks');
+      assert.equal(id, accountId, 'only the server-authorized referral personal binding is retrieved');
+      refreshCount++;
+      if (failRefresh) throw new Error('Mock personal account retrieval unavailable');
+      return structuredClone(evidence);
+    };
+    const individualProfiles = require('../src/services/individual-commission-profile-service').createIndividualCommissionProfileService({ sequelize, models, stripe: provider.stripe, now });
+    const checkout = createCheckoutService({ sequelize, models, environment: 'test', now });
+    const payments = createStripeCheckoutService({ sequelize: checkoutSequelize, models, stripe: provider.stripe, checkout, individualProfiles, now });
+    const input = () => ({ buyerUserId: buyer.id, eventId: event.id, affiliateCode: affiliate.code, idempotencyKey: randomUUID(), items: [{ offeringId: offering.id, quantity: 1 }],
+      individualProfile: { stripeAccountId: 'acct_browser_forged', eligible: true } });
+    let firstInput, firstOrder;
+    await t.test('stale ready recipient is refreshed before creating attribution and earns configured commission', async () => {
+      const synchronize = individualProfiles.synchronizeTrusted;
+      individualProfiles.synchronizeTrusted = async id => {
+        assert.equal(await models.EventAffiliate.count({ where: { eventId: event.id } }), 0, 'preflight cannot create an assignment');
+        return synchronize(id);
+      };
+      firstInput = input(); const started = await payments.prepare(firstInput);
+      individualProfiles.synchronizeTrusted = synchronize;
+      firstOrder = await models.Order.findByPk(started.orderId);
+      assert.equal(refreshCount, 1); assert.equal(firstOrder.affiliateCommissionCents, 500);
+      assert.equal(firstOrder.commissionSnapshot.stripeAccountId, accountId); assert.equal(firstOrder.commissionSnapshot.effectiveCommissionBps, 2500);
+    });
+    await t.test('fresh cache bypasses retrieval; immutable attempt retries bypass later stale evidence', async () => {
+      await payments.prepare(input()); assert.equal(refreshCount, 1);
+      current = new Date(+current + 6 * 60000); failRefresh = true;
+      const replay = await payments.prepare(firstInput);
+      assert.equal(replay.orderId, firstOrder.id); assert.equal(refreshCount, 1);
+      await firstOrder.reload(); assert.equal(firstOrder.affiliateCommissionCents, 500);
+    });
+    await t.test('transport failure for an established recipient returns recoverable error without reserving or freezing zero', async () => {
+      const before = await models.Order.count({ where: { eventId: event.id } });
+      const reserved = (await offering.reload()).quantityReserved;
+      await assert.rejects(payments.prepare(input()), error => error.code === 'COMMISSION_RECIPIENT_VERIFICATION_UNAVAILABLE' && error.status === 503 && error.details.retryable === true);
+      assert.equal(await models.Order.count({ where: { eventId: event.id } }), before);
+      assert.equal((await offering.reload()).quantityReserved, reserved);
+    });
+    await t.test('a returned stale observation also cannot silently freeze a zero-rate attempt', async () => {
+      const synchronize = individualProfiles.synchronizeTrusted;
+      individualProfiles.synchronizeTrusted = async () => profile;
+      await assert.rejects(payments.prepare(input()), { code: 'COMMISSION_RECIPIENT_VERIFICATION_UNAVAILABLE' });
+      individualProfiles.synchronizeTrusted = synchronize;
+    });
+    await t.test('locked snapshot revalidation respects a concurrent personal disable', async () => {
+      failRefresh = false;
+      const synchronize = individualProfiles.synchronizeTrusted;
+      individualProfiles.synchronizeTrusted = async id => {
+        await synchronize(id);
+        await profile.update({ paymentsDisabledAt: current, status: 'inactive' });
+      };
+      const started = await payments.prepare(input());
+      individualProfiles.synchronizeTrusted = synchronize;
+      const order = await models.Order.findByPk(started.orderId);
+      assert.equal(order.affiliateCommissionCents, 0); assert.equal(order.commissionSnapshot.commissionEligibility.eligible, false);
+    });
+    await t.test('truly unonboarded connected recipient retains effective zero when refresh fails', async () => {
+      await profile.update({ paymentsDisabledAt: null, status: 'inactive', verifiedAt: new Date(+current - 6 * 60000),
+        verifiedStripeAccount: { ...evidence, requirements: { entries: [{ id: 'identity_document', awaiting_action_from: 'user' }] } } });
+      failRefresh = true;
+      const started = await payments.prepare(input()), order = await models.Order.findByPk(started.orderId);
+      assert.equal(order.affiliateCommissionCents, 0); assert.equal(order.commissionSnapshot.configuredCommissionBps, 2500);
+    });
+  } finally { await sequelize.close(); }
+});
+
 test('temporary shared sandbox merchant serves all businesses without changing ownership or historical routing',{timeout:60000},async t=>{
   assertManagedTestDatabase();
   const config=require('../src/config').getConfig(),sequelize=createSequelize(config),models=initModels(sequelize);

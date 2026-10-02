@@ -1,0 +1,14 @@
+const { z } = require('zod');
+const count = z.number().int().nonnegative(), time = z.iso.datetime({ offset: true });
+const pageQuery = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), pageSize: z.coerce.number().int().min(1).max(50).default(20) }).strict();
+const sendMessage = z.object({ body: z.string().trim().min(1).max(2000), kind: z.enum(['question', 'refund', 'cancellation']).default('question'), idempotencyKey: z.uuid() }).strict();
+const replyMessage = sendMessage.omit({ kind: true });
+const resolveRequest = z.object({ decision: z.enum(['deny', 'approve']), reason: z.string().trim().min(3).max(500), idempotencyKey: z.uuid() }).strict();
+const refundRequest = z.object({ id: z.uuid(), status: z.enum(['pending', 'approved', 'denied', 'resolved']), kind: z.enum(['refund', 'cancellation']), requestedAt: time, reason: z.string(), resolution: z.string().nullable(), decisionKey:z.uuid().nullable() });
+const thread = z.object({ id: z.uuid(), orderId: z.uuid(), eventId: z.uuid(), eventTitle: z.string(), organizationName: z.string().nullable(), customerName: z.string(), lastMessageAt: time, lastMessagePreview: z.string(), unread: z.boolean(), refundRequest: refundRequest.nullable() });
+const message = z.object({ id: z.uuid(), senderName: z.string(), senderSide: z.enum(['customer', 'business']), body: z.string(), kind: z.enum(['question', 'refund', 'cancellation', 'reply']), createdAt: time });
+const page = item => z.object({ items: z.array(item), total: count, page: count, pageSize: count, hasMore: z.boolean() });
+const inbox = page(thread).extend({ unreadCount: count });
+const detail = z.object({ thread, messages: page(message), canReply: z.boolean(), canRequestRefund: z.boolean(), canResolveRefund: z.boolean() });
+const resolution = z.object({ request: refundRequest, refund: z.object({ refundId: z.uuid(), orderId: z.uuid(), status: z.string() }).catchall(z.json()).nullable() });
+module.exports = { pageQuery, sendMessage, replyMessage, resolveRequest, refundRequest, inbox, detail, resolution };

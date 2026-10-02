@@ -90,12 +90,17 @@ async function start() {
   });
   harness.get('/__e2e/fixture', (_req, res) => res.json(fixture));
   harness.post('/__e2e/my-events-fixture', async (req, res, next) => {
+    if (resetting) return res.status(409).json({ error: 'Fixture reset is running.' });
+    if (typeof req.body.past !== 'boolean') return res.sendStatus(400);
+    resetting = true;
     try {
-      if (resetting) return res.status(409).json({ error: 'Fixture reset is running.' });
-      if (typeof req.body.past !== 'boolean') return res.sendStatus(400);
+      await workerRuntime.stop();
       await drainRequests();
-      res.json(await seedMyEventsScenario(models, config, fixture, { past: req.body.past }));
+      fixture = await seedMyEventsScenario(models, config, fixture, { past: req.body.past });
+      workerRuntime = makeWorker(); await workerRuntime.start();
+      res.json(fixture);
     } catch (error) { next(error); }
+    finally { resetting = false; }
   });
   harness.get('/__e2e/emails', (_req, res) => res.json(emails));
   harness.use((req, res, next) => {

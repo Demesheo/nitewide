@@ -8,6 +8,7 @@ const { accessScopeSql } = require('./event-affiliate-access');
 const { hasInternalPermission } = require('./internal-admin-permissions');
 const { venueMemberSql,venueManagerSql } = require('./venue-access-policy');
 const { canViewEarningsSql } = require('./business-payment-report-policy');
+const { netSubtotalSql, commissionExpenseSql: netCommissionSql, financialOrderSql } = require('./refund-report-policy');
 
 // Every collection and aggregate starts from this SQL scope. In particular, a
 // revoked automatic assignment cannot keep a former staff member in an event.
@@ -159,7 +160,7 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
     }[input.sort] || 'e.starts_at ASC, e.id ASC';
     const salesSort = /^(sales|orders)_/.test(input.sort);
     const salesJoin = salesSort ? `LEFT JOIN LATERAL (
-      SELECT COALESCE(SUM(o.subtotal_cents),0)::bigint AS "salesCents", COUNT(*)::integer AS "paidOrders"
+      SELECT COALESCE(SUM(${netSubtotalSql()}),0)::bigint AS "salesCents", COUNT(*)::integer AS "paidOrders"
       FROM orders o WHERE o.event_id = e.id AND o.status = 'paid' AND o.currency = 'USD' AND ${orderAccess}
     ) sales ON true` : '';
     const [counts] = await select(`SELECT
@@ -175,7 +176,7 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
     const rows = await models.Event.findAll({ where: { id: ids.map((r) => r.id) }, include: [
       { model: models.Location, as: 'location' }, { model: models.Offering, as: 'offerings' } ] });
     const byId = new Map(rows.map((r) => [r.id, r]));
-    const sales = await select(`SELECT o.event_id AS id, COALESCE(SUM(o.subtotal_cents),0)::bigint AS "salesCents", COUNT(*)::integer AS "paidOrders"
+    const sales = await select(`SELECT o.event_id AS id, COALESCE(SUM(${netSubtotalSql()}),0)::bigint AS "salesCents", COUNT(*)::integer AS "paidOrders"
       FROM orders o JOIN events e ON e.id = o.event_id WHERE o.event_id IN (:ids) AND o.status = 'paid' AND o.currency = 'USD' AND ${orderAccess}
       GROUP BY o.event_id`, { ...scope, ids: ids.map((r) => r.id) });
     const bySales = new Map(sales.map((r) => [r.id, r]));
@@ -206,21 +207,21 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
     const values = { ...filter.values, since: range.since, until: range.until, timezone: range.timezone };
     const cte = `WITH scoped_events AS (SELECT e.id FROM events e WHERE ${base}${filter.sql}),
       visible_orders AS (
-        SELECT o.id, o.event_id, o.buyer_user_id, o.subtotal_cents, o.affiliate_commission_cents,
-          o.event_affiliate_id, o.org_affiliate_id, o.paid_at
+        SELECT o.id, o.event_id, o.buyer_user_id, ${netSubtotalSql()} AS subtotal_cents, ${netCommissionSql()} AS affiliate_commission_cents,
+          o.event_affiliate_id, o.org_affiliate_id, o.paid_at,o.status
         FROM orders o JOIN events e ON e.id = o.event_id JOIN scoped_events se ON se.id = e.id
-        WHERE o.status = 'paid' AND o.currency = 'USD' AND o.paid_at >= :since AND o.paid_at < :until AND ${orderAccess}),
+        WHERE ${financialOrderSql()} AND o.currency = 'USD' AND o.paid_at >= :since AND o.paid_at < :until AND ${orderAccess}),
       visible_guests AS (
         SELECT g.id, g.event_id, g.user_id, g.party_size, g.status, g.checked_in_spots
         FROM guestlist_entries g JOIN events e ON e.id = g.event_id JOIN scoped_events se ON se.id = e.id
         WHERE g.created_at >= :since AND g.created_at < :until AND ${guestAccess})`;
     const [financial] = await select(`${cte}
-      SELECT COALESCE(SUM(subtotal_cents),0)::bigint AS "salesCents", COUNT(*)::integer AS orders,
+      SELECT COALESCE(SUM(subtotal_cents),0)::bigint AS "salesCents", COUNT(*) FILTER (WHERE status='paid')::integer AS orders,
       COALESCE(SUM(affiliate_commission_cents),0)::bigint AS "commissionCents",
       COALESCE(SUM(subtotal_cents) FILTER (WHERE event_affiliate_id IS NULL AND org_affiliate_id IS NULL),0)::bigint AS "directSalesCents",
-      COUNT(DISTINCT buyer_user_id)::integer AS customers FROM visible_orders`, values);
+      COUNT(DISTINCT buyer_user_id) FILTER (WHERE status='paid')::integer AS customers FROM visible_orders`, values);
     const [items] = await select(`${cte} SELECT COALESCE(SUM(oi.quantity),0)::bigint AS units
-      FROM order_items oi JOIN visible_orders vo ON vo.id = oi.order_id`, values);
+      FROM order_items oi JOIN visible_orders vo ON vo.id = oi.order_id WHERE vo.status='paid'`, values);
     const [tickets] = await select(`${cte} SELECT COUNT(*) FILTER (WHERE t.status IN ('valid','checked_in'))::integer AS admissions,
       COUNT(*) FILTER (WHERE t.status = 'checked_in')::integer AS "checkedIn"
       FROM tickets t JOIN order_items oi ON oi.id = t.order_item_id JOIN visible_orders vo ON vo.id = oi.order_id`, values);

@@ -5,6 +5,7 @@ function initEvent(sequelize) {
   Event.init({
     id: id(),
     paymentAccountId: { type: DataTypes.UUID, allowNull: true },
+    commissionMinimumSubtotalCents: { type: DataTypes.INTEGER, allowNull: true, validate: { min: 1000, max: 100000000 } },
     lifecycleState: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'active', validate: { isIn: [['active', 'suspended', 'archived']] } },
     creatorUserId: { type: DataTypes.UUID, allowNull: false },
     organizationId: { type: DataTypes.UUID, allowNull: true },

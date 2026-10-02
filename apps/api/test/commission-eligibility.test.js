@@ -8,9 +8,10 @@ function individualContext() {
   return { userId: 'person', now, individualProfile: {
     userId: 'person', lifecycleState: 'active', status: 'active', provider: 'stripe', providerMode: 'test', stripeAccountId: 'acct_person', verifiedAt: now,
     verifiedStripeAccount: { id: 'acct_person', object: 'v2.core.account', livemode: false,
-      identity: { entity_type: 'individual' }, dashboard: 'full', applied_configurations: ['recipient'],
-      configuration: { recipient: { applied: true, capabilities: { stripe_balance: {
-        stripe_transfers: { status: 'active' }, payouts: { status: 'active' },
+      identity: { entity_type: 'individual' }, dashboard: 'full', applied_configurations: ['merchant'],
+      defaults: { responsibilities: { fees_collector: 'stripe', losses_collector: 'stripe', requirements_collector: 'stripe' } },
+      configuration: { merchant: { applied: true, capabilities: { card_payments: { status: 'active' }, stripe_balance: {
+        payouts: { status: 'active' },
       } } } }, requirements: { entries: [] },
     },
   } };
@@ -26,7 +27,7 @@ test('individual setup fails closed while preserving configured terms and permit
   assert.throws(() => assertCommissionEligible(2500), { code: 'COMMISSION_ONBOARDING_REQUIRED', status: 422 });
 });
 
-test('future individual readiness requires server-bound fresh individual recipient evidence', () => {
+test('individual readiness requires server-bound fresh individual merchant evidence', () => {
   const verified = individualContext();
   assert.equal(commissionEligibility(verified).eligible, true);
   assert.equal(commissionTerms(1500, verified).effectiveCommissionBps, 1500);
@@ -37,6 +38,7 @@ test('future individual readiness requires server-bound fresh individual recipie
     (context) => { context.individualProfile.lifecycleState = 'archived'; },
     (context) => { context.individualProfile.status = 'inactive'; },
     (context) => { context.individualProfile.deauthorizedAt = now; },
+    (context) => { context.individualProfile.paymentsDisabledAt = now; },
     (context) => { context.individualProfile.verifiedStripeAccount.closed = true; },
     (context) => { context.individualProfile.providerMode = 'live'; },
     (context) => { context.individualProfile.stripeAccountId = 'acct_unrelated'; },
@@ -46,12 +48,13 @@ test('future individual readiness requires server-bound fresh individual recipie
     (context) => { context.individualProfile.verifiedStripeAccount.identity.entity_type = 'company'; },
     (context) => { context.individualProfile.verifiedStripeAccount.livemode = true; },
     (context) => { context.individualProfile.verifiedStripeAccount.dashboard = 'express'; },
-    (context) => { context.individualProfile.verifiedStripeAccount.applied_configurations = ['merchant']; },
+    (context) => { context.individualProfile.verifiedStripeAccount.applied_configurations = ['recipient']; },
     (context) => { context.individualProfile.verifiedStripeAccount.applied_configurations = 'recipient'; },
-    (context) => { context.individualProfile.verifiedStripeAccount.configuration.recipient.applied = false; },
-    (context) => { context.individualProfile.verifiedStripeAccount.configuration.recipient.applied = 'true'; },
-    (context) => { context.individualProfile.verifiedStripeAccount.configuration.recipient.capabilities.stripe_balance.stripe_transfers.status = 'pending'; },
-    (context) => { context.individualProfile.verifiedStripeAccount.configuration.recipient.capabilities.stripe_balance.payouts.status = 'inactive'; },
+    (context) => { context.individualProfile.verifiedStripeAccount.configuration.merchant.applied = false; },
+    (context) => { context.individualProfile.verifiedStripeAccount.configuration.merchant.applied = 'true'; },
+    (context) => { context.individualProfile.verifiedStripeAccount.configuration.merchant.capabilities.card_payments.status = 'pending'; },
+    (context) => { context.individualProfile.verifiedStripeAccount.configuration.merchant.capabilities.stripe_balance.payouts.status = 'inactive'; },
+    (context) => { context.individualProfile.verifiedStripeAccount.defaults.responsibilities.fees_collector = 'application'; },
     (context) => { context.individualProfile.verifiedStripeAccount.requirements.entries.push({ minimum_deadline: { status: 'currently_due' } }); },
     (context) => { delete context.individualProfile.verifiedStripeAccount.requirements; },
   ]) {
@@ -59,6 +62,13 @@ test('future individual readiness requires server-bound fresh individual recipie
     assert.equal(commissionTerms(1500, context).effectiveCommissionBps, 0);
     assert.throws(() => assertCommissionEligible(1500, context), { code: 'COMMISSION_ONBOARDING_REQUIRED' });
   }
+});
+test('applied merchant timestamps from freshly retrieved provider evidence are supported', () => {
+  const context = individualContext();
+  context.individualProfile.verifiedStripeAccount.configuration.merchant.applied = '2026-09-01T00:00:00Z';
+  assert.equal(commissionEligibility(context).eligible, true);
+  context.individualProfile.verifiedStripeAccount.configuration.merchant.applied = '2027-01-01T00:00:00Z';
+  assert.equal(commissionEligibility(context).eligible, false);
 });
 
 test('shared commission write guard rejects nonzero before database or pricing work', async () => {

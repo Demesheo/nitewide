@@ -2,6 +2,7 @@ const { QueryTypes } = require('sequelize');
 const { assertBusinessAccess } = require('./business-access-policy');
 const { access, base, manages, ownGuestlistReviewAssignments } = require('./business-read-service');
 const { ownCommissionSql, demoOrderSql, verifiedStripeOrderSql } = require('./business-payment-report-policy');
+const { netCommissionSql } = require('./refund-report-policy');
 const { assertActiveEvent } = require('./lifecycle-service');
 const { eventFinished, assertEventEditable } = require('../domain/event-policy');
 const { conflict } = require('../domain/errors');
@@ -69,9 +70,9 @@ function createCustomerMyEventsService({ models, businessRead, businessEventRead
       canReviewGuestlist: byId.get(event.id).canReviewGuestlist, capabilities: byId.get(event.id) })) };
   }
   async function personalEarnings(userId, eventId) {
-    const [row] = await select(`SELECT COALESCE(SUM(o.affiliate_commission_cents),0)::bigint AS earned,
-      COALESCE(SUM(o.affiliate_commission_cents) FILTER (WHERE ${demoOrderSql()}),0)::bigint AS demo,
-      COALESCE(SUM(o.affiliate_commission_cents) FILTER (WHERE ${verifiedStripeOrderSql()}),0)::bigint AS sandbox
+    const [row] = await select(`SELECT COALESCE(SUM(${netCommissionSql()}),0)::bigint AS earned,
+      COALESCE(SUM(${netCommissionSql()}) FILTER (WHERE ${demoOrderSql()}),0)::bigint AS demo,
+      COALESCE(SUM(${netCommissionSql()}) FILTER (WHERE ${verifiedStripeOrderSql()}),0)::bigint AS sandbox
       FROM orders o WHERE o.event_id=:eventId AND o.status='paid' AND o.currency='USD' AND ${ownCommissionSql()}`, { userId, eventId });
     const earned = Number(row.earned), demo = Number(row.demo), sandbox = Number(row.sandbox);
     return { currency: 'USD', earnedCommissionCents: earned, demoCommissionCents: demo, sandboxCommissionCents: sandbox,

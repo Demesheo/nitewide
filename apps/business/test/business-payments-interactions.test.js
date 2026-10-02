@@ -40,7 +40,14 @@ test('payments workspace protects finance scope, switches views and organization
     const mount = props => {
       view?.unmount();
       dom.window.document.body.innerHTML = '<div id="root"></div>';
-      view = render(React.createElement(BusinessPayments, { session, organizations, ...props }), { container: dom.window.document.getElementById('root') });
+      const request = (path, ...args) => {
+        if (path.startsWith('/account/commissions') || path.includes('/commission-statements')) return Promise.resolve({ items: [], total: 0 });
+        if (path.includes('/commission-settings')) return Promise.resolve({ minimumSubtotalCents: 1000, effectiveMinimumSubtotalCents: 1000 });
+        if (path === '/account/commission-payment-profile') return Promise.resolve({ status: 'not_connected', eligibility: { eligible: false } });
+        if (path === '/account/commission-earnings') return props.request('/business/payments/earnings', ...args);
+        return props.request(path, ...args);
+      };
+      view = render(React.createElement(BusinessPayments, { session, organizations, ...props, request }), { container: dom.window.document.getElementById('root') });
       return view;
     };
     const location = search => dom.window.history.replaceState({}, '', `/app?section=payments${search}`);
@@ -72,14 +79,13 @@ test('payments workspace protects finance scope, switches views and organization
       await screen.findByText('$18.00');
       assert.ok(screen.getByRole('heading', { name: 'Commission rate locked at 0%' }));
       assert.ok(screen.getByText(/Historical earnings remain recorded/));
-      assert.ok(screen.getByText('$3.00'));
-      assert.ok(screen.getByText('$42.00'));
+      assert.ok(screen.getByText('Verified Stripe credit'));
+      assert.ok(screen.getByText('Payable', { exact: true }));
       assert.equal(screen.queryByRole('heading', { name: 'Payment accounts' }), null);
       assert.equal(screen.queryByLabelText('Business'), null);
       assert.equal(new URLSearchParams(dom.window.location.search).get('paymentView'), 'commissions');
       assert.equal(new URLSearchParams(dom.window.location.search).has('paymentOrganization'), false);
-      assert.ok(screen.getByText(/Personal Stripe payout accounts .* have not been connected/));
-      assert.equal(screen.getByRole('link', { name: /Open your Stripe dashboard/ }).href, 'https://dashboard.stripe.com/');
+      assert.ok(screen.getByRole('button', { name: 'Connect personal Stripe account' }));
       assert.equal(screen.getByRole('button', { name: 'My commissions', exact: true }).getAttribute('aria-pressed'), 'true');
       await user.click(screen.getByRole('button', { name: 'Business payments', exact: true }));
       await screen.findByRole('heading', { name: 'org-a account' });
@@ -140,7 +146,7 @@ test('payments workspace protects finance scope, switches views and organization
       await screen.findByRole('heading', { name: 'org-a account' });
       const secondSession = { accessToken: 'other-token', user: { id: 'user-b' } };
       view.rerender(React.createElement(BusinessPayments, { session: secondSession, organizations, request }));
-      await waitFor(() => assert.equal(pending.length, 2));
+      await waitFor(() => assert.equal(pending.length, 4));
       assert.equal(screen.queryByText('$125.00'), null);
       assert.equal(screen.queryByRole('heading', { name: 'org-a account' }), null);
       view.rerender(React.createElement(BusinessPayments, { session: secondSession, organizations: organizations.map(org => ({ ...org, canManageFinance: false })), request }));

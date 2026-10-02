@@ -3,6 +3,8 @@ const { pageResult } = require('./business-read-service');
 const { resolvePaidRange } = require('./business-report-period');
 const { notFound } = require('../domain/errors');
 const { commissionTerms } = require('../domain/commission-eligibility');
+const { persistedCommissionTerms } = require('./commission-profile-repository');
+const { netSubtotalSql, commissionExpenseSql: netCommissionSql, financialOrderSql } = require('./refund-report-policy');
 
 const membersSql = `WITH team AS (
   SELECT DISTINCT ON (user_id) user_id, role, status, joined, finance_authorized, payment_disconnect_authorized FROM (
@@ -17,13 +19,13 @@ const membersSql = `WITH team AS (
       WHERE organization_id = :organizationId AND status = 'active' AND code NOT LIKE '%-STAFF'
   ) roles ORDER BY user_id, priority ASC
 ), sales AS (
-  SELECT credited.user_id, COUNT(*)::integer AS orders, SUM(o.subtotal_cents)::bigint AS "salesCents",
-    SUM(o.affiliate_commission_cents)::bigint AS "commissionCents", COUNT(DISTINCT o.buyer_user_id)::integer AS customers
+  SELECT credited.user_id, COUNT(*) FILTER (WHERE o.status='paid')::integer AS orders, SUM(${netSubtotalSql()})::bigint AS "salesCents",
+    SUM(${netCommissionSql()})::bigint AS "commissionCents", COUNT(DISTINCT o.buyer_user_id) FILTER (WHERE o.status='paid')::integer AS customers
   FROM orders o JOIN events e ON e.id = o.event_id
   LEFT JOIN event_affiliates ea ON ea.id = o.event_affiliate_id
   LEFT JOIN org_affiliates oa ON oa.id = o.org_affiliate_id
   CROSS JOIN LATERAL (SELECT COALESCE(ea.user_id, oa.user_id) AS user_id) credited
-  WHERE e.organization_id = :organizationId AND o.status = 'paid' AND o.currency = 'USD'
+  WHERE e.organization_id = :organizationId AND ${financialOrderSql()} AND o.currency = 'USD'
     AND o.paid_at >= :since AND o.paid_at < :until AND credited.user_id IS NOT NULL
   GROUP BY credited.user_id
 ), rows AS (
@@ -31,6 +33,7 @@ const membersSql = `WITH team AS (
     team.finance_authorized AS "financeAuthorized",
     team.payment_disconnect_authorized AS "paymentDisconnectAuthorized",
     COALESCE(rate_oa.default_commission_bps,0)::integer AS "configuredCommissionBps",
+    COALESCE(rate_oa.default_commission_bps,0)::integer AS "defaultCommissionBps",rate_oa.id IS NOT NULL AS "activeOrgAffiliate",
     COALESCE(sales.orders,0)::integer AS orders, COALESCE(sales."salesCents",0)::bigint AS "salesCents",
     COALESCE(sales."commissionCents",0)::bigint AS "commissionCents", COALESCE(sales.customers,0)::integer AS customers
   FROM team JOIN users u ON u.id = team.user_id LEFT JOIN sales ON sales.user_id = team.user_id
@@ -64,12 +67,12 @@ function createBusinessTeamReadService({ models, permissions, now = () => new Da
       searchPattern: `%${input.search.replace(/[\\%_]/g, '\\$&')}%`, pageSize: input.pageSize, offset: (input.page - 1) * input.pageSize };
     const [count] = await select(`SELECT COUNT(*)::integer AS total FROM (${membersSql}) team_rows`, values);
     const rows = await select(`SELECT * FROM (${membersSql}) team_rows ORDER BY ${sorts[input.sort]} LIMIT :pageSize OFFSET :offset`, values);
-    return { ...pageResult(rows.map((row) => {
-      const terms = commissionTerms(Number(row.configuredCommissionBps || 0));
+    return { ...pageResult(await Promise.all(rows.map(async (row) => {
+      const terms = await persistedCommissionTerms(models, row.id, Number(row.configuredCommissionBps || 0), { now: now() });
       return { ...row, ...terms, commissionBps: terms.effectiveCommissionBps,
         salesCents: Number(row.salesCents), commissionCents: Number(row.commissionCents) };
-    }),
-      count.total, input.page, input.pageSize), range, organizationVersion: organization.version, canGrantFinance: Boolean(owner) };
+    })),
+      count.total, input.page, input.pageSize), range, organizationVersion: organization.version, canGrantFinance: Boolean(owner),canManageCommissionDefaults:Boolean(await permissions.canManageFinance(userId,organizationId)) };
   }
   async function invitations(userId, organizationId, input) {
     await permissions.assertManageOrganization(userId, organizationId);

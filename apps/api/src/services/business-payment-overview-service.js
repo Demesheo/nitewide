@@ -2,7 +2,8 @@ const { QueryTypes } = require('sequelize');
 const { forbidden } = require('../domain/errors');
 const { mutationTransaction } = require('./mutation-transaction');
 const { assertFinanceAccess } = require('./business-payment-account-service');
-const { assertBusinessAccess } = require('./business-access-policy');
+const { assertActiveUser } = require('./lifecycle-service');
+const { refundedTotalSql, refundedCommissionSql, netCommissionSql } = require('./refund-report-policy');
 const { verifiedStripeOrderSql, ownCommissionSql, demoOrderSql, canViewEarningsSql } = require('./business-payment-report-policy');
 
 function createBusinessPaymentOverviewService({ models }) {
@@ -22,8 +23,8 @@ function createBusinessPaymentOverviewService({ models }) {
         WHERE e.organization_id=:organizationId AND o.provider_mode='test'
       ) SELECT UPPER(o.currency) AS currency,
         COALESCE(SUM(o.total_cents) FILTER (WHERE verified AND o.status IN ('paid','refunded')),0)::bigint AS "collectedCents",
-        COALESCE(SUM(o.total_cents) FILTER (WHERE verified AND o.status='refunded'),0)::bigint AS "refundedCents",
-        COALESCE(SUM(o.total_cents) FILTER (WHERE verified AND o.status='paid'),0)::bigint AS "netCollectedCents",
+        COALESCE(SUM(${refundedTotalSql()}) FILTER (WHERE verified AND o.status IN ('paid','refunded')),0)::bigint AS "refundedCents",
+        COALESCE(SUM(o.total_cents-${refundedTotalSql()}) FILTER (WHERE verified AND o.status IN ('paid','refunded')),0)::bigint AS "netCollectedCents",
         COUNT(*) FILTER (WHERE verified AND o.status='paid')::integer AS "paidOrders",
         COUNT(*) FILTER (WHERE verified AND o.status='refunded')::integer AS "refundedOrders",
         COUNT(*) FILTER (WHERE o.status='pending' AND o.provider_verification_status<>'review')::integer AS "pendingOrders",
@@ -38,24 +39,44 @@ function createBusinessPaymentOverviewService({ models }) {
   }
   async function earnings(userId) {
     return mutationTransaction(sequelize, async transaction => {
-      await assertBusinessAccess(models, userId, transaction);
+      assertActiveUser(await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.SHARE }));
       const [access] = await select(`SELECT ${canViewEarningsSql} AS allowed`, { userId }, transaction);
       if (!access?.allowed) throw forbidden('An affiliate assignment or historical own earnings is required');
       const rows = await select(`WITH own_orders AS (
         SELECT o.*, ${verifiedStripeOrderSql()} AS verified, ${demoOrderSql()} AS demo
         FROM orders o WHERE o.affiliate_commission_cents>0 AND o.status IN ('paid','refunded') AND ${ownCommissionSql()}
       ) SELECT UPPER(o.currency) AS currency,
-        COALESCE(SUM(o.affiliate_commission_cents) FILTER (WHERE verified AND o.status='paid'),0)::bigint AS "verifiedEarnedCents",
-        COALESCE(SUM(o.affiliate_commission_cents) FILTER (WHERE verified AND o.status='refunded'),0)::bigint AS "verifiedRefundedCents",
-        COALESCE(SUM(o.affiliate_commission_cents) FILTER (WHERE demo AND o.status='paid'),0)::bigint AS "demoEarnedCents",
-        COALESCE(SUM(o.affiliate_commission_cents) FILTER (WHERE demo AND o.status='refunded'),0)::bigint AS "demoRefundedCents",
+        COALESCE(SUM(${netCommissionSql()}) FILTER (WHERE verified),0)::bigint AS "verifiedEarnedCents",
+        COALESCE(SUM(${refundedCommissionSql()}) FILTER (WHERE verified),0)::bigint AS "verifiedRefundedCents",
+        COALESCE(SUM(${netCommissionSql()}) FILTER (WHERE demo),0)::bigint AS "demoEarnedCents",
+        COALESCE(SUM(${refundedCommissionSql()}) FILTER (WHERE demo),0)::bigint AS "demoRefundedCents",
         COUNT(*) FILTER (WHERE verified AND o.status='paid')::integer AS "verifiedPaidOrders",
         COUNT(*) FILTER (WHERE verified AND o.status='refunded')::integer AS "verifiedRefundedOrders",
         COUNT(*) FILTER (WHERE demo AND o.status='paid')::integer AS "demoPaidOrders",
         COUNT(*) FILTER (WHERE demo AND o.status='refunded')::integer AS "demoRefundedOrders"
         FROM own_orders o WHERE verified OR demo GROUP BY UPPER(o.currency) ORDER BY UPPER(o.currency)`, { userId }, transaction);
-      return { period: 'all_time', scope: 'own', currencies: rows.map(numeric), receivedPayouts: null,
-        dashboardConnected: null, dashboardUrl: null, payoutsUnavailableReason: 'not_connected' };
+      const ledgerRows = await select(`SELECT UPPER(ce.currency) AS currency,
+        SUM(ce.unpaid_commission_cents)::bigint AS "unpaidCommissionCents",
+        SUM(ce.unpaid_commission_cents-ce.reserved_commission_cents) FILTER (WHERE ce.refund_hold OR ce.dispute_hold)::bigint AS "heldCommissionCents",
+        SUM(ce.unpaid_commission_cents-ce.reserved_commission_cents) FILTER (WHERE NOT ce.refund_hold AND NOT ce.dispute_hold AND cs.available_at<=NOW() AND e.ends_at+INTERVAL '48 hours'<=NOW())::bigint AS "payableCommissionCents",
+        SUM(ce.reserved_commission_cents)::bigint AS "reservedCommissionCents",
+        SUM(ce.paid_commission_cents)::bigint AS "paidCommissionCents",
+        SUM(ce.business_loss_cents)::bigint AS "businessLossCents"
+        FROM commission_earnings ce JOIN commission_statements cs ON cs.id=ce.statement_id JOIN events e ON e.id=ce.event_id
+        WHERE ce.recipient_user_id=:userId GROUP BY UPPER(ce.currency)`, { userId }, transaction);
+      const zeroOrder = { verifiedEarnedCents:0,verifiedRefundedCents:0,demoEarnedCents:0,demoRefundedCents:0,
+        verifiedPaidOrders:0,verifiedRefundedOrders:0,demoPaidOrders:0,demoRefundedOrders:0 };
+      const zeroLedger = { unpaidCommissionCents:0,heldCommissionCents:0,payableCommissionCents:0,reservedCommissionCents:0,paidCommissionCents:0,businessLossCents:0 };
+      const currencies = new Map(rows.map(row => [row.currency,{ ...zeroLedger,...numeric(row) }]));
+      for (const row of ledgerRows) currencies.set(row.currency,{ ...zeroOrder,...currencies.get(row.currency),...numeric(row) });
+      const creditRows = await select(`SELECT UPPER(currency) AS currency,
+        COALESCE(SUM(provider_net_cents) FILTER (WHERE provider_verification_status='verified' AND status IN ('paid','paid_fee_review')),0)::bigint AS "creditedCents",
+        COALESCE(SUM(provider_net_cents-invoicing_fee_cents) FILTER (WHERE provider_verification_status='verified' AND fee_evidence='provider_verified' AND status='paid'),0)::bigint AS "verifiedNetCents",
+        COALESCE(SUM(provider_net_cents-invoicing_fee_cents) FILTER (WHERE provider_verification_status='verified' AND fee_evidence='merchant_reviewed' AND status='paid'),0)::bigint AS "merchantReviewedNetCents",
+        COUNT(*) FILTER (WHERE status='paid_fee_review')::integer AS "feeReviewPayments"
+        FROM commission_payments WHERE recipient_user_id=:userId AND status IN ('paid','paid_fee_review','reversed','disputed') GROUP BY UPPER(currency)`, { userId }, transaction);
+      return { period: 'all_time', scope: 'own', currencies: [...currencies.values()], receivedPayouts: { currencies: creditRows.map(numeric),bankPayouts:null },
+        dashboardConnected: null, dashboardUrl: null, payoutsUnavailableReason: 'bank_payouts_not_tracked' };
     });
   }
   return { overview, earnings };

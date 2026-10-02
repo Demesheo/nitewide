@@ -15,7 +15,7 @@ const accounts = {
   promoter: { id: uuid(5), email: 'promoter@playwright.nitewide.test', name: 'Leo Promoter' },
 };
 let passwordRecord;
-async function seed(models, config) {
+async function seed(models, config, { credited = false } = {}) {
   const databaseUrl = require('../apps/api/scripts/test-database.cjs').assertManagedTestDatabase();
   const databaseName = new URL(databaseUrl).pathname.slice(1);
   if (config.DATABASE_URL !== databaseUrl || models.User.sequelize.getDatabaseName() !== databaseName) {
@@ -53,16 +53,17 @@ async function seed(models, config) {
         title: index === 0 ? 'Playwright Friday Night' : `Playwright Night ${String(index + 1).padStart(2, '0')}`,
         slug: `playwright-night-${index}`, category: 'nightlife', description: 'Deterministic browser test event.', startsAt, endsAt: new Date(+startsAt + 4 * 3600000), status: 'published', capacity: 100, guestlistCapacity: 60 }, options);
       await models.Offering.create({ id: uuid(200 + index), eventId, name: 'General Admission', kind: 'ticket', priceCents: 2500, quantityTotal: 100, quantitySold: index < 12 ? 1 : 0 }, options);
+      if (index === 0) await models.EventAffiliate.create({ id: ids.affiliate, eventId, userId: accounts.promoter.id, code: 'PW-EVENT-LEO', status: 'active', guestlistAllocation: 10, commissionBps: 500, accessScope: 'event' }, options);
       if (index < 12) {
+        const attribution = credited && index === 0 ? { eventAffiliateId: ids.affiliate, affiliateCommissionCents: 125 } : {};
         await models.Order.create({ id: uuid(400 + index), eventId, buyerUserId: accounts.customer.id, status: 'paid', subtotalCents: 2500, totalCents: 2800, platformFeeCents: 300,
-          paidAt: new Date(), idempotencyKey: `playwright-order-${index}`, pricingPlanSnapshot: { demo: true } }, options);
+          ...attribution, paidAt: new Date(), idempotencyKey: `playwright-order-${index}`, pricingPlanSnapshot: { demo: true } }, options);
         await models.OrderItem.create({ id: uuid(500 + index), orderId: uuid(400 + index), offeringId: uuid(200 + index), nameSnapshot: 'General Admission', kindSnapshot: 'ticket', quantity: 1, entriesPerUnitSnapshot: 1, unitPriceCents: 2500, lineTotalCents: 2500 }, options);
         await models.Ticket.create({ id: uuid(600 + index), eventId, orderItemId: uuid(500 + index), holderUserId: accounts.customer.id, status: 'valid', qrTokenHash: qrHash(uuid(600 + index)) }, options);
       }
     }
     await models.Event.create({ id: ids.draft, organizationId: ids.org, creatorUserId: accounts.business.id, locationId: ids.location, title: 'Playwright Draft', slug: 'playwright-draft', status: 'draft', startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 90000000), guestlistCapacity: 10 }, options);
     await models.Offering.create({ id: ids.package, eventId: ids.event, name: 'VIP Package', kind: 'package', priceCents: 30000, entriesPerUnit: 3, quantityTotal: 10 }, options);
-    await models.EventAffiliate.create({ id: ids.affiliate, eventId: ids.event, userId: accounts.promoter.id, code: 'PW-EVENT-LEO', status: 'active', guestlistAllocation: 10, commissionBps: 500, accessScope: 'event' }, options);
     const managerAffiliate = await models.OrgAffiliate.findOne({ where: { organizationId: ids.org, userId: accounts.business.id }, transaction });
     await models.EventAffiliate.create({ id: uuid(901), eventId: ids.event, userId: accounts.business.id, orgAffiliateId: managerAffiliate.id, code: 'PW-EVENT-SAM', status: 'active', guestlistAllocation: 10, commissionBps: 0, accessScope: 'organization' }, options);
     await models.GuestlistEntry.bulkCreate([{ id: ids.entry, eventId: ids.event, userId: accounts.customer.id, status: 'confirmed', partySize: 3, source: 'event', qrTokenHash: qrHash(ids.entry) },
@@ -82,8 +83,9 @@ async function seedMyEventsScenario(models, config, fixture, { past = false } = 
   if (config.DATABASE_URL !== databaseUrl || models.User.sequelize.getDatabaseName() !== new URL(databaseUrl).pathname.slice(1)) {
     throw new Error('My events scenarios require the managed Playwright database.');
   }
+  // Attribution is set before the payment becomes immutable, never rewritten.
+  fixture = await seed(models,config,{credited:true});
   await models.User.sequelize.transaction(async transaction => {
-    await models.Order.update({ eventAffiliateId: fixture.ids.affiliate, affiliateCommissionCents: 125 }, { where: { id: fixture.ids.order }, transaction });
     await models.Order.create({ id: uuid(450), eventId: fixture.ids.event, buyerUserId: accounts.pending.id, status: 'paid', subtotalCents: 4000, totalCents: 4400,
       platformFeeCents: 400, paidAt: new Date(), idempotencyKey: 'my-events-uncredited-order', pricingPlanSnapshot: { demo: true } }, { transaction });
     await models.OrderItem.create({ id: uuid(550), orderId: uuid(450), offeringId: fixture.ids.offering, nameSnapshot: 'General Admission', kindSnapshot: 'ticket', quantity: 1, entriesPerUnitSnapshot: 1, unitPriceCents: 4000, lineTotalCents: 4000 }, { transaction });

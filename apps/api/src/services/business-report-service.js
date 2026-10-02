@@ -2,6 +2,7 @@ const { QueryTypes, Transaction } = require('sequelize');
 const { base, manages, orderAccess, pageResult } = require('./business-read-service');
 const { venueKey } = require('./venue-scope');
 const { calendarPeriod: period, resolvePaidRange } = require('./business-report-period');
+const { netSubtotalSql, commissionExpenseSql, financialOrderSql, netItemSql } = require('./refund-report-policy');
 
 const number = (value) => Number(value || 0);
 const regionExpression = `CASE WHEN NULLIF(TRIM(loc.city), '') IS NULL THEN 'Unspecified region'
@@ -67,23 +68,28 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
       WHERE ${includeHistorical && actor.isAdmin ? 'TRUE' : base} ${conditions.join(' ')}),
       eligible_orders AS MATERIALIZED (
         SELECT o.id, o.event_id, o.buyer_user_id, o.subtotal_cents, o.affiliate_commission_cents,
+          o.refunded_subtotal_cents,o.refunded_total_cents,o.refunded_commission_cents,
           o.platform_fee_cents, o.total_cents, o.pricing_plan_snapshot, o.status, o.currency,
           o.event_affiliate_id, o.org_affiliate_id, o.paid_at
         FROM orders o JOIN scoped_events se ON se.id = o.event_id
         LEFT JOIN event_affiliates ea ON ea.id = o.event_affiliate_id
         LEFT JOIN org_affiliates oa ON oa.id = o.org_affiliate_id
-        WHERE o.status = 'paid' AND o.currency = 'USD' AND o.paid_at >= :since AND o.paid_at < :until
+        WHERE ${financialOrderSql()} AND o.currency = 'USD' AND o.paid_at >= :since AND o.paid_at < :until
           AND (:isAdmin OR se.can_manage OR ea.user_id = :userId OR (o.event_affiliate_id IS NULL AND oa.user_id = :userId AND oa.status = 'active'))
           AND (NOT :hasPerson OR COALESCE(ea.user_id, oa.user_id) = :personId)
           AND (NOT :hasCustomer OR o.buyer_user_id = :customerId)),
-      visible_items AS MATERIALIZED (
-        SELECT oi.id, oi.order_id, oi.offering_id, oi.kind_snapshot, oi.name_snapshot, oi.quantity, oi.line_total_cents
+      adjusted_items AS MATERIALIZED (
+        SELECT oi.id, oi.order_id, oi.offering_id, oi.kind_snapshot, oi.name_snapshot, CASE WHEN eo.status='paid' THEN oi.quantity ELSE 0 END AS quantity,
+          CASE WHEN eo.subtotal_cents=0 THEN 0 ELSE ${netItemSql()} END::bigint AS line_total_cents
         FROM order_items oi JOIN eligible_orders eo ON eo.id = oi.order_id
+      ),
+      visible_items AS MATERIALIZED (
+        SELECT oi.* FROM adjusted_items oi
         WHERE NOT :hasOffering OR (:hasOfferingId AND oi.offering_id = :offeringId)
           OR (NOT :hasOfferingId AND oi.kind_snapshot = :offeringKind AND oi.name_snapshot = :offeringName)),
       visible_orders AS MATERIALIZED (
-        SELECT eo.*, CASE WHEN :hasOffering THEN COALESCE(item_totals.sales_cents,0) ELSE eo.subtotal_cents END AS report_sales_cents,
-          CASE WHEN :hasOffering THEN NULL ELSE eo.affiliate_commission_cents END AS report_commission_cents
+        SELECT eo.*, CASE WHEN :hasOffering THEN COALESCE(item_totals.sales_cents,0) ELSE ${netSubtotalSql('eo')} END AS report_sales_cents,
+          CASE WHEN :hasOffering THEN NULL ELSE ${commissionExpenseSql('eo')} END AS report_commission_cents
         FROM eligible_orders eo LEFT JOIN (SELECT order_id, SUM(line_total_cents)::bigint AS sales_cents
           FROM visible_items GROUP BY order_id) item_totals ON item_totals.order_id = eo.id
         WHERE NOT :hasOffering OR item_totals.order_id IS NOT NULL),
@@ -107,7 +113,7 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
       summary_financial AS (SELECT COALESCE(SUM(report_sales_cents),0)::bigint AS "salesCents",
       COALESCE(SUM(report_commission_cents),0)::bigint AS "commissionCents",
       COALESCE(SUM(report_sales_cents) FILTER (WHERE event_affiliate_id IS NULL AND org_affiliate_id IS NULL),0)::bigint AS "directSalesCents",
-      COUNT(*)::integer AS orders, COUNT(DISTINCT buyer_user_id)::integer AS customers FROM visible_orders),
+      COUNT(*) FILTER (WHERE status='paid')::integer AS orders, COUNT(DISTINCT buyer_user_id) FILTER (WHERE status='paid')::integer AS customers FROM visible_orders),
       summary_units AS (SELECT COALESCE(SUM(oi.quantity),0)::bigint AS units
       FROM visible_items oi JOIN visible_orders vo ON vo.id = oi.order_id),
       summary_tickets AS (SELECT COUNT(*) FILTER (WHERE t.status IN ('valid','checked_in'))::integer AS admissions,
@@ -119,10 +125,10 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
       summary_activeEventCount AS (SELECT COUNT(*)::integer AS events FROM report_events se
       JOIN events e ON e.id = se.id WHERE e.status = 'published' AND e.ends_at >= :currentTime),
       summary_daily AS (SELECT to_char(paid_at AT TIME ZONE :timezone,'YYYY-MM-DD') AS date,
-      SUM(report_sales_cents)::bigint AS "salesCents", COUNT(*)::integer AS orders
+      SUM(report_sales_cents)::bigint AS "salesCents", COUNT(*) FILTER (WHERE status='paid')::integer AS orders
       FROM visible_orders GROUP BY 1 ORDER BY 1),
       summary_channels AS (SELECT CASE WHEN event_affiliate_id IS NULL AND org_affiliate_id IS NULL THEN 'Direct' ELSE 'Referral' END AS label,
-      SUM(report_sales_cents)::bigint AS "salesCents", COUNT(*)::integer AS orders
+      SUM(report_sales_cents)::bigint AS "salesCents", COUNT(*) FILTER (WHERE status='paid')::integer AS orders
       FROM visible_orders GROUP BY 1 ORDER BY "salesCents" DESC, label ASC),
       summary_regionalMix AS (WITH region_sales AS (
       SELECT se.region AS id, se.region AS label, SUM(vo.report_sales_cents)::bigint AS "salesCents"
@@ -132,7 +138,7 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
       UNION ALL SELECT 'other', 'Other regions', SUM("salesCents")::bigint FROM ranked WHERE rank > 6 HAVING COUNT(*) > 0),
       summary_category AS (WITH category_totals AS (
       SELECT COALESCE(NULLIF(e.category,''),'Other') AS label,
-        SUM(vo.report_sales_cents)::bigint AS "salesCents", COUNT(*)::integer AS orders
+        SUM(vo.report_sales_cents)::bigint AS "salesCents", COUNT(*) FILTER (WHERE vo.status='paid')::integer AS orders
       FROM visible_orders vo JOIN events e ON e.id = vo.event_id GROUP BY 1),
       ranked AS (SELECT *, ROW_NUMBER() OVER (ORDER BY "salesCents" DESC, label ASC) AS rank FROM category_totals)
       SELECT label, "salesCents", orders FROM ranked WHERE rank <= 12
@@ -140,7 +146,7 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
       FROM ranked WHERE rank > 12 HAVING COUNT(*) > 0 ORDER BY "salesCents" DESC, label ASC),
       summary_offerings AS (WITH offering_totals AS (
       SELECT oi.kind_snapshot AS kind, oi.name_snapshot AS label,
-        SUM(oi.line_total_cents)::bigint AS "salesCents", SUM(oi.quantity)::bigint AS units, COUNT(DISTINCT vo.id)::integer AS orders
+        SUM(oi.line_total_cents)::bigint AS "salesCents", SUM(oi.quantity)::bigint AS units, COUNT(DISTINCT vo.id) FILTER (WHERE vo.status='paid')::integer AS orders
       FROM visible_items oi JOIN visible_orders vo ON vo.id = oi.order_id GROUP BY oi.kind_snapshot, oi.name_snapshot),
       ranked AS (SELECT *, ROW_NUMBER() OVER (ORDER BY "salesCents" DESC, label ASC, kind ASC) AS rank FROM offering_totals)
       SELECT kind, label, "salesCents", units, orders FROM ranked WHERE rank <= 12
@@ -148,7 +154,7 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
       FROM ranked WHERE rank > 12 HAVING COUNT(*) > 0 ORDER BY "salesCents" DESC, label ASC),
       summary_eventMix AS (WITH event_totals AS (
       SELECT se.id, se.title AS label, se.starts_at AS "startsAt", se.venue_timezone AS "venueTimezone",
-        SUM(vo.report_sales_cents)::bigint AS "salesCents", COUNT(*)::integer AS orders
+        SUM(vo.report_sales_cents)::bigint AS "salesCents", COUNT(*) FILTER (WHERE vo.status='paid')::integer AS orders
       FROM visible_orders vo JOIN report_events se ON se.id = vo.event_id GROUP BY se.id, se.title, se.starts_at, se.venue_timezone),
       ranked AS (SELECT *, ROW_NUMBER() OVER (ORDER BY "salesCents" DESC, id ASC) AS rank FROM event_totals)
       SELECT id::text, label, "startsAt", "venueTimezone", "salesCents", orders FROM ranked WHERE rank <= 6
@@ -222,9 +228,9 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
         MIN(se.venue_address) AS "venueAddress", MIN(se.venue_city) AS "venueCity",
         MIN(se.venue_region) AS "venueRegion", MIN(se.venue_country) AS "venueCountry",
         COUNT(*)::integer AS events FROM report_events se ${eligible} GROUP BY ${groupKey('se')}) groups
-      LEFT JOIN (SELECT ${groupKey('se')} AS id, COUNT(*)::integer AS orders,
+      LEFT JOIN (SELECT ${groupKey('se')} AS id, COUNT(*) FILTER (WHERE vo.status='paid')::integer AS orders,
         SUM(vo.report_sales_cents)::bigint AS "salesCents", SUM(vo.report_commission_cents)::bigint AS "commissionCents",
-        COUNT(DISTINCT vo.buyer_user_id)::integer AS customers
+        COUNT(DISTINCT vo.buyer_user_id) FILTER (WHERE vo.status='paid')::integer AS customers
         FROM visible_orders vo JOIN report_events se ON se.id = vo.event_id GROUP BY ${groupKey('se')}) os ON os.id = groups.id
       LEFT JOIN (SELECT ${groupKey('se')} AS id, SUM(oi.quantity)::bigint AS units
         FROM visible_items oi JOIN visible_orders vo ON vo.id = oi.order_id JOIN report_events se ON se.id = vo.event_id
@@ -258,8 +264,8 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
         COALESCE(ts.admissions,0)::integer AS admissions, COALESCE(ts."checkedIn",0)::integer + COALESCE(gs."checkedIn",0)::integer AS "checkedIn",
         COALESCE(gs."guestlistPlaces",0)::integer AS "guestlistPlaces"
         FROM report_events se
-        LEFT JOIN (SELECT event_id, COUNT(*)::integer AS orders, SUM(report_sales_cents)::bigint AS "salesCents",
-          SUM(report_commission_cents)::bigint AS "commissionCents", COUNT(DISTINCT buyer_user_id)::integer AS customers
+        LEFT JOIN (SELECT event_id, COUNT(*) FILTER (WHERE status='paid')::integer AS orders, SUM(report_sales_cents)::bigint AS "salesCents",
+          SUM(report_commission_cents)::bigint AS "commissionCents", COUNT(DISTINCT buyer_user_id) FILTER (WHERE status='paid')::integer AS customers
           FROM visible_orders GROUP BY event_id) os ON os.event_id = se.id
         LEFT JOIN (SELECT vo.event_id, SUM(oi.quantity)::bigint AS units FROM visible_items oi JOIN visible_orders vo ON vo.id = oi.order_id GROUP BY vo.event_id) its ON its.event_id = se.id
         LEFT JOIN (SELECT vo.event_id, COUNT(*) FILTER (WHERE t.status IN ('valid','checked_in'))::integer AS admissions,
@@ -272,7 +278,7 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
     offerings: {
       base: `SELECT (oi.kind_snapshot || ':' || oi.name_snapshot) AS id, oi.name_snapshot AS label,
         oi.kind_snapshot AS kind, SUM(oi.line_total_cents)::bigint AS "salesCents",
-        SUM(oi.quantity)::bigint AS units, COUNT(DISTINCT vo.id)::integer AS orders
+        SUM(oi.quantity)::bigint AS units, COUNT(DISTINCT vo.id) FILTER (WHERE vo.status='paid')::integer AS orders
         FROM visible_items oi JOIN visible_orders vo ON vo.id = oi.order_id
         GROUP BY oi.kind_snapshot, oi.name_snapshot`,
       sorts: { sales_desc: '"salesCents" DESC, id ASC', sales_asc: '"salesCents" ASC, id ASC', name_asc: 'label ASC, id ASC', name_desc: 'label DESC, id ASC', orders_desc: 'orders DESC, id ASC', orders_asc: 'orders ASC, id ASC' },
@@ -307,9 +313,9 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
             JOIN event_affiliates ea ON ea.id = g.event_affiliate_id),
         people AS (SELECT user_id, MAX(priority) AS priority FROM participants GROUP BY user_id),
         credited_sales AS (SELECT COALESCE(ea.user_id, oa.user_id) AS user_id,
-          COUNT(*)::integer AS orders, SUM(vo.report_sales_cents)::bigint AS "salesCents",
+          COUNT(*) FILTER (WHERE vo.status='paid')::integer AS orders, SUM(vo.report_sales_cents)::bigint AS "salesCents",
           SUM(vo.report_commission_cents)::bigint AS "commissionCents",
-          COUNT(DISTINCT vo.buyer_user_id)::integer AS customers
+          COUNT(DISTINCT vo.buyer_user_id) FILTER (WHERE vo.status='paid')::integer AS customers
           FROM visible_orders vo LEFT JOIN event_affiliates ea ON ea.id = vo.event_affiliate_id
           LEFT JOIN org_affiliates oa ON oa.id = vo.org_affiliate_id
           WHERE COALESCE(ea.user_id, oa.user_id) IS NOT NULL GROUP BY 1),
@@ -335,7 +341,7 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
     customers: {
       base: `SELECT vo.buyer_user_id::text AS id,
         vo.buyer_user_id AS "buyerUserId", u.display_name AS label, u.email,
-        COUNT(*)::integer AS orders, SUM(vo.report_sales_cents)::bigint AS "salesCents",
+        COUNT(*) FILTER (WHERE vo.status='paid')::integer AS orders, SUM(vo.report_sales_cents)::bigint AS "salesCents",
         COALESCE(SUM(item_totals.units),0)::bigint AS units
         FROM visible_orders vo JOIN users u ON u.id = vo.buyer_user_id
         LEFT JOIN (SELECT order_id, SUM(quantity)::bigint AS units FROM visible_items GROUP BY order_id) item_totals ON item_totals.order_id = vo.id

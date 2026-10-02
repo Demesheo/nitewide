@@ -1,5 +1,6 @@
 // Only customer-owned booking notifications may open admission credentials.
 export function notificationTarget(item) {
+  if (item.metadata?.threadId) return { type: 'message', id: item.metadata.threadId };
   if (item.kind === 'checkout_pending') return { type: 'checkout', id: item.metadata?.orderId };
   if (item.kind === 'purchase_confirmed') return { type: 'booking', kind: 'purchase', id: item.metadata?.orderId };
   if (['guestlist_approved', 'guestlist_invited', 'guestlist_declined'].includes(item.kind)) {

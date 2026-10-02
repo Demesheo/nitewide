@@ -1,0 +1,46 @@
+.commission-settings, .commission-connection, .commission-statements, .my-commissions { display: grid; gap: 16px; min-width: 0; padding: 20px; }
+.customer-referral-earnings { display: grid; gap: 16px; grid-column: 1 / -1; }
+.customer-referral-earnings .panel { border: 1px solid var(--border, #39333e); border-radius: 14px; }
+.customer-referral-earnings .section-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+.commission-settings h3, .commission-connection h3 { margin: 0 0 8px; }
+.commission-settings p, .commission-connection p { line-height: 1.6; }
+.commission-settings form { display: grid; gap: 12px; max-width: 560px; }
+.commission-settings form > label { display: grid; gap: 8px; }
+.commission-settings input[type="number"] { min-height: 44px; width: 100%; border: 1px solid var(--border, #39333e); border-radius: 10px; background: #24232d; color: inherit; padding: 10px 12px; }
+.commission-default-rate { display: grid; gap: 10px; border-top: 1px solid var(--border, #39333e); padding-top: 16px; }
+.commission-default-rate form, .commission-default-rate label { display: grid; gap: 10px; }
+.commission-default-rate input { min-height: 44px; width: 100%; border: 1px solid var(--border, #39333e); border-radius: 10px; padding: 10px 12px; background: #24232d; color: inherit; }
+.commission-checkbox { display: flex !important; align-items: flex-start; gap: 10px; line-height: 1.6; }
+.commission-checkbox input { flex: none; width: 18px; height: 18px; margin-top: 3px; accent-color: #b6a6ff; }
+.commission-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.commission-actions button { min-height: 44px; }
+.commission-statement-list { display: grid; gap: 12px; }
+.commission-statement { display: grid; gap: 12px; min-width: 0; border: 1px solid var(--border, #39333e); border-radius: 14px; padding: 16px; }
+.commission-statement h3, .commission-statement p, .commission-statement small { overflow-wrap: anywhere; }
+.commission-statement p { margin: 4px 0 0; line-height: 1.6; }
+.commission-statement small { color: var(--muted-foreground, #aba4b5); }
+.commission-amounts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.commission-amounts dt { font-size: 12px; color: var(--muted-foreground, #aba4b5); }
+.commission-amounts dd { margin: 4px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.commission-metric-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.commission-payment-dialog { width: min(680px, calc(100vw - 24px)); max-width: 680px !important; max-height: calc(100dvh - 24px); overflow-y: auto; }
+.commission-payment-dialog form, .commission-payment-dialog > * { min-width: 0; }
+.commission-payment-dialog form { display: grid; gap: 16px; }
+.commission-payment-dialog select { width: 100%; min-height: 44px; border: 1px solid var(--border, #39333e); border-radius: 10px; padding: 10px 12px; background: #24232d; color: inherit; }
+.commission-payment-dialog label { display: grid; gap: 8px; }
+.commission-fee-review { border-top: 1px solid var(--border, #39333e); padding-top: 16px; }
+.commission-fee-review h3 { margin: 0 0 8px; }
+.commission-fee-review input:not([type="checkbox"]), .commission-fee-review textarea { width: 100%; min-width: 0; min-height: 44px; border: 1px solid var(--border, #39333e); border-radius: 10px; padding: 10px 12px; background: #24232d; color: inherit; }
+.commission-fee-review textarea { resize: vertical; }
+.commission-fee-evidence { border: 1px solid var(--border, #39333e); border-radius: 10px; padding: 12px; }
+.commission-fee-evidence p { overflow-wrap: anywhere; line-height: 1.6; }
+.commission-quote-statements { display: grid; gap: 8px; }
+.commission-quote-statements > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 10px; border: 1px solid var(--border, #39333e); border-radius: 8px; }
+.commission-quote-statements strong { overflow-wrap: anywhere; }
+.commission-pay-confirm { display: flex !important; align-items: flex-start; gap: 10px; line-height: 1.6; }
+.commission-pay-confirm input { width: 18px; height: 18px; flex: none; margin-top: 3px; accent-color: #b6a6ff; }
+.commission-statement-header { display: flex; align-items: flex-start; gap: 12px; }
+.commission-statement-header > input { width: 20px; height: 20px; flex: none; margin-top: 3px; accent-color: #b6a6ff; }
+.commission-statement-header > div { flex: 1; min-width: 0; }
+@media (min-width: 900px) { .commission-amounts, .commission-metric-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .commission-statements .section-heading, .my-commissions .section-heading { align-items: stretch; flex-direction: column; } .commission-actions > button { flex: 1; } .commission-metric-grid { grid-template-columns: 1fr; } }

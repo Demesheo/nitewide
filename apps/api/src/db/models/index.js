@@ -1,4 +1,11 @@
 const initializers = [
+  require('./IndividualCommissionProfile').initIndividualCommissionProfile,
+  require('./CommissionEarning').initCommissionEarning, require('./CommissionStatement').initCommissionStatement,
+  require('./CommissionAllocation').initCommissionAllocation,
+  require('./CommissionPayment').initCommissionPayment,
+  require('./PurchaseDispute').initPurchaseDispute,
+  require('./OrganizerMessages').initOrganizerThread, require('./OrganizerMessages').initOrganizerMessage,
+  require('./OrganizerMessages').initOrganizerThreadRead, require('./OrganizerMessages').initOrderRefundRequest,
   require('./PaymentAccount').initPaymentAccount, require('./StripeWebhookReceipt').initStripeWebhookReceipt, require('./Refund').initRefund,
   require('./AuthSession').initAuthSession, require('./AuthSession').initAbuseBucket,
   require('./OrganizationVenue').initOrganizationVenue,
@@ -28,6 +35,13 @@ const initializers = [
 function initModels(sequelize) {
   for (const initialize of initializers) initialize(sequelize);
   const m = sequelize.models;
+  m.User.hasOne(m.IndividualCommissionProfile, { as: 'individualCommissionProfile', foreignKey: 'userId' });
+  m.IndividualCommissionProfile.belongsTo(m.User, { as: 'user', foreignKey: 'userId' });
+  m.Order.hasOne(m.CommissionEarning, { as: 'commissionEarning', foreignKey: 'orderId' });
+  m.CommissionEarning.belongsTo(m.Order, { as: 'order', foreignKey: 'orderId' });
+  m.CommissionStatement.hasMany(m.CommissionEarning, { as: 'earnings', foreignKey: 'statementId' });
+  m.CommissionEarning.belongsTo(m.CommissionStatement, { as: 'statement', foreignKey: 'statementId' });
+  m.CommissionAllocation.belongsTo(m.CommissionEarning, { as: 'earning', foreignKey: 'earningId' });
   m.Organization.belongsTo(m.Location, { as: 'location', foreignKey: 'locationId' });
   m.Organization.belongsToMany(m.Location, { as: 'venues', through: m.OrganizationVenue, foreignKey: 'organizationId', otherKey: 'locationId' });
   m.Location.belongsToMany(m.Organization, { as: 'organizations', through: m.OrganizationVenue, foreignKey: 'locationId', otherKey: 'organizationId' });

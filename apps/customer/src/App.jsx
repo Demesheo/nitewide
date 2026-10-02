@@ -39,6 +39,7 @@ import { AuthDialog } from "./components/auth-dialog";
 import { PasswordResetDialog } from './components/password-reset-dialog';
 import { OnboardingSetup } from './components/onboarding-setup';
 import { Notifications } from "./components/notifications";
+import { Messages } from './components/messages';
 import { notificationTarget, loadNotificationBooking } from './lib/notification-target';
 import { AccountDialog, initials } from './components/account-dialog';
 import { ConnectionsPage } from './components/connections-page';
@@ -115,8 +116,9 @@ function CustomerApp() {
   useEffect(() => { writeStorage('nitewide.returning', true); }, []);
   const [session, setSession] = useState(validSession),
     [authOpen, setAuthOpen] = useState(false),
-    [walletOpen, setWalletOpen] = useState(false);
+    [walletOpen, setWalletOpen] = useState(() => new URLSearchParams(window.location.search).has('commissionProfileReturn'));
   const [notificationBooking, setNotificationBooking] = useState(null);
+  const [messageBooking, setMessageBooking] = useState(null), [messageThread, setMessageThread] = useState(null);
   const [bookingRoute, setBookingRoute] = useState(initialRoute.booking);
   const [myEventsRoute, setMyEventsRoute] = useState({ myEventId: initialRoute.myEventId, myStatus: initialRoute.myStatus, myPage: initialRoute.myPage, mySearch: initialRoute.mySearch });
   const myEventsAccess = useMyEventsAccess(session, view === 'my-events');
@@ -179,7 +181,9 @@ function CustomerApp() {
       return false;
     }
     const target = notificationTarget(item);
-    if (target?.type === 'checkout') {
+    if (target?.type === 'message') {
+      setMessageThread(target.id);
+    } else if (target?.type === 'checkout') {
       if (!target.id) throw new Error('This purchase reminder no longer has a linked checkout.');
       await resumeBooking(target.id);
       return true;
@@ -792,6 +796,7 @@ function CustomerApp() {
             {session ? (
               <>
                 <Notifications key={session.user.id} session={session} onNotification={openNotification} refreshKey={`${bookingsRevision}:${selected?.id || ''}:${paymentCheckout?.status || ''}`} />
+                <Messages key={`messages:${session.user.id}`} session={session} initialBooking={messageBooking} initialThreadId={messageThread} onOpened={() => { setMessageBooking(null); setMessageThread(null); }} />
                 <button className="profile-avatar profile-trigger" aria-label={`Open ${session.user.displayName}'s profile`} title="Your profile" onClick={() => setWalletOpen(true)}>{initials(session.user.displayName)}</button>
               </>
             ) : (
@@ -816,7 +821,7 @@ function CustomerApp() {
       {view === 'connections' && hasConnections && <ConnectionsPage key={session.user.id} session={session} history={connectionsHistory} saved={saved} onSave={save} onReferral={openConnection} onRefresh={refreshConnections} onVisible={savedCollection.checkVisible} />}
       {view === 'booked' && <main className="booked-page wrap" id="booked">
         <div className="booked-page-heading"><p className="eyebrow">YOUR NEXT NIGHT STARTS HERE</p><h1>Booked.</h1><p>Your tickets and guest list entries, all in one place.</p></div>
-        {session ? <AccountDialog key={session.user.id} embedded open session={session} onResumeCheckout={resumeBooking} bookingsRevision={bookingsRevision} notificationBooking={notificationBooking} bookingRoute={bookingRoute} onBookingRouteChange={(value) => { setBookingRoute(value); updateCustomerRoute({ tab: 'booked', booking: value }, { replace: !value }); }} onNotificationOpened={() => setNotificationBooking(null)} onOpenChange={() => navigateView('discover')} /> : <div className="account-empty"><Ticket /><h2>Your nights are waiting.</h2><p>Sign in to see your upcoming bookings and guest list entries.</p><Button className="dark-glass-action" onClick={() => setAuthOpen(true)}>Sign in</Button></div>}
+        {session ? <AccountDialog key={session.user.id} embedded open session={session} onContactOrganizer={setMessageBooking} onResumeCheckout={resumeBooking} bookingsRevision={bookingsRevision} notificationBooking={notificationBooking} bookingRoute={bookingRoute} onBookingRouteChange={(value) => { setBookingRoute(value); updateCustomerRoute({ tab: 'booked', booking: value }, { replace: !value }); }} onNotificationOpened={() => setNotificationBooking(null)} onOpenChange={() => navigateView('discover')} /> : <div className="account-empty"><Ticket /><h2>Your nights are waiting.</h2><p>Sign in to see your upcoming bookings and guest list entries.</p><Button className="dark-glass-action" onClick={() => setAuthOpen(true)}>Sign in</Button></div>}
       </main>}
       {view === 'saved' && <main className="booked-page wrap" id="saved">
         <div className="booked-page-heading"><p className="eyebrow">KEEP THE GOOD NIGHTS CLOSE</p><h1>Saved.</h1><p>Your shortlist of upcoming events.</p></div>
@@ -1122,7 +1127,7 @@ function CustomerApp() {
                         onClick={checkout}
                         disabled={demoBusy || referralBusy || !availableQuantity(offering) || !totals.eligible}
                       >
-                        {totals.eligible ? `Continue · ${money(totals.total, offering.currency)}` : 'Pricing unavailable'}
+                        {totals.eligible ? totals.total === 0 ? 'Claim free admission' : `Continue · ${money(totals.total, offering.currency)}` : 'Pricing unavailable'}
                         <ArrowRight />
                       </Button>
                       {!totals.eligible && <p role="alert" className="fine-print">This combination is not available at our current pricing. Try another offering or quantity.</p>}
@@ -1195,7 +1200,7 @@ function CustomerApp() {
               {referralCodeForEvent(referral, selected.id) && <p className="connection-context">Booking with <strong>{referral.referrerName}</strong></p>}
               {paymentCheckout?.clientSecret && paymentCheckout.verificationStatus !== 'review' && paymentConfig?.enabled && <Suspense fallback={<LoadingIndicator>Loading secure payment form…</LoadingIndicator>}><StripeCheckout key={paymentCheckout.orderId} config={paymentConfig} checkout={paymentCheckout} amount={money(totals.total, offering.currency)} onCheck={() => checkBookingPayment()} onVerify={() => checkBookingPayment(true)} onBusyChange={busy => { checkoutLock.current = busy; setDemoBusy(busy); }} /></Suspense>}
               {paymentCheckout ? <>{!paymentCheckout.clientSecret && paymentCheckout.verificationStatus !== 'review' && <Button className="primary-action dark-glass-action" disabled={demoBusy} onClick={completeDemo}>{demoBusy ? <LoadingIndicator>Checking your booking…</LoadingIndicator> : `Pay ${money(totals.total, offering.currency)}`}</Button>}{paymentCheckout.verificationStatus !== 'review' && <Button variant="outline" disabled={demoBusy} onClick={cancelPaymentBooking}>Cancel payment attempt</Button>}<p className="fine-print">You can close this window and continue your purchase from Notifications.{paymentCheckout.verificationStatus !== 'review' && ' Cancellation is final only after the server confirms payment was not completed.'}</p></> : <Button className="primary-action dark-glass-action" onClick={completeDemo} disabled={demoBusy || (!checkoutRecovering && (!totals.eligible || (totals.total > 0 && !paymentConfig?.enabled && !demoCheckoutEnabled)))}>
-                {demoBusy ? <LoadingIndicator>{checkoutRecovering ? 'Checking your booking…' : 'Preparing your booking…'}</LoadingIndicator> : <>{checkoutRecovering ? 'Check / retry booking' : totals.total === 0 ? 'Confirm free booking' : paymentConfig?.enabled ? 'Continue to payment' : demoCheckoutEnabled ? 'Confirm demo booking' : 'Payments unavailable'} <ArrowRight /></>}
+                {demoBusy ? <LoadingIndicator>{checkoutRecovering ? 'Checking your booking…' : 'Preparing your booking…'}</LoadingIndicator> : <>{checkoutRecovering ? 'Check / retry booking' : totals.total === 0 ? 'Claim admission' : paymentConfig?.enabled ? 'Continue to payment' : demoCheckoutEnabled ? 'Confirm demo booking' : 'Payments unavailable'} <ArrowRight /></>}
               </Button>}
               <Button variant="ghost" disabled={demoBusy || checkoutRecovering} onClick={() => setStage("details")}>
                 Back to tickets & tables

@@ -11,12 +11,13 @@ import { loadPassCache, removePassCache, savePassCache } from '../lib/pass-cache
 import { ProfilePasswordForm } from './profile-password-form';
 import { GuestlistQuantity } from './guestlist-quantity';
 import { customerGuestlistMaxPartySize, validGuestlistPartySize } from '../lib/guestlist-quantity';
+import { ReferralEarnings } from './referral-earnings';
 
 export function initials(name = '') { return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase(); }
 function InlineAccount({ children }) { return children; }
 function withPassKind(pass, kind) { return { ...pass, kind: pass.kind || kind }; }
 
-export function AccountDialog({ open, onOpenChange, session, onProfile, onSessionChanged, onSignOut, embedded = false, notificationBooking, bookingRoute, onBookingRouteChange, onNotificationOpened, onResumeCheckout, bookingsRevision = 0 }) {
+export function AccountDialog({ open, onOpenChange, session, onProfile, onSessionChanged, onSignOut, embedded = false, notificationBooking, bookingRoute, onBookingRouteChange, onNotificationOpened, onResumeCheckout, onContactOrganizer, bookingsRevision = 0 }) {
   const Container = embedded ? InlineAccount : Dialog;
   const Content = embedded ? 'div' : DialogContent;
   const scrollContainer = useRef(null), ticketReturn = useRef(null), restoreTicketPosition = useRef(false);
@@ -210,6 +211,7 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
           {ticket ? <section className="ticket-view">
             <Button variant="ghost" disabled={guestlistEditLock.current} onClick={() => { if (guestlistEditLock.current) return; restoreTicketPosition.current = true; setTicket(null); onBookingRouteChange?.(null); }}><ChevronLeft size={16} /> Back to my nights</Button>
             <AdmissionPassView ticket={ticket} index={Math.min(ticketIndex, Math.max(0, ticket.tickets.length - 1))} onIndex={setTicketIndex} cached={cachedPass} />
+            {ticket.kind === 'purchase' && ticket.canContactOrganizer && onContactOrganizer && <Button type="button" variant="outline" disabled={cachedPass} onClick={() => onContactOrganizer({ orderId: ticket.id, eventTitle: ticket.event?.title, organizationName: ticket.event?.organizationName, canRequestRefund: ticket.canRequestRefund })}>Contact organizer</Button>}
             {ticket.canResumePayment && onResumeCheckout && <Button disabled={Boolean(ticketBusy)} onClick={async () => { setTicketBusy(ticket.id); setError(''); try { await onResumeCheckout(ticket.id); } catch (error) { setError(error.message); } finally { setTicketBusy(''); } }}>{ticketBusy ? <LoadingIndicator>Restoring checkout…</LoadingIndicator> : 'Resume checkout'}</Button>}
             {ticket.kind === 'guestlist' && ticket.tickets[0]?.status === 'pending' && !cachedPass && <div className="pending-guestlist-actions">
               <p>Your request is pending review. You can change your party size or withdraw it while it is pending.</p>
@@ -255,6 +257,7 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
             <Button disabled={busy} aria-busy={working} type="submit">Save preferences</Button>
           </form>
           {message && <p className="profile-message" role="status">{message}</p>}
+          {!embedded && <ReferralEarnings session={session} />}
           <div className="profile-signout"><Button variant="ghost" disabled={busy} onClick={async () => { setBusy(true); try { setError(await onSignOut(false) || ''); } finally { setBusy(false); } }}><LogOut size={16} /> Sign out</Button><Button variant="ghost" disabled={busy} onClick={async () => { setBusy(true); try { setError(await onSignOut(true) || ''); } finally { setBusy(false); } }}>Sign out everywhere</Button></div>
         </TabsContent>
       </Tabs>

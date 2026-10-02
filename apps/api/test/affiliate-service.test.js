@@ -14,6 +14,9 @@ test('an org code adopts the selected event override for the same user', async (
   const models = { EventAffiliate: { findOne: async ({ where }) => where.code ? null : eventAffiliate, findOrCreate: async () => [eventAffiliate, true] }, OrgAffiliate: { findOne: async () => orgAffiliate, findByPk: async () => orgAffiliate }, User: { findByPk: async () => ({ isActive: true }) }, Organization: { findByPk: async () => ({ id: 'o1', status: 'active' }) }, OrganizationOwner: { findOne: async () => null, unscoped() { return this; } }, OrganizationEmployee: { findOne: async () => null } };
   const result = await resolveAffiliate(models, { event: { id: 'e1', organizationId: 'o1' }, code: 'ORG' });
   assert.equal(result.commissionBps, 0); assert.equal(result.configuredCommissionBps, 700); assert.equal(result.guestlistAllocation, 12);
+  const preflight = await resolveAffiliate(models, { event: { id: 'e1', organizationId: 'o1' }, code: 'ORG', persist: false });
+  assert.equal(preflight.eventAffiliate, eventAffiliate);
+  assert.equal(preflight.configuredCommissionBps, 700, 'read-only preflight preserves existing event overrides');
 });
 
 function employeeFixture({leaderRole} = {}) {
@@ -47,6 +50,14 @@ test('employees refer to existing and newly created venue events by default at z
   }
   await f.resolve({event:{id:'existing-event',organizationId:'venue'}});
   assert.equal(f.assignments.size,2,'repeated use must not duplicate assignments');
+});
+test('read-only employee referral preflight validates membership without creating attribution', async () => {
+  const f = employeeFixture();
+  const result = await f.resolve({ persist: false });
+  assert.equal(result.eventAffiliate.userId, 'employee');
+  assert.equal(f.assignments.size, 0);
+  f.removeMembership();
+  await assert.rejects(f.resolve({ persist: false }), { code: 'INVALID_AFFILIATE' });
 });
 test('employee event overrides, including explicit zero and removal, take precedence', async () => {
   const f = employeeFixture();

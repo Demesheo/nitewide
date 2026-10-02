@@ -6,6 +6,7 @@ import { LoadingState } from './LoadingState';
 import { Button } from './ui/button';
 import { ServerPager } from './ServerPager';
 import { Empty } from './controls';
+import { CommissionSettings } from './CommissionSettings';
 
 export function EventTeam({ event, scope, session, onUnauthorized, onSaved, refreshToken = 0, teamSales = [] }) {
   const panel = useRef(null);
@@ -17,7 +18,7 @@ export function EventTeam({ event, scope, session, onUnauthorized, onSaved, refr
   const params = new URLSearchParams({ search, sortKey: sort, descending: String(descending) });
   roles.forEach((role) => params.append('roles', role));
   const people = usePagedResource('/business/events/' + event.id + '/people-page?' + params, session, { onUnauthorized, refreshToken: refreshToken + ':' + revision, pageSize: 10 });
-  return <>{scope !== 'own' && <section className="panel event-team-sales-mix" aria-label="Sales by team member"><div className="event-team-sales-heading"><h3>Sales by team member</h3><p>Ticket and package sales before fees, including direct purchases.</p></div>{teamSales.length ? <SalesMixPie slices={teamSales}/> : <Empty title="No sales yet">Team and direct sales will appear after the first purchase.</Empty>}</section>}
+  return <>{event.canManageFinance && <CommissionSettings session={session} eventId={event.id} canEdit={event.canEdit} />}{scope !== 'own' && <section className="panel event-team-sales-mix" aria-label="Sales by team member"><div className="event-team-sales-heading"><h3>Sales by team member</h3><p>Ticket and package sales before fees, including direct purchases.</p></div>{teamSales.length ? <SalesMixPie slices={teamSales}/> : <Empty title="No sales yet">Team and direct sales will appear after the first purchase.</Empty>}</section>}
     <section ref={panel} className="panel">
       {people.loading && <LoadingState>Loading team…</LoadingState>}
       {people.error && <div className="error" role="alert">{people.error}<Button variant="outline" onClick={people.retry}>Try again</Button></div>}

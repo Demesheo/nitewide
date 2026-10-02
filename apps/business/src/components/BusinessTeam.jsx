@@ -7,6 +7,7 @@ import { usePagedResource } from '@/hooks/usePagedResource';
 import { ServerPager } from './ServerPager';
 import { LoadingState } from './LoadingState';
 import { ManagerFinancePermission } from './ManagerFinancePermission';
+import { CommissionDefaultRate } from './CommissionDefaultRate';
 import BusinessVenueWorkspace from './BusinessVenueWorkspace';
 import { Choice } from './controls';
 import { Button } from './ui/button';
@@ -138,6 +139,7 @@ export function BusinessTeam({ session, organizations, onUnauthorized }) {
         <ManagerFinancePermission organizationId={organizationId} member={selected} canGrantFinance={roster.result?.canGrantFinance}
           organizationVersion={roster.result?.organizationVersion} session={session} disabled={busy || roster.loading} onUnauthorized={onUnauthorized}
           onRefresh={refreshAll} onSaved={refreshAll}/>
+        <CommissionDefaultRate key={selected.id} organizationId={organizationId} member={selected} session={session} canEdit={Boolean(roster.result?.canManageCommissionDefaults)} onSaved={refreshAll} />
         {error && <p role="alert" className="error">{error}</p>}<DialogFooter><DialogClose asChild><Button variant="outline">Close</Button></DialogClose></DialogFooter></DialogContent>}
     </Dialog>
     <Dialog open={confirmRemove} onOpenChange={setConfirmRemove}><DialogContent><DialogHeader><DialogTitle>Remove this member?</DialogTitle><DialogDescription>{selected?.name} will lose organization access. Event-only promoter assignments remain separate.</DialogDescription></DialogHeader>
