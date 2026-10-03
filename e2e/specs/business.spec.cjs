@@ -1,4 +1,4 @@
-const { test, expect, login, businessSection, expectNoOverflow } = require('../fixtures.cjs');
+const { test, expect, login, loginViaApi, businessSection, expectNoOverflow } = require('../fixtures.cjs');
 const { expectBrandImage, expectBrandIcons } = require('../brand-checks.cjs');
 const QRCode = require('qrcode');
 const { urls } = require('../environment.cjs');
@@ -206,14 +206,12 @@ test('failed business logout keeps the profile open with a retryable error', asy
   expect(await page.evaluate(() => Boolean(sessionStorage.getItem('nitewide.business.session')))).toBe(true);
 });
 async function eventDetails(page, fixture) {
-  // Authenticate on the deep link itself, as a guest opening an event would.
-  // This also avoids unloading a just-mounted overview with requests in flight.
-  await login(page, fixture, 'business', 'business', `/app?section=events&event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/app?section=events&event=${fixture.ids.event}`);
   await expect(page.getByRole('heading', { name: 'Playwright Friday Night', exact: true })).toBeVisible();
 }
 async function admissions(page, fixture, role = 'business') {
-  await login(page, fixture, 'business', role);
-  await businessSection(page, 'Admissions');
+  const authenticate = role === 'promoter' ? login : loginViaApi;
+  await authenticate(page, fixture, 'business', role, '/app?section=admissions');
   await page.getByRole('button', { name: 'Start admissions for Playwright Friday Night', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Ready at the door' })).toBeVisible();
 }
@@ -260,7 +258,7 @@ test('promoter invitation links open Business, renew safely and allow the invite
 
 test('organization invitation links and resend links open the team acceptance screen', async ({ page, context, request, fixture }, testInfo) => {
   await gestureClipboard(context, '__copiedTeamInviteLink');
-  await login(page, fixture, 'business', 'business', '/app?section=team');
+  await loginViaApi(page, fixture, 'business', 'business', '/app?section=team');
   await page.getByRole('button', { name: 'Invite team member', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Invite a team member', exact: true });
   await dialog.getByLabel('Name (optional)', { exact: true }).fill('Invited Customer');
@@ -383,7 +381,7 @@ test('business sign in and section navigation retain clean URLs', async ({ page,
 });
 
 test('overview charts switch categories and team pagination uses the backend', async ({ page, fixture }) => {
-  await login(page, fixture, 'business');
+  await loginViaApi(page, fixture, 'business');
   const mix = page.locator('section.panel').filter({ has: page.getByRole('heading', { name: 'Sales mix', exact: true }) });
   await mix.getByRole('tab', { name: 'Events', exact: true }).click();
   await expect(mix).toContainText('Playwright Friday Night');
@@ -549,8 +547,7 @@ test('analytics chart labels are readable and tooltips show Sales instead of the
     if (json.data?.eventMix) json.data.eventMix = json.data.eventMix.map(row => ({ ...row, label: longName }));
     await route.fulfill({ response, json });
   });
-  await login(page, fixture, 'business');
-  await businessSection(page, 'Analytics');
+  await loginViaApi(page, fixture, 'business', 'business', '/app?section=analytics');
   for (const title of ['Sales pace', 'Top events']) {
     const chart = page.locator('section').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
     const surface = chart.getByRole('application');
@@ -600,8 +597,7 @@ test('analytics chart labels are readable and tooltips show Sales instead of the
 test('analytics search is explicit, drills to purchases and customers, and exports every event', async ({ page, fixture }) => {
   // Exercise the standard download fallback, not an OS-native file-picker.
   await page.addInitScript(() => { delete window.showSaveFilePicker; });
-  await login(page, fixture, 'business');
-  await businessSection(page, 'Analytics');
+  await loginViaApi(page, fixture, 'business', 'business', '/app?section=analytics');
   const search = page.getByLabel('Search business analytics');
   await expect(search).toBeVisible();
   await search.fill('Playwright Friday Night');
@@ -643,39 +639,58 @@ test('analytics search is explicit, drills to purchases and customers, and expor
 
 test('background exports show progress and remain downloadable after section navigation', async ({ page, fixture }) => {
   await page.addInitScript(() => { delete window.showSaveFilePicker; });
-  let requested = false; let polls = 0;
+  let exportsRequested = 0, polls = 0, downloadsRequested = 0;
   const job = { id: 'browser-export-fixture', status: 'queued', progress: 0, totalRows: 1200,
     processedRows: 0, filename: 'nitewide-customers.csv' };
   const ready = { ...job, status: 'ready', progress: 100, processedRows: 1200 };
+  let currentJob = job;
   await page.route('**/api/business/reports/export.csv?**', async route => {
-    requested = true;
+    exportsRequested += 1;
     await route.fulfill({ status: 202, json: { data: job } });
   });
-  await page.route('**/api/business/reports/exports', route => route.fulfill({ json: { data: requested ? [polls > 1 ? ready : job] : [] } }));
-  await page.route('**/api/business/reports/exports/browser-export-fixture', route => route.fulfill({ json: {
-    data: ++polls > 1 ? ready : { ...job, status: 'rendering', progress: 45, processedRows: 540 },
-  } }));
+  await page.route('**/api/business/reports/exports', route => route.fulfill({ json: { data: exportsRequested ? [currentJob] : [] } }));
+  await page.route('**/api/business/reports/exports/browser-export-fixture', route => {
+    polls += 1;
+    return route.fulfill({ json: { data: currentJob } });
+  });
   const csv = '"Customer","Sales USD"\r\n' + Array.from({ length: 1200 }, (_, i) => `"Buyer ${i}","25.00"\r\n`).join('');
-  await page.route('**/api/business/reports/exports/browser-export-fixture/download', route => route.fulfill({
-    contentType: 'text/csv', headers: { 'Content-Disposition': 'attachment; filename="nitewide-customers.csv"' }, body: csv,
-  }));
+  await page.route('**/api/business/reports/exports/browser-export-fixture/download', route => {
+    downloadsRequested += 1;
+    return route.fulfill({ contentType: 'text/csv', headers: { 'Content-Disposition': 'attachment; filename="nitewide-customers.csv"' }, body: csv });
+  });
   await login(page, fixture, 'business');
   await businessSection(page, 'Analytics');
   await expect(page.getByRole('table', { name: 'regions report' })).toBeVisible();
-  const firstDownload = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
   const prepared = page.getByTestId('prepared-exports');
   await prepared.locator('summary').click();
+  await expect(prepared.getByRole('status')).toHaveText('Queued…');
+  // Hold each state until its UI assertion completes; browser speed cannot
+  // skip the rendering state or spend the download budget on preparation.
+  currentJob = { ...job, status: 'rendering', progress: 45, processedRows: 540 };
   await expect(prepared.getByRole('status')).toContainText('45%');
-  const downloaded = await firstDownload;
-  expect((await require('node:fs/promises').readFile(await downloaded.path(), 'utf8')).trim().split(/\r?\n/)).toHaveLength(1201);
-  await expect(prepared.getByRole('button', { name: 'Download', exact: true })).toBeVisible();
   await businessSection(page, 'Events');
   await expect(prepared).toBeVisible();
+  await expect(prepared.getByRole('status')).toContainText('45%');
   await expectNoOverflow(page);
-  const secondDownload = page.waitForEvent('download');
-  await prepared.getByRole('button', { name: 'Download', exact: true }).click();
-  expect((await secondDownload).suggestedFilename()).toBe('nitewide-customers.csv');
+  const firstDownload = page.waitForEvent('download');
+  currentJob = ready;
+  const downloaded = await firstDownload;
+  expect(downloaded.suggestedFilename()).toBe('nitewide-customers.csv');
+  expect((await require('node:fs/promises').readFile(await downloaded.path(), 'utf8')).trim().split(/\r?\n/)).toHaveLength(1201);
+  await expect(prepared.getByRole('button', { name: 'Download', exact: true })).toBeVisible();
+  await expect(prepared.getByRole('status')).toHaveText('1,200 rows · Ready');
+  await businessSection(page, 'Analytics');
+  await expect(prepared).toBeVisible();
+  await expectNoOverflow(page);
+  const [secondDownload] = await Promise.all([
+    page.waitForEvent('download'), prepared.getByRole('button', { name: 'Download', exact: true }).click(),
+  ]);
+  expect(secondDownload.suggestedFilename()).toBe('nitewide-customers.csv');
+  expect(await require('node:fs/promises').readFile(await secondDownload.path(), 'utf8')).toBe(csv);
+  expect(exportsRequested).toBe(1);
+  expect(polls).toBeGreaterThanOrEqual(2);
+  expect(downloadsRequested).toBe(2);
 });
 
 test('manual guestlist admission confirms once and updates customer entry', async ({ page, context, fixture }) => {
@@ -689,8 +704,7 @@ test('manual guestlist admission confirms once and updates customer entry', asyn
   await entry.getByRole('button', { name: 'Details', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Already admitted', exact: true })).toBeVisible();
   const customer = await context.newPage();
-  await login(customer, fixture, 'customer');
-  await customer.goto(`${urls.customer}/?tab=booked&booking=guestlist:${fixture.ids.entry}`);
+  await loginViaApi(customer, fixture, 'customer', 'customer', `/?tab=booked&booking=guestlist:${fixture.ids.entry}`);
   await expect(customer.getByText('Checked in', { exact: true })).toBeVisible();
   await expect(customer.getByText('1 of 1 checked in', { exact: true })).toBeVisible();
   await customer.close();

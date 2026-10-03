@@ -1,4 +1,4 @@
-const { test, expect, login, expectNoOverflow } = require('../fixtures.cjs');
+const { test, expect, login, loginViaApi, expectNoOverflow } = require('../fixtures.cjs');
 const { urls, controlToken } = require('../environment.cjs');
 const { requestFiveSpots, expectFourApprovedPasses } = require('../guestlist-quantity.cjs');
 const { gestureClipboard, refusedClipboard } = require('../clipboard.cjs');
@@ -10,13 +10,9 @@ async function operatorScenario(request, past = false) {
   expect(response.ok(), `isolated operator scenario: ${await response.text()}`).toBeTruthy();
 }
 
-async function openMyEvent(page, fixture, role = 'business') {
-  await login(page, fixture, 'customer', role);
-  await page.getByRole('button', { name: 'My events', exact: true }).click();
-  const search = page.getByRole('search', { name: 'Search my events' });
-  await search.getByRole('searchbox', { name: 'Search your events', exact: true }).fill('Friday');
-  await search.getByRole('button', { name: 'Search', exact: true }).click();
-  await page.getByRole('button', { name: 'View Playwright Friday Night operations', exact: true }).click();
+async function openMyEvent(page, fixture, role = 'business', authenticate = loginViaApi) {
+  // Directory search and navigation have their own interaction test below.
+  await authenticate(page, fixture, 'customer', role, `/?tab=my-events&myEvent=${fixture.ids.event}`);
   await expect(page.getByRole('heading', { name: 'Playwright Friday Night', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: /^(Event performance|Your performance)$/ })).toBeVisible();
 }
@@ -79,7 +75,7 @@ test('clipboard refusal offers a selectable operator link and clears it after re
 test('My events uses explicit search, server pagination and clean navigation without opening checkout', async ({ page, fixture }, testInfo) => {
   const requests = [];
   page.on('request', request => { if (/\/api\/customer\/my-events\?/.test(request.url())) requests.push(request.url()); });
-  await login(page, fixture, 'customer', 'business');
+  await loginViaApi(page, fixture, 'customer', 'business');
   await page.getByRole('button', { name: 'My events', exact: true }).click();
   await expect(page.locator('.my-event-card')).toHaveCount(12);
   const pages = page.getByRole('navigation', { name: 'My events pages', exact: true });
@@ -265,7 +261,7 @@ for (const decision of ['approve', 'reject']) test(`manager can ${decision === '
 
 test('promoter sees only credited performance and their own guestlist, not direct requests', async ({ page, request, fixture }, testInfo) => {
   await operatorScenario(request);
-  await openMyEvent(page, fixture, 'promoter');
+  await openMyEvent(page, fixture, 'promoter', login);
   await expect(page.getByRole('heading', { name: 'Your performance', exact: true })).toBeVisible();
   await expect(page.locator('.my-event-stats')).toContainText('$25.00');
   await expect(page.locator('.my-event-stats')).not.toContainText('$65.00');
@@ -306,7 +302,7 @@ test('past event guestlists and statistics are readable but invitations and revi
 });
 
 test('lost business access clears rendered operator data and removes the My events tab', async ({ page, fixture }) => {
-  await openMyEvent(page, fixture);
+  await openMyEvent(page, fixture, 'business', login);
   await page.route('**/api/customer/my-events/access', route => route.fulfill({ json: { data: { eligible: false } } }));
   await page.route(`**/api/customer/my-events/${fixture.ids.event}`, route => route.fulfill({ status: 403, json: { error: { message: 'Your business access was removed', code: 'BUSINESS_ACCESS_REQUIRED' } } }));
   await page.getByRole('button', { name: 'Refresh event details', exact: true }).click();

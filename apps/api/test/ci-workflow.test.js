@@ -35,23 +35,36 @@ test('browser container preserves loopback isolation, sequential tests and exact
   assert.throws(() => containerPlan({ ...options, workspace: '/workspace,unsafe' }), /safe absolute/);
 });
 
-test('CI separates all six browser projects into isolated per-app jobs without increasing database concurrency', () => {
-  const groups = ['customer', 'business', 'admin-rebuild'];
-  assert.match(section('browser'), /app: \[customer, business, admin-rebuild\]/);
+test('CI partitions customer files while keeping both devices and isolated single-worker databases', () => {
+  const groups = ['customer-core', 'customer-operations', 'business', 'admin-rebuild'];
+  assert.match(section('browser'), /app: \[customer-core, customer-operations, business, admin-rebuild\]/);
   assert.match(section('browser'), /fail-fast: false/);
   assert.match(section('browser'), /group: demo-browser-\$\{\{ matrix\.app \}\}-\$\{\{ github\.ref \}\}/);
   assert.match(section('browser'), /PLAYWRIGHT_PROJECT_GROUP: \$\{\{ matrix\.app \}\}/);
   assert.match(section('browser'), /name: playwright-results-\$\{\{ matrix\.app \}\}/);
   assert.match(section('browser'), /services:\s+postgres:/);
-  const coveredProjects = [];
+  const config = require('../../../playwright.config.cjs');
+  const coverage = [];
   for (const group of groups) {
     const { args } = containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: group } });
-    assert.deepEqual(args.slice(-6), ['npm', 'run', 'test:e2e', '--', `--project=${group}-iphone`, `--project=${group}-desktop`]);
+    const selected = group.startsWith('customer-') ? 'customer' : group;
+    const files = group === 'customer-core' ? ['customer.spec.cjs'] : group === 'customer-operations' ? ['customer-my-events.spec.cjs', 'commissions-messages.spec.cjs'] : [];
+    assert.deepEqual(args.slice(args.indexOf('npm')), ['npm', 'run', 'test:e2e', '--', `--project=${selected}-iphone`, `--project=${selected}-desktop`, ...files.map(file => `e2e/specs/${file}`)]);
     assert.doesNotMatch(args.join(' '), /never-forward|live\.example|--workers|--fully-parallel/);
-    coveredProjects.push(...args.filter(argument => argument.startsWith('--project=')).map(argument => argument.slice('--project='.length)));
+    for (const project of config.projects.filter(project => project.name.startsWith(`${selected}-`))) {
+      for (const file of files.length ? files : project.testMatch) {
+        assert.ok(project.testMatch.includes(file), `${group} must select a configured spec`);
+        coverage.push(`${project.name}:${file}`);
+      }
+    }
   }
-  assert.deepEqual(coveredProjects, require('../../../playwright.config.cjs').projects.map(project => project.name));
+  const expected = config.projects.flatMap(project => project.testMatch.map(file => `${project.name}:${file}`));
+  assert.deepEqual(coverage.sort(), expected.sort(), 'Every configured device/spec pair runs exactly once');
+  assert.equal(new Set(coverage).size, coverage.length, 'No duplicated device/spec executions');
+  const legacy = containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: 'customer' } });
+  assert.deepEqual(legacy.args.slice(-6), ['npm', 'run', 'test:e2e', '--', '--project=customer-iphone', '--project=customer-desktop']);
   assert.throws(() => containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: 'customer --workers=4' } }), /supported browser project group/);
+  assert.throws(() => containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: 'toString' } }), /supported browser project group/);
 });
 
 test('CI browser timeouts allow both device projects and reserve time for setup and diagnostics', () => {

@@ -29,10 +29,10 @@ npm run test:e2e:report
 ## Isolation and safety
 
 - Fixed loopback ports: API 14100; customer 15173; business 15174; admin 15175. These cannot be redirected to Render or production through CLI/environment overrides.
-- A new database named `nitewide_test_<32 hex characters>` is created, migrated and seeded for each run. Each test resets that database, with one worker to avoid cross-test mutations. The harness drains unfinished HTTP/database work before resetting. It is removed on normal completion or interruption.
+- A new database named `nitewide_test_<32 hex characters>` is created, migrated and seeded for each run. Tests using the real-data fixture reset that database, with one worker to avoid cross-test mutations; fully mocked UI cases do not request an unnecessary reset. The harness stops its worker and drains unfinished HTTP/database work before resetting. The database is removed on normal completion or interruption.
 - The only configurable database connection is `TEST_DATABASE_ADMIN_URL`, which must point to the loopback server's `/postgres` maintenance database with database-creation rights. Locally the helper reads only loopback credentials on port 5433 from `.env`; it never reuses the existing application database.
 - The fixtures contain only invented accounts, relative future event dates, bookings and allocations. The fake password is `NitewideDemo!2026`; no real credentials are stored in tests.
-- All Resend credentials are cleared before builds and startup. Only the email-service boundary is mocked. Browser requests to non-loopback hosts are blocked. The harness has no email worker.
+- All Resend credentials are cleared before builds and startup. Only the external email boundary is mocked. Browser requests to non-loopback hosts are blocked; the harness worker has no live provider credentials.
 - The test-only reset endpoints are guarded, localhost-bound and exist only in `e2e/server.cjs`. The entire harness and artifacts are excluded from the Docker image. Never import the harness into production code.
 - The runner rejects custom config, output, worker-count, full-parallel and repeat-count overrides. Per-worker databases are needed before increasing concurrency. Do not run concurrent codegen/test runners on the same fixed ports. Existing servers are never reused.
 - After a force-kill or machine crash, a generated test database may remain. Inspect its exact name and active connections before removing only that database. Never point cleanup at a development or hosted database.
@@ -54,6 +54,12 @@ Offline HTTP tests also enforce the hosted release cache policy: entry HTML is `
 Active admin rebuild specs cover directory/navigation state, capability boundaries, onboarding, audited edits, scoped venues and venue teams, support cases, analytics drill-downs and complete exports, and compact event artwork/layout. Retained legacy specs are not a substitute for coverage of the rebuilt interface.
 
 These are real interaction regressions, not screenshots-only checks or mocked API response snapshots. Extend the suite whenever a fixed bug or stable repeated workflow warrants coverage. It is not exhaustive coverage of every control.
+
+### Consolidate setup, not safety coverage
+
+Feature-only tests use `loginViaApi()` to create a fresh session through the real sign-in endpoint after their database reset, then open the relevant app or event directly. Business setup uses the approved-access Business endpoint. Storage is seeded once on an empty, loopback-only document: there is no persistent initialization script or shared saved token that can resurrect a revoked session after reload, logout or password rotation. UI sign-in, registration, password changes, logout, access denial, invitation acceptance and startup recovery continue to exercise their own browser flows.
+
+Keep separate checkout retry/cancellation/reconciliation cases and default-versus-adjusted guestlist approvals: they assert different behavior, even when their setup overlaps. Every current scenario retains desktop and iPhone coverage. Do not combine independent mutation scenarios into an order-dependent mega-test or silence flaky failures to improve timings. Export progress mocks stay in rendering until the progress assertion explicitly releases completion, while component tests exercise stale-list and lifecycle races deterministically.
 
 ## Selectors and HTML conventions
 
@@ -87,17 +93,38 @@ For agent-assisted browser work, use an owned Codex side tab when manual investi
 
 ## CI/CD and diagnostics
 
-`.github/workflows/demo-image.yml` runs unit/API tests, three per-app browser jobs, and the cached production image build in parallel. Each customer, business, and admin-rebuild browser job runs its iPhone and desktop projects against its own ephemeral PostgreSQL service. All six active projects remain required; the `verify` gate fails unless every matrix job and the unit/build jobs pass. No image is published and no Render request is made before that gate passes. Browser tests remain single-worker within each job because each test resets that job's database; separate jobs never share a database.
+`.github/workflows/demo-image.yml` runs unit/API tests, four browser jobs, and the cached production image build in parallel. Each browser job runs both iPhone and desktop against its own ephemeral PostgreSQL service:
 
-Each browser job pulls `mcr.microsoft.com/playwright:v1.63.0-noble`, which already contains browsers and Linux dependencies. It does not run `playwright install --with-deps` or download Ubuntu packages. `e2e/ci-container.cjs --check` rejects an image version that differs from the installed `@playwright/test` version. `PLAYWRIGHT_PROJECT_GROUP` only accepts `customer`, `business`, or `admin-rebuild` and selects that app's two projects; omitting it retains the complete local-equivalent suite. When upgrading Playwright, update both the lockfile and `PLAYWRIGHT_CONTAINER_IMAGE` in the workflow. The Linux container mounts the checked-out repository and the exact Node/npm installation from `setup-node`, preserving Node 24.21.0 and npm 12.1.0 rather than using the image's bundled runtime. Host networking keeps the database and app URLs on loopback; provider credentials are not forwarded.
+| Job | Selected specs |
+| --- | --- |
+| `customer-core` | `customer.spec.cjs` |
+| `customer-operations` | `customer-my-events.spec.cjs`, `commissions-messages.spec.cjs` |
+| `business` | All configured Business specs |
+| `admin-rebuild` | All configured rebuilt-admin specs |
 
-Browser image pulls and npm dependency installation have five-minute step limits; browser execution has six minutes. The browser job has a twelve-minute overall limit, and the unit/API job has ten minutes. These limits fail a stalled prerequisite without bypassing tests. A registry or runner outage can still fail setup; inspect the affected step before rerunning. The initial 5–10 minute verification/publication target is an engineering goal, not a measured guarantee, and excludes Render startup.
+All six active projects remain required; the `verify` gate fails unless every matrix job and the unit/build jobs pass. A Node regression checks that every configured device/spec pair appears exactly once across the four jobs. No image is published and no Render request is made before that gate passes. Browser tests remain single-worker within each job; separate jobs never share a database.
+
+Each browser job pulls `mcr.microsoft.com/playwright:v1.63.0-noble`, which already contains browsers and Linux dependencies. It does not run `playwright install --with-deps` or download Ubuntu packages. `e2e/ci-container.cjs --check` rejects an image version that differs from the installed `@playwright/test` version. `PLAYWRIGHT_PROJECT_GROUP` accepts the four job names above, plus `customer` for the complete customer suite; each selects fixed allowlisted projects/specs. Omitting it retains the complete local-equivalent suite. When upgrading Playwright, update both the lockfile and `PLAYWRIGHT_CONTAINER_IMAGE` in the workflow. The Linux container mounts the checked-out repository and the exact Node/npm installation from `setup-node`, preserving Node 24.21.0 and npm 12.1.0 rather than using the image's bundled runtime. Host networking keeps the database and app URLs on loopback; provider credentials are not forwarded.
+
+Browser image pulls and npm dependency installation have five-minute step limits; browser execution has ten minutes. The browser job has a fifteen-minute overall limit, and the unit/API job has ten minutes. These limits fail a stalled prerequisite without bypassing tests. A registry or runner outage can still fail setup; inspect the affected step before rerunning. The initial 5–10 minute verification/publication target is an engineering goal, not a measured guarantee, and excludes Render startup.
 
 The production image is built once, exported as a Docker archive, smoke-checked for Linux/amd64, non-root execution and required app files, and retained as `demo-image` for one day. After verification, publication verifies the archive checksum, loads and pushes that same image; it never rebuilds. BuildKit uses the GitHub Actions layer cache. The Playwright image and test harness remain excluded from the deployable image.
 
 New commits cancel superseded unit, browser and build jobs for the same Git ref. Publication and deployment jobs use separate non-cancelling queues. Both check the current remote `main` SHA before proceeding, so an older completed verification cannot intentionally release a superseded commit. Once a deployment request starts it is not cancelled by a new push. The Render hook has bounded connection/request timeouts and is not automatically retried, since an uncertain response might already have triggered a deployment.
 
-CI retries failures once for diagnosis and also fails on recovered flaky tests. Available reports/JUnit XML are retained as separate `playwright-results-customer`, `playwright-results-business`, and `playwright-results-admin-rebuild` artifacts for 14 days after success or failure, except cancelled jobs; screenshots, videos and traces are kept on failures. All test mutations remain disposable. Review flaky results and remove their underlying race rather than increasing retries.
+CI retries failures once for diagnosis and also fails on recovered flaky tests. Available reports/JUnit XML are retained as separate `playwright-results-<job>` artifacts for 14 days after success or failure, except cancelled jobs; screenshots, videos and traces are kept on failures. All test mutations remain disposable. Review flaky results and remove their underlying race rather than increasing retries.
+
+### Timing baseline and tradeoffs
+
+The October 2 audit of [successful run 57](https://github.com/Demesheo/nitewide/actions/runs/37061577114) measured customer/browser execution at 444 seconds (504-second job), Business at 301 seconds (370-second job), admin at 182 seconds (245-second job), and unit/API execution at 197 seconds. Customer iPhone cases accounted for 335 seconds versus 94.7 seconds on desktop. Frontend builds took only 2.6–2.8 seconds per browser job, so sharing build artifacts is not the priority.
+
+The subsequent [run 59, attempt 2](https://github.com/Demesheo/nitewide/actions/runs/37080571560/attempts/2) passed the current pre-refactor set: 82 customer, 94 Business and 78 admin cases, with six existing cross-app skips. Its browser execution steps took 443, 320 and 117 seconds respectively (job totals 512, 389 and 177 seconds); unit/API execution took 201 seconds. This confirms the customer bottleneck and also shows runner timing variability. Attempt 1 failed on a recovered iPhone export flake; a green rerun does not resolve that race.
+
+The two customer file partitions held approximately 294 and 136 seconds of browser work in that baseline. Splitting only that lane adds one runner's setup cost (about 60–70 seconds in that run) while lowering the parallel critical path; this improves wall-clock feedback, not necessarily total billed runner minutes. Fresh API setup also reduces repeated browser maneuvers. Do not claim exact CI savings until the updated workflow is measured: current discovery includes 260 cases (254 runnable plus six existing cross-app skips), versus 246 passes in run 57. All permissions, payment, mobile and desktop scenarios remain required.
+
+Implementation verification passed all 254 runnable browser cases, the full `npm test` command (including all 31 required isolated database suites), and a fresh-build export rerun on both browsers. Independent discovery confirmed that the four CI partitions select all 260 cases exactly once. Local runs use the repository's sequential all-app runner, not four separate CI runners; their wall time is not a comparable CI speed benchmark.
+
+Known separate follow-up: `report-client.js` still emits global progress without session identity and does not cancel an already-running automatic export download when the account changes. The current fix scopes list responses and retries, clears component state on session removal, and retains server-side download authorization; it does not resolve that pre-existing client continuation lifecycle. Add explicit account-switch cancellation/scoping tests when addressing it.
 
 ```sh
 npm run test:e2e:report

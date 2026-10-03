@@ -50,7 +50,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [customer, business, admin-rebuild]
+        # Both device projects remain mandatory in each lane. Customer files
+        # are partitioned to balance runtime; databases are never shared.
+        app: [customer-core, customer-operations, business, admin-rebuild]
     concurrency:
       group: demo-browser-${{ matrix.app }}-${{ github.ref }}
       cancel-in-progress: true

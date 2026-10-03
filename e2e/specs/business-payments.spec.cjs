@@ -1,4 +1,4 @@
-const { test, expect, login, businessSection, expectNoOverflow } = require('../fixtures.cjs');
+const { test, expect, loginViaApi, businessSection, expectNoOverflow } = require('../fixtures.cjs');
 const { createStripeTestIdentity } = require('../test-data/stripe-connect/identity.cjs');
 
 function merchantOverview(organizationId) {
@@ -38,7 +38,7 @@ test('shared sandbox account is clear, refreshable and protected in business pay
       total:1,page:1,pageSize:10,hasMore:false,canDisconnectPayments:true,defaultPaymentAccountId:null,
       sharedSandboxAccount:{stripeAccountId:sharedAccountId,paymentsReady:true}}}});
   });
-  await login(page,fixture,'business','business',`/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await loginViaApi(page,fixture,'business','business',`/app?section=payments&paymentOrganization=${fixture.ids.org}`);
   const card=page.locator('.payment-accounts'),notice=card.locator('.shared-sandbox-notice');
   await expect(notice.getByText('Shared sandbox payments',{exact:true})).toBeVisible();
   await expect(notice).toContainText(sharedAccountId);await expect(notice).toContainText('Individual account choices are preserved');
@@ -61,7 +61,7 @@ test('event payments explains shared sandbox routing instead of an ineffective a
   });
   await page.route('**/api/business/organizations/*/payment-accounts**',route=>route.fulfill({json:{data:{items:[],total:0,page:1,pageSize:50,hasMore:false,
     defaultPaymentAccountId:null,canDisconnectPayments:false,sharedSandboxAccount:{stripeAccountId:'acct_sharedbrowser',paymentsReady:false}}}}));
-  await login(page,fixture,'business','business',`/app?section=events&event=${fixture.ids.event}`);
+  await loginViaApi(page,fixture,'business','business',`/app?section=events&event=${fixture.ids.event}`);
   const payments=page.locator('.payment-accounts');
   await expect(payments.getByText('Shared sandbox payments',{exact:true})).toBeVisible();
   await expect(payments).toContainText('Paid checkout remains unavailable');
@@ -88,7 +88,7 @@ test('self-service Stripe disconnect confirms impact, preserves retry identity a
     }
     return route.fulfill({json:{data:{items:[account],total:1,page:1,pageSize:10,hasMore:false,canDisconnectPayments:true,defaultPaymentAccountId:account.id}}});
   });
-  await login(page,fixture,'business','business',`/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await loginViaApi(page,fixture,'business','business',`/app?section=payments&paymentOrganization=${fixture.ids.org}`);
   const card=page.locator('.payment-accounts');
   await card.getByRole('button',{name:'Disconnect Stripe',exact:true}).click();
   const dialog=page.getByRole('dialog',{name:'Disconnect Stripe account'});
@@ -124,7 +124,7 @@ test('self-service Stripe disconnect blocks unresolved payments but allows a con
     if(path.endsWith('/disconnect')) throw new Error('A blocked connection must not send a disconnect request');
     return route.fulfill({json:{data:{items:[account],total:1,page:1,pageSize:10,hasMore:false,canDisconnectPayments:true,defaultPaymentAccountId:null}}});
   });
-  await login(page,fixture,'business','business',`/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await loginViaApi(page,fixture,'business','business',`/app?section=payments&paymentOrganization=${fixture.ids.org}`);
   await page.getByRole('button',{name:'Disconnect Stripe',exact:true}).click();
   let dialog=page.getByRole('dialog');
   await expect(dialog.getByText('Resolve these before disconnecting')).toBeVisible();
@@ -163,7 +163,7 @@ test('hosted setup shows progress, exposes failures and retries expired links wi
     return route.fulfill({ json: { data: { items: [account], total: 1, hasMore: false, defaultPaymentAccountId: null } } });
   });
   await page.route('https://connect.stripe.com/**', route => route.fulfill({ contentType: 'text/html', body: '<html><body><h1>Offline Stripe setup</h1><label>Email address<input type="email" /></label></body></html>' }));
-  await login(page, fixture, 'business', 'business', `/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/app?section=payments&paymentOrganization=${fixture.ids.org}`);
   const card = page.locator('.payment-accounts');
   await card.getByRole('button', { name: 'Complete Stripe setup' }).click();
   await expect(card.getByRole('button', { name: 'Opening Stripe…' })).toBeDisabled();
@@ -207,7 +207,7 @@ test('business payment profiles support named defaults, hosted setup and verifie
     if (method === 'POST') { creates.push(route.request().postDataJSON()); accounts.push({ id: '00000000-0000-4000-8000-000000000502', name: creates[0].name, paymentsReady: false }); return route.fulfill({ json: { data: accounts[1] } }); }
     return route.fulfill({ json: { data: { items: accounts, total: accounts.length, page: 1, pageSize: 10, hasMore: false, defaultPaymentAccountId } } });
   });
-  await login(page, fixture, 'business', 'business', `/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/app?section=payments&paymentOrganization=${fixture.ids.org}`);
   await expect(page.getByRole('heading', { name: 'Your payments, clearly.', exact: true })).toBeVisible();
   await expect(page.getByText('Customer payments', { exact: true })).toBeVisible();
   await expect(page.getByText('Refunded payments', { exact: true })).toBeVisible();
@@ -255,7 +255,7 @@ test('event payment selection is read only while checkouts or refunds are unreso
     await route.fulfill({ response, json: payload });
   });
   await page.route('**/api/business/organizations/*/payment-accounts**', route => route.fulfill({ json: { data: { items: [], total: 0, hasMore: false, defaultPaymentAccountId: null } } }));
-  await login(page, fixture, 'business', 'business', `/app?section=events&event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/app?section=events&event=${fixture.ids.event}`);
   const card = page.locator('.payment-accounts');
   await expect(card.getByRole('heading', { name: 'Event payments' })).toBeVisible();
   await expect(card.getByLabel('Event payment account')).toBeDisabled();
@@ -278,7 +278,7 @@ test('settled event payment selection allows a new account while explaining hist
     selected = route.request().postDataJSON().paymentAccountId;
     return route.fulfill({ json: { data: { paymentAccountId: selected } } });
   });
-  await login(page, fixture, 'business', 'business', `/app?section=events&event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/app?section=events&event=${fixture.ids.event}`);
   const card = page.locator('.payment-accounts');
   await expect(card.getByText('Changes apply to future payments. Existing orders and refunds keep their original account.')).toBeVisible();
   await expect(card.getByLabel('Event payment account')).toBeEnabled();
@@ -293,7 +293,7 @@ test('settled event payment selection allows a new account while explaining hist
 });
 
 test('event commission editing and promoter invitations remain locked at zero without individual Stripe onboarding', async ({ page, fixture }) => {
-  await login(page, fixture, 'business', 'business', `/app?section=events&event=${fixture.ids.event}&tab=people`);
+  await loginViaApi(page, fixture, 'business', 'business', `/app?section=events&event=${fixture.ids.event}&tab=people`);
   await page.getByRole('button', { name: fixture.accounts.promoter.name, exact: false }).click();
   const member = page.getByRole('dialog');
   await member.getByRole('button', { name: 'Edit member' }).click();
@@ -330,7 +330,7 @@ test('manager without finance or earnings permission does not see payments navig
     await route.fulfill({ response, json: payload });
   });
   page.on('request', request => { if (/\/payment-(?:overview|accounts)|\/payments\/earnings/.test(request.url())) paymentRequests.push(request.url()); });
-  await login(page, fixture, 'business', 'business', `/app?section=team&teamOrganizationId=${fixture.ids.org}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/app?section=team&teamOrganizationId=${fixture.ids.org}`);
   await expect(page.getByRole('heading', { name: 'Build your team' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Payment accounts' })).toHaveCount(0);
   await expect(page.getByRole('navigation').getByRole('button', { name: 'Payments', exact: true })).toHaveCount(0);
@@ -353,7 +353,7 @@ test('commission-only access shows personal earnings without merchant requests o
   await mockPaymentSummaries(page);
   const merchantRequests = [];
   page.on('request', request => { if (/\/payment-(?:overview|accounts)/.test(request.url())) merchantRequests.push(request.url()); });
-  await login(page, fixture, 'business', 'business', `/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/app?section=payments&paymentOrganization=${fixture.ids.org}`);
   await expect(page.getByRole('heading', { name: 'Your payments, clearly.', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'My commissions', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Commission rate locked at 0%' })).toBeVisible();

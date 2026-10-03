@@ -3,6 +3,16 @@ const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const { maintenanceUrl } = require('../apps/api/scripts/test-database.cjs');
 
+// Split the slow customer lane by file, not by concurrent fixture mutations.
+// Each CI group owns a separate disposable database and still uses one worker.
+const projectGroups = {
+  customer: { app: 'customer', specs: [] },
+  'customer-core': { app: 'customer', specs: ['customer.spec.cjs'] },
+  'customer-operations': { app: 'customer', specs: ['customer-my-events.spec.cjs', 'commissions-messages.spec.cjs'] },
+  business: { app: 'business', specs: [] },
+  'admin-rebuild': { app: 'admin-rebuild', specs: [] },
+};
+
 // This container is only for tests. Never use its browser libraries in the
 // deployable image or forward ambient provider keys into it.
 function containerPlan({ source = process.env, workspace = path.resolve(__dirname, '..'),
@@ -15,8 +25,10 @@ function containerPlan({ source = process.env, workspace = path.resolve(__dirnam
   const nodeRoot = path.dirname(path.dirname(nodeExecutable));
   const databaseUrl = maintenanceUrl(source);
   const projectGroup = source.PLAYWRIGHT_PROJECT_GROUP;
-  if (projectGroup && !['customer', 'business', 'admin-rebuild'].includes(projectGroup)) throw new Error('Select a supported browser project group: customer, business, or admin-rebuild.');
-  const projectArguments = projectGroup ? ['--', `--project=${projectGroup}-iphone`, `--project=${projectGroup}-desktop`] : [];
+  if (projectGroup && !Object.hasOwn(projectGroups, projectGroup)) throw new Error('Select a supported browser project group: customer, customer-core, customer-operations, business, or admin-rebuild.');
+  const group = projectGroups[projectGroup];
+  const projectArguments = group ? ['--', `--project=${group.app}-iphone`, `--project=${group.app}-desktop`,
+    ...group.specs.map(spec => `e2e/specs/${spec}`)] : [];
   return { image: expectedImage, args: [
     'run', '--rm', '--pull=never', '--init', '--ipc=host', '--network=host',
     '--mount', `type=bind,source=${workspace},target=${workspace}`,

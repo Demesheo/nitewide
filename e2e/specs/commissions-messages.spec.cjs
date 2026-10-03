@@ -1,12 +1,11 @@
-const { test, expect, login, expectNoOverflow } = require('../fixtures.cjs');
+const { test, expect, loginViaApi, expectNoOverflow } = require('../fixtures.cjs');
 const { urls, controlToken } = require('../environment.cjs');
 
 test('booking contact stays in Messages, receives an organizer reply and raises Notifications without email', async ({ page, context, request, fixture }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith('customer-'), 'Customer project covers the real two-app conversation.');
   const emailHeaders = { 'x-e2e-control': controlToken };
   const beforeEmails = await (await request.get(`${urls.api}/__e2e/emails`, { headers: emailHeaders })).json();
-  await login(page, fixture, 'customer');
-  await page.goto(`/?tab=booked&booking=purchase:${fixture.ids.order}`);
+  await loginViaApi(page, fixture, 'customer', 'customer', `/?tab=booked&booking=purchase:${fixture.ids.order}`);
   await page.getByRole('button', { name: 'Contact organizer', exact: true }).click();
   let dialog = page.getByRole('dialog');
   await expect(dialog.getByLabel('Your message', { exact: true })).toBeVisible();
@@ -23,7 +22,7 @@ test('booking contact stays in Messages, receives an organizer reply and raises 
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
 
   const organizer = await context.newPage();
-  await login(organizer, fixture, 'business', 'business', '/app');
+  await loginViaApi(organizer, fixture, 'business', 'business', '/app');
   await organizer.getByRole('button', { name: /^Messages/ }).click();
   const organizerDialog = organizer.getByRole('dialog');
   await organizerDialog.getByRole('button', { name: /Can I arrive with my party at 10pm/ }).click();
@@ -66,7 +65,7 @@ test('commission confirmation names each approved statement, covers business fee
     if (mutations.length === 1) return route.fulfill({ status: 503, json: { error: { code: 'PROVIDER_UNAVAILABLE', message: 'Payment response unavailable. Retry this approved payment.' } } });
     return route.fulfill({ json: { data: { paymentId: '00000000-0000-4000-8000-000000000814', currency: 'USD', status: 'paid_fee_review', netSettlementStatus: 'invoicing_fee_unknown', commissionCents: 1200, estimatedFeeCents: 100, totalCents: 1300, actualFeeCents: null, verifiedNetCents: null, residualCents: null } } });
   });
-  await login(page, fixture, 'business', 'business', `/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/app?section=payments&paymentOrganization=${fixture.ids.org}`);
   const chooseAndPay = async () => { await page.getByRole('checkbox', { name: /Alex Individual at First event statement/ }).check(); await page.getByRole('checkbox', { name: /Alex Individual at Second event statement/ }).check(); await page.getByRole('button', { name: 'Pay 2 selected statements' }).click(); const dialog = page.getByRole('dialog', { name: 'Confirm commission payment' }); await expect(dialog.getByText('$13.00', { exact: true })).toBeVisible(); await dialog.getByRole('checkbox').check(); await dialog.getByRole('button', { name: 'Create approved Stripe payment' }).click(); return dialog; };
   let dialog = await chooseAndPay(); await expect(dialog.getByRole('alert')).toContainText('response unavailable'); await expectNoOverflow(page);
   await page.screenshot({ path: testInfo.outputPath('commission-funded-confirmation.png') });
@@ -133,7 +132,7 @@ test('authorized finance fee review retains audited evidence on retry and requir
     if (route.request().method() === 'GET' && path.endsWith(`/${paymentId}`)) return route.fulfill({ json: { data: payment } });
     throw new Error(`Unexpected offline commission operation: ${route.request().method()} ${path}`);
   });
-  await login(page, fixture, 'business', 'business', `/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/app?section=payments&paymentOrganization=${fixture.ids.org}`);
   const openPayment = async () => {
     await page.getByRole('button', { name: 'View payment for Audited fee-review statement', exact: true }).click();
     const modal = page.getByRole('dialog', { name: 'Commission payment', exact: true });

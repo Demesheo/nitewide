@@ -1,4 +1,4 @@
-const { expect, login, expectNoOverflow } = require('./fixtures.cjs');
+const { expect, loginViaApi, expectNoOverflow } = require('./fixtures.cjs');
 const { urls } = require('./environment.cjs');
 
 // A separate browser session keeps the guest and reviewer identities isolated.
@@ -12,8 +12,7 @@ async function requestFiveSpots({ browser, page, request, fixture, testInfo }) {
   guest.on('pageerror', error => errors.push(error.message));
   await context.route(url => ['http:', 'https:'].includes(url.protocol) && !['127.0.0.1', 'localhost'].includes(url.hostname), route => route.abort('blockedbyclient'));
   try {
-    await login(guest, fixture, 'customer', 'pending');
-    const token = await guest.evaluate(() => JSON.parse(localStorage.getItem('nitewide.session')).accessToken);
+    const { accessToken: token } = await loginViaApi(guest, fixture, 'customer', 'pending');
     const headers = { authorization: `Bearer ${token}` };
     const withdrawn = await request.delete(`${urls.api}/api/customer/guestlists/${fixture.ids.pending}`, { headers });
     expect(withdrawn.ok()).toBeTruthy();

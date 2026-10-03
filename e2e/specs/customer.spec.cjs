@@ -1,4 +1,4 @@
-const { test, expect, login, expectNoOverflow } = require('../fixtures.cjs');
+const { test, expect, login, loginViaApi, expectNoOverflow } = require('../fixtures.cjs');
 const { expectBrandImage, expectBrandIcons } = require('../brand-checks.cjs');
 const { urls } = require('../environment.cjs');
 const { checkPasswordVisibility, checkOnboardingPasswords } = require('../password-visibility.cjs');
@@ -21,7 +21,7 @@ test('approved brand logo and favicon load without changing customer header or f
 });
 
 test('customer profile Edit saves contact details independently of password and notification settings', async ({ page, fixture }) => {
-  await login(page, fixture, 'customer');
+  await loginViaApi(page, fixture, 'customer');
   await page.getByRole('button', { name: "Open Jordan Customer's profile" }).click();
   await expect(page.getByLabel('Display name', { exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -175,8 +175,7 @@ test('invalid credentials show a recoverable sign-in error', async ({ page, fixt
 });
 
 test('shared event opens directly, supports maps and saved state after reload', async ({ page, fixture }) => {
-  await login(page, fixture, 'customer');
-  await page.goto(`/?event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'customer', 'customer', `/?event=${fixture.ids.event}`);
   const details = page.getByTestId('customer-event-details');
   await expect(details.getByRole('heading', { name: 'Playwright Friday Night' })).toBeVisible();
   await expect(details.getByRole('link', { name: 'Open in Maps' })).toHaveAttribute('href', /maps/);
@@ -193,7 +192,7 @@ test('shared event opens directly, supports maps and saved state after reload', 
 });
 
 test('booking pagination and guestlist QR use the correct entry', async ({ page, fixture }) => {
-  await login(page, fixture, 'customer');
+  await loginViaApi(page, fixture, 'customer');
   await page.getByRole('button', { name: 'Booked', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeEnabled();
   const response = page.waitForResponse(r => r.url().includes('/customer/bookings') && r.url().includes('page=2'));
@@ -207,7 +206,7 @@ test('booking pagination and guestlist QR use the correct entry', async ({ page,
 });
 
 test('booking notifications open the exact pass and dismiss only that notification', async ({ page, fixture }) => {
-  await login(page, fixture, 'customer');
+  await loginViaApi(page, fixture, 'customer');
   await page.getByRole('button', { name: /^Notifications/ }).click();
   await page.getByRole('button', { name: /Your guestlist is approved/ }).click();
   await expect(page.getByRole('img', { name: /QR code for guest list entry/ })).toBeVisible();
@@ -222,7 +221,7 @@ test('booking notifications open the exact pass and dismiss only that notificati
 });
 
 test('clear all notifications persists without removing bookings', async ({ page, fixture }) => {
-  await login(page, fixture, 'customer');
+  await loginViaApi(page, fixture, 'customer');
   await page.getByRole('button', { name: /^Notifications/ }).click();
   await page.getByRole('button', { name: 'Clear all', exact: true }).click();
   await expect(page.getByText('No notifications yet.', { exact: true })).toBeVisible();
@@ -235,8 +234,7 @@ test('clear all notifications persists without removing bookings', async ({ page
 });
 
 test('pending guest can edit party size and withdraw without an admission QR', async ({ page, fixture }) => {
-  await login(page, fixture, 'customer', 'pending');
-  await page.goto(`/?tab=booked&booking=guestlist:${fixture.ids.pending}`);
+  await loginViaApi(page, fixture, 'customer', 'pending', `/?tab=booked&booking=guestlist:${fixture.ids.pending}`);
   await expect(page.getByText('Pending review', { exact: true })).toBeVisible();
   await expect(page.getByRole('img', { name: /QR code for/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Edit spots' }).click();
@@ -251,8 +249,7 @@ test('pending guest can edit party size and withdraw without an admission QR', a
 });
 
 for (const recovery of ['reload', 'retry']) test(`checkout survives a committed order with a lost response and ${recovery} opens its exact passes`, async ({ page, fixture }) => {
-  await login(page, fixture, 'customer');
-  await page.goto(`/?event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'customer', 'customer', `/?event=${fixture.ids.event}`);
   const details = page.getByTestId('customer-event-details');
   await details.getByRole('button', { name: /VIP Package/ }).click();
   await details.getByRole('button', { name: /^Continue ·/ }).click();
@@ -294,8 +291,7 @@ for (const recovery of ['reload', 'retry']) test(`checkout survives a committed 
 });
 
 test('pending checkout status preserves its key and never submits another order', async ({ page, fixture }) => {
-  await login(page, fixture, 'customer');
-  await page.goto(`/?event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'customer', 'customer', `/?event=${fixture.ids.event}`);
   const details = page.getByTestId('customer-event-details');
   await details.getByRole('button', { name: /VIP Package/ }).click();
   await details.getByRole('button', { name: /^Continue ·/ }).click();
@@ -318,8 +314,7 @@ test('pending checkout status preserves its key and never submits another order'
 test('sandbox checkout checks server payment status and recovers exact passes without contacting Stripe', async ({ page, fixture }) => {
   await page.route('https://js.stripe.com/**', route => route.abort());
   await page.route('**/api/customer/payment-config', route => route.fulfill({ json: { data: { enabled: true, configured: true, mode: 'test', publishableKey: 'pk_test_fixture_offline', demoEnabled: false } } }));
-  await login(page, fixture, 'customer');
-  await page.goto(`/?event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'customer', 'customer', `/?event=${fixture.ids.event}`);
   const details = page.getByTestId('customer-event-details');
   await details.getByRole('button', { name: /VIP Package/ }).click();
   await details.getByRole('button', { name: /^Continue ·/ }).click();
@@ -348,8 +343,7 @@ test('sandbox checkout checks server payment status and recovers exact passes wi
 
 test('incomplete sandbox configuration shows unavailable payments without falling back to demo', async ({ page, fixture }) => {
   await page.route('**/api/customer/payment-config', route => route.fulfill({ json: { data: { enabled: false, configured: true, mode: 'test', publishableKey: null, demoEnabled: true } } }));
-  await login(page, fixture, 'customer');
-  await page.goto(`/?event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'customer', 'customer', `/?event=${fixture.ids.event}`);
   const details = page.getByTestId('customer-event-details');
   await details.getByRole('button', { name: /VIP Package/ }).click();
   await details.getByRole('button', { name: /^Continue ·/ }).click();
@@ -362,8 +356,7 @@ test('incomplete sandbox configuration shows unavailable payments without fallin
 test('sandbox payment review preserves the booking without retrying payment or opening passes', async ({ page, fixture }) => {
   await page.route('https://js.stripe.com/**', route => route.abort());
   await page.route('**/api/customer/payment-config', route => route.fulfill({ json: { data: { enabled: true, configured: true, mode: 'test', publishableKey: 'pk_test_fixture_offline', demoEnabled: false } } }));
-  await login(page, fixture, 'customer');
-  await page.goto(`/?event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'customer', 'customer', `/?event=${fixture.ids.event}`);
   const details = page.getByTestId('customer-event-details');
   await details.getByRole('button', { name: /VIP Package/ }).click();
   await details.getByRole('button', { name: /^Continue ·/ }).click();
@@ -418,7 +411,7 @@ async function abandonedCheckoutFixture(page, fixture) {
 }
 
 test('abandoned sandbox checkout stays out of Booked and resumes from Notifications without local storage, including close and refresh', async ({ page, fixture }) => {
-  await login(page, fixture, 'customer');
+  await loginViaApi(page, fixture, 'customer');
   const booking = await abandonedCheckoutFixture(page, fixture);
   const resumes = [], prepares = [];
   await page.route('**/api/customer/payment-checkouts', route => { prepares.push(route.request().postData()); return route.abort(); });
@@ -456,7 +449,7 @@ test('abandoned sandbox checkout stays out of Booked and resumes from Notificati
 });
 
 test('abandoned sandbox checkout reconciles already-paid orders and expires unpaid orders without a second payment', async ({ page, fixture }) => {
-  await login(page, fixture, 'customer');
+  await loginViaApi(page, fixture, 'customer');
   const booking = await abandonedCheckoutFixture(page, fixture);
   let status = 'cancelled', prepares = 0;
   await page.route('**/api/customer/payment-checkouts', route => { prepares += 1; return route.abort(); });
@@ -476,7 +469,7 @@ test('abandoned sandbox checkout reconciles already-paid orders and expires unpa
 });
 
 for (const status of ['cancelled', 'refunded']) test(`ended sandbox checkout (${status}) does not strand payment continuation after reload`, async ({ page, fixture }) => {
-  await login(page, fixture, 'customer');
+  await loginViaApi(page, fixture, 'customer');
   const booking = (await abandonedCheckoutFixture(page, fixture))();
   await page.evaluate(({ orderId, booking }) => {
     const buyerId = JSON.parse(localStorage.getItem('nitewide.session')).user.id;
@@ -507,7 +500,7 @@ for (const status of ['cancelled', 'refunded']) test(`ended sandbox checkout (${
 });
 
 test('Continue retires an ended saved sandbox checkout in one click without silently resubmitting', async ({ page, fixture }) => {
-  await login(page, fixture, 'customer');
+  await loginViaApi(page, fixture, 'customer');
   await abandonedCheckoutFixture(page, fixture);
   await page.goto(`/?event=${fixture.ids.event}`);
   const details = page.getByTestId('customer-event-details');
@@ -535,8 +528,7 @@ test('secure checkout hides Pay while Stripe loads without blocking safe recover
   await page.route('https://js.stripe.com/**', async route => { await stripeGate; await route.abort(); });
   await page.route('**/api/customer/payment-config', route => route.fulfill({ json: { data: { enabled: true, configured: true, mode: 'test', publishableKey: 'pk_test_fixture_offline', demoEnabled: false } } }));
   try {
-    await login(page, fixture, 'customer');
-    await page.goto(`/?event=${fixture.ids.event}`);
+    await loginViaApi(page, fixture, 'customer', 'customer', `/?event=${fixture.ids.event}`);
     const details = page.getByTestId('customer-event-details');
     await details.getByRole('button', { name: /VIP Package/ }).click();
     await details.getByRole('button', { name: /^Continue ·/ }).click();
@@ -562,8 +554,7 @@ test('secure checkout hides Pay while Stripe loads without blocking safe recover
 test('sandbox checkout cancellation retires its key only after server confirms cancellation', async ({ page, fixture }) => {
   await page.route('https://js.stripe.com/**', route => route.abort());
   await page.route('**/api/customer/payment-config', route => route.fulfill({ json: { data: { enabled: true, configured: true, mode: 'test', publishableKey: 'pk_test_fixture_offline', demoEnabled: false } } }));
-  await login(page, fixture, 'customer');
-  await page.goto(`/?event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'customer', 'customer', `/?event=${fixture.ids.event}`);
   const details = page.getByTestId('customer-event-details');
   await details.getByRole('button', { name: /VIP Package/ }).click();
   await details.getByRole('button', { name: /^Continue ·/ }).click();
@@ -584,8 +575,7 @@ test('sandbox checkout cancellation retires its key only after server confirms c
 });
 
 test('definitive checkout rejection allows a reviewed new cart with a new key', async ({ page, fixture }) => {
-  await login(page, fixture, 'customer');
-  await page.goto(`/?event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'customer', 'customer', `/?event=${fixture.ids.event}`);
   const details = page.getByTestId('customer-event-details');
   await details.getByRole('button', { name: /VIP Package/ }).click();
   await details.getByRole('button', { name: /^Continue ·/ }).click();
@@ -611,8 +601,7 @@ test('definitive checkout rejection allows a reviewed new cart with a new key', 
 });
 
 test('demo VIP checkout creates passes, a receipt and an asynchronous booking notification', async ({ page, request, fixture }) => {
-  await login(page, fixture, 'customer');
-  await page.goto(`/?event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'customer', 'customer', `/?event=${fixture.ids.event}`);
   const details = page.getByTestId('customer-event-details');
   await details.getByRole('button', { name: /VIP Package/ }).click();
   await details.getByRole('button', { name: /^Continue ·/ }).click();
