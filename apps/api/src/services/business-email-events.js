@@ -21,14 +21,14 @@ async function queueTeamInvitation({ email, invitation, organization, token, bus
   return queueBusinessMessage({ email, to: invitation.email, template: TEMPLATES.teamInvitation,
     key: `team-invite/${invitation.id}/${invitation.tokenHash}`, transaction,
     variables: { ORGANIZATION: organization.name, ROLE: invitation.role, EXPIRES_AT: expiresAt(invitation.expiresAt),
-      ACCEPT_URL: makeUrl(businessAppUrl, { invite: token }, '/') } });
+      ACCEPT_URL: makeUrl(businessAppUrl, { invite: token }) } });
 }
 
 async function queuePromoterInvitation({ email, invitation, event, token, businessAppUrl, transaction }) {
   return queueBusinessMessage({ email, to: invitation.email, template: TEMPLATES.promoterInvitation,
     key: `promoter-invite/${invitation.id}/${invitation.tokenHash}`, transaction,
     variables: { EVENT_TITLE: event.title, COMMISSION: percent(invitation.commissionBps), EXPIRES_AT: expiresAt(invitation.expiresAt),
-      ACCEPT_URL: makeUrl(businessAppUrl, { invite: token }, '/') } });
+      ACCEPT_URL: makeUrl(businessAppUrl, { invite: token }) } });
 }
 
 async function queueAccessAccepted({ email, models, invitation, invitee, context, transaction }) {

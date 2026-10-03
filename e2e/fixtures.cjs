@@ -55,7 +55,9 @@ async function adminSection(page, section) {
   await navigation.getByRole('button', { name: section, exact: true }).click();
 }
 async function expectNoOverflow(page) {
-  const measurements = await page.evaluate(() => ({ viewport: window.innerWidth, content: document.documentElement.scrollWidth }));
-  expect(measurements.content).toBeLessThanOrEqual(measurements.viewport + 1);
+  // Responsive components may need a render after a viewport change. Retry the
+  // actual geometry assertion instead of measuring during that transient frame.
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+    { message: 'Page content must fit the current viewport' }).toBeLessThanOrEqual(1);
 }
 module.exports = { test, expect, login, businessSection, adminSection, expectNoOverflow };

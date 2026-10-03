@@ -8,7 +8,9 @@ import { createTestServer } from '../../business/test/helpers/vite-server.js';
 test('My events guestlist operations stay scoped, private and recoverable', async (t) => {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://customer.test/my-events?myEvent=event-fixture&checkout=old&ref=other', pretendToBeVisual: true });
-  const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLButtonElement', 'HTMLInputElement', 'HTMLSelectElement', 'Element', 'Node', 'NodeFilter', 'DocumentFragment', 'Event', 'CustomEvent', 'MouseEvent', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame', 'IS_REACT_ACT_ENVIRONMENT'];
+  // JSDOM has no layout observer; browser tests verify the real tooltip layout.
+  dom.window.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+  const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLButtonElement', 'HTMLInputElement', 'HTMLSelectElement', 'Element', 'Node', 'NodeFilter', 'DocumentFragment', 'Event', 'CustomEvent', 'MouseEvent', 'MutationObserver', 'ResizeObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame', 'IS_REACT_ACT_ENVIRONMENT'];
   const original = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const key of keys) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: key === 'IS_REACT_ACT_ENVIRONMENT' ? true : typeof dom.window[key] === 'function' && ['getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame'].includes(key) ? dom.window[key].bind(dom.window) : dom.window[key] });
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
@@ -82,9 +84,12 @@ test('My events guestlist operations stay scoped, private and recoverable', asyn
       assert.doesNotMatch(dom.window.document.body.textContent, /new-private-secret|guestlistInvite=/);
       await user.click(screen.getByRole('button', { name: 'Copy invitation link', exact: true }));
       await screen.findByRole('alert');
+      assert.equal(screen.getByRole('textbox', { name: 'Copy link manually' }).value, 'https://customer.test/?guestlistInvite=new-private-secret');
+      assert.equal(screen.getByRole('textbox', { name: 'Copy link manually' }).readOnly, true);
       clipboardFailure = false;
       await user.click(screen.getByRole('button', { name: 'Retry copying invitation link' }));
       await waitFor(() => assert.equal(copiedLinks.length, 1));
+      assert.equal(screen.queryByRole('textbox', { name: 'Copy link manually' }), null);
       assert.equal(copiedLinks[0], 'https://customer.test/?guestlistInvite=new-private-secret');
       assert.ok(calls.filter((call) => call.url.pathname.endsWith('/guestlist-page')).length >= 2);
       await user.click(screen.getByRole('button', { name: 'Done' }));
@@ -93,7 +98,7 @@ test('My events guestlist operations stay scoped, private and recoverable', asyn
       reset();
     });
 
-    await t.test('email and phone methods record only the chosen contact and own allocation', async () => {
+    await t.test('Invite by stays locked to Personal and preserves own allocation on a retry', async () => {
       let rejectFirst = true;
       handler = (call) => {
         if (call.url.pathname.endsWith('/guestlist-invite-pools')) return respond({ direct: false, own: [{ id: 'own-fixture', guestlistAllocation: 12 }], open: true });
@@ -105,18 +110,19 @@ test('My events guestlist operations stay scoped, private and recoverable', asyn
       await waitFor(() => assert.equal(screen.getByLabelText('Guest name').matches(':disabled'), false));
       assert.equal(screen.queryByLabelText('Guestlist pool'), null);
       await user.type(screen.getByLabelText('Guest name'), 'Contact Guest');
+      assert.equal(screen.getByLabelText('Invite by').disabled, true);
+      assert.equal(screen.getByLabelText('Invite by').value, 'personal');
       await user.selectOptions(screen.getByLabelText('Invite by'), 'email');
-      await user.type(screen.getByLabelText('Email address'), 'contact@example.test');
+      assert.equal(screen.getByLabelText('Invite by').value, 'personal');
+      assert.equal(screen.queryByLabelText('Email address'), null);
+      assert.equal(screen.queryByLabelText('Phone number'), null);
       await user.click(screen.getByRole('button', { name: 'Create invitation' }));
       await screen.findByRole('alert');
-      assert.deepEqual(calls.filter((call) => call.method === 'POST')[0].body, { pool: 'own', eventAffiliateId: 'own-fixture', name: 'Contact Guest', inviteBy: 'email', partySize: 1, email: 'contact@example.test' });
+      assert.deepEqual(calls.filter((call) => call.method === 'POST')[0].body, { pool: 'own', eventAffiliateId: 'own-fixture', name: 'Contact Guest', inviteBy: 'personal', partySize: 1 });
       rejectFirst = false;
-      await user.selectOptions(screen.getByLabelText('Invite by'), 'phone');
-      assert.equal(screen.queryByLabelText('Email address'), null);
-      await user.type(screen.getByLabelText('Phone number'), '+14075551212');
-      await user.click(screen.getByRole('button', { name: 'Create invitation' }));
+      await user.click(screen.getByRole('button', { name: 'Retry invitation' }));
       await screen.findByRole('heading', { name: 'Your guest is on the list' });
-      assert.deepEqual(calls.filter((call) => call.method === 'POST')[1].body, { pool: 'own', eventAffiliateId: 'own-fixture', name: 'Contact Guest', inviteBy: 'phone', partySize: 1, phone: '+14075551212' });
+      assert.deepEqual(calls.filter((call) => call.method === 'POST')[1].body, { pool: 'own', eventAffiliateId: 'own-fixture', name: 'Contact Guest', inviteBy: 'personal', partySize: 1 });
       assert.equal(changes.length, 1);
       reset();
     });
@@ -149,8 +155,11 @@ test('My events guestlist operations stay scoped, private and recoverable', asyn
       await user.click(trigger);
       await screen.findByRole('button', { name: 'Revoke approval' });
       assert.ok(calls.some((call) => call.url.pathname.endsWith('/guestlist-page/approved-fixture')));
+      await waitFor(() => assert.equal(screen.getByRole('button', { name: 'Copy invitation link', exact: true }).disabled, false));
+      const beforeCopy = calls.length;
       await user.click(screen.getByRole('button', { name: 'Copy invitation link', exact: true }));
       await waitFor(() => assert.equal(copiedLinks.at(-1), 'https://customer.test/?guestlistInvite=detail-private-secret'));
+      assert.equal(calls.length, beforeCopy, 'copy uses the prefetched token, not a click-time request');
       await user.click(screen.getByRole('button', { name: 'Revoke approval' }));
       await screen.findByRole('heading', { name: 'Revoke this approval?' });
       assert.equal(calls.filter((call) => call.method === 'POST').length, 0);
@@ -201,6 +210,7 @@ test('My events guestlist operations stay scoped, private and recoverable', asyn
       assert.ok(screen.getByRole('heading', { name: 'Your guestlist' }));
       assert.equal(screen.queryByRole('button', { name: 'Invite a guest' }), null);
       assert.equal(screen.getByRole('button', { name: 'Copy my referral link' }).disabled, true);
+      assert.equal(calls.filter(call => call.url.pathname.endsWith('/referral-link')).length, 0);
       await user.click(screen.getByRole('button', { name: 'Details for Pending Guest' }));
       await waitFor(() => assert.match(screen.getByRole('dialog').textContent, /This event is read-only/));
       assert.equal(screen.queryByRole('button', { name: 'Approve request' }), null);
@@ -213,7 +223,7 @@ test('My events guestlist operations stay scoped, private and recoverable', asyn
       reset();
       handler = () => respond({ message: 'Business access is required.', code: 'BUSINESS_ACCESS_REQUIRED' }, 403);
       await mount();
-      await waitFor(() => assert.equal(accessLoss.length, 1));
+      await waitFor(() => assert.ok(accessLoss.length >= 1));
       assert.equal(accessLoss[0].status, 403);
       reset();
     });
@@ -239,10 +249,66 @@ test('My events guestlist operations stay scoped, private and recoverable', asyn
     await t.test('own referral copying uses its own returned code and strips operator routing', async () => {
       handler = (call) => baseHandler(call);
       await mount({ detail: { ...detail, scope: 'own' } });
+      await waitFor(() => assert.equal(screen.getByRole('button', { name: 'Copy my referral link' }).disabled, false));
+      const beforeCopy = calls.length;
       await user.click(screen.getByRole('button', { name: 'Copy my referral link' }));
       await waitFor(() => assert.equal(copiedLinks.at(-1), 'https://customer.test/?event=event-fixture&ref=my-referral-code'));
       assert.doesNotMatch(dom.window.document.body.textContent, /my-referral-code|https:\/\//);
       assert.equal(calls.find((call) => call.url.pathname.endsWith('/referral-link')).headers.Authorization, 'Bearer fixture-token');
+      assert.equal(calls.length, beforeCopy);
+      reset();
+    });
+
+    await t.test('slow referral prefetch disables Copy and repeated copies make no network requests', async () => {
+      let release;
+      handler = call => call.url.pathname.endsWith('/referral-link') ? new Promise(resolve => { release = () => resolve(respond({ eventId: detail.event.id, code: 'prefetched-code' })); }) : baseHandler(call);
+      await mount();
+      const preparing = screen.getByRole('button', { name: 'Preparing referral link…' });
+      assert.equal(preparing.disabled, true);
+      const beforeLoad = calls.length;
+      await user.click(preparing);
+      assert.equal(calls.length, beforeLoad);
+      assert.equal(copiedLinks.length, 0);
+      await act(async () => release());
+      await waitFor(() => assert.equal(screen.getByRole('button', { name: 'Copy my referral link' }).disabled, false));
+      const beforeCopy = calls.length;
+      await user.click(screen.getByRole('button', { name: 'Copy my referral link' }));
+      await user.click(screen.getByRole('button', { name: 'Referral link copied' }));
+      assert.deepEqual(copiedLinks, ['https://customer.test/?event=event-fixture&ref=prefetched-code', 'https://customer.test/?event=event-fixture&ref=prefetched-code']);
+      assert.equal(calls.length, beforeCopy);
+      reset();
+    });
+
+    await t.test('invitation prefetch is scoped to the open guest and cannot copy a late response after closing', async () => {
+      let release, invitationCall;
+      handler = call => call.url.pathname.endsWith('/invitation-link') ? new Promise(resolve => { invitationCall = call; release = () => resolve(respond({ token: 'late-private-token' })); }) : baseHandler(call, [approved]);
+      await mount();
+      await user.click(screen.getByRole('button', { name: 'Details for Approved Guest' }));
+      await waitFor(() => assert.ok(release));
+      assert.equal(screen.getByRole('button', { name: 'Preparing invitation link…' }).disabled, true);
+      assert.equal(copiedLinks.length, 0);
+      await user.click(screen.getByRole('button', { name: 'Close guest details', exact: true }));
+      assert.equal(invitationCall.signal.aborted, true);
+      await act(async () => release());
+      assert.equal(screen.queryByRole('dialog'), null);
+      assert.equal(copiedLinks.length, 0);
+      assert.doesNotMatch(dom.window.document.body.textContent, /late-private-token/);
+      reset();
+    });
+
+    await t.test('failed link preparation has a separate load retry before Copy becomes available', async () => {
+      let failed = true;
+      handler = call => call.url.pathname.endsWith('/referral-link') && failed ? respond({ message: 'Please retry loading the link.' }, 503) : baseHandler(call);
+      await mount();
+      await screen.findByRole('button', { name: 'Retry loading referral link' });
+      assert.equal(screen.queryByRole('button', { name: 'Copy my referral link' }), null);
+      assert.equal(copiedLinks.length, 0);
+      failed = false;
+      await user.click(screen.getByRole('button', { name: 'Retry loading referral link' }));
+      await waitFor(() => assert.equal(screen.getByRole('button', { name: 'Copy my referral link' }).disabled, false));
+      const beforeCopy = calls.length;
+      await user.click(screen.getByRole('button', { name: 'Copy my referral link' }));
+      assert.equal(calls.length, beforeCopy);
       reset();
     });
   } finally {

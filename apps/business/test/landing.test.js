@@ -17,6 +17,15 @@ test("public landing and workspace routes are distinct, including trailing slash
   assert.equal(businessPage("/unknown"), "not-found");
   assert.equal(businessPage("/sign-in-elsewhere"), "not-found");
 });
+test("legacy invitation links open the workspace without replacing ordinary landing or unknown routes", () => {
+  for (const path of ['/', '/business', '/business/']) {
+    assert.equal(businessPage(path, '?invite=synthetic-token'), 'workspace');
+    for (const search of ['', '?invite=', '?ref=customer-referral', '?guestlistInvite=guest-token']) {
+      assert.equal(businessPage(path, search), 'landing');
+    }
+  }
+  assert.equal(businessPage('/unknown', '?invite=synthetic-token'), 'not-found');
+});
 test("public copy distinguishes working features and planned capabilities", () => {
   assert.equal(features.length, 4);
   assert.equal(roadmap.length, 3);

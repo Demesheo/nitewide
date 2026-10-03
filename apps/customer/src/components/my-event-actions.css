@@ -1,7 +1,8 @@
 .my-event-actions { display: grid; gap: 24px; min-width: 0; }
 .my-event-actions h2, .my-event-action-dialog h2 { font-family: "Manrope", sans-serif; letter-spacing: -.025em; }
 .my-event-referral-panel, .my-event-guestlist-panel { background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: 20px; min-width: 0; }
-.my-event-referral-panel { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 18px; padding: 24px; }
+.my-event-referral-panel { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 18px; padding: 24px; }
+.my-event-referral-panel > .clipboard-copy-fallback { grid-column: 1 / -1; }
 .my-event-referral-copy { min-width: 0; }
 .my-event-referral-copy h2 { margin: 0 0 6px; font-size: 19px; }
 .my-event-referral-copy p, .my-event-guestlist-heading p { color: var(--text-secondary); margin: 0; font-size: 14px; line-height: 1.55; }
@@ -81,6 +82,10 @@
 .my-event-invite-delivery { color: var(--text-muted); font-size: 12px; line-height: 1.55; margin: -5px 0 0; }
 .my-event-dialog-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 4px; }
 .my-event-dialog-actions [data-slot="button"] { flex: 0 1 auto; }
+.my-event-dialog-actions.guest-detail-copy-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.guest-detail-copy-actions > .my-event-danger-button { justify-self: start; grid-column: 1; grid-row: 1; }
+.guest-detail-copy-actions > .clipboard-copy-button { justify-self: end; grid-column: 2; grid-row: 1; }
+.guest-detail-copy-actions > [data-slot="button"] { width: auto; max-width: 100%; white-space: normal; height: auto; min-height: 44px; }
 .my-event-invite-confirmation { display: flex; align-items: center; gap: 15px; background: #1a472a26; border: 1px solid #46725380; border-radius: 14px; padding: 19px; }
 .my-event-approved-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: #32724933; color: #a8e7c0; flex-shrink: 0; }
 .my-event-invite-confirmation h3 { font-family: "Manrope", sans-serif; font-size: 19px; margin: 0 0 5px; overflow-wrap: anywhere; }
@@ -97,7 +102,12 @@
 .my-event-action-dialog .my-event-danger-button { color: #f7aaaa; border-color: #805252; }
 .my-event-action-dialog .my-event-action-notice, .my-event-action-dialog .my-event-action-failure { margin: 0; }
 @media (max-width: 850px) {
-  .my-event-referral-panel { grid-template-columns: auto 1fr; }
+  .my-event-invite-form .my-event-dialog-actions { display: flex; flex-direction: column-reverse; align-items: stretch; }
+  .my-event-invite-form .my-event-dialog-actions > [data-slot="button"] { width: 100%; }
+  .my-event-dialog-actions.clipboard-action-stack { flex-direction: column; align-items: stretch; }
+  .clipboard-action-stack > [data-slot="button"] { width: 100%; }
+  .clipboard-action-stack > .clipboard-copy-button { order: -1; }
+  .my-event-referral-panel { grid-template-columns: auto minmax(0, 1fr); }
   .my-event-referral-panel > button { grid-column: 2; justify-self: start; }
   .my-event-guestlist-controls { grid-template-columns: minmax(0, 1fr); }
   .my-event-status-filter { width: fit-content; }

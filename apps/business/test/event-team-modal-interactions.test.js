@@ -103,10 +103,14 @@ test('event commissions require individual eligibility and invitations start at 
     assert.ok(screen.getByText(/Invitations start at 0%/));
     await user.click(screen.getByRole('button', { name: 'Renew link' }));
     await screen.findByRole('status');
+    assert.equal(screen.getByRole('textbox', { name: 'Invitation link' }).value, 'http://localhost/app?invite=fixture-private-invitation');
     assert.deepEqual(invitationRequests[0], { email: legacyInvitation.email, phone: legacyInvitation.phone, commissionBps: 0 }, 'renewal resets a historical nonzero invitation rate until individual verification');
     await user.type(screen.getByLabelText('Email address'), 'new@fixture.test');
     await user.click(screen.getByRole('button', { name: 'Create invitation' }));
     await waitFor(() => assert.equal(invitationRequests.length, 2));
+    await waitFor(() => assert.equal(screen.getByRole('textbox', { name: 'Invitation link' }).value, 'http://localhost/app?invite=fixture-private-invitation'));
+    const emailLink = new URL(screen.getByRole('link', { name: 'Open email app' }).href);
+    assert.ok(emailLink.searchParams.get('body').includes('http://localhost/app?invite=fixture-private-invitation'));
     assert.deepEqual(invitationRequests[1], { email: 'new@fixture.test', phone: '', commissionBps: 0 });
     assert.equal(screen.getByRole('slider', { name: 'Invitation commission percentage' }).getAttribute('aria-valuenow'), '0');
   } finally {

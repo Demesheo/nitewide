@@ -4,6 +4,7 @@ const QRCode = require('qrcode');
 const { urls } = require('../environment.cjs');
 const { requestFiveSpots, expectFourApprovedPasses } = require('../guestlist-quantity.cjs');
 const { checkPasswordVisibility, checkOnboardingPasswords } = require('../password-visibility.cjs');
+const { gestureClipboard, refusedClipboard } = require('../clipboard.cjs');
 
 test('approved brand logo and favicon stay readable on business landing, sign in and workspace', async ({ page, fixture }) => {
   await page.goto('/');
@@ -217,6 +218,137 @@ async function admissions(page, fixture, role = 'business') {
   await expect(page.getByRole('heading', { name: 'Ready at the door' })).toBeVisible();
 }
 
+test('promoter invitation links open Business, renew safely and allow the invited customer to accept', async ({ page, context, request, fixture }) => {
+  await gestureClipboard(context, '__copiedTeamLink');
+  await eventDetails(page, fixture);
+  await page.getByRole('tab', { name: 'Team', exact: true }).click();
+  await page.getByRole('button', { name: 'Add promoter', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add promoter', exact: true });
+  await dialog.getByLabel('Email address', { exact: true }).fill(fixture.accounts.customer.email);
+  await dialog.getByRole('button', { name: 'Create invitation', exact: true }).click();
+  const input = dialog.getByRole('textbox', { name: 'Invitation link', exact: true });
+  await expect(input).toHaveValue(new RegExp(`^${urls.business}/app\\?invite=`));
+  const original = await input.inputValue();
+  await dialog.locator('li').filter({ hasText: fixture.accounts.customer.email }).getByRole('button', { name: 'Renew link', exact: true }).click();
+  await expect(input).not.toHaveValue(original);
+  await expect(input).toHaveValue(new RegExp(`^${urls.business}/app\\?invite=`));
+  const renewed = await input.inputValue();
+  const url = new URL(renewed);
+  await dialog.getByRole('button', { name: 'Copy link', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__copiedTeamLink)).toBe(renewed);
+  const mail = new URL(await dialog.getByRole('link', { name: 'Open email app', exact: true }).getAttribute('href'));
+  expect(mail.searchParams.get('body')).toContain(renewed);
+  expect((await request.get(`${urls.api}/api/team/invitations/${new URL(original).searchParams.get('invite')}`)).status()).toBe(404);
+  const recipient = await context.newPage();
+  try {
+    for (const link of [renewed, `${urls.business}/${url.search}`]) {
+      await recipient.goto(link);
+      await expect(recipient.getByRole('heading', { name: 'Promote Playwright Friday Night', exact: true })).toBeVisible();
+      await expect(recipient.getByLabel('Email', { exact: true })).toHaveValue(fixture.accounts.customer.email);
+      await expect(recipient.getByRole('button', { name: 'Sign in and accept', exact: true })).toBeVisible();
+      await expectNoOverflow(recipient);
+    }
+    // Viewing either path must not consume the invitation or grant access.
+    expect((await request.get(`${urls.api}/api/team/invitations/${url.searchParams.get('invite')}`)).status()).toBe(200);
+    await recipient.getByLabel('Password', { exact: true }).fill(fixture.password);
+    await recipient.getByRole('button', { name: 'Sign in and accept', exact: true }).click();
+    await expect(recipient.getByRole('heading', { name: 'Playwright Friday Night', exact: true })).toBeVisible();
+    await expect(recipient).toHaveURL(new RegExp(`/app\\?.*event=${fixture.ids.event}`));
+    await expectNoOverflow(recipient);
+  } finally { await recipient.close(); }
+});
+
+test('organization invitation links and resend links open the team acceptance screen', async ({ page, context, request, fixture }, testInfo) => {
+  await gestureClipboard(context, '__copiedTeamInviteLink');
+  await login(page, fixture, 'business', 'business', '/app?section=team');
+  await page.getByRole('button', { name: 'Invite team member', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Invite a team member', exact: true });
+  await dialog.getByLabel('Name (optional)', { exact: true }).fill('Invited Customer');
+  await dialog.getByLabel('Email', { exact: true }).fill(fixture.accounts.customer.email);
+  await dialog.getByRole('button', { name: 'Create invitation', exact: true }).click();
+  const input = dialog.getByRole('textbox', { name: 'Invitation link', exact: true });
+  await expect(input).toHaveValue(new RegExp(`^${urls.business}/app\\?invite=`));
+  const copyInvite = dialog.getByRole('button', { name: 'Copy link', exact: true });
+  await expect(copyInvite.locator('svg.lucide-copy')).toHaveCount(1);
+  if (page.viewportSize().width > 850) {
+    await copyInvite.hover();
+    await expect(page.getByRole('tooltip')).toHaveText('Copy link');
+  }
+  await copyInvite.click();
+  await expect(dialog.getByRole('button', { name: 'Link copied', exact: true }).locator('svg.lucide-check')).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => window.__copiedTeamInviteLink)).toBe(await input.inputValue());
+  const original = await input.inputValue();
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  const pending = page.locator('.team-pending li').filter({ hasText: fixture.accounts.customer.email });
+  await expect(pending.locator('strong')).toHaveText('Invited Customer');
+  await expectNoOverflow(page);
+  const copyPending = pending.getByRole('button', { name: 'Copy link', exact: true });
+  const resend = pending.getByRole('button', { name: 'Resend', exact: true });
+  const remove = pending.getByRole('button', { name: 'Delete', exact: true });
+  await expect(remove).toHaveCSS('border-top-width', '1px');
+  expect((await remove.boundingBox()).x).toBeLessThan((await resend.boundingBox()).x);
+  expect((await copyPending.boundingBox()).y).toBeLessThan((await resend.boundingBox()).y);
+  const originalViewport = page.viewportSize();
+  await page.setViewportSize({ width: 320, height: 568 });
+  await expectNoOverflow(page);
+  await page.setViewportSize(originalViewport);
+  await copyPending.click();
+  await expect(pending.getByRole('button', { name: 'Link copied', exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__copiedTeamInviteLink)).not.toBe(original);
+  const pendingLink = await page.evaluate(() => window.__copiedTeamInviteLink);
+  const copiedToken = new URL(pendingLink).searchParams.get('invite');
+  expect(copiedToken).toMatch(/^nwti1\./);
+  const preview = await request.get(`${urls.api}/api/team/invitations/${copiedToken}`);
+  expect(preview.status()).toBe(200);
+  expect((await preview.json()).data.email).toBe(fixture.accounts.customer.email);
+  const tamperedToken = copiedToken.slice(0, -1) + (copiedToken.endsWith('A') ? 'B' : 'A');
+  expect((await request.get(`${urls.api}/api/team/invitations/${tamperedToken}`)).status()).toBe(404);
+  await testInfo.attach('pending-team-invitation', { body: await pending.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+  await resend.click();
+  await expect(dialog).toBeVisible();
+  await expect(input).not.toHaveValue(original);
+  await expect(input).toHaveValue(new RegExp(`^${urls.business}/app\\?invite=`));
+  const renewed = await input.inputValue();
+  expect((await request.get(`${urls.api}/api/team/invitations/${new URL(original).searchParams.get('invite')}`)).status()).toBe(404);
+  expect((await request.get(`${urls.api}/api/team/invitations/${copiedToken}`)).status()).toBe(404);
+  const recipient = await context.newPage();
+  try {
+    await recipient.goto(renewed);
+    await expect(recipient.getByRole('heading', { name: 'Playwright Nightlife invited you to join as employee', exact: true })).toBeVisible();
+    await expect(recipient.getByLabel('Email', { exact: true })).toHaveValue(fixture.accounts.customer.email);
+    await expectNoOverflow(recipient);
+    await testInfo.attach('team-invitation-acceptance', { body: await recipient.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+    const viewport = recipient.viewportSize();
+    await recipient.setViewportSize({ width: 320, height: 568 });
+    await expectNoOverflow(recipient);
+    await recipient.setViewportSize(viewport);
+    await recipient.getByRole('button', { name: 'New to Nitewide? Create an account', exact: true }).click();
+    await expect(recipient.getByLabel('Name', { exact: true })).toBeVisible();
+    await expect(recipient.getByLabel('Password', { exact: true })).toHaveAttribute('autocomplete', 'new-password');
+    await expectNoOverflow(recipient);
+    await testInfo.attach('team-invitation-create-account', { body: await recipient.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+  } finally { await recipient.close(); }
+});
+
+test('clipboard refusal offers a selectable referral link without claiming copy success', async ({ page, context, fixture }, testInfo) => {
+  await refusedClipboard(context);
+  await eventDetails(page, fixture);
+  const share = page.locator('.guestlist-referral-card');
+  await share.getByRole('button', { name: 'Copy link', exact: true }).click();
+  const manual = share.getByRole('textbox', { name: 'Copy link manually', exact: true });
+  await expect(manual).toBeVisible();
+  await expect(manual).toHaveAttribute('readonly', '');
+  const link = await manual.inputValue();
+  expect(new URL(link).searchParams.get('event')).toBe(fixture.ids.event);
+  await manual.click();
+  await expect.poll(() => manual.evaluate(input => [input.selectionStart, input.selectionEnd])).toEqual([0, link.length]);
+  await expect(share).not.toContainText('Allow clipboard access');
+  await expect(share.getByRole('button', { name: 'Copied', exact: true })).toHaveCount(0);
+  await expectNoOverflow(page);
+  await testInfo.attach('business-manual-copy-fallback', { body: await page.screenshot(), contentType: 'image/png' });
+});
+
 test('business sections can change while overview reports are loading', async ({ page, fixture }) => {
   await eventDetails(page, fixture);
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -291,25 +423,21 @@ test('business reviewer adjusts a five-spot request to four separate passes and 
 });
 
 test('manager personal invitation opens four account-free individual passes and can be copied again', async ({ page, context, fixture }, testInfo) => {
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__copiedGuestlistLink = text; } } });
-  });
+  const linkRequests = [];
+  page.on('request', request => { if (/\/(referral-link|invitation-link)(?:\?|$)/.test(request.url())) linkRequests.push(request.url()); });
+  await gestureClipboard(context, '__copiedGuestlistLink');
   await eventDetails(page, fixture);
   const share = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Your referral link', exact: true }) }).last();
   await expect(share.getByRole('button', { name: 'Copy link', exact: true })).toBeVisible();
   await share.getByRole('button', { name: 'Invite guest', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Invite to guestlist', exact: true });
   await expect(dialog.getByLabel('Invite by')).toHaveValue('personal');
+  await expect(dialog.getByLabel('Invite by')).toBeDisabled();
   await dialog.getByLabel('Guestlist pool').selectOption({ label: 'My allocation · 10 places' });
   await dialog.getByLabel('Guest name').fill('Alex and friends');
   await expect(dialog.getByLabel('Phone number')).toHaveCount(0);
   await expect(dialog.getByLabel('Email address')).toHaveCount(0);
   await dialog.getByLabel('Spots').fill('4');
-  await dialog.getByLabel('Invite by').selectOption('email');
-  await expect(dialog.getByLabel('Email address')).toBeVisible();
-  await dialog.getByLabel('Invite by').selectOption('phone');
-  await expect(dialog.getByLabel('Phone number')).toBeVisible();
-  await dialog.getByLabel('Invite by').selectOption('personal');
   await expectNoOverflow(page);
   const formBounds = await dialog.boundingBox();
   expect(formBounds.width).toBeLessThanOrEqual(540);
@@ -331,6 +459,7 @@ test('manager personal invitation opens four account-free individual passes and 
   await testInfo.attach('guestlist-invitation-success', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
   await expect(dialog.locator('input')).toHaveCount(0);
   await dialog.getByRole('button',{ name: 'Copy link',exact: true }).click();
+  await expect(dialog.getByRole('button',{ name: 'Link copied',exact: true })).toBeVisible();
   const link = await page.evaluate(() => window.__copiedGuestlistLink);
   expect(new URL(link).searchParams.has('guestlistInvite')).toBe(true);
   await expectNoOverflow(page);
@@ -344,11 +473,18 @@ test('manager personal invitation opens four account-free individual passes and 
   await page.getByRole('button', { name: 'Alex and friends', exact: true }).click();
   const details = page.getByRole('dialog', { name: 'Alex and friends', exact: true });
   const copyAgain = details.getByRole('button',{ name: 'Copy link',exact: true });
-  await expect(copyAgain).toBeVisible(); await copyAgain.click();
-  await expect(copyAgain).toHaveText('Copy link');
-  expect(await page.evaluate(() => window.__copiedGuestlistLink)).toBe(link);
+  await expect(copyAgain).toBeEnabled();
+  const prefetchedRequests = linkRequests.length;
+  const copyBounds = await copyAgain.boundingBox(), revokeBounds = await details.getByRole('button', { name: 'Revoke approval', exact: true }).boundingBox();
+  expect(revokeBounds.x + revokeBounds.width).toBeLessThanOrEqual(copyBounds.x);
+  await expect(details.locator('.guestlist-detail-actions').getByRole('button', { name: 'Close', exact: true })).toHaveCount(0);
+  await copyAgain.click();
+  await expect(details.getByRole('button', { name: 'Link copied', exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__copiedGuestlistLink)).toBe(link);
+  expect((await page.evaluate(() => window.__clipboardWrites)).immediate).toBeGreaterThan(0);
+  expect(linkRequests).toHaveLength(prefetchedRequests);
   await expectNoOverflow(page);
-  await details.locator('.guestlist-detail-actions').getByRole('button', { name: 'Close', exact: true }).click();
+  await details.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Link copied' })).toBeVisible();
   const guest = await context.newPage();
   await guest.goto(link);
@@ -374,6 +510,7 @@ test('guestlist invitation copy failure can retry and Done resets the form for t
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {
       if (++attempts === 1) throw new Error('Clipboard unavailable');
     } } });
+    document.execCommand = () => false;
   });
   await eventDetails(page, fixture);
   await page.getByRole('button', { name: 'Invite guest', exact: true }).click();
@@ -385,7 +522,8 @@ test('guestlist invitation copy failure can retry and Done resets the form for t
   await expect(dialog.getByRole('heading', { name, exact: true })).toBeVisible();
   await expect(dialog.getByRole('region', { name: 'Invitation summary' })).toContainText('1 individual pass');
   await dialog.getByRole('button', { name: 'Copy link', exact: true }).click();
-  await expect(dialog.getByRole('alert')).toContainText('Could not copy the link');
+  await expect(dialog.getByRole('alert')).toContainText('Automatic copying is unavailable');
+  await expect(dialog.getByRole('textbox', { name: 'Copy link manually' })).toBeVisible();
   await expectNoOverflow(page);
   await testInfo.attach('guestlist-invitation-copy-retry', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
   await dialog.getByRole('button', { name: 'Copy link', exact: true }).click();

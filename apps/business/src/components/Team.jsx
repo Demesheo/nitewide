@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Search } from 'lucide-react';
+import { ArrowRight, Search, ShieldCheck, Ticket, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
+import { teamInvitationUrl } from '@/lib/team-invitation-link';
+import { copyText } from '../../../shared/copy-text.js';
+import { CopyLinkButton } from '../../../shared/copy-link-button.jsx';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TablePagination, useTablePagination } from '@/components/TablePagination';
 import { sortTableRows } from '@/lib/table-sort';
@@ -14,6 +17,8 @@ import { searchRows } from '@/lib/table-search';
 import { Choice } from './controls';
 import { LoadingState } from './LoadingState';
 import { ManagerFinancePermission } from './ManagerFinancePermission';
+import { BrandMark, BusinessBrand } from './BusinessBrand';
+import { PendingTeamInvitation } from './PendingTeamInvitation';
 
 const teamColumns = [['name', 'Name'], ['role', 'Role'], ['email', 'Email'], ['status', 'Status'], ['salesCents', 'Referred sales'], ['orders', 'Orders'], ['customers', 'Customers']].map(([key, label]) => ({ key, label }));
 
@@ -39,9 +44,12 @@ export function Team({ session, organizations, onUnauthorized }) {
   const [search, setSearch] = useState('');
   const [selectedRoles, setSelectedRoles] = useState([]);
   const [email, setEmail] = useState('');
+  const [inviteeName, setInviteeName] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState('employee');
   const [link, setLink] = useState('');
+  const [copied, setCopied] = useState(false);
+  useEffect(() => setCopied(false), [link]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -68,9 +76,10 @@ export function Team({ session, organizations, onUnauthorized }) {
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError(''); setLink('');
     try {
-      const result = await api(`/business/organizations/${organizationId}/invitations`, session, { method: 'POST', body: JSON.stringify({ email, phone, role }) });
-      setLink(`${window.location.origin}/?invite=${encodeURIComponent(result.token)}`);
+      const result = await api(`/business/organizations/${organizationId}/invitations`, session, { method: 'POST', body: JSON.stringify({ email, ...(inviteeName.trim() ? { name: inviteeName.trim() } : {}), phone, role }) });
+      setLink(teamInvitationUrl(result.token));
       setEmail('');
+      setInviteeName('');
       setPhone('');
       setRoster(await api(`/business/organizations/${organizationId}/team`, session));
     } catch (err) { setError(err.message); } finally { setBusy(false); }
@@ -87,7 +96,7 @@ export function Team({ session, organizations, onUnauthorized }) {
     setError('');
     try {
       const renewed = await api(`/business/organizations/${organizationId}/invitations/${invitation.id}/resend`, session, { method: 'POST' });
-      const url = `${window.location.origin}/?invite=${encodeURIComponent(renewed.token)}`;
+      const url = teamInvitationUrl(renewed.token);
       setLink(url);
       setInviteOpen(true);
       setRoster(await api(`/business/organizations/${organizationId}/team`, session));
@@ -144,14 +153,15 @@ export function Team({ session, organizations, onUnauthorized }) {
           <DialogDescription>Send a seven-day invitation link. New people create a customer account first; existing Nitewide users sign in. Their new role is added to the same account after they accept.</DialogDescription>
         </DialogHeader>
         <form className="team-invite-form" onSubmit={submit}>
-          <label>Email address<Input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" /></label>
+          <label className="team-invite-identity">Name (optional)<Input name="inviteeName" autoComplete="off" maxLength={120} value={inviteeName} onChange={(event) => setInviteeName(event.target.value)} placeholder="e.g. Alex Rivera" /></label>
+          <label className="team-invite-identity">Email address<Input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" /></label>
           <label>Phone (optional)<Input type="tel" inputMode="tel" autoComplete="off" maxLength={32} value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+1 407 555 0123" /></label>
           <div className="team-role-field"><span>Role</span><Choice label="Role" value={role} onChange={setRole} options={[...(canInviteManager ? [['manager', 'Manager']] : []), ['employee', 'Employee'], ['affiliate', 'Promoter']]} /></div>
           <Button disabled={busy || !organizationId}>{busy ? 'Creating…' : 'Create invitation'}</Button>
         </form>
         <small>The invitation email is queued when email delivery is configured. The private link remains available to copy as a backup. Phone is saved for a future optional text invite.</small>
         {error && <p role="alert" className="error">{error}</p>}
-        {link && <div className="team-link"><p>Private invitation link for the {roleLabel(role)}:</p><Input readOnly value={link} aria-label="Invitation link" onFocus={(event) => event.target.select()} /><Button variant="outline" onClick={() => navigator.clipboard.writeText(link)}>Copy link</Button><small>Only the invited email address can accept it.</small></div>}
+        {link && <div className="team-link"><p>Private invitation link for the {roleLabel(role)}:</p><Input readOnly value={link} aria-label="Invitation link" onFocus={(event) => event.target.select()} /><CopyLinkButton component={Button} copied={copied} onClick={async () => { try { await copyText(link); setCopied(true); setError(''); } catch { setCopied(false); setError('Select and copy the invitation link above.'); } }}/><small>Only the invited email address can accept it.</small></div>}
         <DialogFooter><DialogClose asChild><Button variant="outline">Close</Button></DialogClose></DialogFooter>
       </DialogContent>
     </Dialog>
@@ -190,7 +200,7 @@ export function Team({ session, organizations, onUnauthorized }) {
         <DialogFooter className="team-remove-dialog-actions"><Button variant="destructive" disabled={memberRemoving} onClick={removeMember}>{memberRemoving ? 'Removing…' : 'Confirm removal'}</Button><Button variant="outline" disabled={memberRemoving} onClick={() => setConfirmRemove(false)}>Keep member</Button></DialogFooter>
       </DialogContent>}
     </Dialog>
-    <section className="panel team-pending"><h2>Pending invitations</h2>{roster?.invitations.length ? <ul>{roster.invitations.map((invitation) => <li key={invitation.id}><span><strong>{invitation.email}</strong><small>{roleLabel(invitation.role)}{invitation.phone ? ` · ${invitation.phone}` : ''} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</small></span><div><Button variant="outline" size="sm" onClick={() => resend(invitation)}>Resend</Button><Button variant="ghost" size="sm" onClick={() => revoke(invitation)}>Delete</Button></div></li>)}</ul> : <p>No pending invitations.</p>}<small>Resend renews the private link and queues a new email when delivery is configured. You can also copy the link.</small></section>
+    <section className="panel team-pending"><h2>Pending invitations</h2>{roster?.invitations.length ? <ul>{roster.invitations.map((invitation) => <PendingTeamInvitation key={invitation.id} invitation={invitation} busy={busy} onResend={() => resend(invitation)} onDelete={() => revoke(invitation)}/>)}</ul> : <p>No pending invitations.</p>}<small>Resend renews the private link and queues a new email when delivery is configured. You can also copy the link.</small></section>
   </div>;
 }
 
@@ -200,7 +210,18 @@ export function TeamInviteLanding({ token, session, onSession, onAccepted }) {
   const [signupPhone, setSignupPhone] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { api(`/team/invitations/${encodeURIComponent(token)}`, null).then(setInvite).catch((err) => setError(err.message)); }, [token]);
+  const [loading, setLoading] = useState(true);
+  const [retry, setRetry] = useState(0);
+  const accepting = useRef(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true); setInvite(null); setError(''); setRegister(false);
+    api(`/team/invitations/${encodeURIComponent(token)}`, null, { signal: controller.signal })
+      .then(value => { if (!controller.signal.aborted) setInvite(value); })
+      .catch(err => { if (!controller.signal.aborted) setError(err.message); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [token, retry]);
   useEffect(() => { setSignupPhone(invite?.phone || ''); }, [invite?.phone]);
   async function accept(currentSession) {
     const accepted = await api(`/team/invitations/${encodeURIComponent(token)}/accept`, currentSession, { method: 'POST' });
@@ -208,22 +229,44 @@ export function TeamInviteLanding({ token, session, onSession, onAccepted }) {
     onAccepted({ ...currentSession, ...updated }, accepted);
   }
   async function submit(event) {
-    event.preventDefault(); setBusy(true); setError('');
+    event.preventDefault();
+    if (accepting.current || !invite) return;
+    accepting.current = true; setBusy(true); setError('');
     const form = new FormData(event.currentTarget);
     try {
       const currentSession = await api(register ? '/auth/register' : '/auth/sign-in', null, { method: 'POST', body: JSON.stringify(register ? { displayName: form.get('name'), email: form.get('email'), password: form.get('password'), phone: form.get('phone'), marketingConsent: false, transactionalSmsConsent: form.get('transactionalSms') === 'on', marketingSmsConsent: form.get('marketingSms') === 'on' } : { email: form.get('email'), password: form.get('password') }) });
       await accept(currentSession);
-    } catch (err) { setError(err.message); } finally { setBusy(false); }
+    } catch (err) { setError(err.message); } finally { accepting.current = false; setBusy(false); }
   }
-  return <main className="signin">
-    <section className="signin-story"><h1>{invite?.eventId ? 'Make this event yours.' : 'Join the team.'}</h1><p>One Nitewide account, more ways to work together.</p></section>
-    <section className="signin-form-wrap"><div className="signin-form">
+  return <main className="signin team-invite-page">
+    <section className="signin-story"><BusinessBrand href={import.meta.env.VITE_BUSINESS_HOME || '/'} />
+      <div className="story-content"><span className="eyebrow">YOUR NEXT CHAPTER</span><h1>{invite?.eventId ? 'Make this event yours.' : 'Join the team.'}</h1><p>Your people. Your opportunities.<br/>One Nitewide account.</p>
+        <div className="story-pills"><span><Users size={16} aria-hidden="true"/>Work together</span><span><Ticket size={16} aria-hidden="true"/>Make great nights</span></div></div>
+      <div className="story-footer">Built for the people behind the night.</div>
+    </section>
+    <section className="signin-form"><div className="signin-box team-invite-box">
+      <span className="login-mark"><BrandMark /></span>
       <span className="eyebrow">{invite?.eventId ? 'EVENT PROMOTER INVITATION' : 'TEAM INVITATION'}</span>
-      <h2>{invite ? invite.eventId ? `Promote ${invite.eventTitle}` : `${invite.organizationName} invited you to join as ${roleLabel(invite.role)}` : 'Checking invitation…'}</h2>
-      <p>Accept with {invite?.email || 'the invited email address'}. Your existing roles stay intact.</p>
-      {invite?.eventId && <><p><strong>{(invite.commissionBps ?? 0)/100}% event commission</strong> on future referred ticket/package sales before fees. Previously completed sales stay unchanged.</p><p>Access your own sales, performance and referred guestlists for this event only. You are not joining the venue team.</p></>}
-      {session ? <Button disabled={busy || !invite} onClick={async () => { setBusy(true); setError(''); try { await accept(session); } catch (err) { setError(err.message); } finally { setBusy(false); } }}>Accept invitation</Button> : <form key={invite?.email || 'pending'} onSubmit={submit}><label>Email<Input name="email" type="email" required defaultValue={invite?.email || ''} /></label>{register && <label>Name<Input name="name" required /></label>}<label>Password<Input name="password" type="password" required minLength={register ? 8 : 1} /></label>{register && <><label>Phone (optional)<Input name="phone" type="tel" inputMode="tel" autoComplete="tel" maxLength={32} value={signupPhone} onChange={(event) => setSignupPhone(event.target.value)} placeholder="+1 407 555 0123" /></label><label className="sms-choice"><input type="checkbox" name="transactionalSms" disabled={!signupPhone.trim()} /> Text me booking, guestlist and event updates when available.</label><label className="sms-choice"><input type="checkbox" name="marketingSms" disabled={!signupPhone.trim()} /> Text me event recommendations and offers when available.</label><small>Texts are not active yet. These choices are optional and require a phone number.</small></>}<Button disabled={!invite || busy}>{register ? 'Create account and accept' : 'Sign in and accept'}</Button></form>}
-      <Button variant="ghost" onClick={() => setRegister(!register)}>{register ? 'Already have an account? Sign in' : 'New to Nitewide? Create an account'}</Button>{error && <p role="alert" className="error">{error}</p>}
-    </div></section>
+      <h2>{invite ? invite.eventId ? `Promote ${invite.eventTitle}` : `${invite.organizationName} invited you to join as ${roleLabel(invite.role)}` : loading ? 'Checking invitation…' : 'Invitation unavailable'}</h2>
+      {loading && <LoadingState>Checking your private invitation…</LoadingState>}
+      {invite && <><p className="team-invite-intro">{session ? <>Accept with <strong>{invite.email}</strong></> : 'Use your invited email to sign in or create an account.'}</p>
+        {invite.eventId && <div className="team-invite-scope"><p>View your own sales, performance and referred guestlists for this event only. This does not add you to the venue team.</p><p><strong>{(invite.commissionBps ?? 0)/100}% event commission</strong> on future eligible referred sales. Existing sales stay unchanged.</p></div>}
+        {session ? <div className="team-invite-session"><p>Signed in as <strong>{session.user?.email}</strong></p><Button disabled={busy} onClick={async () => { if (accepting.current) return; accepting.current = true; setBusy(true); setError(''); try { await accept(session); } catch (err) { setError(err.message); } finally { accepting.current = false; setBusy(false); } }}>{busy ? 'Accepting…' : 'Accept invitation'}{!busy && <ArrowRight aria-hidden="true"/>}</Button></div> : <>
+          <form key={invite.email} id="team-invite-accept-form" aria-label={register ? 'Create account and accept invitation' : 'Sign in and accept invitation'} onSubmit={submit} aria-busy={busy}>
+            <fieldset disabled={busy}>
+              <label className="field" htmlFor="team-invite-email"><span>Email</span><Input id="team-invite-email" name="email" type="email" autoComplete="username" required readOnly value={invite.email}/></label>
+              {register && <label className="field" htmlFor="team-invite-name"><span>Name</span><Input id="team-invite-name" name="name" autoComplete="name" defaultValue={invite.name || ''} maxLength={120} required /></label>}
+              <label className="field" htmlFor="team-invite-password"><span>Password</span><Input id="team-invite-password" key={register ? 'new' : 'current'} name="password" type="password" autoComplete={register ? 'new-password' : 'current-password'} required minLength={register ? 8 : 1} maxLength={128} placeholder={register ? 'Create a strong password' : 'Enter your password'}/></label>
+              {register && <><label className="field" htmlFor="team-invite-phone"><span>Phone (optional)</span><Input id="team-invite-phone" name="phone" type="tel" inputMode="tel" autoComplete="tel" maxLength={32} value={signupPhone} onChange={event => setSignupPhone(event.target.value)} placeholder="+1 407 555 0123" /></label><label className="sms-choice"><input type="checkbox" name="transactionalSms" disabled={!signupPhone.trim()} /> Text me booking, guestlist and event updates when available.</label><label className="sms-choice"><input type="checkbox" name="marketingSms" disabled={!signupPhone.trim()} /> Text me event recommendations and offers when available.</label><small>Optional. Text features are not active yet.</small></>}
+            </fieldset>
+            <Button type="submit" disabled={busy}>{busy ? 'Accepting…' : register ? 'Create account and accept' : 'Sign in and accept'}{!busy && <ArrowRight aria-hidden="true"/>}</Button>
+          </form>
+          <div className="signin-help"><Button type="button" variant="ghost" disabled={busy} onClick={() => { setRegister(!register); setError(''); }}>{register ? 'Already have an account? Sign in' : 'New to Nitewide? Create an account'}</Button></div>
+        </>}
+        <div className="signin-note"><ShieldCheck size={16} aria-hidden="true"/><span>Your existing roles stay intact. This invitation adds access to the same Nitewide account.</span></div>
+      </>}
+      {error && <p role="alert" className="error">{error}</p>}
+      {!loading && !invite && <Button type="button" variant="outline" onClick={() => setRetry(value => value + 1)}>Retry invitation</Button>}
+    </div><small>© {new Date().getFullYear()} Nitewide · Business, after hours.</small></section>
   </main>;
 }

@@ -4,6 +4,7 @@ const { resolvePaidRange } = require('./business-report-period');
 const { notFound } = require('../domain/errors');
 const { commissionTerms } = require('../domain/commission-eligibility');
 const { persistedCommissionTerms } = require('./commission-profile-repository');
+const { shareableTeamInvitation } = require('../domain/team-invitation-token');
 const { netSubtotalSql, commissionExpenseSql: netCommissionSql, financialOrderSql } = require('./refund-report-policy');
 
 const membersSql = `WITH team AS (
@@ -78,11 +79,14 @@ function createBusinessTeamReadService({ models, permissions, now = () => new Da
     await permissions.assertManageOrganization(userId, organizationId);
     const values = { organizationId, currentTime: now(), pageSize: input.pageSize,
       offset: (input.page - 1) * input.pageSize };
-    const predicate = `organization_id = :organizationId AND accepted_at IS NULL AND expires_at > :currentTime`;
-    const [count] = await select(`SELECT COUNT(*)::integer AS total FROM team_invitations WHERE ${predicate}`, values);
-    const rows = await select(`SELECT id, email, phone, role, expires_at AS "expiresAt", created_at AS "createdAt"
-      FROM team_invitations WHERE ${predicate} ORDER BY created_at DESC, id DESC LIMIT :pageSize OFFSET :offset`, values);
-    return pageResult(rows, count.total, input.page, input.pageSize);
+    const predicate = `i.organization_id = :organizationId AND i.accepted_at IS NULL AND i.expires_at > :currentTime`;
+    const [count] = await select(`SELECT COUNT(*)::integer AS total FROM team_invitations i WHERE ${predicate}`, values);
+    const rows = await select(`SELECT i.id, i.email, COALESCE(NULLIF(i.name,''), u.display_name) AS name, i.phone, i.role,
+      i.organization_id AS "organizationId", i.event_id AS "eventId", i.token_hash AS "tokenHash",
+      i.expires_at AS "expiresAt", i.created_at AS "createdAt"
+      FROM team_invitations i LEFT JOIN users u ON u.email = i.email WHERE ${predicate}
+      ORDER BY i.created_at DESC, i.id DESC LIMIT :pageSize OFFSET :offset`, values);
+    return pageResult(rows.map(row => shareableTeamInvitation(row)), count.total, input.page, input.pageSize);
   }
   return { page, invitations };
 }

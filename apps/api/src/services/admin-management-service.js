@@ -8,7 +8,7 @@ const { queueEventEmail, formatTime } = require('./email-events');
 const { createGuestlistService } = require('./guestlist-service');
 const { createGuestlistInvitationService } = require('./guestlist-invitation-service');
 const { assertUserAccessChange } = require('./admin-access-guards');
-const { queueTeamInvitation, queuePromoterInvitation } = require('./business-email-events');
+const { queueTeamInvitation, queuePromoterInvitation, makeUrl } = require('./business-email-events');
 const { createAdminEditService, schemas: editSchemas } = require('./admin-edit-service');
 const { createAdminOnboardingService, venueSchema } = require('./admin-onboarding-service');
 const { active, assertActiveEvent, assertOrganizationVenue } = require('./lifecycle-service');
@@ -361,8 +361,7 @@ function createAdminManagementService({ models, permissions, email = null, custo
         const queued = event
           ? await queuePromoterInvitation({ email, invitation: record, event, token, businessAppUrl, transaction })
           : await queueTeamInvitation({ email, invitation: record, organization, token, businessAppUrl, transaction });
-        const url = new URL('/', businessAppUrl); url.searchParams.set('invite', token);
-        handoff = { url: url.toString(), message: queued ? 'Invitation email is queued for delivery.' : 'Email delivery is disabled. Share this link manually with the intended recipient.' };
+        handoff = { url: makeUrl(businessAppUrl, { invite: token }), message: queued ? 'Invitation email is queued for delivery.' : 'Email delivery is disabled. Share this link manually with the intended recipient.' };
         return { ...safe(config, record), handoff };
       }
       const record = key === 'offerings' ? await persistOffering({ models, eventId: data.eventId, values: data, transaction, environment, hostedDemo,stripe }) : await models[config.model].create(data, { transaction });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, RefreshCw, Link } from 'lucide-react';
+import { Users, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { EventCard } from './event-card';
@@ -7,12 +7,15 @@ import { LoadingIndicator } from './loading-indicator';
 import { ConnectionFilter } from './connection-filter';
 import { api } from '../lib/api';
 import { connectionEvents, connectionLink, selectedConnection } from '../lib/connections';
+import { ManualCopyLink, useClipboardCopy } from '../../../shared/clipboard-copy.jsx';
+import { CopyLinkButton } from '../../../shared/copy-link-button.jsx';
 
 export function ConnectionsPage({ session, history, saved, onSave, onReferral, onRefresh, onVisible }) {
   const [entries, setEntries] = useState([]), [loading, setLoading] = useState(true), [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0), [people, setPeople] = useState(null), [city, setCity] = useState(''), [query, setQuery] = useState(''), [submittedQuery, setSubmittedQuery] = useState('');
   const [page, setPage] = useState(1), [hasMore, setHasMore] = useState(false), [total, setTotal] = useState(0);
   const [choices, setChoices] = useState({}), [opening, setOpening] = useState(''), [message, setMessage] = useState('');
+  const { copy, manualLink } = useClipboardCopy(session.accessToken);
   useEffect(() => { const timer = setTimeout(() => setSubmittedQuery(query.trim()), 300); return () => clearTimeout(timer); }, [query]);
   useEffect(() => { setPage(1); setEntries([]); }, [people, city, submittedQuery]);
   useEffect(() => {
@@ -34,6 +37,7 @@ export function ConnectionsPage({ session, history, saved, onSave, onReferral, o
   useEffect(() => { onVisible?.(entries.map((entry) => entry.event)); return () => onVisible?.([]); }, [entries, onVisible]);
   useEffect(() => { if (!message) return; const timer = setTimeout(() => setMessage(''), 4000); return () => clearTimeout(timer); }, [message]);
   const groups = connectionEvents(entries);
+  const shareLinks = new Map(groups.flatMap(group => group.referrals.map(entry => [entry, connectionLink(entry, window.location.origin)])));
   async function open(entry) {
     if (opening) return;
     setOpening(entry.event.id); setError('');
@@ -42,8 +46,8 @@ export function ConnectionsPage({ session, history, saved, onSave, onReferral, o
     finally { setOpening(''); }
   }
   async function share(entry) {
-    try { await navigator.clipboard.writeText(connectionLink(entry, window.location.origin)); setMessage(`Copied ${entry.referrer.name}'s event link.`); }
-    catch { setError('Could not copy this link. Please try again.'); }
+    try { await copy(shareLinks.get(entry)); setError(''); setMessage(`Copied ${entry.referrer.name}'s event link.`); }
+    catch (error) { setError(error.message); }
   }
   return <main className="connections-page booked-page wrap" id="connections">
     <div className="booked-page-heading"><p className="eyebrow">FAMILIAR FACES. NEW NIGHTS.</p><h1>Connections.</h1><p>Find where your people are next. Book with them again.</p></div>
@@ -56,6 +60,7 @@ export function ConnectionsPage({ session, history, saved, onSave, onReferral, o
     </div>
     {error && <p className="account-error" role="alert">{error} <button onClick={() => setRefresh((value) => value + 1)}>Try again</button></p>}
     {message && <p role="status" className="connections-message">{message}</p>}
+    <ManualCopyLink link={manualLink}/>
     {loading && !entries.length ? <LoadingIndicator>Finding your connections’ next events…</LoadingIndicator> : <>
       <div className="connections-heading"><h2>Book with them again</h2><span>{total} matching {total === 1 ? 'connection' : 'connections'} across upcoming events</span></div>
       {!groups.length && !error && !hasMore && <div className="account-empty"><Users /><h3>{history?.eligible ? 'No upcoming matches just yet.' : 'Your connections will appear here.'}</h3><p>Try another person, city, or search. Your connection history stays available between events.</p></div>}
@@ -65,7 +70,7 @@ export function ConnectionsPage({ session, history, saved, onSave, onReferral, o
           <div className="connection-referral">
             {group.referrals.length > 1 ? <Select value={entry.referrer.id} onValueChange={(value) => setChoices((current) => ({ ...current, [group.event.id]: value }))}><SelectTrigger aria-label={`Book ${group.event.title} through`}><SelectValue /></SelectTrigger><SelectContent>{group.referrals.map((option) => <SelectItem key={option.referrer.id} value={option.referrer.id}>{option.referrer.name}</SelectItem>)}</SelectContent></Select> : <strong>With {entry.referrer.name}</strong>}
             <p>Your booking or guestlist request credits this connection. Guestlists require approval.</p>
-            <Button variant="ghost" onClick={() => share(entry)} aria-label={`Copy ${entry.referrer.name}'s referral link for ${group.event.title}`}><Link size={14} /> Share their link</Button>
+            <CopyLinkButton component={Button} onClick={() => share(entry)} label="Share their link" copied={message === `Copied ${entry.referrer.name}'s event link.`} aria-label={`Copy ${entry.referrer.name}'s referral link for ${group.event.title}`}/>
           </div>
         </EventCard>;
       })}</div>

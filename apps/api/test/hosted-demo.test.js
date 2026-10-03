@@ -85,6 +85,33 @@ test('single-origin demo maps each app and assets without swallowing unknown API
   assert.equal((await request('/api/not-real')).status, 404);
   assert.equal((await request('/.env')).status, 404);
 });
+test('legacy root team/promoter invitations redirect to Business without changing customer links', async t => {
+  const { createDemoStaticFixture } = require('./support/demo-static-fixture.cjs');
+  const root = await createDemoStaticFixture(t);
+  const app = express(); installDemoStatic(app, root);
+  const request = await serve(t, app);
+  const token = 'synthetic +/?&=# invitation';
+  const query = new URLSearchParams({ invite: token, returnTo: 'https://untrusted.example/', city: 'Orlando, FL' });
+  for (const method of ['GET', 'HEAD']) {
+    const response = await request(`/?${query}`, { method });
+    assert.equal(response.status, 302);
+    assert.equal(response.headers['cache-control'], 'no-store');
+    const destination = new URL(response.headers.location, 'https://nitewide-demo.onrender.com');
+    assert.equal(destination.origin, 'https://nitewide-demo.onrender.com');
+    assert.equal(destination.pathname, '/app');
+    assert.deepEqual([...destination.searchParams], [...query]);
+    const landing = await request(response.headers.location);
+    assert.equal(landing.status, 200);
+    assert.match(landing.text, /business test fixture/);
+    assert.equal(landing.headers['cache-control'], 'no-store');
+  }
+  for (const url of ['/', '/?city=Orlando', '/?invite=', '/?guestlistInvite=synthetic-guest-token', '/?ref=synthetic-referral', '/?onboarding=synthetic-onboarding']) {
+    const response = await request(url);
+    assert.equal(response.status, 200, url);
+    assert.match(response.text, /customer test fixture/, url);
+    assert.equal(response.headers.location, undefined, url);
+  }
+});
 test('entry documents are not cached and missing release assets never become HTML or cached failures', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'nitewide-static-cache-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));

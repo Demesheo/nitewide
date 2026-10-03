@@ -8,7 +8,7 @@ const App = lazy(() => import("./App"));
 const Landing = lazy(() => import("./Landing"));
 
 function BusinessRoute() {
-  const page = businessPage(window.location.pathname);
+  const page = businessPage(window.location.pathname, window.location.search);
   return page === "landing" || page === "workspace" ? (
     <Suspense
       fallback={

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, Search } from 'lucide-react';
 import { api } from '@/lib/api';
+import { teamInvitationUrl } from '@/lib/team-invitation-link';
+import { copyText } from '../../../shared/copy-text.js';
+import { CopyLinkButton } from '../../../shared/copy-link-button.jsx';
 import { money } from '@/lib/business';
 import { browserReportTimezone } from '@/lib/report-client';
 import { usePagedResource } from '@/hooks/usePagedResource';
@@ -8,6 +11,7 @@ import { ServerPager } from './ServerPager';
 import { LoadingState } from './LoadingState';
 import { ManagerFinancePermission } from './ManagerFinancePermission';
 import { CommissionDefaultRate } from './CommissionDefaultRate';
+import { PendingTeamInvitation } from './PendingTeamInvitation';
 import BusinessVenueWorkspace from './BusinessVenueWorkspace';
 import { Choice } from './controls';
 import { Button } from './ui/button';
@@ -38,9 +42,12 @@ export function BusinessTeam({ session, organizations, onUnauthorized }) {
   const [refresh, setRefresh] = useState(0);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteName, setInviteName] = useState('');
   const [invitePhone, setInvitePhone] = useState('');
   const [inviteRole, setInviteRole] = useState('employee');
   const [inviteLink, setInviteLink] = useState('');
+  const [inviteCopied, setInviteCopied] = useState(false);
+  useEffect(() => setInviteCopied(false), [inviteLink]);
   const [selected, setSelected] = useState(null);
   const [editRole, setEditRole] = useState('employee');
   const [editingMember, setEditingMember] = useState(false);
@@ -84,8 +91,8 @@ export function BusinessTeam({ session, organizations, onUnauthorized }) {
   }
   async function invite(event) {
     event.preventDefault(); setInviteLink('');
-    await mutate(`/business/organizations/${organizationId}/invitations`, { method: 'POST', body: JSON.stringify({ email: inviteEmail, phone: invitePhone, role: inviteRole }) },
-      (result) => { setInviteLink(`${window.location.origin}/?invite=${encodeURIComponent(result.token)}`); setInviteEmail(''); setInvitePhone(''); });
+    await mutate(`/business/organizations/${organizationId}/invitations`, { method: 'POST', body: JSON.stringify({ email: inviteEmail, ...(inviteName.trim() ? { name: inviteName.trim() } : {}), phone: invitePhone, role: inviteRole }) },
+      (result) => { setInviteLink(teamInvitationUrl(result.token)); setInviteEmail(''); setInviteName(''); setInvitePhone(''); });
   }
   async function saveRole() {
     if (!selected || selected.role === 'Owner' || selected.id === session.user.id) return;
@@ -118,16 +125,17 @@ export function BusinessTeam({ session, organizations, onUnauthorized }) {
     <section ref={invitationRef} className="panel team-pending"><h2>Pending invitations</h2>
       {invites.loading && <LoadingState>Loading invitations…</LoadingState>}
       {invites.error && <div className="error" role="alert">{invites.error}<Button variant="outline" onClick={invites.retry}>Try again</Button></div>}
-      {invites.result && <>{invites.result.items.length ? <ul>{invites.result.items.map((invitation) => <li key={invitation.id}><span><strong>{invitation.email}</strong><small>{invitation.role} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</small></span><div><Button size="sm" variant="outline" disabled={busy} onClick={() => mutate(`/business/organizations/${organizationId}/invitations/${invitation.id}/resend`, { method: 'POST' }, (result) => { setInviteLink(`${window.location.origin}/?invite=${encodeURIComponent(result.token)}`); setInviteOpen(true); })}>Resend</Button>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => { if (window.confirm(`Delete the invitation for ${invitation.email}? Its private link will stop working.`)) mutate(`/business/organizations/${organizationId}/invitations/${invitation.id}`, { method: 'DELETE' }); }}>Delete</Button></div></li>)}</ul> : <p>No pending invitations.</p>}
+      {invites.result && <>{invites.result.items.length ? <ul>{invites.result.items.map((invitation) => <PendingTeamInvitation key={invitation.id} invitation={invitation} busy={busy}
+        onResend={() => mutate(`/business/organizations/${organizationId}/invitations/${invitation.id}/resend`, { method: 'POST' }, (result) => { setInviteLink(teamInvitationUrl(result.token)); setInviteOpen(true); })}
+        onDelete={() => { if (window.confirm(`Delete the invitation for ${invitation.name || invitation.email}? Its private link will stop working.`)) mutate(`/business/organizations/${organizationId}/invitations/${invitation.id}`, { method: 'DELETE' }); }}/>)}</ul> : <p>No pending invitations.</p>}
         <ServerPager result={invites.result} page={invites.page} onPageChange={invites.setPage} disabled={invites.loading} label="invitations" targetRef={invitationRef}
           alwaysVisible onPageSizeChange={(size) => { setInvitationPageSize(size); setInvitationPage(1); writeWorkspaceLocation({ teamInvitationPageSize: size, teamInvitationPage: 1 }); }}/></>}
       <small>Resend renews the private link and queues email only when delivery is configured. A copyable link remains available.</small></section>
     {error && <p role="alert" className="error">{error}</p>}
     <Dialog open={inviteOpen} onOpenChange={setInviteOpen}><DialogContent className="team-invite-dialog"><DialogHeader><DialogTitle>Invite a team member</DialogTitle><DialogDescription>Send a seven-day private invitation. Existing users sign in; new users create an account.</DialogDescription></DialogHeader>
-      <form className="team-invite-form" onSubmit={invite}><label>Email<Input type="email" required value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)}/></label><label>Phone (optional)<Input type="tel" maxLength={32} value={invitePhone} onChange={(event) => setInvitePhone(event.target.value)}/></label>
+      <form className="team-invite-form" onSubmit={invite}><label className="team-invite-identity">Name (optional)<Input name="inviteeName" autoComplete="off" maxLength={120} value={inviteName} onChange={(event) => setInviteName(event.target.value)} placeholder="e.g. Alex Rivera"/></label><label className="team-invite-identity">Email<Input name="inviteeEmail" type="email" autoComplete="off" required value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)}/></label><label>Phone (optional)<Input type="tel" maxLength={32} value={invitePhone} onChange={(event) => setInvitePhone(event.target.value)}/></label>
         <Choice label="Role" value={inviteRole} onChange={setInviteRole} options={[...(canManage ? [['manager', 'Manager']] : []), ['employee', 'Employee'], ['affiliate', 'Promoter']]}/><Button disabled={busy}>{busy ? 'Creating…' : 'Create invitation'}</Button></form>
-      {inviteLink && <div className="team-link"><Input readOnly value={inviteLink} aria-label="Invitation link" onFocus={(event) => event.target.select()}/><Button variant="outline" onClick={() => navigator.clipboard.writeText(inviteLink)}>Copy link</Button></div>}
+      {inviteLink && <div className="team-link"><Input readOnly value={inviteLink} aria-label="Invitation link" onFocus={(event) => event.target.select()}/><CopyLinkButton component={Button} copied={inviteCopied} onClick={async () => { try { await copyText(inviteLink); setInviteCopied(true); setError(''); } catch { setInviteCopied(false); setError('Select and copy the invitation link above.'); } }}/></div>}
       {error && <p role="alert" className="error">{error}</p>}<DialogFooter><DialogClose asChild><Button variant="outline">Close</Button></DialogClose></DialogFooter></DialogContent></Dialog>
     <Dialog open={Boolean(selected)} onOpenChange={(open) => { if (!open) { setSelected(null); setConfirmRemove(false); } }}>
       {selected && <DialogContent className="team-member-dialog sm:max-w-xl"><DialogHeader><span className="eyebrow">TEAM MEMBER</span><DialogTitle>{selected.name}</DialogTitle><DialogDescription>{selected.email} · {selected.role}</DialogDescription></DialogHeader>

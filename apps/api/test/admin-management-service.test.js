@@ -474,7 +474,10 @@ test('team invitation creation stores only a token hash, audits without secrets,
   const result = await context.service.create(ADMIN, 'team_invitations', {
     organizationId: ORG, email: 'new-staff@example.test', role: 'employee', reason: WHY,
   });
-  const token = new URL(result.handoff.url).searchParams.get('invite');
+  const link = new URL(result.handoff.url);
+  assert.equal(link.pathname, '/app');
+  assert.equal(link.origin, 'http://localhost:5174');
+  const token = link.searchParams.get('invite');
   assert.ok(token);
   assert.equal(result.email, 'new-staff@example.test');
   assert.equal('tokenHash' in result, false);

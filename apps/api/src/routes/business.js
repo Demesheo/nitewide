@@ -20,14 +20,14 @@ function registerBusinessRoutes({ router, managementController, commerceControll
   router.get('/business/events/:eventId/detail', requireUser, asyncHandler(async (req, res) => res.json({ data: await eventWorkspace.detail(req.userId, req.params.eventId) })));
   router.get('/business/events/:eventId/referral-link', requireUser, asyncHandler(async (req, res) => res.json({ data: await referralLinks.ownLink(req.userId, req.params.eventId) })));
   router.put('/business/events/:eventId/people', requireUser, validate(eventPerson), asyncHandler(async (req, res) => res.json({ data: await eventWorkspace.savePerson(req.userId, req.params.eventId, req.body) })));
-  const inviteInput = z.object({ email: z.string().trim().email().max(320), phone: optionalPhone, role: z.enum(['manager', 'employee', 'affiliate']) });
-  router.get('/business/events/:eventId/invitations',requireUser,asyncHandler(async (req,res) => res.json({data:await team.eventInvitations(req.userId,req.params.eventId)})));
-  router.post('/business/events/:eventId/invitations',requireUser,validate(inviteInput.pick({email:true,phone:true}).extend({commissionBps:z.number().int().min(0).max(4000).default(0)})),asyncHandler(async (req,res) => res.status(201).json({data:await team.inviteEvent(req.userId,req.params.eventId,req.body)})));
+  const inviteInput = z.object({ email: z.string().trim().email().max(320), name: z.string().trim().min(1).max(120).optional(), phone: optionalPhone, role: z.enum(['manager', 'employee', 'affiliate']) });
+  router.get('/business/events/:eventId/invitations',requireUser,asyncHandler(async (req,res) => res.set('Cache-Control', 'no-store').json({data:await team.eventInvitations(req.userId,req.params.eventId)})));
+  router.post('/business/events/:eventId/invitations',requireUser,validate(inviteInput.pick({email:true,name:true,phone:true}).extend({commissionBps:z.number().int().min(0).max(4000).default(0)})),asyncHandler(async (req,res) => res.status(201).json({data:await team.inviteEvent(req.userId,req.params.eventId,req.body)})));
   router.delete('/business/events/:eventId/invitations/:invitationId',requireUser,asyncHandler(async (req,res) => res.json({data:await team.revokeEvent(req.userId,req.params.eventId,req.params.invitationId)})));
-  router.get('/business/organizations/:organizationId/team', requireUser, asyncHandler(async (req, res) => res.json({ data: await team.roster(req.userId, req.params.organizationId) })));
+  router.get('/business/organizations/:organizationId/team', requireUser, asyncHandler(async (req, res) => res.set('Cache-Control', 'no-store').json({ data: await team.roster(req.userId, req.params.organizationId) })));
   router.get('/business/organizations/:organizationId/team-page', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessTeamRead.page(req.userId,
     z.uuid().parse(req.params.organizationId), querySchemas.organizationTeam.parse(req.query)) })));
-  router.get('/business/organizations/:organizationId/invitations-page', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessTeamRead.invitations(req.userId,
+  router.get('/business/organizations/:organizationId/invitations-page', requireUser, asyncHandler(async (req, res) => res.set('Cache-Control', 'no-store').json({ data: await businessTeamRead.invitations(req.userId,
     z.uuid().parse(req.params.organizationId), querySchemas.businessPage.parse(req.query)) })));
   router.patch('/business/organizations/:organizationId/team/:userId', requireUser, validate(z.object({ role: z.enum(['manager', 'employee', 'affiliate']) })), asyncHandler(async (req, res) => res.json({ data: await team.changeRole(req.userId, req.params.organizationId, req.params.userId, req.body.role) })));
   router.delete('/business/organizations/:organizationId/team/:userId', requireUser, asyncHandler(async (req, res) => res.json({ data: await team.removeMember(req.userId, req.params.organizationId, req.params.userId) })));

@@ -31,10 +31,12 @@ test('managers can invite managers, employees, and promoters within their organi
   const invitedManager = await service.invite('manager', 'org', { email: 'A@Example.com', role: 'manager' });
   assert.equal(invitedManager.role, 'manager');
   assert.equal(writes.length, 1);
-  const employee = await service.invite('manager', 'org', { email: 'B@Example.com', phone: '+14075550123', role: 'employee' });
+  const employee = await service.invite('manager', 'org', { email: 'B@Example.com', name: '  Invited Employee  ', phone: '+14075550123', role: 'employee' });
   assert.equal(employee.email, 'b@example.com');
   assert.equal(employee.phone, '+14075550123');
   assert.equal(writes[1].phone, '+14075550123');
+  assert.equal(employee.name, 'Invited Employee');
+  assert.equal(writes[1].name, employee.name);
   assert.equal(writes.length, 2);
   await service.invite('manager', 'org', { email: 'C@Example.com', role: 'affiliate' });
   assert.equal(writes.length, 3);

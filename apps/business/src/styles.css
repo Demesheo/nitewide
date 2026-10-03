@@ -1446,6 +1446,29 @@ textarea:focus-visible {
 .signin-access { margin-top: 24px; padding-top: 20px; border-top: 1px solid #302637; }
 .signin-access p { margin: 0 0 12px; color: #bfb0cb; font-size: 12px; }
 .signin-access > button { width: 100%; min-height: 44px; }
+.team-invite-page .signin-box { max-width: 440px; }
+.team-invite-page .signin-box h2 { font-size: clamp(24px, 2.2vw, 32px); line-height: 1.25; overflow-wrap: anywhere; }
+.team-invite-page .story-content h1 { font-size: clamp(36px, 4vw, 56px); line-height: 1.12; }
+.team-invite-box fieldset { display: grid; gap: 18px; min-width: 0; border: 0; padding: 0; margin: 0; }
+.team-invite-box .team-invite-intro { font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
+.team-invite-intro strong { display: block; color: var(--foreground); font-weight: 500; }
+.team-invite-scope { padding: 14px 16px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin-top: 18px; }
+.team-invite-scope p { margin: 0; font-size: 12px; line-height: 1.7; color: var(--muted-foreground); }
+.team-invite-scope p + p { margin-top: 10px; }
+.team-invite-box .signin-help > button { width: 100%; white-space: normal; height: auto; min-height: 44px; }
+.team-invite-session { display: grid; gap: 16px; margin: 24px 0; overflow-wrap: anywhere; }
+@media (max-width: 850px) {
+  .team-invite-page.signin { display: flex; flex-direction: column; }
+  .team-invite-page .signin-story { padding: max(24px, env(safe-area-inset-top)) 24px 22px; border-right: 0; border-bottom: 1px solid var(--border); min-height: 0; }
+  .team-invite-page .story-content { margin: 0; padding: 22px 0 0; }
+  .team-invite-page .story-content h1 { font-size: 28px; margin: 8px 0; }
+  .team-invite-page .story-content p { margin: 0; font-size: 14px; line-height: 1.6; }
+  .team-invite-page .story-pills, .team-invite-page .story-footer, .team-invite-page .story-content .eyebrow { display: none; }
+  .team-invite-page .signin-form { width: 100%; padding: 28px 24px max(28px, env(safe-area-inset-bottom)); }
+  .team-invite-page .signin-box { margin: 0; }
+  .team-invite-page .login-mark { display: none; }
+  .team-invite-page .signin-form > small { margin-top: 28px; }
+}
 .signin .signin-help button { min-height: 44px; }
 .signin .signin-back { display: inline-flex; align-items: center; min-height: 44px; margin-bottom: 20px; }
 .business-access-request { min-width: 0; }
@@ -1469,6 +1492,8 @@ textarea:focus-visible {
 .business-access-gate-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
 .business-access-gate-actions button { min-height: 44px; }
 @media (max-width: 850px) {
+  .guestlist-invite-form .guestlist-invitation-actions { flex-direction: column-reverse; align-items: stretch; }
+  .guestlist-invite-form .guestlist-invitation-actions > button { width: 100%; }
   .business-access-request select, .business-access-request textarea { font-size: 16px; }
   .business-access-gate { padding-right: 20px; padding-left: 20px; }
   .business-access-gate-card { padding: 22px; }
@@ -1716,6 +1741,7 @@ textarea:focus-visible {
 .team-role-field [data-slot="select-trigger"] { width: 100%; min-height: 40px; justify-content: space-between; border-color: var(--border); background: rgba(19, 20, 27, .72); color: var(--foreground); }
 .team-role-field [data-slot="select-trigger"]:hover { background: rgba(34, 35, 46, .9); }
 .team-invite-form label:first-child { grid-column: 1 / -1; }
+.team-invite-form .team-invite-identity { grid-column: 1 / -1; }
 .signin-form .sms-choice { display: flex; align-items: flex-start; gap: 10px; font-size: 12px; line-height: 1.5; }
 .signin-form .sms-choice input { width: 16px; height: 16px; flex: none; margin-top: 2px; accent-color: var(--primary); }
 .team-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -1745,6 +1771,9 @@ textarea:focus-visible {
 .guestlist-detail-grid dt { color: var(--muted-foreground, #b2adc2); font-size: 10px; line-height: 1.2; }
 .guestlist-detail-grid dd { margin: 5px 0 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 600; line-height: 1.3; }
 .guestlist-detail-actions { column-gap: 12px; }
+.guestlist-detail-actions.guest-detail-copy-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.guestlist-detail-actions.guest-detail-copy-actions > button { justify-self: start; grid-column: 1; grid-row: 1; max-width: 100%; white-space: normal; height: auto; min-height: 44px; }
+.guestlist-detail-actions.guest-detail-copy-actions > .clipboard-copy-button { justify-self: end; grid-column: 2; }
 .guestlist-detail-actions .guestlist-dialog-close { margin-right: 12px; }
 .guestlist-cancel-warning { color: #f2b6ca; border: 1px solid #693748; border-radius: 8px; background: #38232e; padding: 12px; }
 .guest-experience-content { display: grid; gap: 15px; padding: 0 24px 24px; }
@@ -1784,6 +1813,9 @@ textarea:focus-visible {
 .guestlist-invite-summary dt { color: var(--muted-foreground); font-size: 11px; line-height: 1.5; }
 .guestlist-invite-summary dd { margin: 4px 0 0; color: #e7dff1; font-size: 13px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
 .guestlist-invite-success-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+@media (max-width: 850px) {
+  .guestlist-invite-success-actions { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 480px) {
   .guestlist-invite-dialog [data-slot="dialog-header"] { padding: 22px 56px 20px 20px; }
   .guestlist-invite-dialog [data-slot="dialog-title"] { font-size: 20px; }
@@ -1829,6 +1861,19 @@ textarea:focus-visible {
 .team-pending li span { display: grid; gap: 3px; overflow-wrap: anywhere; }
 .team-pending li small, .team-pending > small { color: var(--muted-foreground, #b2adc2); }
 .team-pending li div { display: flex; gap: 6px; }
+.team-pending li.pending-team-invitation { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 20px; row-gap: 12px; padding: 18px 0; }
+.team-pending .pending-invitation-person { display: grid; gap: 4px; min-width: 0; }
+.team-pending .pending-invitation-person > span { color: var(--muted-foreground); font-size: 13px; }
+.team-pending .pending-invitation-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 8px; }
+.pending-invitation-actions > button { min-height: 44px; min-width: 0; width: 100%; }
+.pending-invitation-actions .pending-invitation-delete { color: #fda4af; grid-column: 1; grid-row: 2; }
+.pending-invitation-actions > .nw-copy-link-button { grid-column: 2; grid-row: 1; }
+.pending-invitation-actions > button:last-child { grid-column: 2; grid-row: 2; }
+.team-pending .pending-team-invitation > .error, .team-pending .pending-team-invitation > .clipboard-copy-fallback { grid-column: 1 / -1; }
+.team-pending .pending-team-invitation > .clipboard-copy-fallback { display: grid; }
+@media (max-width: 850px) {
+  .team-pending li.pending-team-invitation { grid-template-columns: minmax(0, 1fr); }
+}
 /* One radius for interactive form controls; cards, pills, and icon badges keep their distinct shapes. */
 .app-shell input:not([type="checkbox"]):not([type="radio"]),
 .app-shell select,

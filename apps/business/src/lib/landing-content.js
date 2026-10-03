@@ -120,9 +120,11 @@ export const questions = [
   ],
 ];
 
-export function businessPage(pathname) {
+export function businessPage(pathname, search = '') {
   const path = pathname.replace(/\/+$/, "") || "/";
-  if (path === "/" || path === "/business") return "landing";
+  if (path === "/" || path === "/business") {
+    return new URLSearchParams(search).get('invite') ? "workspace" : "landing";
+  }
   if (path === "/sign-in" || path === "/app") return "workspace";
   return "not-found";
 }

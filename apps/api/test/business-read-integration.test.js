@@ -188,6 +188,11 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     const invitePageOne = await request(`/business/organizations/${ids.organization}/invitations-page?page=1&pageSize=100`, ids.manager);
     const invitePageTwo = await request(`/business/organizations/${ids.organization}/invitations-page?page=2&pageSize=100`, ids.manager);
     assert.deepEqual([invitePageOne.body.data.total, invitePageOne.body.data.items.length, invitePageTwo.body.data.items.length], [105, 100, 5]);
+    for (const row of [...invitePageOne.body.data.items, ...invitePageTwo.body.data.items]) {
+      assert.match(row.token, /^nwti1\./);
+      assert.equal('tokenHash' in row, false, 'the revocation nonce never reaches the directory response');
+    }
+    assert.equal(invitePageOne.headers['cache-control'], 'no-store');
     assert.equal((await request(`/business/organizations/${ids.organization}/invitations-page`, ids.promoter)).status, 403);
     });
 

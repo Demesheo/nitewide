@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, X, Save, Pencil, Search, Copy } from "lucide-react";
+import { Check, X, Save, Pencil, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Empty, Field } from "./controls";
 import { api } from "@/lib/api";
 import { guestlistInvitationLink } from '@/lib/guestlist-invitation-link';
@@ -17,6 +17,8 @@ import { LoadingState } from './LoadingState';
 import { searchRows } from '@/lib/table-search';
 import { allocationInputIsReadOnly, closeOtherAllocationEditors, focusAllocationInput, normalizeAllocationInput } from '@/lib/guestlist-allocation';
 import { GuestlistApprovalQuantity } from './GuestlistApprovalQuantity';
+import { ManualCopyLink, useClipboardCopy, usePrefetchedLink } from '../../../shared/clipboard-copy.jsx';
+import { CopyLinkButton } from '../../../shared/copy-link-button.jsx';
 
 const guestColumns = [['guestName', 'Guest'], ['partyValue', 'Spots'], ['sourceValue', 'Source'], ['requestedValue', 'Request'], ['status', 'Status']].map(([key, label]) => ({ key, label }));
 
@@ -31,6 +33,7 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [activeEntryId, setActiveEntryId] = useState(null);
+  const { copy, manualLink } = useClipboardCopy(`${eventId}:${activeEntryId ?? ''}:${session.accessToken}`);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmDecline, setConfirmDecline] = useState(false);
   const [approvalDraft, setApprovalDraft] = useState(null);
@@ -41,6 +44,8 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [copyingId, setCopyingId] = useState(null);
+  const [copiedEntryId, setCopiedEntryId] = useState(null);
+  useEffect(() => setCopiedEntryId(null), [activeEntryId, eventId]);
   const [revision, setRevision] = useState(0);
   const [sortKey, setSortKey] = useState('guestName');
   const [descending, setDescending] = useState(false);
@@ -51,6 +56,12 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
   const pendingOnly = statuses.length === 1 && statuses[0] === 'pending';
   const [linkedEntry, setLinkedEntry] = useState(null);
   const activeEntry = entries.find((entry) => entry.id === activeEntryId) || (linkedEntry?.id === activeEntryId ? linkedEntry : null);
+  const canCopy = entry => entry?.hasInvitation && ['confirmed', 'checked_in'].includes(entry.status);
+  const invitation = usePrefetchedLink(`${eventId}:${activeEntryId}:${session.accessToken}:${activeEntry?.status}:${revision}:${refreshToken}`, Boolean(canCopy(activeEntry)), async signal => {
+    const { token } = await api(`/business/events/${eventId}/guestlist/${activeEntryId}/invitation-link`, session, { signal });
+    if (typeof token !== 'string' || !token) throw new Error('The invitation link is unavailable. Please try again.');
+    return guestlistInvitationLink(token);
+  }, err => { if (err.status === 401) expire(); });
   const canReviewEntry = selected.canReviewGuestlist !== false;
   const approvalDraftKey = activeEntry ? `${eventId}:${activeEntry.id}:${activeEntry.status}:${activeEntry.partySize}:${activeEntry.reviewedAt || ''}` : null;
   const approvalPartySize = approvalDraft?.key === approvalDraftKey ? approvalDraft.value : Math.min(20, Math.max(1, Number(activeEntry?.partySize) || 1));
@@ -117,18 +128,17 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
     }
   }
   async function copyInvitation(entry) {
-    if (copyingId) return;
+    if (copyingId || !canCopy(entry) || !invitation.link) return;
     setCopyingId(entry.id); setError(''); setNotice('');
     try {
-      const { token } = await api(`/business/events/${eventId}/guestlist/${entry.id}/invitation-link`, session);
-      await navigator.clipboard.writeText(guestlistInvitationLink(token));
+      await copy(invitation.link);
+      setCopiedEntryId(entry.id);
       setNotice('Link copied. Share it privately with the guest.');
     } catch (err) {
       if (err.status === 401) expire();
-      else setError(err.message || 'Could not copy the link. Allow clipboard access and try again.');
+      else setError(err.message || 'Could not copy the link. Please try again.');
     } finally { setCopyingId(null); }
   }
-  const canCopy = entry => entry.hasInvitation && ['confirmed', 'checked_in'].includes(entry.status);
   async function saveLimit(e, promoter) {
     e.preventDefault();
     const form = e.currentTarget;
@@ -199,11 +209,11 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
           </dl>
           {activeEntry.status === 'pending' && canReviewEntry && <div className="guestlist-approval-row"><div className="guestlist-approval-label">Approved spots<small>{approvalPartySize} {approvalPartySize === 1 ? 'entry pass' : 'entry passes'} on approval</small></div><GuestlistApprovalQuantity value={approvalPartySize} disabled={busy || confirmDecline} onChange={(value) => setApprovalDraft({ key: approvalDraftKey, value })}/></div>}
           {error && <p className="error" role="alert">{error}</p>}
+          {invitation.error && <p className="error" role="alert">{invitation.error}</p>}
+          <ManualCopyLink link={canCopy(activeEntry) && invitation.link ? manualLink : ''}/>
           {confirmDecline && <p className="guestlist-cancel-warning">Decline this guestlist request? The guest will be notified and no entry credential will be issued.</p>}
           {confirmCancel && <p className="guestlist-cancel-warning">Revoking approval invalidates this guest’s entry credential and releases {activeEntry.partySize} {activeEntry.partySize === 1 ? 'place' : 'places'} from the {activeEntry.source === 'affiliate' ? 'referrer' : 'venue'} guestlist. You can approve this request again later if space is available.</p>}
-          <DialogFooter className="guestlist-detail-actions">
-            <DialogClose asChild><Button className="guestlist-dialog-close" variant="outline" disabled={busy}>Close</Button></DialogClose>
-            {canCopy(activeEntry) && <Button variant="outline" disabled={busy || Boolean(copyingId)} onClick={() => copyInvitation(activeEntry)}><Copy aria-hidden="true"/>{copyingId === activeEntry.id ? 'Copying…' : 'Copy link'}</Button>}
+          <DialogFooter className={`guestlist-detail-actions${canCopy(activeEntry) && !confirmCancel ? ' guest-detail-copy-actions' : ''}`}>
             {canReviewEntry && <>
             {activeEntry.status === 'pending' && (confirmDecline
               ? <><Button variant="outline" disabled={busy} onClick={() => setConfirmDecline(false)}>Keep request</Button><Button variant="destructive" disabled={busy} onClick={() => decide(activeEntry.id, 'reject')}>Confirm decline</Button></>
@@ -213,6 +223,7 @@ export function Guestlists({ event, session, expire, initialEntryId = null, refr
               ? <><Button variant="outline" disabled={busy} onClick={() => setConfirmCancel(false)}>Keep approval</Button><Button variant="destructive" disabled={busy} onClick={() => decide(activeEntry.id, 'cancel')}>Confirm revocation</Button></>
               : <Button variant="destructive" disabled={busy} onClick={() => setConfirmCancel(true)}>Revoke approval</Button>)}
             </>}
+            {canCopy(activeEntry) && !confirmCancel && (invitation.error ? <Button className="clipboard-copy-button" variant="outline" disabled={busy} onClick={invitation.retry}>Retry loading invitation link</Button> : <CopyLinkButton component={Button} className="clipboard-copy-button" disabled={busy || Boolean(copyingId) || !invitation.link} onClick={() => copyInvitation(activeEntry)} copied={copiedEntryId === activeEntry.id} copying={copyingId === activeEntry.id || invitation.loading} loadingLabel={invitation.loading ? 'Preparing link…' : 'Copying…'}/>)}
           </DialogFooter>
         </DialogContent>}
       </Dialog>

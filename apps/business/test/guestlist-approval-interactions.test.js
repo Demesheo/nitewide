@@ -102,7 +102,7 @@ test('review approval sends the adjusted amount, keeps the request fact, and gua
     await waitFor(() => assert.equal(state.requests.length, 1));
     assert.deepEqual(state.requests[0].body, { decision: 'approve', partySize: 4 });
     assert.equal(review.getByRole('button', { name: 'Decrease approved spots' }).disabled, true);
-    assert.equal(review.getByRole('button', { name: 'Close' }).disabled, true);
+    assert.equal(review.queryByRole('button', { name: 'Close' }), null, 'busy review cannot be dismissed and has no redundant footer Close');
     await user.keyboard('{Escape}');
     assert.ok(screen.getByRole('dialog'), 'Escape cannot dismiss an in-flight review');
     await act(async () => finish());

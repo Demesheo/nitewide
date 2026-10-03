@@ -32,6 +32,7 @@ import { DiscoveryResults } from './components/discovery-results';
 import { EventArtwork } from './components/event-artwork';
 import { eventAddressLines, eventDate, eventTime } from "./lib/presentation";
 import { LoadingIndicator } from './components/loading-indicator';
+import { ManualCopyLink, useClipboardCopy } from '../../shared/clipboard-copy.jsx';
 import { upcomingSavedEvents } from './lib/saved-events';
 import { useSavedEvents } from './lib/use-saved-events';
 import { useDiscovery } from './lib/use-discovery';
@@ -229,6 +230,9 @@ function CustomerApp() {
     [quantity, setQuantity] = useState(1),
     [stage, setStage] = useState("details");
   const [shareFeedback, setShareFeedback] = useState('');
+  const { copy: copyLink, manualLink } = useClipboardCopy(selected?.id);
+  const [shareAsCopy, setShareAsCopy] = useState(null);
+  const selectedShareLink = selected ? eventShareUrl(selected.id, window.location.origin, referralCodeForEvent(referral, selected.id)) : '';
   const [booking, setBooking] = useState(null);
   const [referralPending, setReferralPending] = useState(null), [referralError, setReferralError] = useState('');
   const referralRequest = useRef(null);
@@ -450,20 +454,25 @@ function CustomerApp() {
   }
   async function shareSelectedEvent() {
     if (!selected) return;
-    const url = eventShareUrl(selected.id, window.location.origin, referralCodeForEvent(referral, selected.id));
-    if (navigator.share) {
+    const url = selectedShareLink;
+    if (navigator.share && shareAsCopy !== selected.id) {
       try {
         await navigator.share({ title: selected.title, url });
         return;
       } catch (error) {
         if (error.name === 'AbortError') return;
+        // A failed share sheet has already consumed the tap. Copy only on a
+        // fresh tap, never after awaiting navigator.share().
+        setShareAsCopy(selected.id);
+        setShareFeedback('Sharing is unavailable. Tap Share again to copy the link.');
+        return;
       }
     }
     try {
-      await navigator.clipboard.writeText(url);
+      await copyLink(url);
       setShareFeedback('Link copied');
-    } catch {
-      setShareFeedback('Could not copy link');
+    } catch (error) {
+      setShareFeedback(error.message);
     }
   }
   async function openConnection(entry) {
@@ -1059,6 +1068,7 @@ function CustomerApp() {
               </div>
               {mapsUrlForLocation(selected.location) && <a className="event-maps-link" href={mapsUrlForLocation(selected.location)} target="_blank" rel="noopener noreferrer"><MapPin size={15} /> Open in Maps</a>}
               {shareFeedback && <p className="event-share-feedback" role="status">{shareFeedback}</p>}
+              <ManualCopyLink link={manualLink}/>
               {session && <EventConnectionPicker key={`${session.user.id}:${selected.id}`} session={session} eventId={selected.id} referral={referral} busy={referralBusy} onSelect={chooseEventConnection} />}
               {referralError && <p className="error-message" role="alert">{referralError}</p>}
               <Tabs defaultValue="tickets">

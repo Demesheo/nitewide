@@ -1,6 +1,7 @@
 const { test, expect, login, expectNoOverflow } = require('../fixtures.cjs');
 const { urls, controlToken } = require('../environment.cjs');
 const { requestFiveSpots, expectFourApprovedPasses } = require('../guestlist-quantity.cjs');
+const { gestureClipboard, refusedClipboard } = require('../clipboard.cjs');
 
 async function operatorScenario(request, past = false) {
   const response = await request.post(`${urls.api}/__e2e/my-events-fixture`, {
@@ -51,6 +52,30 @@ test('My events is hidden for customer-only accounts and its API rejects direct 
   await expectNoOverflow(page);
 });
 
+test('clipboard refusal offers a selectable operator link and clears it after retry', async ({ page, context, fixture }, testInfo) => {
+  await refusedClipboard(context);
+  await openMyEvent(page, fixture);
+  await page.getByRole('button', { name: 'Copy my referral link', exact: true }).click();
+  const manual = page.getByRole('textbox', { name: 'Copy link manually', exact: true });
+  await expect(manual).toBeVisible();
+  await expect(manual).toHaveAttribute('readonly', '');
+  const link = await manual.inputValue();
+  expect(new URL(link).searchParams.get('event')).toBe(fixture.ids.event);
+  await manual.click();
+  await expect.poll(() => manual.evaluate(input => [input.selectionStart, input.selectionEnd])).toEqual([0, link.length]);
+  await expect(page.getByRole('button', { name: 'Referral link copied', exact: true })).toHaveCount(0);
+  await expectNoOverflow(page);
+  await capture(page, testInfo, 'customer-manual-copy-fallback');
+  await page.evaluate(() => {
+    navigator.clipboard.write = async items => { window.__retriedCopy = await (await items[0].getType('text/plain')).text(); };
+    navigator.clipboard.writeText = async text => { window.__retriedCopy = text; };
+  });
+  await page.getByRole('button', { name: 'Retry copying referral link', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Referral link copied', exact: true })).toBeVisible();
+  await expect(manual).toHaveCount(0);
+  expect(await page.evaluate(() => window.__retriedCopy)).toBe(link);
+});
+
 test('My events uses explicit search, server pagination and clean navigation without opening checkout', async ({ page, fixture }, testInfo) => {
   const requests = [];
   page.on('request', request => { if (/\/api\/customer\/my-events\?/.test(request.url())) requests.push(request.url()); });
@@ -87,10 +112,10 @@ test('My events uses explicit search, server pagination and clean navigation wit
 });
 
 test('manager invites four account-free guests, copies only from dialogs and can revoke unused passes', async ({ page, browser, context, request, fixture }, testInfo) => {
+  const linkRequests = [];
+  page.on('request', request => { if (/\/(referral-link|invitation-link)(?:\?|$)/.test(request.url())) linkRequests.push(request.url()); });
   await operatorScenario(request);
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__operatorCopiedLink = text; } } });
-  });
+  await gestureClipboard(context, '__operatorCopiedLink');
   await openMyEvent(page, fixture);
   await expect(page.locator('.my-event-stats')).toContainText('$65.00');
   await expect(page.locator('.my-event-earnings')).toContainText('Unavailable');
@@ -103,6 +128,7 @@ test('manager invites four account-free guests, copies only from dialogs and can
   await guestlist(page).getByRole('button', { name: 'Invite a guest', exact: true }).click();
   const invite = page.getByRole('dialog', { name: 'Invite a guest', exact: true });
   await expect(invite.getByRole('combobox', { name: 'Invite by', exact: true })).toHaveValue('personal');
+  await expect(invite.getByRole('combobox', { name: 'Invite by', exact: true })).toBeDisabled();
   for (const select of await invite.getByRole('combobox').all()) {
     const bounds = await select.boundingBox();
     expect(bounds?.height, 'invitation selectors remain touch-sized on every browser').toBeGreaterThanOrEqual(44);
@@ -135,21 +161,36 @@ test('manager invites four account-free guests, copies only from dialogs and can
   await expect(invite.getByLabel('Email address', { exact: true })).toHaveCount(0);
   await expectNoOverflow(page);
   await capture(page, testInfo, 'my-events-invitation-form');
+  if (page.viewportSize().width <= 850) {
+    const createBounds = await invite.getByRole('button', { name: 'Create invitation', exact: true }).boundingBox(), cancelBounds = await invite.getByRole('button', { name: 'Cancel', exact: true }).boundingBox();
+    expect(createBounds.y + createBounds.height).toBeLessThanOrEqual(cancelBounds.y);
+  }
   await expectSmallPhoneLayout(page);
   await invite.getByRole('button', { name: 'Create invitation', exact: true }).click();
   const success = page.getByRole('dialog', { name: 'Your guest is on the list', exact: true });
   await expect(success).toContainText('4 spots approved');
   await expect(success).toContainText('4 separate single-use passes');
+  const copyBounds = await success.getByRole('button', { name: 'Copy invitation link', exact: true }).boundingBox(), doneBounds = await success.getByRole('button', { name: 'Done', exact: true }).boundingBox();
+  if (page.viewportSize().width <= 850) expect(copyBounds.y + copyBounds.height).toBeLessThanOrEqual(doneBounds.y);
+  else expect(copyBounds.y).toBeCloseTo(doneBounds.y, 0);
   await success.getByRole('button', { name: 'Copy invitation link', exact: true }).click();
+  await expect(success.getByRole('button', { name: 'Invitation link copied', exact: true })).toBeVisible();
   const link = await page.evaluate(() => window.__operatorCopiedLink);
   expect([...new URL(link).searchParams.keys()]).toEqual(['guestlistInvite']);
   await success.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(guestlist(page).getByRole('button', { name: /Copy.*link/i })).toHaveCount(0);
   await guestlist(page).getByRole('button', { name: 'Details for Alex and friends', exact: true }).click();
   const details = page.getByRole('dialog', { name: 'Alex and friends', exact: true });
+  await expect(details.getByRole('button', { name: 'Copy invitation link', exact: true })).toBeEnabled();
+  const prefetchedRequests = linkRequests.length;
+  const detailCopyBounds = await details.getByRole('button', { name: 'Copy invitation link', exact: true }).boundingBox(), revokeBounds = await details.getByRole('button', { name: 'Revoke approval', exact: true }).boundingBox();
+  expect(revokeBounds.x + revokeBounds.width).toBeLessThanOrEqual(detailCopyBounds.x);
+  await expect(details.locator('.my-event-dialog-actions').getByRole('button', { name: 'Close', exact: true })).toHaveCount(0);
   await details.getByRole('button', { name: 'Copy invitation link', exact: true }).click();
   await expect(details).toContainText('Invitation link copied');
   expect(await page.evaluate(() => window.__operatorCopiedLink)).toBe(link);
+  expect((await page.evaluate(() => window.__clipboardWrites)).immediate).toBeGreaterThan(0);
+  expect(linkRequests).toHaveLength(prefetchedRequests);
   await expectNoOverflow(page);
   await capture(page, testInfo, 'my-events-guest-details');
   await expectSmallPhoneLayout(page);

@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, LockKeyhole, Ticket, X } from 'lucide-react';
+import { Check, LockKeyhole, Ticket, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { LoadingIndicator } from './loading-indicator';
 import { api } from '../lib/api';
 import { myEventActionsReadOnly, myEventInviteBody, myEventInvitePools, myEventInvitationUrl } from '../lib/my-event-actions';
+import { ManualCopyLink, useClipboardCopy } from '../../../shared/clipboard-copy.jsx';
+import { CopyLinkButton } from '../../../shared/copy-link-button.jsx';
 
 export function MyEventInviteDialog({ session, detail, capabilities, onClose, onChanged, onRefresh, onFailure, returnRef }) {
   const event = detail.event || detail.summary;
-  const [fields, setFields] = useState({ name: '', partySize: '1', inviteBy: 'personal', email: '', phone: '', pool: '' });
+  const [fields, setFields] = useState({ name: '', partySize: '1', pool: '' });
   const [pools, setPools] = useState(null);
   const [loading, setLoading] = useState(true);
   const [retry, setRetry] = useState(0);
@@ -17,6 +19,7 @@ export function MyEventInviteDialog({ session, detail, capabilities, onClose, on
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
+  const { copy: copyLink, manualLink } = useClipboardCopy(result?.token);
   const [uncertain, setUncertain] = useState(false);
   const lock = useRef(false);
   const nameRef = useRef(null), copyRef = useRef(null), contentRef = useRef(null), focusedForm = useRef(false), failureRef = useRef(onFailure), readOnlyRef = useRef(capabilities.readOnly);
@@ -24,6 +27,7 @@ export function MyEventInviteDialog({ session, detail, capabilities, onClose, on
   readOnlyRef.current = capabilities.readOnly;
   const options = myEventInvitePools(pools);
   const writable = !capabilities.readOnly && capabilities.canInviteGuestlist;
+  const invitationLink = result?.token ? myEventInvitationUrl(result.token, window.location.origin) : '';
 
   useEffect(() => {
     const controller = new AbortController();
@@ -47,7 +51,7 @@ export function MyEventInviteDialog({ session, detail, capabilities, onClose, on
     event.preventDefault();
     if (lock.current || uncertain || !writable || pools?.open !== true || myEventActionsReadOnly(detail)) return;
     let body;
-    try { body = myEventInviteBody(fields); }
+    try { body = myEventInviteBody({ ...fields, inviteBy: 'personal' }); }
     catch (error) { setError(error.message); return; }
     if (!options.some((pool) => pool.id === fields.pool)) { setError('Choose an available guestlist pool.'); return; }
     lock.current = true; setBusy(true); setError('');
@@ -67,8 +71,8 @@ export function MyEventInviteDialog({ session, detail, capabilities, onClose, on
   async function copy() {
     if (lock.current || copying || !writable || readOnlyRef.current || myEventActionsReadOnly(detail)) return;
     lock.current = true; setCopying(true); setError('');
-    try { await navigator.clipboard.writeText(myEventInvitationUrl(result.token, window.location.origin)); setCopied(true); }
-    catch { setError('Could not copy the invitation link. Allow clipboard access and try again.'); setCopied(false); }
+    try { await copyLink(invitationLink); setCopied(true); }
+    catch (error) { setError(error.message); setCopied(false); }
     finally { lock.current = false; setCopying(false); }
   }
 
@@ -85,22 +89,21 @@ export function MyEventInviteDialog({ session, detail, capabilities, onClose, on
         <dl className="my-event-guest-facts"><div><dt>Entry passes</dt><dd>{result.spots} separate {result.spots === 1 ? 'single-use pass' : 'single-use passes'}</dd></div><div><dt>Guestlist pool</dt><dd>{result.pool}</dd></div></dl>
         <p className="my-event-action-hint"><LockKeyhole size={18} aria-hidden="true" /><span>Anyone with this private link can open the passes. Copy and share it only with your guest.</span></p>
         {error && <p className="my-event-action-error" role="alert">{error}</p>}
+        <ManualCopyLink link={writable ? manualLink : ''}/>
         {!writable && <p className="my-event-action-hint">Sharing has closed for this event.</p>}
-        <div className="my-event-dialog-actions"><Button type="button" variant="outline" disabled={busy || copying} onClick={close}>Done</Button><Button ref={copyRef} type="button" disabled={busy || copying || !writable} onClick={copy}>{copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}{copying ? 'Copying…' : copied ? 'Invitation link copied' : error ? 'Retry copying invitation link' : 'Copy invitation link'}</Button></div>
+        <div className="my-event-dialog-actions clipboard-action-stack"><Button type="button" variant="outline" disabled={busy || copying} onClick={close}>Done</Button><CopyLinkButton component={Button} ref={copyRef} className="clipboard-copy-button" disabled={busy || copying || !writable} onClick={copy} copied={copied} copying={copying} copiedLabel="Invitation link copied" label={error ? 'Retry copying invitation link' : 'Copy invitation link'}/></div>
         {copied && <p className="my-event-action-notice" role="status">Private invitation link copied. Ready to share with your guest.</p>}
       </div> : <form onSubmit={submit} className="my-event-invite-form" aria-busy={busy}>
         <fieldset disabled={busy || uncertain || loading || !writable || pools?.open !== true}><legend className="sr-only">Guest invitation details</legend>
           <div className="my-event-invite-recipient"><label className="my-event-action-field" htmlFor="my-event-invite-name"><span>Guest name</span><input ref={nameRef} id="my-event-invite-name" name="name" value={fields.name} onChange={change('name')} autoComplete="name" maxLength={120} placeholder="e.g. Alex Rivera" required /></label><label className="my-event-action-field" htmlFor="my-event-invite-spots"><span>Spots</span><input id="my-event-invite-spots" name="partySize" type="number" min={1} max={20} step={1} inputMode="numeric" value={fields.partySize} onChange={change('partySize')} aria-describedby="my-event-spots-help" required /></label></div>
           {options.length > 1 ? <label className="my-event-action-field" htmlFor="my-event-invite-pool"><span>Guestlist pool</span><select id="my-event-invite-pool" name="pool" value={fields.pool} onChange={change('pool')} required>{options.map((pool) => <option key={pool.id} value={pool.id}>{pool.label}</option>)}</select></label> : options.length === 1 && <p className="my-event-invite-pool"><span>Guestlist pool</span><strong>{options[0].label}</strong></p>}
-          <label className="my-event-action-field" htmlFor="my-event-invite-method"><span>Invite by</span><select id="my-event-invite-method" name="inviteBy" value={fields.inviteBy} onChange={change('inviteBy')}><option value="personal">Personal · Share the link yourself</option><option value="email">Email</option><option value="phone">Phone</option></select></label>
-          {fields.inviteBy === 'email' && <label className="my-event-action-field" htmlFor="my-event-invite-email"><span>Email address</span><input id="my-event-invite-email" name="email" type="email" autoComplete="email" maxLength={320} value={fields.email} onChange={change('email')} required /></label>}
-          {fields.inviteBy === 'phone' && <div className="my-event-action-field"><label htmlFor="my-event-invite-phone">Phone number</label><input id="my-event-invite-phone" name="phone" type="tel" autoComplete="tel" maxLength={40} placeholder="+1 407 555 1212" value={fields.phone} onChange={change('phone')} aria-describedby="my-event-phone-help" required /><small id="my-event-phone-help">Include the country code.</small></div>}
+          <label className="my-event-action-field" htmlFor="my-event-invite-method"><span>Invite by</span><select id="my-event-invite-method" name="inviteBy" value="personal" disabled><option value="personal">Personal · Share the link yourself</option><option value="email">Email</option><option value="phone">Phone</option></select></label>
         </fieldset>
         {loading && <LoadingIndicator>Checking available guestlists…</LoadingIndicator>}
         {!loading && (!writable || pools?.open === false) && <p className="my-event-action-hint">Invitations are closed for this event.</p>}
         {!loading && pools?.open && !options.length && <p className="my-event-action-hint">There is no guestlist pool available for your access. Ask your event manager to check your allocation.</p>}
         <p className="my-event-action-hint" id="my-event-spots-help"><Ticket size={18} aria-hidden="true" /><span>Each spot creates a separate single-use pass. Approved immediately if space is available.</span></p>
-        <p className="my-event-invite-delivery">{fields.inviteBy === 'personal' ? 'No email or phone needed. ' : 'Contact details are recorded on the invitation. '}Copy and share the private link with your guest.</p>
+        <p className="my-event-invite-delivery">No email or phone needed. Copy and share the private link with your guest.</p>
         {error && <div className="my-event-action-failure"><p className="my-event-action-error" role="alert">{error}</p>{!pools && !loading && <Button type="button" variant="outline" onClick={() => setRetry((value) => value + 1)}>Retry guestlist check</Button>}</div>}
         <div className="my-event-dialog-actions"><Button type="button" variant="outline" disabled={busy} onClick={close}>Cancel</Button>{uncertain ? <Button type="button" onClick={() => { onRefresh?.(); close(); }}>Check guestlist</Button> : <Button type="submit" disabled={busy || loading || !writable || pools?.open !== true || !options.length}>{busy ? 'Checking space…' : error && pools ? 'Retry invitation' : 'Create invitation'}</Button>}</div>
       </form>}

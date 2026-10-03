@@ -81,9 +81,9 @@ test('guest invitation stays in event details Share this event card without show
   assert.doesNotMatch(guestlistsSource, /<ShareEventCard|<GuestlistInviteDialog/);
   assert.match(eventDetailSource, /const canInviteGuest = event.status === 'published' && invitePools\?\.open && \(invitePools.direct \|\| invitePools.own.length > 0\)/);
   assert.match(eventDetailSource, /<ShareEventCard referralUrl=\{url\?\.toString\(\) \|\| ''\} canInviteGuest=\{Boolean\(canInviteGuest\)\}/);
-  assert.ok(shareCardSource.indexOf('Copy link') < shareCardSource.indexOf('guestlist-share-invite'));
-  assert.match(shareCardSource, /import \{ Share, UserPlus \} from 'lucide-react'/);
-  assert.match(shareCardSource, /onClick=\{copyLink\}><Share size=\{16\} aria-hidden="true"\/>/);
+  assert.ok(shareCardSource.indexOf('<CopyLinkButton') < shareCardSource.indexOf('guestlist-share-invite'));
+  assert.match(shareCardSource, /import \{ CopyLinkButton \} from/);
+  assert.match(shareCardSource, /<CopyLinkButton component=\{Button\} onClick=\{copyLink\}/);
   assert.match(shareCardSource, /guestlist-share-invite">\s*<h3>Invite to guestlist<\/h3>\s*<p>[^<]+<\/p>\s*<Button className="guestlist-invite-button"/);
   assert.match(styles, /\.guestlist-referral-card h3 \{ margin: 4px 0; font-size: 16px; \}/);
   assert.doesNotMatch(shareCardSource, /aria-label="Your event referral link"|value=\{referralUrl\}/);
@@ -104,9 +104,10 @@ test('saving an event allocation refreshes the invite pools without a page reloa
 
 test('guestlist invitations default to personal sharing and reset when reopened', () => {
   const inviteDialogSource = readFileSync(new URL('../src/components/GuestlistInviteDialog.jsx', import.meta.url), 'utf8');
-  assert.match(inviteDialogSource, /const \[contact, setContact\] = useState\('personal'\)/);
-  assert.match(inviteDialogSource, /if \(!next\) \{ setResult\(null\); setError\(''\); setContact\('personal'\);/);
-  assert.match(inviteDialogSource, /contact === 'email' \? <Field[^>]*name="email"[\s\S]*?contact === 'phone' \? <Field[^>]*name="phone"/);
+  assert.match(inviteDialogSource, /const contact = 'personal'/);
+  assert.match(inviteDialogSource, /if \(!next\) \{ setResult\(null\); setError\(''\);/);
+  assert.match(inviteDialogSource, /name="inviteBy" value=\{contact\} disabled/);
+  assert.doesNotMatch(inviteDialogSource, /name="email"|name="phone"/);
   assert.match(inviteDialogSource, /name="name" label="Guest name"/);
   assert.match(inviteDialogSource, /name="partySize" label="Spots"/);
 });

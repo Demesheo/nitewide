@@ -28,7 +28,13 @@ function installDemoStatic(app, root = path.resolve(__dirname, '../../../..')) {
   app.use('/assets', express.static(path.join(dirs.customer, 'assets'), assetOptions), missingAsset);
   app.get(['/business', '/business/', '/app', '/sign-in'], page('business'));
   app.get(['/admin', '/admin/'], page('admin'));
-  app.get('/', page('customer'));
+  app.get('/', (req, res, next) => {
+    // Older team/promoter links pointed to the customer root. Keep their
+    // tokens and query intact, but never take a redirect target from input.
+    const url = new URL(req.originalUrl, 'http://localhost');
+    if (!url.searchParams.get('invite')) return next();
+    noStore(res).redirect(302, `/app${url.search}`);
+  }, page('customer'));
   app.use(express.static(dirs.customer, {
     index: false,
     dotfiles: 'deny',
