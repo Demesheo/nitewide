@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sharedTestServer } from './helpers/shared-vite-server.js';
+
+const createAccountTestServer = sharedTestServer();
 
 test('password reset deep link remains intact until a mocked reset succeeds', async () => {
   const businessRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -10,7 +13,7 @@ test('password reset deep link remains intact until a mocked reset succeeds', as
     url: 'http://localhost/app?resetPassword=synthetic-reset-token&next=events',
     pretendToBeVisual: true,
   });
-  const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLButtonElement', 'Element', 'Node', 'Event', 'MouseEvent', 'MutationObserver', 'getComputedStyle'];
+  const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLButtonElement', 'Element', 'Node', 'Event', 'MouseEvent', 'MutationObserver', 'getComputedStyle', 'IS_REACT_ACT_ENVIRONMENT'];
   const originalGlobals = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries({
     window: dom.window, document: dom.window.document, navigator: dom.window.navigator,
@@ -31,16 +34,16 @@ test('password reset deep link remains intact until a mocked reset succeeds', as
     });
   };
   let vite;
-  let unmount;
+  let cleanupRoots;
   try {
-    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
-    vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
+    vite = await createAccountTestServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { BusinessSignIn } = await vite.ssrLoadModule('/src/components/BusinessSignIn.jsx');
     const React = await import('react');
-    const { render, screen } = await import('@testing-library/react');
+    const { render, within, cleanup } = await import('@testing-library/react');
+    cleanupRoots = cleanup;
+    const screen = within(dom.window.document.body);
     const user = (await import('@testing-library/user-event')).default.setup({ document: dom.window.document });
     const view = render(React.createElement(BusinessSignIn, { onSession() {} }), { container: dom.window.document.getElementById('root') });
-    unmount = () => view.unmount();
 
     await screen.findByRole('heading', { name: 'Choose a new password.' });
     assert.equal(new URL(dom.window.location.href).searchParams.get('resetPassword'), 'synthetic-reset-token');
@@ -78,15 +81,13 @@ test('password reset deep link remains intact until a mocked reset succeeds', as
       '/api/auth/password-reset/request', 'POST', 'fixture@fixture.test',
     ]);
   } finally {
-    try { unmount?.(); } catch {}
+    try { cleanupRoots?.(); } catch {}
     await new Promise((resolve) => setTimeout(resolve, 0));
-    if (vite) await vite.close();
     globalThis.fetch = priorFetch;
     for (const [key, descriptor] of originalGlobals) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
       else delete globalThis[key];
     }
-    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
     dom.window.close();
   }
 });
@@ -94,7 +95,7 @@ test('password reset deep link remains intact until a mocked reset succeeds', as
 test('notifications support scoped read, dismiss, and confirmed clear interactions', async () => {
   const businessRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/app', pretendToBeVisual: true });
-  const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLButtonElement', 'HTMLInputElement', 'HTMLFormElement', 'HTMLSelectElement', 'Element', 'Node', 'NodeFilter', 'DocumentFragment', 'Event', 'CustomEvent', 'MouseEvent', 'KeyboardEvent', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame'];
+  const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLButtonElement', 'HTMLInputElement', 'HTMLFormElement', 'HTMLSelectElement', 'Element', 'Node', 'NodeFilter', 'DocumentFragment', 'Event', 'CustomEvent', 'MouseEvent', 'KeyboardEvent', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame', 'IS_REACT_ACT_ENVIRONMENT'];
   const originalGlobals = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries({
     window: dom.window, document: dom.window.document, navigator: dom.window.navigator,
@@ -143,19 +144,18 @@ test('notifications support scoped read, dismiss, and confirmed clear interactio
     return new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
   let vite;
-  let unmount;
+  let cleanupRoots;
   try {
-    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
-    vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
+    vite = await createAccountTestServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { Notifications } = await vite.ssrLoadModule('/src/components/Notifications.jsx');
     assert.equal(typeof Notifications, 'function');
     const React = await import('react');
-    const { render, within, waitFor } = await import('@testing-library/react');
+    const { render, within, waitFor, cleanup } = await import('@testing-library/react');
+    cleanupRoots = cleanup;
     const user = (await import('@testing-library/user-event')).default.setup({ document: dom.window.document });
     const session = { accessToken: 'synthetic-session-token' };
     const navigations = [];
     const view = render(React.createElement(Notifications, { session, onNavigate: (...args) => navigations.push(args), capabilities: { emailConfigured: false } }), { container: dom.window.document.getElementById('root') });
-    unmount = () => view.unmount();
     const q = within(dom.window.document.body);
     await q.findByRole('button', { name: 'Notifications, 22 unread' });
     await user.click(q.getByRole('button', { name: 'Notifications, 22 unread' }));
@@ -187,15 +187,13 @@ test('notifications support scoped read, dismiss, and confirmed clear interactio
     assert.ok(calls.some((call) => call.url.pathname === '/api/notifications' && call.method === 'DELETE'));
     assert.equal(calls.some((call) => call.url.pathname.includes('email') || call.url.pathname.includes('send')), false, 'inbox interactions never trigger email delivery');
   } finally {
-    try { unmount?.(); } catch {}
+    try { cleanupRoots?.(); } catch {}
     await new Promise((resolve) => setTimeout(resolve, 0));
-    if (vite) await vite.close();
     globalThis.fetch = priorFetch;
     for (const [key, descriptor] of originalGlobals) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
       else delete globalThis[key];
     }
-    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
     dom.window.close();
   }
 });
@@ -203,7 +201,7 @@ test('notifications support scoped read, dismiss, and confirmed clear interactio
 test('profile saves role-relevant in-app preferences without invoking email delivery', async () => {
   const businessRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/app', pretendToBeVisual: true });
-  const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLButtonElement', 'Element', 'Node', 'Event', 'MouseEvent', 'MutationObserver', 'getComputedStyle'];
+  const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLButtonElement', 'Element', 'Node', 'Event', 'MouseEvent', 'MutationObserver', 'getComputedStyle', 'IS_REACT_ACT_ENVIRONMENT'];
   const originalGlobals = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries({
     window: dom.window, document: dom.window.document, navigator: dom.window.navigator,
@@ -229,18 +227,17 @@ test('profile saves role-relevant in-app preferences without invoking email deli
     return new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
   let vite;
-  let unmount;
+  let cleanupRoots;
   try {
-    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
-    vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
+    vite = await createAccountTestServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { BusinessProfile } = await vite.ssrLoadModule('/src/components/BusinessProfile.jsx');
     const React = await import('react');
-    const { render, within, waitFor } = await import('@testing-library/react');
+    const { render, within, waitFor, cleanup } = await import('@testing-library/react');
+    cleanupRoots = cleanup;
     const user = (await import('@testing-library/user-event')).default.setup({ document: dom.window.document });
     const managerSession = { accessToken: 'synthetic-token', roles: ['organization_owner'], user: { id: 'manager-id', displayName: 'Manager', email: 'manager@fixture.test' } };
     let logoutCalls = 0;
     let view = render(React.createElement(BusinessProfile, { session: managerSession, onUpdated() {}, onLogout: () => { logoutCalls += 1; }, capabilities: { emailConfigured: false } }), { container: dom.window.document.getElementById('root') });
-    unmount = () => view.unmount();
     let q = within(dom.window.document.body);
     const profilePanel = q.getByRole('region', { name: 'Your profile' });
     const profileSection = within(profilePanel).getByRole('region', { name: 'Profile' });
@@ -284,15 +281,13 @@ test('profile saves role-relevant in-app preferences without invoking email deli
     assert.equal(q.queryByRole('checkbox', { name: 'Sold-out inventory alerts' }), null, 'promoters do not see inventory-only controls');
     await waitFor(() => assert.ok(calls.filter((call) => call.method === 'GET').length >= 2));
   } finally {
-    try { unmount?.(); } catch {}
+    try { cleanupRoots?.(); } catch {}
     await new Promise((resolve) => setTimeout(resolve, 0));
-    if (vite) await vite.close();
     globalThis.fetch = priorFetch;
     for (const [key, descriptor] of originalGlobals) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
       else delete globalThis[key];
     }
-    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
     dom.window.close();
   }
 });

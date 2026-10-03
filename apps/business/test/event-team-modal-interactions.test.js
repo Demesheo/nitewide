@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createEventPeopleTestServer } from './helpers/event-people-runtime.js';
+import './event-referral-reactivation.cases.js';
 
 test('event commissions require individual eligibility and invitations start at zero', async () => {
   const businessRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'http://localhost/app', pretendToBeVisual: true,
   });
-  const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLFormElement', 'HTMLButtonElement', 'HTMLInputElement', 'HTMLSelectElement', 'Element', 'Node', 'NodeFilter', 'DocumentFragment', 'Event', 'CustomEvent', 'MouseEvent', 'MutationObserver', 'ResizeObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame'];
+  const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLFormElement', 'HTMLButtonElement', 'HTMLInputElement', 'HTMLSelectElement', 'Element', 'Node', 'NodeFilter', 'DocumentFragment', 'Event', 'CustomEvent', 'MouseEvent', 'MutationObserver', 'ResizeObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame', 'IS_REACT_ACT_ENVIRONMENT'];
   const originalGlobals = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries({
     window: dom.window, document: dom.window.document, navigator: dom.window.navigator,
@@ -31,13 +33,14 @@ test('event commissions require individual eligibility and invitations start at 
   const priorFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
   let vite;
-  let unmount;
+  let cleanupRoots;
   try {
-    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
-    vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
+    vite = await createEventPeopleTestServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { EventPeople } = await vite.ssrLoadModule('/src/components/EventDetail.jsx');
     const React = await import('react');
-    const { render, screen, within, waitFor } = await import('@testing-library/react');
+    const { render, within, waitFor, cleanup } = await import('@testing-library/react');
+    cleanupRoots = cleanup;
+    const screen = within(dom.window.document.body);
     const user = (await import('@testing-library/user-event')).default.setup({ document: dom.window.document });
     const person = { id: 'person-1', userId: 'user-1', name: 'Riley Promoter', email: 'riley@fixture.test', role: 'Promoter', status: 'active', commissionBps: 500, salesCents: 12500, commissionCents: 625, orders: 3, customers: 3, guestlistPlaces: 2, approvedGuestlistPlaces: 1 };
     const props = {
@@ -46,7 +49,6 @@ test('event commissions require individual eligibility and invitations start at 
       remote: { search: '', onSearch() {}, sort: 'salesCents', descending: true, onSort() {}, roles: [], onRoles() {}, roleOptions: [{ id: 'Promoter', label: 'Promoters' }] },
     };
     const view = render(React.createElement(EventPeople, props), { container: dom.window.document.getElementById('root') });
-    unmount = () => view.unmount();
 
     assert.ok(screen.getByText('Stripe setup required'));
     assert.match(screen.getByText('Stripe setup required').closest('td').textContent, /^0%/);
@@ -114,15 +116,13 @@ test('event commissions require individual eligibility and invitations start at 
     assert.deepEqual(invitationRequests[1], { email: 'new@fixture.test', phone: '', commissionBps: 0 });
     assert.equal(screen.getByRole('slider', { name: 'Invitation commission percentage' }).getAttribute('aria-valuenow'), '0');
   } finally {
-    try { unmount?.(); } catch {}
+    try { cleanupRoots?.(); } catch {}
     await new Promise((resolve) => setTimeout(resolve, 0));
-    if (vite) await vite.close();
     globalThis.fetch = priorFetch;
     for (const [key, descriptor] of originalGlobals) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
       else delete globalThis[key];
     }
-    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
     dom.window.close();
   }
 });

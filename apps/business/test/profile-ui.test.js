@@ -5,15 +5,6 @@ import { profileConfirmation } from '../src/lib/profile-confirmation.js';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
-test('the header opens an in-place, dismissible profile modal instead of refreshing the workspace', () => {
-  const app = read('src/App.jsx');
-  assert.match(app, /aria-label="Your profile"/);
-  assert.match(app, /onClick=\{\(\) => setProfileOpen\(true\)\}/);
-  assert.match(app, /<Dialog open=\{profileOpen\} onOpenChange=\{setProfileOpen\}>/);
-  assert.match(app, /<BusinessProfile session=\{session\}/);
-  assert.doesNotMatch(app, /aria-label="Refresh data"/);
-});
-
 test('profile edit action stays below fields and profile updates use the authenticated API', () => {
   const profile = read('src/components/profile/ProfileDetails.jsx');
   assert.match(profile, /api\('\/auth\/profile', session, \{ method: 'PATCH'/);

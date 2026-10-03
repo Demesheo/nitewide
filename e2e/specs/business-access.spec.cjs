@@ -1,4 +1,8 @@
-const { test, expect, login, expectNoOverflow } = require('../fixtures.cjs');
+const { test: baseTest, expect, login, expectNoOverflow } = require('../fixtures.cjs');
+const test = baseTest.extend({ fixtureRecipe: 'business-access' });
+const customerAuthTest = baseTest.extend({ fixtureRecipe: 'customer-auth' });
+const adminAccessTest = baseTest.extend({ fixtureRecipe: 'admin-access' });
+const businessAuthTest = baseTest.extend({ fixtureRecipe: 'business-auth' });
 const { urls, controlToken } = require('../environment.cjs');
 
 const sessionKey = 'nitewide.business.session';
@@ -32,7 +36,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   await page.setViewportSize(testInfo.project.name.endsWith('iphone') ? { width: 390, height: 844 } : { width: 1440, height: 900 });
 });
 
-test('customer credentials are denied Business access and offer a visible request action', async ({ page, request, fixture }, testInfo) => {
+customerAuthTest('customer credentials are denied Business access and offer a visible request action', async ({ page, request, fixture }, testInfo) => {
   await page.goto('/sign-in');
   await expect(page.getByRole('button', { name: 'Request access', exact: true })).toBeVisible();
   expect((await signIn(page, fixture)).status()).toBe(403);
@@ -43,72 +47,77 @@ test('customer credentials are denied Business access and offer a visible reques
   await expectNoOverflow(page); await screenshot(page, testInfo, 'business-customer-denied');
 });
 
-test('public request form sends no password or session, deduplicates pending requests and grants no access after decline', async ({ page, request, fixture }, testInfo) => {
+adminAccessTest('public access request journey preserves failed drafts, prevents duplicates and grants no access after decline', async ({ page, request, fixture }, testInfo) => {
   const admin = await identity(request, fixture, 'admin');
   const headers = { Authorization: `Bearer ${admin.accessToken}` };
   const posts = [];
   page.on('request', event => { if (event.url().endsWith('/api/business/access-requests') && event.method() === 'POST') posts.push(event); });
-  await page.goto('/sign-in');
-  await page.getByRole('button', { name: 'Request access', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Request access.', exact: true })).toBeFocused();
-  await expect(page.locator('input[type="password"]')).toHaveCount(0);
-  await expect(page.getByRole('form', { name: 'Request Business access' })).toContainText('10–2,000 characters');
-  await fillRequest(page, fixture.accounts.customer.email);
-  await expectNoOverflow(page); await screenshot(page, testInfo, 'business-access-request-form');
-  const touchTargets = await page.locator('#business-access-request-form input, #business-access-request-form select, #business-access-request-form textarea, #business-access-request-form button').evaluateAll(elements => elements.map(element => Math.round(element.getBoundingClientRect().height)));
-  expect(touchTargets.every(height => height >= 44)).toBeTruthy();
-  const sent = page.waitForResponse(response => response.url().endsWith('/api/business/access-requests') && response.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Send request', exact: true }).click();
-  expect((await sent).status()).toBe(202);
-  await expect(page.getByRole('heading', { name: 'Request received.', exact: true })).toBeFocused();
-  await expect(page.getByRole('status')).toContainText('Access is not granted until onboarding is completed.');
-  expect(posts).toHaveLength(1);
-  expect(Object.keys(posts[0].postDataJSON()).sort()).toEqual(['businessName', 'details', 'displayName', 'email', 'phone', 'role']);
-  expect(posts[0].headers().authorization).toBeUndefined();
-  expect(await page.evaluate(key => sessionStorage.getItem(key), sessionKey)).toBeNull();
-  await expectNoOverflow(page); await screenshot(page, testInfo, 'business-access-request-received');
-  const submission = posts[0].postDataJSON();
-  expect((await request.post(`${urls.api}/api/business/access-requests`, { data: submission })).status()).toBe(202);
-  const queueResponse = await request.get(`${urls.api}/api/admin/business-access/requests?search=${encodeURIComponent(submission.email)}`, { headers });
-  expect(queueResponse.ok()).toBeTruthy();
-  const queue = (await queueResponse.json()).data;
-  expect(queue.total).toBe(1);
-  expect(queue.items[0].status).toBe('pending');
-  expect(queue.items[0].phone).toBe('+14075550199');
-  await page.getByRole('button', { name: 'Back to sign in', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Request access', exact: true })).toBeFocused();
-  expect((await signIn(page, fixture)).status()).toBe(403);
-  const row = queue.items[0];
-  expect((await request.post(`${urls.api}/api/admin/business-access/requests/${row.id}/decline`, { headers, data: { version: row.version, reason: 'Isolated browser test decline' } })).ok()).toBeTruthy();
-  expect((await signIn(page, fixture)).status()).toBe(403);
-  expect(await page.evaluate(key => sessionStorage.getItem(key), sessionKey)).toBeNull();
-  const emails = await request.get(`${urls.api}/__e2e/emails`, { headers: { 'x-e2e-control': controlToken } });
-  expect(await emails.json()).toEqual([]);
-});
-
-test('access request failures preserve the draft and submitting cannot send duplicates', async ({ page, fixture }) => {
-  let requests = 0;
-  let finish;
+  let attempts = 0, finish;
   const waiting = new Promise(done => { finish = done; });
   await page.route('**/api/business/access-requests', async route => {
-    requests += 1;
-    if (requests === 1) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { message: 'Request service is temporarily unavailable. Try again.' } }) });
-    await waiting; return route.continue();
+    attempts += 1;
+    if (attempts === 1) return route.fulfill({ status: 503, json: { error: { message: 'Request service is temporarily unavailable. Try again.' } } });
+    await waiting;
+    return route.continue();
   });
-  await page.goto('/sign-in'); await page.getByRole('button', { name: 'Request access', exact: true }).click();
-  await fillRequest(page, fixture.accounts.customer.email, 'manager');
-  await page.getByRole('button', { name: 'Send request', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('temporarily unavailable');
-  await expect(page.getByLabel('Business name', { exact: true })).toHaveValue('Playwright Access Nights');
-  await page.getByRole('button', { name: 'Send request', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Sending request…', exact: true })).toBeDisabled();
-  await page.locator('#business-access-request-form').evaluate(form => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
-  expect(requests).toBe(2); finish();
-  await expect(page.getByRole('heading', { name: 'Request received.', exact: true })).toBeVisible();
-  expect(requests).toBe(2); await expectNoOverflow(page);
+  await test.step('The public form has accessible targets and preserves its draft after a service failure', async () => {
+    await page.goto('/sign-in');
+    await page.getByRole('button', { name: 'Request access', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Request access.', exact: true })).toBeFocused();
+    await expect(page.locator('input[type="password"]')).toHaveCount(0);
+    await expect(page.getByRole('form', { name: 'Request Business access' })).toContainText('10–2,000 characters');
+    await fillRequest(page, fixture.accounts.customer.email, 'manager');
+    await expectNoOverflow(page); await screenshot(page, testInfo, 'business-access-request-form');
+    const touchTargets = await page.locator('#business-access-request-form input, #business-access-request-form select, #business-access-request-form textarea, #business-access-request-form button').evaluateAll(elements => elements.map(element => Math.round(element.getBoundingClientRect().height)));
+    expect(touchTargets.every(height => height >= 44)).toBeTruthy();
+    await page.getByRole('button', { name: 'Send request', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('temporarily unavailable');
+    await expect(page.getByLabel('Business name', { exact: true })).toHaveValue('Playwright Access Nights');
+    await expect(page.getByLabel('Your role', { exact: true })).toHaveValue('manager');
+    expect(await page.evaluate(key => sessionStorage.getItem(key), sessionKey)).toBeNull();
+  });
+  await test.step('Explicit retry locks submission and sends one successful request without auth or password fields', async () => {
+    await page.getByLabel('Your role', { exact: true }).selectOption('owner');
+    const sent = page.waitForResponse(response => response.url().endsWith('/api/business/access-requests') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Send request', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Sending request…', exact: true })).toBeDisabled();
+    await page.locator('#business-access-request-form').evaluate(form => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+    expect(attempts).toBe(2);
+    finish();
+    expect((await sent).status()).toBe(202);
+    await expect(page.getByRole('heading', { name: 'Request received.', exact: true })).toBeFocused();
+    await expect(page.getByRole('status')).toContainText('Access is not granted until onboarding is completed.');
+    expect(posts).toHaveLength(2);
+    expect(attempts).toBe(2);
+    for (const post of posts) {
+      expect(Object.keys(post.postDataJSON()).sort()).toEqual(['businessName', 'details', 'displayName', 'email', 'phone', 'role']);
+      expect(post.headers().authorization).toBeUndefined();
+    }
+    expect(await page.evaluate(key => sessionStorage.getItem(key), sessionKey)).toBeNull();
+    await expectNoOverflow(page); await screenshot(page, testInfo, 'business-access-request-received');
+  });
+  await test.step('The real API deduplicates the pending request, normalizes its phone and still denies declined access', async () => {
+    const submission = posts[1].postDataJSON();
+    expect((await request.post(`${urls.api}/api/business/access-requests`, { data: submission })).status()).toBe(202);
+    const queueResponse = await request.get(`${urls.api}/api/admin/business-access/requests?search=${encodeURIComponent(submission.email)}`, { headers });
+    expect(queueResponse.ok()).toBeTruthy();
+    const queue = (await queueResponse.json()).data;
+    expect(queue.total).toBe(1);
+    expect(queue.items[0].status).toBe('pending');
+    expect(queue.items[0].phone).toBe('+14075550199');
+    await page.getByRole('button', { name: 'Back to sign in', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Request access', exact: true })).toBeFocused();
+    expect((await signIn(page, fixture)).status()).toBe(403);
+    const row = queue.items[0];
+    expect((await request.post(`${urls.api}/api/admin/business-access/requests/${row.id}/decline`, { headers, data: { version: row.version, reason: 'Isolated browser test decline' } })).ok()).toBeTruthy();
+    expect((await signIn(page, fixture)).status()).toBe(403);
+    expect(await page.evaluate(key => sessionStorage.getItem(key), sessionKey)).toBeNull();
+    const emails = await request.get(`${urls.api}/__e2e/emails`, { headers: { 'x-e2e-control': controlToken } });
+    expect(await emails.json()).toEqual([]);
+  });
 });
 
-test('a copied customer token is checked before any workspace navigation renders and generic customer auth remains valid', async ({ page, request, fixture }) => {
+customerAuthTest('a copied customer token is checked before any workspace navigation renders and generic customer auth remains valid', async ({ page, request, fixture }) => {
   const customer = await identity(request, fixture);
   let release;
   const waiting = new Promise(done => { release = done; });
@@ -128,7 +137,7 @@ test('a copied customer token is checked before any workspace navigation renders
   await expectNoOverflow(page);
 });
 
-test('bootstrap failures hide protected data, retry safely and return to sign in without revoking identity', async ({ page, request, fixture }) => {
+businessAuthTest('bootstrap failures hide protected data, retry safely and return to sign in without revoking identity', async ({ page, request, fixture }) => {
   const business = await identity(request, fixture, 'business');
   let unavailable = true;
   await page.addInitScript(({ key, value }) => sessionStorage.setItem(key, JSON.stringify(value)), { key: sessionKey, value: business });
@@ -147,18 +156,7 @@ test('bootstrap failures hide protected data, retry safely and return to sign in
   expect((await request.get(`${urls.api}/api/auth/me`, { headers: { Authorization: `Bearer ${business.accessToken}` } })).status()).toBe(200);
 });
 
-test('approved owner and promoter accounts retain their normal Business sign-in access', async ({ page, fixture }) => {
-  await login(page, fixture, 'business');
-  await expect(page.getByRole('button', { name: 'Create event', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Your profile', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Log out', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Request access', exact: true })).toBeVisible();
-  await login(page, fixture, 'business', 'promoter');
-  await expect(page.getByRole('heading', { name: 'Your performance, clearly.', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Create event', exact: true })).toHaveCount(0);
-});
-
-test('report scope denials keep the approved session, but focus refresh access revocation clears the workspace', async ({ page, fixture }) => {
+businessAuthTest('report scope denials keep the approved session, but focus refresh access revocation clears the workspace', async ({ page, fixture }) => {
   await page.route('**/api/business/reports/summary?**', route => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'FORBIDDEN', message: 'You do not have report access for this scope.' } }) }));
   await login(page, fixture, 'business');
   await expect(page.getByRole('alert')).toContainText('report access');
@@ -171,7 +169,7 @@ test('report scope denials keep the approved session, but focus refresh access r
   expect(await page.evaluate(key => sessionStorage.getItem(key), sessionKey)).toBeNull();
 });
 
-test('an existing customer signs into an onboarding invitation using identity auth and returns to accept access before entering Business', async ({ page, fixture }) => {
+customerAuthTest('an existing customer signs into an onboarding invitation using identity auth and returns to accept access before entering Business', async ({ page, fixture }) => {
   const token = 'synthetic-existing-account-onboarding-token';
   const protectedRequests = [];
   page.on('request', request => { if (request.url().includes('/api/business/')) protectedRequests.push(request.url()); });

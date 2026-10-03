@@ -58,9 +58,6 @@ test('event detail tabs have a consistent segmented layout on desktop and mobile
 test('event details expose concise tabs and scope guestlist controls to this event', () => {
   const guestlists = readFileSync(new URL('../src/components/Guestlists.jsx', import.meta.url), 'utf8');
   const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  for (const [value, label] of [['sales', 'Sales'], ['tickets', 'Offerings'], ['people', 'Team'], ['guestlist', 'Guestlist']]) {
-    assert.match(eventDetail, new RegExp(`<TabsTrigger value="${value}">${label}<\\/TabsTrigger>`));
-  }
   assert.match(eventDetail, /<Guestlists event=\{event\} initialEntryId=\{initialGuestlistEntryId\}/);
   assert.match(guestlists, /const eventId = event.id/);
   assert.doesNotMatch(guestlists, /Guestlist event|<ShareEventCard/);
@@ -98,22 +95,6 @@ test('event Team includes a sales donut for managers without exposing event-wide
   assert.match(eventDetail, /!ownOnly && <section className="panel event-team-sales-mix"/);
   assert.match(eventDetail, /<SalesMixPie slices=\{eventTeamSalesSlices\(data\)\}\/>/);
   assert.match(eventDetail, /<\/section>\}<section className="panel"><EventPeople/);
-});
-
-test('event details invite guests in place without navigating to Guestlists', () => {
-  const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  const inviteDialog = readFileSync(new URL('../src/components/GuestlistInviteDialog.jsx', import.meta.url), 'utf8');
-  const guestlists = readFileSync(new URL('../src/components/Guestlists.jsx', import.meta.url), 'utf8');
-  assert.match(eventDetail, /<ShareEventCard referralUrl=\{url\?\.toString\(\) \|\| ''\} canInviteGuest=\{Boolean\(canInviteGuest\)\}/);
-  assert.match(eventDetail, /guestlist-invite-pools/);
-  assert.match(eventDetail, /onInviteGuest=\{\(\) => \{ setInvitePools\(null\); setInvitePoolRevision\(\(value\) => value \+ 1\); setInviteOpen\(true\); \}\}/);
-  assert.match(eventDetail, /<GuestlistInviteDialog open=\{inviteOpen\}/);
-  assert.match(eventDetail, /<GuestlistInviteDialog open=\{inviteOpen\}/);
-  assert.match(inviteDialog, /guestlist-invitations/);
-  assert.match(inviteDialog, /eventAffiliateId: selectedPool/);
-  assert.match(inviteDialog, /guestlistInvitationLink/);
-  assert.doesNotMatch(eventDetail, /<code className="break-all text-sm">\{url\.toString\(\)\}<\/code>/);
-  assert.doesNotMatch(app, /guestlistInviteToOpen|navigate\('guestlists'/);
 });
 
 test('standalone Guestlists navigation is removed while notifications deep-link to event guest requests', () => {

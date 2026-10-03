@@ -11,8 +11,10 @@ const schemas = require('../src/http/schemas');
 const business = require('../src/http/business-schemas');
 const domain = require('../src/http/domain-query-schemas');
 
+// These cases only read registration metadata; negative registration uses its own router.
+const { document, contracts, router } = buildContract();
+
 test('committed OpenAPI is deterministic and matches every registered operation', () => {
-  const { document, contracts, router } = buildContract();
   const artifact = fs.readFileSync(path.resolve(__dirname, '../../../docs/api/openapi.json'), 'utf8');
   assert.equal(artifact, `${JSON.stringify(document, null, 2)}\n`, 'Run npm run api:contract after reviewing contract changes');
   const actual = router.stack.filter((layer) => layer.route).flatMap((layer) => Object.keys(layer.route.methods).map((method) => `${method} ${layer.route.path}`)).sort();
@@ -24,7 +26,6 @@ test('committed OpenAPI is deterministic and matches every registered operation'
 });
 
 test('request and query contracts retain the actual shared validators and canonical dates', () => {
-  const { contracts } = buildContract();
   const find = (method, path) => contracts.find((route) => route.method === method && route.path === path);
   assert.equal(find('post', '/auth/register').requestSchema, schemas.register);
   assert.equal(find('post', '/auth/password/change').requestSchema, schemas.passwordChange);
@@ -59,7 +60,6 @@ test('request and query contracts retain the actual shared validators and canoni
 });
 
 test('registration rejects undocumented operations and method lookup preserves legacy POST events', () => {
-  const { router } = buildContract();
   assert.deepEqual(router.allowedMethods('/events'), ['GET', 'HEAD', 'OPTIONS', 'POST']);
   assert.deepEqual(router.allowedMethods('/business/events/not-a-real-id/detail'), ['GET', 'HEAD', 'OPTIONS']);
   assert.deepEqual(router.allowedMethods('/nothing-here'), []);
@@ -67,7 +67,6 @@ test('registration rejects undocumented operations and method lookup preserves l
 });
 
 test('request, pending-edit, invitation, and approval contracts keep their distinct guestlist quantity limits', () => {
-  const { contracts, document } = buildContract();
   const requestSchema = document.paths['/events/{eventId}/guestlist'].post.requestBody.content['application/json'].schema;
   const editSchema = document.paths['/customer/guestlists/{entryId}'].patch.requestBody.content['application/json'].schema;
   assert.equal(requestSchema.properties.partySize.maximum, 5);
@@ -87,7 +86,6 @@ test('request, pending-edit, invitation, and approval contracts keep their disti
 });
 
 test('mixed CSV and asynchronous export statuses and schema references are executable', () => {
-  const { document } = buildContract();
   const operation = document.paths['/business/reports/export.csv'].get;
   assert.ok(operation.responses[200].content['text/csv']);
   assert.ok(operation.responses[202].content['application/json']);
@@ -108,6 +106,6 @@ test('mixed CSV and asynchronous export statuses and schema references are execu
   assert.equal(document.paths['/business/analytics'].get.deprecated, true);
   assert.equal(document.paths['/business/analytics'].get.responses[200], undefined);
   assert.ok(document.paths['/admin/management/{resource}'].post.requestBody);
-  const contract = buildContract().contracts.find((value) => value.path === '/business/admissions/events');
+  const contract = contracts.find((value) => value.path === '/business/admissions/events');
   assert.equal(contract.responseSchemas[200].safeParse({ data: { items: [{ id: '11111111-1111-4111-8111-111111111111', title: 'Projected event', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T04:00:00Z' }], page: 1, pageSize: 20, total: 1, hasMore: false, serverTime: '2026-10-01T00:00:00Z', nextEvent: null } }).success, true);
 });

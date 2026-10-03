@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { containerPlan } = require('../../../e2e/ci-container.cjs');
+const { containerPlan, projectGroups } = require('../../../e2e/ci-container.cjs');
 const root = path.resolve(__dirname, '../../..');
 const workflow = fs.readFileSync(path.join(root, '.github/workflows/demo-image.yml'), 'utf8');
 const section = name => {
@@ -35,9 +35,9 @@ test('browser container preserves loopback isolation, sequential tests and exact
   assert.throws(() => containerPlan({ ...options, workspace: '/workspace,unsafe' }), /safe absolute/);
 });
 
-test('CI partitions customer files while keeping both devices and isolated single-worker databases', () => {
-  const groups = ['customer-core', 'customer-operations', 'business', 'admin-rebuild'];
-  assert.match(section('browser'), /app: \[customer-core, customer-operations, business, admin-rebuild\]/);
+test('CI balances four file partitions while keeping every device/spec pair exactly once', () => {
+  const groups = ['customer-core', 'business-core', 'business-operations', 'platform-operations'];
+  assert.match(section('browser'), /app: \[customer-core, business-core, business-operations, platform-operations\]/);
   assert.match(section('browser'), /fail-fast: false/);
   assert.match(section('browser'), /group: demo-browser-\$\{\{ matrix\.app \}\}-\$\{\{ github\.ref \}\}/);
   assert.match(section('browser'), /PLAYWRIGHT_PROJECT_GROUP: \$\{\{ matrix\.app \}\}/);
@@ -47,13 +47,12 @@ test('CI partitions customer files while keeping both devices and isolated singl
   const coverage = [];
   for (const group of groups) {
     const { args } = containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: group } });
-    const selected = group.startsWith('customer-') ? 'customer' : group;
-    const files = group === 'customer-core' ? ['customer.spec.cjs'] : group === 'customer-operations' ? ['customer-my-events.spec.cjs', 'commissions-messages.spec.cjs'] : [];
-    assert.deepEqual(args.slice(args.indexOf('npm')), ['npm', 'run', 'test:e2e', '--', `--project=${selected}-iphone`, `--project=${selected}-desktop`, ...files.map(file => `e2e/specs/${file}`)]);
+    const { apps, specs: files } = projectGroups[group];
+    assert.deepEqual(args.slice(args.indexOf('npm')), ['npm', 'run', 'test:e2e', '--',
+      ...apps.flatMap(app => [`--project=${app}-iphone`, `--project=${app}-desktop`]), ...files.map(file => `e2e/specs/${file}`)]);
     assert.doesNotMatch(args.join(' '), /never-forward|live\.example|--workers|--fully-parallel/);
-    for (const project of config.projects.filter(project => project.name.startsWith(`${selected}-`))) {
-      for (const file of files.length ? files : project.testMatch) {
-        assert.ok(project.testMatch.includes(file), `${group} must select a configured spec`);
+    for (const project of config.projects.filter(project => apps.some(app => project.name.startsWith(`${app}-`)))) {
+      for (const file of project.testMatch.filter(file => !files.length || files.includes(file))) {
         coverage.push(`${project.name}:${file}`);
       }
     }
@@ -73,6 +72,33 @@ test('CI browser timeouts allow both device projects and reserve time for setup 
   const testTimeout = Number(browser.match(/run: node e2e\/ci-container\.cjs\n\s+timeout-minutes: (\d+)/)?.[1]);
   assert.ok(testTimeout >= 10, 'Sequential iPhone and desktop coverage needs at least ten minutes');
   assert.ok(jobTimeout >= testTimeout + 5, 'Reserve five additional minutes for setup and diagnostic uploads');
+});
+
+test('CI retains setup and test timings even on failure, outside Playwright output cleanup', () => {
+  for (const name of ['unit', 'browser']) {
+    const job = section(name);
+    assert.match(job, /run: node scripts\/time-test-phase\.cjs npm-version/);
+    assert.match(job, /run: node scripts\/time-test-phase\.cjs dependencies/);
+    assert.match(job, /name: Summarize test performance\n\s+if: \$\{\{ always\(\) && !cancelled\(\) \}\}\n\s+run: node scripts\/report-test-timings\.cjs/);
+    assert.match(job, /\.test-metrics\//);
+    assert.match(job, /include-hidden-files: true/);
+  }
+  assert.match(section('browser'), /run: node scripts\/time-test-phase\.cjs browser-pull/);
+  const { args } = containerPlan(options);
+  assert.ok(args.some(arg => /^NITEWIDE_TEST_TIMING_RUN_ID=[a-f0-9]{32}$/.test(arg)));
+  const config = require('../../../playwright.config.cjs');
+  assert.ok(config.reporter.some(([name]) => name === './e2e/timing-reporter.cjs'));
+});
+
+test('CI bounds cascading failures without weakening retries, flaky detection or release gates', () => {
+  const config = require('../../../playwright.config.cjs');
+  assert.equal(config.maxFailures, process.env.CI ? 3 : 0);
+  assert.equal(config.retries, process.env.CI ? 1 : 0);
+  assert.equal(config.failOnFlakyTests, Boolean(process.env.CI));
+  assert.equal(config.forbidOnly, Boolean(process.env.CI));
+  assert.equal(config.workers, 1);
+  assert.equal(config.timeout, 45000);
+  assert.match(section('verify'), /test "\$BROWSER_RESULT" = success/);
 });
 
 test('all parallel verification jobs gate publication without registry writes or duplicate builds', () => {
@@ -110,7 +136,7 @@ test('publication and deployment do not cancel started releases or deploy stale 
   assert.match(section('deploy'), /--connect-timeout 10 --max-time 30/);
 });
 
-test('legacy admin browser projects remain paused while rebuild workflows have dedicated coverage', () => {
+test('retired admin browser paths are excluded while rebuild workflows have dedicated coverage', () => {
   const config = require('../../../playwright.config.cjs');
   assert.deepEqual(config.projects.map(project => project.name), ['customer-iphone', 'customer-desktop', 'business-iphone', 'business-desktop', 'admin-rebuild-iphone', 'admin-rebuild-desktop']);
   for (const project of config.projects.filter(project => project.name.startsWith('admin-'))) {
@@ -120,7 +146,7 @@ test('legacy admin browser projects remain paused while rebuild workflows have d
   for (const project of config.projects.filter(project => project.name.startsWith('business-'))) {
     assert.deepEqual(project.testMatch, ['business.spec.cjs', 'business-access.spec.cjs', 'business-payments.spec.cjs','commissions-messages.spec.cjs']);
   }
-  assert.ok(fs.existsSync(path.join(root, 'e2e/specs/admin.spec.cjs')));
+  assert.ok(!fs.existsSync(path.join(root, 'e2e/specs/admin.spec.cjs')));
   const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
   assert.match(dockerfile, /npm run build --workspace @nitewide\/admin/);
 });

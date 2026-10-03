@@ -4,6 +4,11 @@ const { Client } = require('pg');
 const express = require('express');
 const { urls, controlToken, isolatedEnvironment, databaseSettings } = require('./environment.cjs');
 const { assertManagedTestDatabase, assertGeneratedDatabaseName } = require('../apps/api/scripts/test-database.cjs');
+const { createTimingCollector } = require('../scripts/test-timing.cjs');
+
+// Initialize before child environments are made so their timing chunks share
+// this run identity. Reports contain static phase/recipe labels only.
+const timing = createTimingCollector('browser-server');
 
 const root = path.resolve(__dirname, '..');
 const children = new Set();
@@ -24,7 +29,7 @@ function completed(processHandle) {
 async function shutdown(code = 0) {
   if (closing) return; closing = true;
   try {
-    if (workerRuntime) await workerRuntime.stop();
+    if (workerRuntime) await timing.measure('worker-stop', () => workerRuntime.stop(), { status: 'shutdown' });
     const stopped = [...children].map(handle => new Promise(resolve => {
       handle.once('close', resolve); handle.kill('SIGTERM');
       const timer = setTimeout(() => handle.kill('SIGKILL'), 3000); timer.unref();
@@ -38,6 +43,7 @@ async function shutdown(code = 0) {
   } catch (error) {
     console.error(`Playwright cleanup failed (${error.code || 'cleanup error'}). Inspect only the generated database ${database || '(not created)'}.`); code = 1;
   }
+  timing.report();
   process.exitCode = code;
 }
 async function start() {
@@ -51,8 +57,8 @@ async function start() {
   const config = require('../apps/api/src/config').getConfig();
   sequelize = require('../apps/api/src/db/sequelize').createSequelize(config);
   const models = require('../apps/api/src/db/models').initModels(sequelize);
-  const { seed, seedMyEventsScenario } = require('./seed.cjs');
-  let fixture = await seed(models, config);
+  const { seed, seedMyEventsScenario, getRecipe } = require('./seed.cjs');
+  let fixture = await timing.measure('fixture-seed', () => seed(models, config), { suite: 'legacy', status: 'startup' });
   let resetting = false, activeQueries = 0;
   const activeResponses = new Set();
   sequelize.addHook('beforeQuery', 'e2e-query-start', () => { activeQueries++; });
@@ -77,13 +83,21 @@ async function start() {
   const email = { enabled: true, queue: async message => { emails.push({ template: message.template, to: message.to }); return `mock-${emails.length}`; } };
   const harness = express(); harness.use(express.json());
   harness.use('/__e2e', (req, res, next) => req.headers['x-e2e-control'] === controlToken ? next() : res.sendStatus(403));
-  harness.post('/__e2e/reset', async (_req, res, next) => {
+  harness.post('/__e2e/reset', async (req, res, next) => {
     if (resetting) return res.status(409).json({ error: 'Another fixture reset is running.' });
+    const recipe = req.body?.recipe ?? 'legacy';
+    try { getRecipe(recipe); } catch { return res.status(400).json({ error: 'Unknown managed browser fixture recipe.' }); }
     resetting = true;
     try {
-      assertManagedTestDatabase(); await workerRuntime.stop(); await drainRequests();
-      fixture = await seed(models, config); emails.length = 0;
-      workerRuntime = makeWorker(); await workerRuntime.start(); res.json(fixture);
+      await timing.measure('fixture-reset', async () => {
+        assertManagedTestDatabase();
+        await timing.measure('worker-stop', () => workerRuntime.stop(), { suite: recipe });
+        await timing.measure('request-drain', drainRequests, { suite: recipe });
+        fixture = await timing.measure('fixture-seed', () => seed(models, config, { recipe }), { suite: recipe }); emails.length = 0;
+        workerRuntime = makeWorker();
+        await timing.measure('worker-start', () => workerRuntime.start(), { suite: recipe });
+      }, { suite: recipe });
+      res.json(fixture);
     }
     catch (error) { console.error(`Playwright reset failed: ${error.name} (${error.original?.code || error.code || 'reset error'}).`); next(error); }
     finally { resetting = false; }
@@ -94,10 +108,11 @@ async function start() {
     if (typeof req.body.past !== 'boolean') return res.sendStatus(400);
     resetting = true;
     try {
-      await workerRuntime.stop();
-      await drainRequests();
-      fixture = await seedMyEventsScenario(models, config, fixture, { past: req.body.past });
-      workerRuntime = makeWorker(); await workerRuntime.start();
+      const labels = { suite: fixture.recipe, status: req.body.past ? 'past' : 'upcoming' };
+      await timing.measure('worker-stop', () => workerRuntime.stop(), labels);
+      await timing.measure('request-drain', drainRequests, labels);
+      fixture = await timing.measure('operator-scenario', () => seedMyEventsScenario(models, config, fixture, { past: req.body.past }), labels);
+      workerRuntime = makeWorker(); await timing.measure('worker-start', () => workerRuntime.start(), labels);
       res.json(fixture);
     } catch (error) { next(error); }
     finally { resetting = false; }
@@ -118,7 +133,7 @@ async function start() {
   // shares its disposable connection; production worker is a separate process.
   function makeWorker() { return createWorkerRuntime({ sequelize,
     services: backgroundServices({ sequelize, models, config }), pollIntervalMs: 50 }); }
-  workerRuntime = makeWorker(); await workerRuntime.start();
+  workerRuntime = makeWorker(); await timing.measure('worker-start', () => workerRuntime.start(), { status: 'startup' });
   server = harness.listen(Number(new URL(urls.api).port), '127.0.0.1');
   await new Promise((resolve, reject) => { server.once('listening', resolve); server.once('error', reject); });
   for (const app of ['customer', 'business', 'admin']) {

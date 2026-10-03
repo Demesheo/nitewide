@@ -1,8 +1,15 @@
 const { test, expect, login, expectNoOverflow } = require('../fixtures.cjs');
+const adminAccessTest = test.extend({ fixtureRecipe: 'admin-access' });
 const { urls } = require('../environment.cjs');
 
 const uuid = number => `60000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
 const rootPath = '/admin/business-access/requests';
+
+async function captureReviewScreenshot(page, testInfo, name) {
+  const path = testInfo.outputPath(`${name}.png`);
+  await page.screenshot({ path, fullPage: true });
+  await testInfo.attach(name, { path, contentType: 'image/png' });
+}
 
 // All review responses are local mocks: these tests never invoke onboarding or
 // an email provider. They assert UI/payload semantics, not simulated delivery.
@@ -58,82 +65,48 @@ async function reviewDraft(dialog) {
   await dialog.getByLabel('Required audit reason').fill('Verified business representative and authority');
 }
 
-test('access requests have pending defaults, explicit search, multiselect, paged details and independent directory context', async ({ page }, testInfo) => {
+test('access request recovery, filters and reviewed details preserve independent directory context', async ({ page }, testInfo) => {
   const state = await mockReviews(page);
+  state.readFailures.push(503);
   await page.goto('/?section=businesses&search=ExistingBusiness&page=3');
   await page.getByRole('tab', { name: 'Access requests', exact: true }).click();
-  await expect(page.getByText('27 access requests', { exact: true })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath('requests-list.png'), fullPage: true });
-  expect(new URLSearchParams(state.requests.find(item => item.path === rootPath).query).getAll('statuses')).toEqual(['pending']);
-  await page.getByRole('button', { name: 'Next', exact: true }).click(); await expect(page.getByText('Page 2 of 2')).toBeVisible();
-  await page.getByTestId('access-request').first().getByRole('button', { name: 'Review request' }).click();
-  await expect(page.getByRole('heading', { name: 'Requested Business 26', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Back to access requests' }).click(); await expect(page.getByText('Page 2 of 2')).toBeVisible();
-  const before = state.requests.filter(item => item.path === rootPath).length;
-  await page.getByRole('textbox', { name: 'Search access requests', exact: true }).fill('contact27@example.test');
-  expect(state.requests.filter(item => item.path === rootPath)).toHaveLength(before);
-  await page.getByRole('button', { name: 'Search', exact: true }).click(); await expect(page.getByText('1 access request', { exact: true })).toBeVisible(); await expect(page.getByText('Page 1 of 1')).toBeVisible();
-  await page.getByRole('textbox', { name: 'Search access requests', exact: true }).fill(''); await page.getByRole('button', { name: 'Search', exact: true }).click();
-  await page.getByRole('button', { name: 'Request status', exact: true }).click(); await page.getByRole('checkbox', { name: 'Approved', exact: true }).check(); await page.keyboard.press('Escape');
-  await expect(page.getByText('29 access requests', { exact: true })).toBeVisible();
-  const latest = state.requests.filter(item => item.path === rootPath).at(-1); expect(new URLSearchParams(latest.query).getAll('statuses')).toEqual(['pending', 'approved']);
-  await page.getByRole('tab', { name: 'Businesses', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'Search businesses', exact: true })).toHaveValue('ExistingBusiness');
-  expect(new URL(page.url()).searchParams.get('page')).toBe('3'); await expectNoOverflow(page);
+  await test.step('failed list reads retry safely and retain pending defaults and reachable review targets', async () => {
+    await expect(page.getByRole('alert')).toContainText('Requests could not be loaded'); await page.getByRole('button', { name: 'Retry', exact: true }).click();
+    await expect(page.getByText('27 access requests', { exact: true })).toBeVisible();
+    const review = page.getByTestId('access-request').first().getByRole('button', { name: 'Review request' }); const bounds = await review.boundingBox(); expect(bounds.height).toBeGreaterThanOrEqual(44); expect(bounds.width).toBeGreaterThanOrEqual(44);
+    await captureReviewScreenshot(page, testInfo, 'requests-list');
+    expect(new URLSearchParams(state.requests.find(item => item.path === rootPath).query).getAll('statuses')).toEqual(['pending']);
+  });
+  await test.step('a paged request returns to its original request-list page', async () => {
+    await page.getByRole('button', { name: 'Next', exact: true }).click(); await expect(page.getByText('Page 2 of 2')).toBeVisible();
+    await page.getByTestId('access-request').first().getByRole('button', { name: 'Review request' }).click();
+    await expect(page.getByRole('heading', { name: 'Requested Business 26', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Back to access requests' }).click(); await expect(page.getByText('Page 2 of 2')).toBeVisible();
+  });
+  await test.step('explicit search resets pagination and statuses support multiple choices', async () => {
+    const before = state.requests.filter(item => item.path === rootPath).length;
+    await page.getByRole('textbox', { name: 'Search access requests', exact: true }).fill('contact27@example.test');
+    expect(state.requests.filter(item => item.path === rootPath)).toHaveLength(before);
+    await page.getByRole('button', { name: 'Search', exact: true }).click(); await expect(page.getByText('1 access request', { exact: true })).toBeVisible(); await expect(page.getByText('Page 1 of 1')).toBeVisible();
+    await page.getByRole('textbox', { name: 'Search access requests', exact: true }).fill(''); await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await page.getByRole('button', { name: 'Request status', exact: true }).click(); await page.getByRole('checkbox', { name: 'Approved', exact: true }).check(); await page.keyboard.press('Escape');
+    await expect(page.getByText('29 access requests', { exact: true })).toBeVisible();
+    const latest = state.requests.filter(item => item.path === rootPath).at(-1); expect(new URLSearchParams(latest.query).getAll('statuses')).toEqual(['pending', 'approved']);
+  });
+  await test.step('previously approved requests cannot be approved or declined again', async () => {
+    await page.getByRole('button', { name: 'Next', exact: true }).click(); await expect(page.getByText('Page 2 of 2')).toBeVisible();
+    await page.getByTestId('access-request').filter({ has: page.getByRole('heading', { name: 'Requested Business 28', exact: true }) }).getByRole('button', { name: 'Review request', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Requested Business 28', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Review for approval', exact: true })).toHaveCount(0); await expect(page.getByRole('button', { name: 'Decline request', exact: true })).toHaveCount(0); await expect(page.getByText(/Active access still requires/)).toBeVisible(); await expectNoOverflow(page);
+    await page.getByRole('button', { name: 'Back to access requests' }).click(); await expect(page.getByText('Page 2 of 2')).toBeVisible();
+  });
+  await test.step('Businesses restores its separate search and pagination', async () => {
+    await page.getByRole('tab', { name: 'Businesses', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Search businesses', exact: true })).toHaveValue('ExistingBusiness');
+    expect(new URL(page.url()).searchParams.get('page')).toBe('3'); await expectNoOverflow(page);
+  });
 });
 
-test('Needs attention reviews open the exact business access request', async ({ page }, testInfo) => {
-  const state = await mockReviews(page); await page.goto('/?section=overview');
-  await page.getByRole('button', { name: 'Review', exact: true }).click();
-  await expect(page.getByRole('tab', { name: 'Access requests', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('heading', { name: 'Requested Business 01', exact: true })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath('request-detail.png'), fullPage: true });
-  expect(new URL(page.url()).searchParams.get('request')).toBe(uuid(1)); expect(state.requests.some(item => item.path === `${rootPath}/${uuid(1)}`)).toBe(true); await expectNoOverflow(page);
-});
-
-test('approval reuses onboarding with locked email, editable details, separate finance and no venue requirement', async ({ page }, testInfo) => {
-  const state = await mockReviews(page); const dialog = await openApproval(page);
-  await expect(dialog.getByLabel('Email', { exact: true })).toHaveAttribute('readonly', ''); await expect(dialog.getByLabel('Email', { exact: true })).toHaveValue('contact1@example.test');
-  await dialog.getByLabel('Full name').fill('Corrected Contact'); await dialog.getByLabel('Grant separate finance permission').check();
-  await dialog.getByRole('button', { name: 'Continue', exact: true }).click(); await dialog.getByLabel('Business name').fill('Corrected Business');
-  await expect(dialog.getByLabel('Description (optional)')).toHaveValue(state.rows[0].details); await expect(dialog.getByLabel('Public slug')).toHaveCount(0);
-  await dialog.getByRole('button', { name: 'Continue', exact: true }).click(); await expect(dialog).toContainText('No saved venues'); await expect(dialog).toContainText('Manager with finance permission');
-  await dialog.getByLabel('Required audit reason').fill('Verified authorized business contact');
-  await page.screenshot({ path: testInfo.outputPath('approval-review.png'), fullPage: true });
-  await dialog.getByRole('button', { name: 'Approve and queue setup email' }).click(); expect(state.requests.filter(item => item.method === 'POST')).toHaveLength(0);
-  await dialog.getByLabel('I have confirmed the contact’s authority to represent this business.').check();
-  await dialog.getByRole('button', { name: 'Approve and queue setup email' }).click();
-  await expect(dialog).toContainText('Request approved for onboarding.'); await expect(dialog).toContainText('Delivery is not yet confirmed.'); await expect(dialog).toContainText('Active business access still requires'); await expect(dialog).toContainText('Ownership has not been granted.');
-  await page.screenshot({ path: testInfo.outputPath('approval-queued.png'), fullPage: true });
-  const sent = state.requests.find(item => item.path.endsWith('/approve')).body;
-  expect(sent).toMatchObject({ version: 2, kind: 'organization', recipient: { displayName: 'Corrected Contact', email: 'contact1@example.test', role: 'manager', financeAuthorized: true }, organization: { name: 'Corrected Business' }, confirmedAuthority: true, venues: [] });
-  expect(JSON.stringify(sent)).not.toContain('password'); await dialog.getByRole('button', { name: 'Done', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Review for approval', exact: true })).toHaveCount(0); await expect(page.getByRole('heading', { name: 'Review history', exact: true })).toBeVisible(); await expectNoOverflow(page);
-});
-
-test('sender unavailable leaves the approval pending and retains the full draft for explicit retry', async ({ page }) => {
-  const state = await mockReviews(page); state.approvalFailures.push(503); const dialog = await openApproval(page);
-  await dialog.getByLabel('Full name').fill('Retained Contact'); await reviewDraft(dialog);
-  await dialog.getByRole('button', { name: 'Approve and queue setup email' }).click(); await expect(dialog.getByRole('alert')).toContainText('request is still pending');
-  expect(state.rows[0].status).toBe('pending'); expect(state.requests.filter(item => item.path.endsWith('/approve'))).toHaveLength(1);
-  await expect(dialog.getByLabel('Required audit reason')).toHaveValue('Verified business representative and authority');
-  await dialog.getByRole('button', { name: 'Back', exact: true }).click(); await dialog.getByRole('button', { name: 'Back', exact: true }).click(); await expect(dialog.getByLabel('Full name')).toHaveValue('Retained Contact');
-  await dialog.getByRole('button', { name: 'Continue', exact: true }).click(); await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
-  expect(state.requests.filter(item => item.path.endsWith('/approve'))).toHaveLength(1); await dialog.getByRole('button', { name: 'Approve and queue setup email' }).click(); await expect(dialog).toContainText('Request approved for onboarding.'); await expectNoOverflow(page);
-});
-
-test('stale approval retains edits and requires manual version refresh and renewed authority without automatic grants', async ({ page }) => {
-  const state = await mockReviews(page); state.approvalFailures.push(409); const dialog = await openApproval(page);
-  await dialog.getByLabel('Full name').fill('Retained Stale Contact'); await reviewDraft(dialog);
-  await dialog.getByRole('button', { name: 'Approve and queue setup email' }).click(); await expect(dialog.getByRole('alert')).toContainText('Refresh before continuing');
-  await expect(dialog.getByRole('button', { name: 'Approve and queue setup email' })).toBeDisabled(); expect(state.requests.filter(item => item.path.endsWith('/approve'))).toHaveLength(1);
-  await dialog.getByRole('button', { name: 'Refresh request version' }).click(); await expect(dialog.getByLabel('Full name')).toHaveValue('Retained Stale Contact');
-  expect(state.requests.filter(item => item.path.endsWith('/approve'))).toHaveLength(1);
-  await dialog.getByRole('button', { name: 'Continue', exact: true }).click(); await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
-  await expect(dialog.getByLabel('I have confirmed the contact’s authority to represent this business.')).not.toBeChecked(); await expect(dialog.getByLabel('Required audit reason')).toHaveValue('Verified business representative and authority');
-  await dialog.getByLabel('I have confirmed the contact’s authority to represent this business.').check(); await dialog.getByRole('button', { name: 'Approve and queue setup email' }).click(); await expect(dialog).toContainText('Request approved for onboarding.');
-  expect(state.requests.filter(item => item.path.endsWith('/approve')).map(item => item.body.version)).toEqual([2, 7]); await expectNoOverflow(page);
-});
 
 test('decline requires an audit reason and explicit stale refresh while retaining history', async ({ page }) => {
   const state = await mockReviews(page); state.declineFailures.push(409); await page.goto(`/?section=businesses&businessView=requests&request=${uuid(1)}`);
@@ -167,33 +140,54 @@ test('a request reviewed elsewhere blocks an open approval without losing the dr
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(page.getByRole('heading', { name: 'Review history', exact: true })).toBeVisible(); await expect(page.getByRole('button', { name: 'Review for approval', exact: true })).toHaveCount(0); await expectNoOverflow(page);
 });
 
-test('request read failures expose retry, reviewed requests have no approval controls and mobile targets remain reachable', async ({ page }) => {
-  const state = await mockReviews(page); state.readFailures.push(503); await page.goto('/?section=businesses&businessView=requests');
-  await expect(page.getByRole('alert')).toContainText('Requests could not be loaded'); await page.getByRole('button', { name: 'Retry', exact: true }).click(); await expect(page.getByText('27 access requests', { exact: true })).toBeVisible();
-  const review = page.getByTestId('access-request').first().getByRole('button', { name: 'Review request' }); const bounds = await review.boundingBox(); expect(bounds.height).toBeGreaterThanOrEqual(44); expect(bounds.width).toBeGreaterThanOrEqual(44);
-  await page.goto(`/?section=businesses&businessView=requests&request=${uuid(28)}`); await expect(page.getByRole('heading', { name: 'Requested Business 28', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Review for approval', exact: true })).toHaveCount(0); await expect(page.getByRole('button', { name: 'Decline request', exact: true })).toHaveCount(0); await expect(page.getByText(/Active access still requires/)).toBeVisible(); await expectNoOverflow(page);
-});
-
-test('real API Admin approval queues secure onboarding but grants no customer membership before acceptance', async ({ page, request, fixture }, testInfo) => {
+adminAccessTest('real API Admin approval queues secure onboarding but grants no customer membership before acceptance', async ({ page, request, fixture }, testInfo) => {
   // No browser routes are mocked in this case. The disposable harness replaces
   // only the external email boundary; auth, review, transactions and data are real.
   const contact = fixture.accounts.customer;
   const submitted = await request.post(`${urls.api}/api/business/access-requests`, { data: { displayName: contact.name, email: contact.email, phone: '(407) 555-0199', businessName: 'Playwright Reviewed Business', role: 'owner', details: 'We organize local events and need a reviewed business workspace.' } });
   expect(submitted.status()).toBe(202);
-  await login(page, fixture, 'admin'); await page.goto('/?section=businesses&businessView=requests');
-  const row = page.getByTestId('access-request').filter({ has: page.getByRole('heading', { name: 'Playwright Reviewed Business', exact: true }) });
-  await row.getByRole('button', { name: 'Review request' }).click();
+  await login(page, fixture, 'admin');
+  await test.step('Needs attention opens the exact real submitted request', async () => {
+    const attention = page.locator('.management-record').filter({ has: page.getByRole('heading', { name: 'Business access requested: Playwright Reviewed Business', exact: true }) });
+    await attention.getByRole('button', { name: 'Review', exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'Access requests', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('heading', { name: 'Playwright Reviewed Business', exact: true })).toBeVisible();
+    expect(new URL(page.url()).searchParams.get('request')).toBeTruthy();
+    await captureReviewScreenshot(page, testInfo, 'request-detail');
+    await expectNoOverflow(page);
+  });
   await page.getByRole('button', { name: 'Review for approval', exact: true }).click(); const dialog = page.getByRole('dialog', { name: 'Approve business access request', exact: true });
   await expect(dialog.getByLabel('Email', { exact: true })).toHaveValue(contact.email); await expect(dialog.getByLabel('Email', { exact: true })).toHaveAttribute('readonly', '');
-  await expect(dialog.getByLabel('Initial business role')).toHaveValue('owner'); await reviewDraft(dialog);
+  await expect(dialog.getByLabel('Initial business role')).toHaveValue('owner');
+  await dialog.getByLabel('Initial business role').selectOption('manager');
+  await dialog.getByLabel('Grant separate finance permission').check();
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(dialog.getByLabel('Description (optional)')).toHaveValue('We organize local events and need a reviewed business workspace.');
+  await expect(dialog.getByLabel('Public slug')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(dialog).toContainText('No saved venues');
+  await expect(dialog).toContainText('Manager with finance permission');
+  await dialog.getByLabel('Required audit reason').fill('Verified business representative and authority');
+  const approvalAttempts = [];
+  const observeApproval = request => { if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/approve')) approvalAttempts.push(request); };
+  page.on('request', observeApproval);
+  await dialog.getByRole('button', { name: 'Approve and queue setup email' }).click();
+  expect(approvalAttempts).toHaveLength(0);
+  await dialog.getByLabel('I have confirmed the contact’s authority to represent this business.').check();
   const approval = page.waitForResponse(response => response.url().includes(`${rootPath}/`) && response.url().endsWith('/approve') && response.request().method() === 'POST');
   await dialog.getByRole('button', { name: 'Approve and queue setup email' }).click(); const response = await approval;
+  expect(approvalAttempts).toHaveLength(1);
+  page.off('request', observeApproval);
+  expect(response.request().postDataJSON()).toMatchObject({ kind: 'organization', recipient: { email: contact.email, role: 'manager', financeAuthorized: true }, organization: { name: 'Playwright Reviewed Business' }, confirmedAuthority: true, venues: [] });
+  expect(JSON.stringify(response.request().postDataJSON())).not.toContain('password');
   expect(response.status()).toBe(200); const data = (await response.json()).data;
+  expect(new URL(page.url()).searchParams.get('request')).toBe(data.request.id);
   expect(data.request.status).toBe('approved'); expect(data.invitation.delivery).toBe('queued'); expect(data.invitation.accountMode).toBe('existing');
+  expect(data.invitation).toMatchObject({ role: 'manager', financeAuthorized: true });
   expect(JSON.stringify(data)).not.toMatch(/tokenHash|passwordHash|passwordSalt/);
   await expect(dialog).toContainText('Delivery is not yet confirmed.'); await expect(dialog).toContainText('Active business access still requires');
-  await page.screenshot({ path: testInfo.outputPath('real-api-approved.png'), fullPage: true });
+  await expect(dialog).toContainText('Ownership has not been granted.');
+  await captureReviewScreenshot(page, testInfo, 'real-api-approved');
   await dialog.getByRole('button', { name: 'Done', exact: true }).click(); await expect(page.getByRole('heading', { name: 'Review history', exact: true })).toBeVisible();
   const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem('nitewide.admin.session'))); const headers = { Authorization: `Bearer ${session.accessToken}` };
   const reviewed = await request.get(`${urls.api}/api${rootPath}/${data.request.id}`, { headers }); expect(reviewed.ok()).toBeTruthy(); expect((await reviewed.json()).data.status).toBe('approved');

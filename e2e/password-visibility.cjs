@@ -23,14 +23,4 @@ async function checkPasswordVisibility(page, label, toggleLabel = 'password') {
   await expect(input).toHaveValue('SyntheticPass123!');
 }
 
-async function checkOnboardingPasswords(page, path = '/') {
-  await page.route('**/api/auth/onboarding/preview?*', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: {
-    displayName: 'Visibility Test', email: 'visibility@playwright.nitewide.test', kind: 'user', accountMode: 'new', expiresAt: '2030-01-01T00:00:00Z',
-  } }) }));
-  await page.goto(`${path}?onboarding=synthetic-visibility-token`);
-  await checkPasswordVisibility(page, /^New password/);
-  await checkPasswordVisibility(page, 'Confirm password', 'confirmed password');
-  await expect(page.getByLabel(/^New password/)).toHaveAttribute('type', 'password');
-}
-
-module.exports = { checkPasswordVisibility, checkOnboardingPasswords };
+module.exports = { checkPasswordVisibility };

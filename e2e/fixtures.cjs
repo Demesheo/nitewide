@@ -1,11 +1,24 @@
 const { test: base, expect } = require('@playwright/test');
 const { urls, controlToken } = require('./environment.cjs');
+const path = require('node:path');
+const { createTimingCollector } = require('../scripts/test-timing.cjs');
+
+const timing = createTimingCollector('browser-fixtures');
+const labelsFor = (testInfo, extra = {}) => ({ suite: path.basename(testInfo.file), project: testInfo.project.name, ...extra });
 
 const test = base.extend({
-  fixture: async ({ request }, use) => {
-    const response = await request.post(`${urls.api}/__e2e/reset`, { headers: { 'x-e2e-control': controlToken } });
-    expect(response.ok(), `disposable database reset (HTTP ${response.status()})`).toBeTruthy();
-    await use(await response.json());
+  fixtureRecipe: ['legacy', { option: true }],
+  timingReport: [async ({}, use) => {
+    await use();
+    timing.report();
+  }, { scope: 'worker', auto: true }],
+  fixture: async ({ request, fixtureRecipe }, use, testInfo) => {
+    const fixture = await timing.measure('fixture-reset', async () => {
+      const response = await request.post(`${urls.api}/__e2e/reset`, { headers: { 'x-e2e-control': controlToken }, data: { recipe: fixtureRecipe } });
+      expect(response.ok(), `disposable database reset (HTTP ${response.status()})`).toBeTruthy();
+      return response.json();
+    }, labelsFor(testInfo, { role: fixtureRecipe }));
+    await use(fixture);
   },
   // Catch runtime regressions, not just failed assertions. Expected negative
   // API responses (401/403/409) are asserted in their own tests.
@@ -30,42 +43,67 @@ const test = base.extend({
 
 async function login(page, fixture, app, role = app, destination = app === 'business' ? '/app' : '/') {
   const account = fixture.accounts[role];
-  await page.goto(`${urls[app]}${destination}`);
-  if (app === 'customer') await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await page.getByLabel(app === 'customer' ? 'Email address' : app === 'business' ? 'Work email' : 'Email', { exact: true }).fill(account.email);
-  await page.getByLabel('Password', { exact: true }).fill(fixture.password);
-  await page.getByRole('button', { name: app === 'customer' ? 'Sign in' : app === 'business' ? 'Sign in to Nitewide' : 'Sign in securely', exact: true }).click();
-  await expectAuthenticated(page, account, app);
+  const labels = labelsFor(test.info(), { app, role });
+  await timing.measure('fresh-auth', async () => {
+    await page.goto(`${urls[app]}${destination}`);
+    if (app === 'customer') await page.getByRole('button', { name: 'Log in', exact: true }).click();
+    await page.getByLabel(app === 'customer' ? 'Email address' : app === 'business' ? 'Work email' : 'Email', { exact: true }).fill(account.email);
+    await page.getByLabel('Password', { exact: true }).fill(fixture.password);
+    await page.getByRole('button', { name: app === 'customer' ? 'Sign in' : app === 'business' ? 'Sign in to Nitewide' : 'Sign in securely', exact: true }).click();
+  }, labels);
+  await timing.measure('browser-readiness', () => expectAuthenticated(page, account, app), labels);
 }
 
 // Feature tests still create a real session after their disposable DB reset.
 // Dedicated auth tests use login() to retain the form submission coverage.
 async function loginViaApi(page, fixture, app, role = app, destination = app === 'business' ? '/app' : '/') {
   const account = fixture.accounts[role];
+  const labels = labelsFor(test.info(), { app, role });
   const endpoint = app === 'business' ? '/api/auth/business/sign-in' : '/api/auth/sign-in';
-  const response = await page.request.post(`${urls.api}${endpoint}`, { data: { email: account.email, password: fixture.password } });
-  expect(response.ok(), `fresh ${app} session (HTTP ${response.status()})`).toBeTruthy();
-  const session = (await response.json()).data;
-  expect(session.accessToken).toEqual(expect.any(String));
-  expect(session.user.id).toBe(account.id);
+  const session = await timing.measure('fresh-auth', async () => {
+    const response = await page.request.post(`${urls.api}${endpoint}`, { data: { email: account.email, password: fixture.password } });
+    expect(response.ok(), `fresh ${app} session (HTTP ${response.status()})`).toBeTruthy();
+    const fresh = (await response.json()).data;
+    expect(fresh.accessToken).toEqual(expect.any(String));
+    expect(fresh.user.id).toBe(account.id);
+    return fresh;
+  }, labels);
 
   // A temporary empty document supplies the app's origin without mounting it.
   // Seed storage once; no persistent init script may restore an old token on
   // reload, logout, password rotation or a later sign-in on the same page.
   const bootstrap = `${urls[app]}/__e2e/session-bootstrap`;
   const emptyDocument = route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Isolated session setup</title>' });
-  await page.route(bootstrap, emptyDocument);
-  try {
-    await page.goto(bootstrap);
-    await page.evaluate(({ storage, key, session }) => window[storage].setItem(key, JSON.stringify(session)), {
-      storage: app === 'customer' ? 'localStorage' : 'sessionStorage',
-      key: app === 'customer' ? 'nitewide.session' : `nitewide.${app}.session`, session,
-    });
-  } finally {
-    await page.unroute(bootstrap, emptyDocument);
-  }
-  await page.goto(`${urls[app]}${destination}`);
-  await expectAuthenticated(page, account, app);
+  await timing.measure('session-bootstrap', async () => {
+    await page.route(bootstrap, emptyDocument);
+    try {
+      await page.goto(bootstrap);
+      await page.evaluate(({ storage, key, session }) => window[storage].setItem(key, JSON.stringify(session)), {
+        storage: app === 'customer' ? 'localStorage' : 'sessionStorage',
+        key: app === 'customer' ? 'nitewide.session' : `nitewide.${app}.session`, session,
+      });
+    } finally {
+      await page.unroute(bootstrap, emptyDocument);
+    }
+  }, labels);
+  await timing.measure('browser-readiness', async () => {
+    if (app === 'customer') {
+      // Deep-linked dialogs correctly hide the header from the accessibility
+      // tree. Verify the real client bootstrap, not an inaccessible background
+      // control whose visibility races the modal opening.
+      const [verified] = await Promise.all([
+        page.waitForResponse(response => new URL(response.url()).pathname === '/api/auth/me' &&
+          response.request().headers().authorization === `Bearer ${session.accessToken}`, { timeout: 10000 }),
+        page.goto(`${urls[app]}${destination}`),
+      ]);
+      expect(verified.ok(), 'customer client session verification').toBeTruthy();
+      expect((await verified.json()).data.user.id).toBe(account.id);
+      await expect(page.getByRole('button', { name: `Open ${account.name}'s profile`, includeHidden: true })).toBeAttached();
+    } else {
+      await page.goto(`${urls[app]}${destination}`);
+      await expectAuthenticated(page, account, app);
+    }
+  }, labels);
   return session;
 }
 

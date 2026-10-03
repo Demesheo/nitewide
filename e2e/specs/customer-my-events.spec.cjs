@@ -1,4 +1,8 @@
-const { test, expect, login, loginViaApi, expectNoOverflow } = require('../fixtures.cjs');
+const { test: baseTest, expect, login, loginViaApi, expectNoOverflow } = require('../fixtures.cjs');
+const test = baseTest.extend({ fixtureRecipe: 'commerce' });
+const authTest = baseTest.extend({ fixtureRecipe: 'customer-auth' });
+const paginationTest = baseTest.extend({ fixtureRecipe: 'events-pagination' });
+const operatorTest = baseTest.extend({ fixtureRecipe: 'operator' });
 const { urls, controlToken } = require('../environment.cjs');
 const { requestFiveSpots, expectFourApprovedPasses } = require('../guestlist-quantity.cjs');
 const { gestureClipboard, refusedClipboard } = require('../clipboard.cjs');
@@ -34,7 +38,7 @@ async function expectSmallPhoneLayout(page) {
   await page.setViewportSize(viewport);
 }
 
-test('My events is hidden for customer-only accounts and its API rejects direct access', async ({ page, request, fixture }) => {
+authTest('My events is hidden for customer-only accounts and its API rejects direct access', async ({ page, request, fixture }) => {
   await login(page, fixture, 'customer');
   const token = await sessionToken(page);
   await expect(page.getByRole('button', { name: 'My events', exact: true })).toHaveCount(0);
@@ -48,66 +52,93 @@ test('My events is hidden for customer-only accounts and its API rejects direct 
   await expectNoOverflow(page);
 });
 
-test('clipboard refusal offers a selectable operator link and clears it after retry', async ({ page, context, fixture }, testInfo) => {
-  await refusedClipboard(context);
-  await openMyEvent(page, fixture);
-  await page.getByRole('button', { name: 'Copy my referral link', exact: true }).click();
-  const manual = page.getByRole('textbox', { name: 'Copy link manually', exact: true });
-  await expect(manual).toBeVisible();
-  await expect(manual).toHaveAttribute('readonly', '');
-  const link = await manual.inputValue();
-  expect(new URL(link).searchParams.get('event')).toBe(fixture.ids.event);
-  await manual.click();
-  await expect.poll(() => manual.evaluate(input => [input.selectionStart, input.selectionEnd])).toEqual([0, link.length]);
-  await expect(page.getByRole('button', { name: 'Referral link copied', exact: true })).toHaveCount(0);
-  await expectNoOverflow(page);
-  await capture(page, testInfo, 'customer-manual-copy-fallback');
-  await page.evaluate(() => {
-    navigator.clipboard.write = async items => { window.__retriedCopy = await (await items[0].getType('text/plain')).text(); };
-    navigator.clipboard.writeText = async text => { window.__retriedCopy = text; };
-  });
-  await page.getByRole('button', { name: 'Retry copying referral link', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Referral link copied', exact: true })).toBeVisible();
-  await expect(manual).toHaveCount(0);
-  expect(await page.evaluate(() => window.__retriedCopy)).toBe(link);
-});
-
-test('My events uses explicit search, server pagination and clean navigation without opening checkout', async ({ page, fixture }, testInfo) => {
+paginationTest('manager directory, referral-copy recovery and guest approval end by clearing revoked event access', async ({ page, context, fixture }, testInfo) => {
   const requests = [];
   page.on('request', request => { if (/\/api\/customer\/my-events\?/.test(request.url())) requests.push(request.url()); });
+  await refusedClipboard(context);
   await loginViaApi(page, fixture, 'customer', 'business');
+  await test.step('explicit search and server pagination retain history and clean discovery navigation', async () => {
+    await page.getByRole('button', { name: 'My events', exact: true }).click();
+    await expect(page.locator('.my-event-card')).toHaveCount(12);
+    const pages = page.getByRole('navigation', { name: 'My events pages', exact: true });
+    await expect(pages).toContainText('Page 1 of 2');
+    await expectNoOverflow(page);
+    await capture(page, testInfo, 'my-events-directory');
+    await expectSmallPhoneLayout(page);
+    await pages.getByRole('button', { name: 'Next', exact: true }).click();
+    await expect(page.locator('.my-event-card')).toHaveCount(2);
+    await expect(pages).toContainText('Page 2 of 2');
+    await expect(page).toHaveURL(/myPage=2/);
+    await page.locator('.my-event-card').first().click();
+    await expect(page.getByRole('heading', { name: 'Event performance', exact: true })).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(new URL(page.url()).searchParams.has('event')).toBe(false);
+    await page.goBack();
+    await expect(pages).toContainText('Page 2 of 2');
+    const count = requests.length;
+    const search = page.getByRole('search', { name: 'Search my events' });
+    await search.getByRole('searchbox', { name: 'Search your events', exact: true }).fill('Friday');
+    expect(requests).toHaveLength(count);
+    await search.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(page.locator('.my-event-card')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'View Playwright Friday Night operations' })).toBeVisible();
+    expect(new URL(page.url()).searchParams.get('mySearch')).toBe('Friday');
+    await page.getByRole('button', { name: 'Discover', exact: true }).click();
+    const params = new URL(page.url()).searchParams;
+    for (const key of ['myEvent', 'myPage', 'mySearch', 'myStatus']) expect(params.has(key)).toBe(false);
+    await expectNoOverflow(page);
+  });
   await page.getByRole('button', { name: 'My events', exact: true }).click();
-  await expect(page.locator('.my-event-card')).toHaveCount(12);
-  const pages = page.getByRole('navigation', { name: 'My events pages', exact: true });
-  await expect(pages).toContainText('Page 1 of 2');
-  await expectNoOverflow(page);
-  await capture(page, testInfo, 'my-events-directory');
-  await expectSmallPhoneLayout(page);
-  await pages.getByRole('button', { name: 'Next', exact: true }).click();
-  await expect(page.locator('.my-event-card')).toHaveCount(2);
-  await expect(pages).toContainText('Page 2 of 2');
-  await expect(page).toHaveURL(/myPage=2/);
-  await page.locator('.my-event-card').first().click();
+  await page.getByRole('button', { name: 'View Playwright Friday Night operations', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Playwright Friday Night', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Event performance', exact: true })).toBeVisible();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  expect(new URL(page.url()).searchParams.has('event')).toBe(false);
-  await page.goBack();
-  await expect(pages).toContainText('Page 2 of 2');
-  const count = requests.length;
-  const search = page.getByRole('search', { name: 'Search my events' });
-  await search.getByRole('searchbox', { name: 'Search your events', exact: true }).fill('Friday');
-  expect(requests).toHaveLength(count);
-  await search.getByRole('button', { name: 'Search', exact: true }).click();
-  await expect(page.locator('.my-event-card')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'View Playwright Friday Night operations' })).toBeVisible();
-  expect(new URL(page.url()).searchParams.get('mySearch')).toBe('Friday');
-  await page.getByRole('button', { name: 'Discover', exact: true }).click();
-  const params = new URL(page.url()).searchParams;
-  for (const key of ['myEvent', 'myPage', 'mySearch', 'myStatus']) expect(params.has(key)).toBe(false);
-  await expectNoOverflow(page);
+  await test.step('clipboard refusal offers a selectable referral link and retry clears the fallback', async () => {
+    await page.getByRole('button', { name: 'Copy my referral link', exact: true }).click();
+    const manual = page.getByRole('textbox', { name: 'Copy link manually', exact: true });
+    await expect(manual).toBeVisible();
+    await expect(manual).toHaveAttribute('readonly', '');
+    const link = await manual.inputValue();
+    expect(new URL(link).searchParams.get('event')).toBe(fixture.ids.event);
+    await manual.click();
+    await expect.poll(() => manual.evaluate(input => [input.selectionStart, input.selectionEnd])).toEqual([0, link.length]);
+    await expect(page.getByRole('button', { name: 'Referral link copied', exact: true })).toHaveCount(0);
+    await expectNoOverflow(page);
+    await capture(page, testInfo, 'customer-manual-copy-fallback');
+    await page.evaluate(() => {
+      navigator.clipboard.write = async items => { window.__retriedCopy = await (await items[0].getType('text/plain')).text(); };
+      navigator.clipboard.writeText = async text => { window.__retriedCopy = text; };
+    });
+    await page.getByRole('button', { name: 'Retry copying referral link', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Referral link copied', exact: true })).toBeVisible();
+    await expect(manual).toHaveCount(0);
+    expect(await page.evaluate(() => window.__retriedCopy)).toBe(link);
+  });
+  await test.step('manager approves the original request without changing its two spots', async () => {
+    await guestlist(page).getByRole('button', { name: 'Details for Pending Guest', exact: true }).click();
+    const details = page.getByRole('dialog', { name: 'Pending Guest', exact: true });
+    await expect(details.getByRole('spinbutton', { name: 'Approved spots', exact: true })).toHaveAttribute('aria-valuenow', '2');
+    const reviewed = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith(`/guestlist/${fixture.ids.pending}/decision`));
+    await details.getByRole('button', { name: 'Approve request', exact: true }).click();
+    const response = await reviewed;
+    expect(response.ok()).toBeTruthy();
+    expect(response.request().postDataJSON()).toMatchObject({ decision: 'approve', partySize: 2 });
+    await expect(details).toHaveCount(0);
+    await expect(guestlist(page).locator('.my-event-guest-card').filter({ hasText: 'Pending Guest' })).toContainText('Approved');
+    await expectNoOverflow(page);
+  });
+  await test.step('removed business access clears rendered event data and the My events tab', async () => {
+    await page.route('**/api/customer/my-events/access', route => route.fulfill({ json: { data: { eligible: false } } }));
+    await page.route(`**/api/customer/my-events/${fixture.ids.event}`, route => route.fulfill({ status: 403, json: { error: { message: 'Your business access was removed', code: 'BUSINESS_ACCESS_REQUIRED' } } }));
+    await page.getByRole('button', { name: 'Refresh event details', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Your event access isn’t available.', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Event performance', exact: true })).toHaveCount(0);
+    await expect(guestlist(page)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'My events', exact: true })).toHaveCount(0);
+    await expectNoOverflow(page);
+  });
 });
 
-test('manager invites four account-free guests, copies only from dialogs and can revoke unused passes', async ({ page, browser, context, request, fixture }, testInfo) => {
+operatorTest('manager invites four account-free guests, copies only from dialogs and can revoke unused passes', async ({ page, browser, context, request, fixture }, testInfo) => {
   const linkRequests = [];
   page.on('request', request => { if (/\/(referral-link|invitation-link)(?:\?|$)/.test(request.url())) linkRequests.push(request.url()); });
   await operatorScenario(request);
@@ -242,24 +273,27 @@ test('My events reviewer adjusts a five-spot request to four separate passes and
   } finally { await customer.context.close(); }
 });
 
-for (const decision of ['approve', 'reject']) test(`manager can ${decision === 'approve' ? 'approve' : 'deny with confirmation'} a pending guestlist request`, async ({ page, fixture }) => {
+test('manager can cancel a guestlist denial confirmation and then explicitly deny the pending request', async ({ page, fixture }) => {
   await openMyEvent(page, fixture);
   await guestlist(page).getByRole('button', { name: 'Details for Pending Guest', exact: true }).click();
   const details = page.getByRole('dialog', { name: 'Pending Guest', exact: true });
-  await details.getByRole('button', { name: decision === 'approve' ? 'Approve request' : 'Deny request', exact: true }).click();
-  if (decision === 'reject') {
+  await test.step('cancel denial keeps the original request pending', async () => {
+    await details.getByRole('button', { name: 'Deny request', exact: true }).click();
     await expect(details.getByRole('heading', { name: 'Deny this request?', exact: true })).toBeVisible();
     await details.getByRole('button', { name: 'Keep request', exact: true }).click();
     await expect(details.getByRole('heading', { name: 'Deny this request?', exact: true })).toHaveCount(0);
+    await expect(details.getByRole('button', { name: 'Approve request', exact: true })).toBeEnabled();
+  });
+  await test.step('explicit confirmation denies the guest and closes the review', async () => {
     await details.getByRole('button', { name: 'Deny request', exact: true }).click();
     await details.getByRole('button', { name: 'Confirm denial', exact: true }).click();
-  }
-  await expect(details).toHaveCount(0);
-  await expect(guestlist(page).locator('.my-event-guest-card').filter({ hasText: 'Pending Guest' })).toContainText(decision === 'approve' ? 'Approved' : 'Denied');
+    await expect(details).toHaveCount(0);
+    await expect(guestlist(page).locator('.my-event-guest-card').filter({ hasText: 'Pending Guest' })).toContainText('Denied');
+  });
   await expectNoOverflow(page);
 });
 
-test('promoter sees only credited performance and their own guestlist, not direct requests', async ({ page, request, fixture }, testInfo) => {
+operatorTest('promoter sees only credited performance and their own guestlist, not direct requests', async ({ page, request, fixture }, testInfo) => {
   await operatorScenario(request);
   await openMyEvent(page, fixture, 'promoter', login);
   await expect(page.getByRole('heading', { name: 'Your performance', exact: true })).toBeVisible();
@@ -280,10 +314,9 @@ test('promoter sees only credited performance and their own guestlist, not direc
   await capture(page, testInfo, 'my-events-promoter');
 });
 
-test('past event guestlists and statistics are readable but invitations and reviews are rejected server-side', async ({ page, request, fixture }) => {
+operatorTest('past event guestlists and statistics are readable but invitations and reviews are rejected server-side', async ({ page, request, fixture }) => {
   await operatorScenario(request, true);
-  await login(page, fixture, 'customer', 'business');
-  await page.goto(`/?tab=my-events&myStatus=past&myEvent=${fixture.ids.event}`);
+  await login(page, fixture, 'customer', 'business', `/?tab=my-events&myStatus=past&myEvent=${fixture.ids.event}`);
   await expect(page.getByRole('heading', { name: 'Event performance', exact: true })).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'This event has ended.' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Copy my referral link', exact: true })).toBeDisabled();
@@ -298,17 +331,5 @@ test('past event guestlists and statistics are readable but invitations and revi
   expect(review.status()).toBe(409);
   const invite = await request.post(`${urls.api}/api/customer/my-events/${fixture.ids.event}/guestlist-invitations`, { headers, data: { pool: 'direct', name: 'Too late', inviteBy: 'personal', partySize: 1 } });
   expect(invite.status()).toBe(409);
-  await expectNoOverflow(page);
-});
-
-test('lost business access clears rendered operator data and removes the My events tab', async ({ page, fixture }) => {
-  await openMyEvent(page, fixture, 'business', login);
-  await page.route('**/api/customer/my-events/access', route => route.fulfill({ json: { data: { eligible: false } } }));
-  await page.route(`**/api/customer/my-events/${fixture.ids.event}`, route => route.fulfill({ status: 403, json: { error: { message: 'Your business access was removed', code: 'BUSINESS_ACCESS_REQUIRED' } } }));
-  await page.getByRole('button', { name: 'Refresh event details', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Your event access isn’t available.', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Event performance', exact: true })).toHaveCount(0);
-  await expect(page.locator('.my-event-guestlist-panel')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'My events', exact: true })).toHaveCount(0);
   await expectNoOverflow(page);
 });

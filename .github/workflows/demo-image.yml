@@ -36,12 +36,24 @@ jobs:
         with:
           node-version: '24.21.0'
           cache: npm
-      - run: npm install --global npm@12.1.0
+      - run: node scripts/time-test-phase.cjs npm-version
         timeout-minutes: 2
-      - run: npm ci
+      - run: node scripts/time-test-phase.cjs dependencies
         timeout-minutes: 5
       - run: npm test
         timeout-minutes: 5
+      - name: Summarize test performance
+        if: ${{ always() && !cancelled() }}
+        run: node scripts/report-test-timings.cjs
+      - name: Upload unit and API timing measurements
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (Node 24)
+        with:
+          name: unit-api-timings
+          path: .test-metrics/
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: ignore
 
   browser:
     name: Browser regression tests (${{ matrix.app }})
@@ -50,9 +62,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Both device projects remain mandatory in each lane. Customer files
-        # are partitioned to balance runtime; databases are never shared.
-        app: [customer-core, customer-operations, business, admin-rebuild]
+        # File partitions balance measured journey time with no extra runners.
+        # Every configured spec/device pair runs once, each lane owns its DB.
+        app: [customer-core, business-core, business-operations, platform-operations]
     concurrency:
       group: demo-browser-${{ matrix.app }}-${{ github.ref }}
       cancel-in-progress: true
@@ -80,18 +92,21 @@ jobs:
         with:
           node-version: '24.21.0'
           cache: npm
-      - run: npm install --global npm@12.1.0
+      - run: node scripts/time-test-phase.cjs npm-version
         timeout-minutes: 2
-      - run: npm ci
+      - run: node scripts/time-test-phase.cjs dependencies
         timeout-minutes: 5
       - name: Check browser image compatibility
         run: node e2e/ci-container.cjs --check
       - name: Pull preinstalled browsers and Linux dependencies
-        run: docker pull "$PLAYWRIGHT_CONTAINER_IMAGE"
+        run: node scripts/time-test-phase.cjs browser-pull
         timeout-minutes: 5
       - name: Browser regression and end-to-end tests (${{ matrix.app }})
         run: node e2e/ci-container.cjs
         timeout-minutes: 10
+      - name: Summarize test performance
+        if: ${{ always() && !cancelled() }}
+        run: node scripts/report-test-timings.cjs
       - name: Upload browser report and failure diagnostics
         if: ${{ always() && !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (Node 24)
@@ -100,6 +115,8 @@ jobs:
           path: |
             playwright-report/
             test-results/
+            .test-metrics/
+          include-hidden-files: true
           retention-days: 14
           if-no-files-found: ignore
 

@@ -63,3 +63,45 @@ test('absorbed and mixed quantity ranges retain the modeled floor without duplic
     }
   }
 });
+
+test('active offering validation rejects malformed fee, currency, price and quantity inputs at the pure policy boundary', () => {
+  const rows = [
+    [{ currency: 'EUR' }, 'currency', 'UNSUPPORTED_CURRENCY'],
+    [{ feeMode: 'mixed' }, 'feeMode', 'INVALID_FEE_MODE'],
+    ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER].map(minPerOrder => [{ minPerOrder }, 'minPerOrder', 'INVALID_QUANTITY']),
+    ...[0, 1.5, 101, NaN, Infinity].map(maxPerOrder => [{ maxPerOrder }, 'minPerOrder', 'INVALID_QUANTITY']),
+    ...[-1, 0.5, 100000001, NaN, Infinity, '1000'].map(priceCents => [{ priceCents }, 'priceCents', 'INVALID_PRICE']),
+  ];
+  for (const [extra, field, code] of rows) {
+    const issues = editorPricingIssues({ offerings: [offering({ isActive: false }), offering(extra)], now });
+    assert.equal(issues.length, 1);
+    assert.deepEqual({ index: issues[0].index, field: issues[0].field, code: issues[0].code }, { index: 1, field, code }, String(extra[field]));
+    assert.ok(issues[0].message.length > 0);
+  }
+  assert.equal(editorPricingIssues({ eventFeeMode: 'mixed', offerings: [offering()], now })[0].code, 'INVALID_FEE_MODE');
+  assert.equal(editorPricingIssues({ offerings: [offering({ minPerOrder: 3, maxPerOrder: 2 })], now })[0].code, 'INVALID_QUANTITY');
+});
+
+test('valid edge quantities and prices remain available, while inactive drafts do not block publishing', () => {
+  for (const feeMode of ['buyer', 'absorbed']) for (const quantity of [1, 100]) for (const priceCents of [0, 1000, 100000000]) {
+    assert.deepEqual(editorPricingIssues({ eventFeeMode: feeMode, offerings: [offering({ priceCents, minPerOrder: quantity, maxPerOrder: quantity })], now }), []);
+  }
+  assert.deepEqual(editorPricingIssues({ offerings: [offering({ currency: 'EUR', feeMode: 'mixed', priceCents: -1, minPerOrder: 0, isActive: false })], now }), []);
+});
+
+test('validation reports every invalid offering with stable field indices and the public error envelope', () => {
+  const input = { offerings: [offering({ currency: 'EUR' }), offering({ feeMode: 'mixed' }), offering({ priceCents: -1 })], now };
+  const issues = editorPricingIssues(input);
+  assert.deepEqual(issues.map(({ index, field, code }) => ({ index, field, code })), [
+    { index: 0, field: 'currency', code: 'UNSUPPORTED_CURRENCY' },
+    { index: 1, field: 'feeMode', code: 'INVALID_FEE_MODE' },
+    { index: 2, field: 'priceCents', code: 'INVALID_PRICE' },
+  ]);
+  assert.throws(() => validateEditorPricing(input), error => {
+    assert.equal(error.status, 422); assert.equal(error.code, 'PRICING_EDITOR_INVALID');
+    assert.equal(error.message, issues[0].message);
+    assert.deepEqual(error.details, { issues, economicsBasis: 'modeled_demo_costs' });
+    return true;
+  });
+  assert.equal(editorPricingIssues({ commissionBps: 4001, offerings: [offering()], now })[0].code, 'PRICING_CONFIGURATION_UNAVAILABLE');
+});

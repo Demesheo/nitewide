@@ -1,23 +1,31 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { assertManagedTestDatabase, assertGeneratedDatabaseName, maintenanceUrl, offlineEnvironment } = require('../scripts/test-database.cjs');
+const { assertManagedTestDatabase, assertGeneratedDatabaseName, assertLoopbackUrl, maintenanceUrl, offlineEnvironment } = require('../scripts/test-database.cjs');
 const { INTEGRATION_TESTS, DEMO_TESTS, discoverTests, isolatedEnvironment, parseOptions, runIntegration } = require('../scripts/run-tests.cjs');
 
 const suffix = '0123456789abcdef0123456789abcdef';
 const dbUrl = `postgres://test:test@127.0.0.1:5433/nitewide_test_${suffix}`;
 
 test('focused Node runner modes preserve mandatory defaults and reject ambiguous options', () => {
-  assert.deepEqual(parseOptions(), { mode: 'all', suites: INTEGRATION_TESTS });
+  assert.deepEqual(parseOptions(), { mode: 'all', suites: INTEGRATION_TESTS, concurrency: 2 });
   assert.equal(parseOptions(['--unit']).mode, 'unit');
   assert.equal(parseOptions(['--integration']).mode, 'integration');
   assert.equal(parseOptions(['--demo']).mode, 'demo');
   const suite = INTEGRATION_TESTS[0];
-  assert.deepEqual(parseOptions(['--integration', '--suite', suite]), { mode: 'integration', suites: [suite] });
-  assert.deepEqual(parseOptions(['--suite', suite]), { mode: 'integration', suites: [suite] });
+  assert.deepEqual(parseOptions(['--integration', '--suite', suite]), { mode: 'integration', suites: [suite], concurrency: 2 });
+  assert.deepEqual(parseOptions(['--suite', suite]), { mode: 'integration', suites: [suite], concurrency: 2 });
+  assert.equal(parseOptions(['--integration', '--concurrency', '1']).concurrency, 1);
+  assert.equal(parseOptions(['--concurrency', '2']).concurrency, 2);
   for (const args of [['--unit', '--integration'], ['--unit', '--suite', suite], ['--demo', '--suite', suite], ['--suite'], ['--suite', '../src/server.js'], ['--suite', DEMO_TESTS[0]], ['--suite', suite, '--suite', suite], ['--live']]) {
     assert.throws(() => parseOptions(args), Error, JSON.stringify(args));
   }
+  for (const value of [undefined, '', '0', '3', '-1', '1.0', '01', '2x', 'Infinity', 'NaN', ' 2', '2 ']) {
+    assert.throws(() => parseOptions(['--concurrency', ...(value === undefined ? [] : [value])]), /integer from 1 to 2/);
+  }
+  assert.throws(() => parseOptions(['--concurrency', '1', '--concurrency', '2']), /only once/);
+  assert.throws(() => parseOptions(['--unit', '--concurrency', '2']), /only configure integration/);
+  assert.throws(() => parseOptions(['--demo', '--concurrency', '2']), /only configure integration/);
 });
 
 test('integration entry point rejects unknown files before connecting to PostgreSQL', async () => {
@@ -39,6 +47,8 @@ test('maintenance DB URL is local-only and points to postgres rather than an app
   assert.equal(new URL(maintenanceUrl({ TEST_DATABASE_ADMIN_URL: 'postgres://test:test@127.0.0.1:5433/postgres' })).pathname, '/postgres');
   assert.throws(() => maintenanceUrl({ TEST_DATABASE_ADMIN_URL: 'postgres://test:test@db.example:5432/postgres' }), /loopback/i);
   assert.throws(() => maintenanceUrl({ TEST_DATABASE_ADMIN_URL: 'postgres://test:test@127.0.0.1:5433/nitewide' }), /maintenance database/i);
+  assert.throws(() => maintenanceUrl({ TEST_DATABASE_ADMIN_URL: 'postgres://test:test@127.0.0.1:5433/postgres?host=remote.example' }), /connection options/i);
+  assert.throws(() => maintenanceUrl({ TEST_DATABASE_ADMIN_URL: 'postgres://test:test@127.0.0.1:5433/postgres?hostaddr=192.0.2.1' }), /connection options/i);
 });
 
 test('standard runner classifies the mandatory integrations and five demo-only suites exactly', () => {
@@ -65,4 +75,18 @@ test('runner child environment blanks every Resend setting and marks only genera
   assert.equal(child.TEST_DATABASE_URL, dbUrl);
   assert.equal(child.DATABASE_URL, dbUrl);
   assert.equal(child.RUN_DB_TESTS, '');
+  assert.throws(() => isolatedEnvironment('postgres://test:test@127.0.0.1:5433/nitewide'), /generated nitewide_test namespace/);
+  assert.throws(() => isolatedEnvironment(`postgres://test:test@db.example:5433/nitewide_test_${suffix}`), /loopback/);
+});
+
+test('routing overrides are rejected case-insensitively even with encoded names or duplicate options', () => {
+  const base = 'postgres://test:test@127.0.0.1:5433/postgres';
+  for (const key of ['host', 'hostaddr', 'port', 'dbname', 'database', 'service', 'servicefile']) {
+    for (const encoded of [key.toUpperCase(), `%${key.charCodeAt(0).toString(16)}${key.slice(1)}`]) {
+      const target = `${base}?application_name=offline-audit&${encoded}=remote-target&application_name=duplicate`;
+      assert.throws(() => assertLoopbackUrl(new URL(target)), /connection options/);
+      assert.throws(() => maintenanceUrl({ TEST_DATABASE_ADMIN_URL: target }), /connection options/);
+    }
+  }
+  assert.equal(assertLoopbackUrl(new URL(`${base}?application_name=offline-audit&sslmode=disable`)).hostname, '127.0.0.1');
 });

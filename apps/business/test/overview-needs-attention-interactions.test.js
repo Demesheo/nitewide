@@ -3,13 +3,16 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sharedTestServer } from './helpers/shared-vite-server.js';
+
+const createOverviewTestServer = sharedTestServer();
 
 async function withBusinessDom(run) {
   const businessRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'http://localhost/app', pretendToBeVisual: true,
   });
-  const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLButtonElement', 'HTMLInputElement', 'HTMLSelectElement', 'Element', 'Node', 'Event', 'MouseEvent', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame'];
+  const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLButtonElement', 'HTMLInputElement', 'HTMLSelectElement', 'Element', 'Node', 'Event', 'MouseEvent', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame', 'ResizeObserver', 'IS_REACT_ACT_ENVIRONMENT'];
   const originalGlobals = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries({
     window: dom.window, document: dom.window.document, navigator: dom.window.navigator,
@@ -25,24 +28,26 @@ async function withBusinessDom(run) {
   globalThis.ResizeObserver = dom.window.ResizeObserver;
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   let vite;
+  let testing;
   try {
-    const { createTestServer: createServer } = await import('./helpers/vite-server.js');
-    vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
+    vite = await createOverviewTestServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const React = await import('react');
-    const testing = await import('@testing-library/react');
+    testing = await import('@testing-library/react');
     const { within } = await import('@testing-library/dom');
     const screen = within(dom.window.document.body);
     const user = (await import('@testing-library/user-event')).default.setup({ document: dom.window.document });
     await run({ businessRoot, dom, vite, React, ...testing, screen, user, within });
   } finally {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    if (vite) await vite.close();
-    for (const [key, descriptor] of originalGlobals) {
-      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-      else delete globalThis[key];
+    try {
+      testing?.cleanup();
+    } finally {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      for (const [key, descriptor] of originalGlobals) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+        else delete globalThis[key];
+      }
+      dom.window.close();
     }
-    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
-    dom.window.close();
   }
 }
 

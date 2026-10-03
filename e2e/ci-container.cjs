@@ -2,15 +2,19 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const { maintenanceUrl } = require('../apps/api/scripts/test-database.cjs');
+const { ensureTimingRunId } = require('../scripts/test-timing.cjs');
 
-// Split the slow customer lane by file, not by concurrent fixture mutations.
+// Balance measured journey time by file, not concurrent fixture mutations.
 // Each CI group owns a separate disposable database and still uses one worker.
 const projectGroups = {
-  customer: { app: 'customer', specs: [] },
-  'customer-core': { app: 'customer', specs: ['customer.spec.cjs'] },
-  'customer-operations': { app: 'customer', specs: ['customer-my-events.spec.cjs', 'commissions-messages.spec.cjs'] },
-  business: { app: 'business', specs: [] },
-  'admin-rebuild': { app: 'admin-rebuild', specs: [] },
+  customer: { apps: ['customer'], specs: [] },
+  'customer-core': { apps: ['customer'], specs: ['customer.spec.cjs'] },
+  'customer-operations': { apps: ['customer'], specs: ['customer-my-events.spec.cjs', 'commissions-messages.spec.cjs'] },
+  business: { apps: ['business'], specs: [] },
+  'business-core': { apps: ['business'], specs: ['business.spec.cjs'] },
+  'business-operations': { apps: ['business'], specs: ['business-access.spec.cjs', 'business-payments.spec.cjs', 'commissions-messages.spec.cjs'] },
+  'platform-operations': { apps: ['customer', 'admin-rebuild'], specs: ['customer-my-events.spec.cjs', 'commissions-messages.spec.cjs', 'admin-rebuild.spec.cjs', 'admin-access-requests.spec.cjs'] },
+  'admin-rebuild': { apps: ['admin-rebuild'], specs: [] },
 };
 
 // This container is only for tests. Never use its browser libraries in the
@@ -25,9 +29,9 @@ function containerPlan({ source = process.env, workspace = path.resolve(__dirnam
   const nodeRoot = path.dirname(path.dirname(nodeExecutable));
   const databaseUrl = maintenanceUrl(source);
   const projectGroup = source.PLAYWRIGHT_PROJECT_GROUP;
-  if (projectGroup && !Object.hasOwn(projectGroups, projectGroup)) throw new Error('Select a supported browser project group: customer, customer-core, customer-operations, business, or admin-rebuild.');
+  if (projectGroup && !Object.hasOwn(projectGroups, projectGroup)) throw new Error(`Select a supported browser project group: ${Object.keys(projectGroups).join(', ')}.`);
   const group = projectGroups[projectGroup];
-  const projectArguments = group ? ['--', `--project=${group.app}-iphone`, `--project=${group.app}-desktop`,
+  const projectArguments = group ? ['--', ...group.apps.flatMap(app => [`--project=${app}-iphone`, `--project=${app}-desktop`]),
     ...group.specs.map(spec => `e2e/specs/${spec}`)] : [];
   return { image: expectedImage, args: [
     'run', '--rm', '--pull=never', '--init', '--ipc=host', '--network=host',
@@ -38,6 +42,7 @@ function containerPlan({ source = process.env, workspace = path.resolve(__dirnam
     '--workdir', workspace,
     '--env', `PATH=${nodeRoot}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
     '--env', 'CI=true', '--env', 'NODE_ENV=test',
+    '--env', `NITEWIDE_TEST_TIMING_RUN_ID=${ensureTimingRunId(source)}`,
     '--env', 'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
     '--env', `TEST_DATABASE_ADMIN_URL=${databaseUrl}`,
     expectedImage, 'npm', 'run', 'test:e2e', ...projectArguments,
@@ -58,4 +63,4 @@ async function main(args = process.argv.slice(2)) {
   });
 }
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1; });
-module.exports = { containerPlan };
+module.exports = { containerPlan, projectGroups };

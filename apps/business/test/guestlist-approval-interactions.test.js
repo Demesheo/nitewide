@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sharedTestServer } from './helpers/shared-vite-server.js';
+
+const createGuestlistTestServer = sharedTestServer();
 
 const guest = (id, partySize, status = 'pending', extra = {}) => ({
   id, eventId: 'event-fixture', guestName: `Guest ${id}`, guestEmail: `${id}@fixture.test`,
@@ -51,12 +54,13 @@ async function withGuestlist(run, component = 'Guestlists') {
   };
   let vite;
   let view;
+  let cleanupRoots;
   try {
-    const { createTestServer } = await import('./helpers/vite-server.js');
-    vite = await createTestServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
+    vite = await createGuestlistTestServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const module = await vite.ssrLoadModule(`/src/components/${component}.jsx`);
     const React = await import('react');
     const testing = await import('@testing-library/react');
+    cleanupRoots = testing.cleanup;
     const { within } = await import('@testing-library/dom');
     const screen = within(dom.window.document.body);
     const user = (await import('@testing-library/user-event')).default.setup({ document: dom.window.document });
@@ -69,15 +73,17 @@ async function withGuestlist(run, component = 'Guestlists') {
     const rerender = (extra = {}) => { Object.assign(props, extra); view.rerender(React.createElement(module[component], props)); };
     await run({ ...testing, screen, user, within, state, props, rerender });
   } finally {
-    view?.unmount();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await vite?.close();
-    globalThis.fetch = priorFetch;
-    for (const [key, descriptor] of previous) {
-      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-      else delete globalThis[key];
+    try {
+      cleanupRoots?.();
+    } finally {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      globalThis.fetch = priorFetch;
+      for (const [key, descriptor] of previous) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+        else delete globalThis[key];
+      }
+      dom.window.close();
     }
-    dom.window.close();
   }
 }
 
@@ -162,6 +168,12 @@ test('decline ignores the approval draft, approved and admitted entries stay fix
     await user.click(review.getByRole('button', { name: 'Decline' }));
     assert.match(screen.getByRole('dialog').textContent, /no entry credential will be issued/);
     assert.equal(review.getByRole('button', { name: 'Decrease approved spots' }).disabled, true);
+    assert.equal(state.requests.length, 0, 'opening a decline confirmation does not submit a decision');
+    await user.click(review.getByRole('button', { name: 'Keep request' }));
+    assert.equal(review.queryByRole('button', { name: 'Confirm decline' }), null);
+    assert.equal(review.getByRole('button', { name: 'Decrease approved spots' }).disabled, false);
+    assert.equal(state.requests.length, 0, 'cancelling a decline leaves the request untouched');
+    await user.click(review.getByRole('button', { name: 'Decline' }));
     await user.click(review.getByRole('button', { name: 'Confirm decline' }));
     await waitFor(() => assert.equal(screen.queryByRole('dialog'), null));
     assert.deepEqual(state.requests[0].body, { decision: 'reject' });

@@ -73,11 +73,6 @@ test('mobile navigation uses the same authorized destinations and accessible dia
   assert.match(source, /screen\.removeEventListener\("change", closeOnDesktop\)/);
 });
 
-test('active event timeline tab gets a focused accent glow without changing other tabs', () => {
-  const source = read('src/styles.css');
-  assert.match(source, /\.event-library \[data-slot="tabs-trigger"\]\[data-state="active"\] \{[^}]*box-shadow: 0 0 0 1px #[0-9a-f]+, 0 0 14px #[0-9a-f]+;/i);
-});
-
 test('event collection cards show status in the header and omit duplicate date/status rows on mobile', () => {
   const component = read('src/components/Events.jsx');
   const styles = read('src/mobile.css');

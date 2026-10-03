@@ -1,7 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { transformSync } from 'esbuild';
+import * as business from '../src/lib/business.js';
+
+// The helper's extensionless browser import needs transformation, but its
+// implementation and actual business helpers can run without a Vite server.
+const reuseModule = { exports: {} };
+const reuseSource = readFileSync(new URL('../src/lib/event-reuse.js', import.meta.url), 'utf8');
+new Function('module', 'exports', 'require', transformSync(reuseSource, { loader: 'js', format: 'cjs' }).code)(
+  reuseModule, reuseModule.exports, (specifier) => {
+    assert.equal(specifier, './business');
+    return business;
+  },
+);
 
 function memoryStorage() {
   const values = new Map();
@@ -12,16 +24,7 @@ function memoryStorage() {
   };
 }
 
-async function withReuse(callback) {
-  const businessRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
-  const { createTestServer: createServer } = await import('./helpers/vite-server.js');
-  const vite = await createServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
-  try {
-    return await callback(await vite.ssrLoadModule('/src/lib/event-reuse.js'));
-  } finally {
-    await vite.close();
-  }
-}
+const withReuse = (callback) => callback(reuseModule.exports);
 
 const sourceEvent = () => ({
   id: 'source-event-id', version: 9, title: 'Friday Night', slug: 'friday-night', status: 'completed',

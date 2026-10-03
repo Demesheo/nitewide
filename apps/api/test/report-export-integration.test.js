@@ -81,7 +81,7 @@ test('scaled SQL reports and durable snapshot exports', { timeout: 180000 }, asy
       FROM generate_series(1,24000) n`, { ns: ids.org, offering: offering.id });
     await db.query('ANALYZE events; ANALYZE orders; ANALYZE order_items; ANALYZE users; ANALYZE organization_owners;');
 
-    await t.test('representative scale reconciles totals and PostgreSQL plans without raw record loading', async () => {
+    await t.test('representative scale reconciles totals without raw record loading', async () => {
       const summary = await reports.summary(ids.owner, baseInput);
       assert.equal(summary.summary.orders, 24001);
       assert.equal(summary.summary.customers, 12001);
@@ -90,6 +90,10 @@ test('scaled SQL reports and durable snapshot exports', { timeout: 180000 }, asy
       assert.equal(summary.summary.events, 1205);
       const page = await reports.table(ids.owner, 'events', { ...baseInput, page: 49, pageSize: 25 });
       assert.equal(page.total, 1205); assert.equal(page.items.length, 5);
+      // Profiling executes the same expensive queries again for diagnostics, not
+      // regression thresholds. Keep it reproducible via npm run test:api:plans;
+      // ordinary CI still verifies this full-size dataset and every export below.
+      if (process.env.NITEWIDE_TEST_QUERY_PLANS !== '1') return;
       for (const [label, prepare] of [['summary', () => reports.summaryQuery(ids.owner, baseInput)],
         ['customers', () => reports.prepareTable(ids.owner, 'customers', baseInput)],
         ['events', () => reports.prepareTable(ids.owner, 'events', baseInput)]]) {

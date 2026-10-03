@@ -19,23 +19,6 @@ test('guestlist details use the compact member dialog and put event context bene
   assert.match(styles, /\.guestlist-detail-grid \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); gap: 8px;/);
 });
 
-test('declining a pending guestlist request requires an explicit confirmation', () => {
-  const view = readFileSync(new URL('../src/components/Guestlists.jsx', import.meta.url), 'utf8');
-  assert.match(view, /const \[confirmDecline, setConfirmDecline\] = useState\(false\)/);
-  assert.match(view, /onClick=\{\(\) => setConfirmDecline\(true\)\}><X \/> Decline/);
-  assert.match(view, /onClick=\{\(\) => setConfirmDecline\(false\)\}>Keep request/);
-  assert.match(view, /onClick=\{\(\) => decide\(activeEntry\.id, 'reject'\)\}>Confirm decline/);
-  assert.match(view, /setActiveEntryId\(null\);\s*setConfirmCancel\(false\);\s*setConfirmDecline\(false\)/);
-});
-
-test('declined guestlist requests can be approved later and revoked approvals return to declined', () => {
-  const view = readFileSync(new URL('../src/components/Guestlists.jsx', import.meta.url), 'utf8');
-  assert.match(view, /activeEntry\.status === 'rejected' && <Button disabled=\{busy\} onClick=\{\(\) => decide\(activeEntry\.id, 'approve'\)\}/);
-  assert.match(view, /Revoke approval/);
-  assert.match(view, /Confirm revocation/);
-  assert.doesNotMatch(view, /Cancel approval|Confirm cancellation|Approval cancelled/);
-});
-
 test('guestlist event names are truncated only after 36 characters', () => {
   assert.equal(guestlistEventName('A'.repeat(36)), 'A'.repeat(36));
   assert.equal(guestlistEventName('A'.repeat(37)), `${'A'.repeat(36)}…`);

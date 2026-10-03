@@ -197,20 +197,36 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     });
 
     await t.test('event pagination, role scope, overview, and attention counts stay aligned', async () => {
-    for (const userId of [ids.owner, ids.manager, ids.employee, ids.promoter]) {
-      const pages = [];
-      for (let page = 1; page <= 6; page += 1) {
+    // Exercise the common pagination algorithm once across every page. Role
+    // variants compare both boundaries against those exact authorized IDs;
+    // their distinct management and sales permissions remain checked below.
+    const ownerPages = [];
+    for (let page = 1; page <= 6; page += 1) {
+      const result = await request(`/business/events?page=${page}&pageSize=100&sort=starts_asc&status=all`, ids.owner);
+      assert.equal(result.status, 200);
+      assert.equal(result.body.data.total, 503);
+      assert.equal(result.body.data.page, page);
+      assert.equal(result.body.data.hasMore, page < 6);
+      assert.equal(result.body.data.items.length, page < 6 ? 100 : 3);
+      assert.ok(result.body.data.items.every(event => event.canManage && event.canEdit));
+      ownerPages.push(...result.body.data.items.map(event => event.id));
+    }
+    assert.equal(new Set(ownerPages).size, 503, 'pagination returns every authorized event exactly once');
+    assert.deepEqual(ownerPages, [...ownerPages].sort(), 'equal-start-time sort ties are stable by event ID');
+    for (const userId of [ids.manager, ids.employee, ids.promoter]) {
+      for (const page of [1, 6]) {
         const result = await request(`/business/events?page=${page}&pageSize=100&sort=starts_asc&status=all`, userId);
         assert.equal(result.status, 200);
         assert.equal(result.body.data.total, 503);
         assert.equal(result.body.data.page, page);
-        pages.push(...result.body.data.items.map((event) => event.id));
+        assert.equal(result.body.data.hasMore, page === 1);
+        assert.deepEqual(result.body.data.items.map(event => event.id), ownerPages.slice((page - 1) * 100, page * 100));
+        const canManage = userId === ids.manager;
+        assert.ok(result.body.data.items.every(event => event.canManage === canManage && event.canEdit === canManage));
       }
-      assert.equal(new Set(pages).size, 503, 'pagination returns every authorized event exactly once');
-      assert.deepEqual(pages, [...pages].sort(), 'equal-start-time sort ties are stable by event ID');
-      assert.equal((await request('/business/events?pageSize=0', userId)).status, 422);
-      assert.equal((await request('/business/events?from=2026-09-30T00%3A00%3A00Z&to=2026-09-29T00%3A00%3A00Z', userId)).status, 422);
     }
+    assert.equal((await request('/business/events?pageSize=0', ids.owner)).status, 422);
+    assert.equal((await request('/business/events?from=2026-09-30T00%3A00%3A00Z&to=2026-09-29T00%3A00%3A00Z', ids.owner)).status, 422);
     const employeePage = await request('/business/events?page=1&pageSize=1&sort=starts_asc', ids.employee);
     assert.deepEqual(employeePage.body.data.counts, { upcoming: 503, past: 0, draft: 0 });
     assert.equal(employeePage.body.data.items[0].canManage, false);

@@ -30,6 +30,10 @@ function postgresUrl(value) {
 
 function assertLoopbackUrl(url) {
   if (!loopback.has(url.hostname)) throw new Error('Test database connections must use a loopback PostgreSQL server. Remote application/production servers are not test targets.');
+  const routingOptions = new Set(['host', 'hostaddr', 'port', 'dbname', 'database', 'service', 'servicefile']);
+  if ([...url.searchParams.keys()].some((key) => routingOptions.has(key.toLowerCase()))) {
+    throw new Error('Test database URLs must not override the checked loopback host, port, or database through connection options.');
+  }
   return url;
 }
 
@@ -48,6 +52,7 @@ function maintenanceUrl(environment = process.env) {
       try {
         const url = postgresUrl(localValue);
         if (loopback.has(url.hostname) && url.port === '5433') {
+          assertLoopbackUrl(url);
           url.pathname = '/postgres';
           return url.toString();
         }

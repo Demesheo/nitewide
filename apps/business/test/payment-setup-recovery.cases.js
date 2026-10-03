@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createTestServer } from './helpers/vite-server.js';
+import { createPaymentTestServer } from './helpers/payment-runtime.js';
 
 const freshLink = () => ({ url: 'https://connect.stripe.com/setup/offline-fixture', expiresAt: new Date(Date.now() + 300000).toISOString() });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
@@ -14,12 +14,14 @@ test('Stripe setup remains visible, recoverable and scoped when navigation or re
   const values = { window: dom.window, document: dom.window.document, navigator: dom.window.navigator, HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement, Element: dom.window.Element, Node: dom.window.Node, Event: dom.window.Event, MutationObserver: dom.window.MutationObserver, getComputedStyle: dom.window.getComputedStyle.bind(dom.window), IS_REACT_ACT_ENVIRONMENT: true };
   const originals = new Map(Object.keys(values).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries(values)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
-  let vite, view;
+  let vite, view, cleanupRoots;
   try {
-    vite = await createTestServer({ root, configFile: resolve(root, 'vite.config.js'), logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
+    vite = await createPaymentTestServer({ root, configFile: resolve(root, 'vite.config.js'), logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
     const { PaymentAccounts, stripeOnboardingUrl } = await vite.ssrLoadModule('/src/components/PaymentAccounts.jsx');
     const React = await import('react');
-    const { render, screen, waitFor, act, fireEvent } = await import('@testing-library/react');
+    const { render, within, waitFor, act, fireEvent, cleanup } = await import('@testing-library/react');
+    cleanupRoots = cleanup;
+    const screen = within(dom.window.document.body);
     const user = (await import('@testing-library/user-event')).default.setup({ document: dom.window.document });
     const session = { accessToken: 'offline-fixture', user: { id: 'owner' } };
     const organization = { id: 'org-a', canManageFinance: true };
@@ -31,7 +33,7 @@ test('Stripe setup remains visible, recoverable and scoped when navigation or re
       } };
     }
     async function mount(props) {
-      view?.unmount();
+      cleanupRoots?.();
       dom.window.document.body.innerHTML = '<div id="root"></div>';
       view = render(React.createElement(PaymentAccounts, props), { container: dom.window.document.getElementById('root') });
       return screen.findByRole('button', { name: 'Complete Stripe setup' });
@@ -102,8 +104,12 @@ test('Stripe setup remains visible, recoverable and scoped when navigation or re
       assert.deepEqual(destinations, []);
     });
   } finally {
-    view?.unmount(); await vite?.close();
-    for (const [key, descriptor] of originals) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; }
-    dom.window.close();
+    try {
+      cleanupRoots?.();
+    } finally {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      for (const [key, descriptor] of originals) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; }
+      dom.window.close();
+    }
   }
 });

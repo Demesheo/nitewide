@@ -1,5 +1,8 @@
 const test = require('node:test'); const assert = require('node:assert/strict'); const { createCheckoutService } = require('../src/services/checkout-service');
 function fixture({ sold = 0, total = 5, environment = 'development', hostedDemo = false, priceCents = 2000, commissionBps = 0, verifiedIndividual = false, minimumSubtotalCents } = {}) {
+  // Provider evidence and checkout share one clock. Creating evidence after
+  // checkout samples Date.now() can otherwise make it appear future-dated.
+  const current = new Date('2026-10-03T12:00:00.000Z');
   let increments = 0; const offering = { id: '50000000-0000-4000-8000-000000000001', eventId: 'e1', name: 'GA', kind: 'ticket', priceCents: 2000, currency: 'USD', inventoryMode: 'finite', quantityTotal: total, quantitySold: sold, entriesPerUnit: 1, minPerOrder: 1, maxPerOrder: 4, isActive: true, increment: async (_field, { by }) => { increments += by; } };
   offering.priceCents = priceCents;
   const created = { tickets: 0, payment: null, notificationJobs: [], userReads: 0 }; const tx = { LOCK: { UPDATE: 'UPDATE' } };
@@ -8,11 +11,11 @@ function fixture({ sold = 0, total = 5, environment = 'development', hostedDemo 
     OrganizationOwner: { findAll: async () => { throw new Error('Recipient resolution belongs outside checkout'); } },
     Notification: { create: async () => { throw new Error('Fan-out writes belong outside checkout'); } },
     Order: { findOne: async () => null, create: async (data) => ({ id: 'order-1', ...data }) },
-    Event: { findByPk: async () => ({ id: 'e1', title: 'Night', endsAt: new Date(Date.now() + 86400000), status: 'published', organizationId: 'o1', commissionMinimumSubtotalCents: minimumSubtotalCents }) },
+    Event: { findByPk: async () => ({ id: 'e1', title: 'Night', endsAt: new Date(current.getTime() + 86400000), status: 'published', organizationId: 'o1', commissionMinimumSubtotalCents: minimumSubtotalCents }) },
     Organization: { findByPk: async () => ({ id: 'o1', status: 'active', planTier: 'free' }) }, Offering: { findAll: async () => [offering] },
     EventAffiliate: { findOne: async () => ({ id: 'legacy-referral', userId: 'promoter', code: 'LEGACY', accessScope: 'event', status: 'active', commissionBps }) }, OrgAffiliate: {},
     IndividualCommissionProfile: { findOne: async () => verifiedIndividual ? { id: 'profile', userId: 'promoter', provider: 'stripe', providerMode: 'test',
-      lifecycleState: 'active', status: 'active', stripeAccountId: 'acct_person', verifiedAt: new Date(), verifiedStripeAccount: {
+      lifecycleState: 'active', status: 'active', stripeAccountId: 'acct_person', verifiedAt: current, verifiedStripeAccount: {
         id: 'acct_person', object: 'v2.core.account', livemode: false, identity: { entity_type: 'individual' }, dashboard: 'full', applied_configurations: ['merchant'],
         defaults: { responsibilities: { fees_collector: 'stripe', losses_collector: 'stripe', requirements_collector: 'stripe' } },
         configuration: { merchant: { applied: true, capabilities: { card_payments: { status: 'active' }, stripe_balance: { payouts: { status: 'active' } } } } }, requirements: { entries: [] },
@@ -22,7 +25,7 @@ function fixture({ sold = 0, total = 5, environment = 'development', hostedDemo 
   };
   const sequelize = { transaction: async (_options, work) => work(tx) };
   const notificationJobs = { enqueueCheckout: async (payload, transaction) => { assert.equal(transaction, tx); created.notificationJobs.push(payload); } };
-  return { checkout: createCheckoutService({ sequelize, models, environment, hostedDemo, notificationJobs }), getIncrements: () => increments, created };
+  return { checkout: createCheckoutService({ sequelize, models, now: () => current, environment, hostedDemo, notificationJobs }), getIncrements: () => increments, created };
 }
 test('checkout snapshots a sale, increments inventory, and creates credentials', async () => {
   const f = fixture(); const result = await f.checkout({ buyerUserId: 'u1', eventId: 'e1', idempotencyKey: 'unique-key', items: [{ offeringId: '50000000-0000-4000-8000-000000000001', quantity: 2 }], payment: { provider: 'demo', reference: 'pay-1', status: 'succeeded' } });
@@ -54,6 +57,8 @@ test('verified personal referrals use the combined paid subtotal and snapshot th
   assert.equal(below.order.commissionSnapshot.effectiveCommissionBps, 0);
   const combined = await buy(fixture({ priceCents: 600, commissionBps: 1000, verifiedIndividual: true }), 2);
   assert.equal(combined.order.affiliateCommissionCents, 120);
+  assert.equal(combined.order.commissionSnapshot.commissionEligibility.eligible, true);
+  assert.equal(combined.order.commissionSnapshot.capturedAt, '2026-10-03T12:00:00.000Z');
   assert.equal(combined.order.commissionSnapshot.recipientUserId, 'promoter');
   assert.equal(combined.order.commissionSnapshot.individualCommissionProfileId, 'profile');
   const raised = await buy(fixture({ priceCents: 600, commissionBps: 1000, verifiedIndividual: true, minimumSubtotalCents: 1500 }), 2);
@@ -113,4 +118,21 @@ test('truly free production checkout issues admission without a payment account 
 test('demo checkout requires an explicit development, test, or hosted-demo mode', async () => {
   const f = fixture({ environment: 'staging' });
   await assert.rejects(() => f.checkout({ buyerUserId: 'u1', eventId: 'e1', idempotencyKey: 'demo-staging', items: [{ offeringId: '50000000-0000-4000-8000-000000000001', quantity: 1 }], payment: { provider: 'demo', reference: 'demo', status: 'succeeded' } }), { code: 'DEMO_DISABLED' });
+});
+
+test('idempotent replay preserves historical fee amount and payer without repricing', async () => {
+  const historical = { id: 'historical', eventId: 'historical-event', items: [{ offeringId: 'historical-offering', quantity: 2 }], subtotalCents: 10000, platformFeeCents: 829,
+    totalCents: 10829, affiliateCommissionCents: 1000, pricingPlanSnapshot: { percentageBps: 750, perPaidOrderCents: 79, processingPaidBy: 'organizer', commissionBps: 1000 } };
+  const models = { User: { findByPk: async () => ({ id: 'buyer', isActive: true }) }, Order: { findOne: async () => historical }, OrderItem: {} };
+  const sequelize = { transaction: async (_options, run) => run({ LOCK: { UPDATE: 'UPDATE' } }) };
+  const checkout = createCheckoutService({ sequelize, models });
+  const result = await checkout({ buyerUserId: 'buyer', eventId: historical.eventId,
+    items: [{ offeringId: 'historical-offering', quantity: 2 }], idempotencyKey: 'already-paid' });
+  assert.equal(result.order, historical);
+  assert.equal(result.order.totalCents, 10829);
+  assert.equal(result.order.pricingPlanSnapshot.processingPaidBy, 'organizer');
+  assert.equal(result.order.affiliateCommissionCents, 1000);
+  assert.equal(result.order.pricingPlanSnapshot.commissionBps, 1000, 'eligibility changes cannot rewrite historical commission');
+  assert.equal(result.replayed, true);
+  assert.deepEqual(result.credentials, []);
 });

@@ -9,5 +9,6 @@ npm-debug.log*
 *.swo
 apps/api/uploads/
 test-results/
+.test-metrics/
 playwright-report/
 playwright/.cache/

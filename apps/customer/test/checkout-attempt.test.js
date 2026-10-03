@@ -78,7 +78,11 @@ test('status failures and pending responses never submit a second order', async 
   for (const failure of [new Error('Offline'), Object.assign(new Error('Unavailable'), { status: 503 })]) {
     await assert.rejects(submitCheckoutAttempt(attempt, async path => { assert.match(path, /checkout-attempts/); throw failure; }, 'token'), error => error === failure);
   }
-  await assert.rejects(checkCheckoutAttempt(attempt, async () => ({ status: 'pending' }), 'token'), /still being checked/);
+  for (const result of [{ status: 'pending' }, { status: 'pending', orderId: 'unconfirmed-order' }]) {
+    const calls = [];
+    await assert.rejects(submitCheckoutAttempt(attempt, async path => { calls.push(path); return result; }, 'token'), /still being checked/);
+    assert.deepEqual(calls, ['/customer/checkout-attempts/key']);
+  }
 });
 test('unavailable persistence prevents submission', () => {
   assert.throws(() => prepareCheckoutAttempt('buyer', body, { getItem: () => null, setItem: () => { throw new Error('Storage disabled'); } }, () => 'key'), /Storage disabled/);
@@ -190,14 +194,23 @@ test('Pay preflight permits only a matching server-verified pending or paid book
 });
 test('provider review state suppresses payment remount and additional verification polling', async () => {
   const attempt = { body: { idempotencyKey: 'key' } };
-  const result = await resumePaymentCheckout(attempt, async path => {
-    assert.match(path, /checkout-attempts/);
-    return { orderId: 'order', status: 'pending', verificationStatus: 'review' };
-  });
-  assert.equal(result.clientSecret, null);
-  assert.equal(result.verificationStatus, 'review');
+  const reviewed = { orderId: 'order', status: 'pending', verificationStatus: 'review', clientSecret: 'must-not-mount' };
+  // Exercise every source of review without repeating browser cart/setup
+  // flows: existing attempt lookup, newly prepared checkout and known order.
+  for (const source of ['lookup', 'prepare', 'resume']) {
+    const calls = [];
+    const result = await resumePaymentCheckout(source === 'resume' ? { ...attempt, orderId: 'order' } : attempt, async path => {
+      calls.push(path);
+      if (source === 'prepare' && path.includes('checkout-attempts')) throw Object.assign(new Error('Absent'), { status: 404 });
+      return reviewed;
+    });
+    assert.equal(result.clientSecret, null);
+    assert.equal(result.verificationStatus, 'review');
+    assert.deepEqual(calls, source === 'prepare' ? ['/customer/checkout-attempts/key', '/customer/payment-checkouts'] :
+      source === 'resume' ? ['/customer/payment-checkouts/order/resume'] : ['/customer/checkout-attempts/key']);
+  }
   let checks = 0;
-  await assert.rejects(verifyPaymentCheckout('order', async () => { checks += 1; return result; }, 'token', { delay: () => assert.fail('must not retry a reviewed payment') }), error => error.paymentReview && error.orderId === 'order');
+  await assert.rejects(verifyPaymentCheckout('order', async () => { checks += 1; return reviewed; }, 'token', { delay: () => assert.fail('must not retry a reviewed payment') }), error => error.paymentReview && error.orderId === 'order');
   assert.equal(checks, 1);
 });
 test('pending booking context survives an unavailable public event and excludes provider secrets', () => {

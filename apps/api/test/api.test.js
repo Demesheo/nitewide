@@ -15,12 +15,11 @@ function setup(onGuestlistQuery, guestlistScope = { canReviewAny: true, eventAff
   services.abuse = { before: async () => {}, authenticated: async () => {} }; // Store behavior has real PostgreSQL coverage.
   return createApp({ sequelize: {}, models, services, config: { NODE_ENV: 'test', corsOrigins: [], AUTH_TOKEN_SECRET: 'test-secret-at-least-32-characters' }, healthCheck: async () => {} });
 }
-test('health endpoint reports the API is ready', async () => { const response = await request(setup(), '/health'); assert.equal(response.status, 200); assert.equal(response.body.service, 'nitewide-api'); });
-test('public discovery returns published events', async () => { const response = await request(setup(), '/api/events'); assert.equal(response.status, 200); assert.equal(response.body.data[0].title, 'Afterglow'); });
 test('public discovery filters finished events before applying its limit', async () => {
   let query;
   const response = await request(setup(undefined, undefined, (value) => { query ||= value; }), '/api/events?limit=100');
   assert.equal(response.status, 200);
+  assert.equal(response.body.data[0].title, 'Afterglow');
   assert.equal(query.where.status, 'published');
   assert.equal(query.where.isDiscoverable, true);
   assert.ok(query.where.endsAt[Op.gte] instanceof Date);

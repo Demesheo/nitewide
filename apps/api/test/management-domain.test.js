@@ -23,3 +23,18 @@ test('legacy guestlist settings aggregate every pool in one query and preserve u
   assert.equal(result.direct.used, 3);
   assert.deepEqual(result.promoters.map((pool) => [pool.used, pool.effectiveGuestlistAllocation]), [[7, 10], [0, 5]]);
 });
+
+test('legacy organization creation always generates distinct safe slugs and preserves existing identities', async () => {
+  const rows = [{ id: 'existing', name: 'Same Name', slug: 'existing-stored-slug' }];
+  const models = { User: { findByPk: async () => ({ isActive: true, lifecycleState: 'active' }) },
+    Organization: { sequelize: { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: 'UPDATE' } }) },
+      create: async (values) => { const row = { id: rows.length, ...values, toJSON() { return { ...this }; } }; rows.push(row); return row; } },
+    OrganizationOwner: { create: async () => {} }, AuditLog: { create: async () => {} } };
+  const service = createManagementService({ models, permissions: { assertInternal: async () => {} } });
+  const first = await service.createOrganization('user', {}, { name: 'Same Name', slug: 'client-override' });
+  const second = await service.createOrganization('user', {}, { name: 'Same Name' });
+  assert.match(first.slug, /^same-name-[a-f0-9-]{36}$/); assert.notEqual(first.slug, second.slug);
+  const unsafe = await service.createOrganization('user', {}, { name: '<script>../../東京🎉', slug: 'another-override' });
+  assert.match(unsafe.slug, /^script-[a-f0-9-]{36}$/);
+  assert.equal(rows[0].slug, 'existing-stored-slug');
+});

@@ -37,6 +37,9 @@ test('default window uses local calendar arithmetic across year, leap-day and DS
 test('Discover UI starts with no exact date and clearing explicitly restores the week', async () => {
   const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   const hook = await readFile(new URL('../src/lib/use-discovery.js', import.meta.url), 'utf8');
+  for (const name of ['city', 'date', 'query']) assert.ok(app.includes(`name="${name}"`));
+  assert.match(hook, /discoveryDateRange\(submitted\.date\)/);
+  assert.match(hook, /url\(upcomingWeekRange\(submitted\.date\)\)/);
   assert.match(app, /\[date, setDate\] = useState\(initialRoute\.date\)/);
   assert.match(app, /useDiscovery\(submitted\)/);
   assert.match(app, /range: discoveryRange/);

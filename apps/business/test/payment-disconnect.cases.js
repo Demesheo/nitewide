@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {JSDOM} from 'jsdom';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {createTestServer} from './helpers/vite-server.js';
+import {createPaymentTestServer} from './helpers/payment-runtime.js';
 
 test('connection warning requires explicit confirmation, blocks unresolved obligations and never treats a lost provider response as disconnected',async()=>{
   const root=resolve(fileURLToPath(new URL('..',import.meta.url)));
@@ -15,12 +15,14 @@ test('connection warning requires explicit confirmation, blocks unresolved oblig
     getComputedStyle:dom.window.getComputedStyle.bind(dom.window),IS_REACT_ACT_ENVIRONMENT:true};
   const originals=new Map(Object.keys(values).map(key=>[key,Object.getOwnPropertyDescriptor(globalThis,key)]));
   for(const [key,value] of Object.entries(values)) Object.defineProperty(globalThis,key,{configurable:true,writable:true,value});
-  let vite,view;
+  let vite,view,cleanupRoots;
   try {
-    vite=await createTestServer({root,configFile:resolve(root,'vite.config.js'),logLevel:'silent',server:{middlewareMode:true},appType:'custom'});
+    vite=await createPaymentTestServer({root,configFile:resolve(root,'vite.config.js'),logLevel:'silent',server:{middlewareMode:true},appType:'custom'});
     const {PaymentConnectionDialog}=await vite.ssrLoadModule('/src/components/PaymentConnectionDialog.jsx');
     const {PaymentAccounts}=await vite.ssrLoadModule('/src/components/PaymentAccounts.jsx');
-    const React=await import('react'),{render,screen,waitFor}=await import('@testing-library/react');
+    const React=await import('react'),{render,within,waitFor,cleanup}=await import('@testing-library/react');
+    cleanupRoots=cleanup;
+    const screen=within(dom.window.document.body);
     const user=(await import('@testing-library/user-event')).default.setup({document:dom.window.document});
     const account={id:'profile',stripeAccountId:'acct_fixture',name:'Venue merchant',lifecycleState:'active',disconnectStatus:'none'};
     const counts={account,affectedEvents:2,pendingPayments:0,reviewPayments:0,unresolvedRefunds:0,unfulfilledPaidBookings:0,historicalBookings:30,
@@ -60,8 +62,12 @@ test('connection warning requires explicit confirmation, blocks unresolved oblig
     await screen.findByRole('heading',{name:'Venue merchant'});assert.equal(screen.queryByRole('button',{name:'Disconnect Stripe'}),null);
     assert.equal(screen.queryByRole('button',{name:'Disable new payments'}),null);
   } finally {
-    view?.unmount();await vite?.close();
-    for(const [key,descriptor] of originals) {if(descriptor) Object.defineProperty(globalThis,key,descriptor);else delete globalThis[key];}
-    dom.window.close();
+    try {
+      cleanupRoots?.();
+    } finally {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      for(const [key,descriptor] of originals) {if(descriptor) Object.defineProperty(globalThis,key,descriptor);else delete globalThis[key];}
+      dom.window.close();
+    }
   }
 });
