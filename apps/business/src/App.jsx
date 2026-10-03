@@ -26,7 +26,7 @@ import { BusinessOverview } from '@/components/BusinessOverview';
 import { BusinessAnalytics } from "@/components/BusinessAnalytics";
 import { MultiSelect } from "@/components/MultiSelect";
 import { Notifications } from "@/components/Notifications";
-import { Messages } from '@/components/Messages';
+import { Messages, ContactNitewide } from '@/components/Messages';
 import { TeamInviteLanding } from "@/components/Team";
 import { BusinessTeam } from "@/components/BusinessTeam";
 import { BusinessPayments } from "@/components/BusinessPayments";
@@ -69,6 +69,7 @@ export default function App() {
   const [mobileNav, setMobileNav] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [messageThread, setMessageThread] = useState(null);
+  const [supportThread, setSupportThread] = useState(null);
   const menuTrigger = useRef(null);
   useEffect(() => {
     const screen = window.matchMedia("(min-width: 851px)");
@@ -84,6 +85,7 @@ export default function App() {
     if (!onboardingToken && !inviteToken) window.history.replaceState(null, '', '/sign-in');
     sessionStorage.removeItem(SESSION_KEY);
     setSession(null);
+    setSupportThread(null);
     setEditor(null);
     setMobileNav(false);
     setProfileOpen(false);
@@ -287,8 +289,8 @@ export default function App() {
             <strong>{visibleNavigation.find(([id]) => id === visiblePage)?.[2] || 'Overview'}</strong>
           </div>
           <div className="topbar-right">
-            <Notifications session={session} onNavigate={navigate} onMessage={setMessageThread} capabilities={data?.capabilities} />
-            <Messages session={session} initialThreadId={messageThread} onOpened={() => setMessageThread(null)} />
+            <Notifications session={session} onNavigate={navigate} onMessage={setMessageThread} onSupportMessage={setSupportThread} capabilities={data?.capabilities} />
+            <Messages session={session} initialThreadId={messageThread} initialSupportThreadId={supportThread} onSupportOpened={() => setSupportThread(null)} supportContext={selectedOrganizations.length === 1 ? { organizationId: selectedOrganizations[0], organizationName: data?.organizations?.find(org => org.id === selectedOrganizations[0])?.name } : undefined} onOpened={() => setMessageThread(null)} />
             <span className="live-label">
               <span />
               Connected workspace
@@ -439,6 +441,7 @@ export default function App() {
             </div>
           )}
           <footer className="app-footer">
+            <ContactNitewide session={session}/>
             <span>Nitewide Business</span>
             <span>Made for the people who make it happen.</span>
           </footer>

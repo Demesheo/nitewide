@@ -14,6 +14,7 @@ const businessAccess = require('./business-access-schemas');
 const { venuePageSchema } = require('../services/business-venue-service');
 const payments = require('./payment-schemas');
 const organizerMessages = require('./organizer-message-schemas');
+const supportMessages = require('./support-message-schemas');
 const commissions = require('./commission-payment-schemas');
 const { MAX_GUESTLIST_REQUEST_PARTY_SIZE } = require('../domain/guestlist-party-size');
 
@@ -68,6 +69,11 @@ const guestlistRow = guest.extend({ eventId: uuid, userId: uuid.nullable(), even
 // Dynamic management resources retain JSON extension fields by design.
 const responses = { entity, event, offering, user, session, guest, sales, reportRow, exportJob, accessRequest, onboardingInvitation, error, page, envelope };
 const queries = {
+  '/support/messages': supportMessages.pageQuery,
+  '/support/messages/:id': supportMessages.pageQuery,
+  '/support/access-requests/:id': supportMessages.pageQuery,
+  '/admin/support/messages': supportMessages.adminQuery,
+  '/admin/support/messages/:id': supportMessages.pageQuery,
   '/account/commissions': commissions.commissionPage,
   '/account/commission-earnings': payments.emptyPaymentQuery,
   '/business/organizations/:organizationId/commission-statements': commissions.commissionPage,
@@ -123,6 +129,11 @@ function paramsFor(path) {
 }
 
 function responseFor(method, path) {
+  if (path === '/support/access-requests') return supportMessages.receipt;
+  if (path === '/support/requests') return supportMessages.detail(false);
+  if (path === '/support/messages' || path === '/admin/support/messages') return supportMessages.inbox(path.startsWith('/admin/'));
+  if (/^\/(admin\/)?support\/(messages|access-requests)\/:id\/read$/.test(path)) return z.object({ read: z.literal(true) });
+  if (/^\/(admin\/)?support\/(messages|access-requests)\/:id(\/replies)?$/.test(path)) return supportMessages.detail(path.startsWith('/admin/'));
   if (path === '/account/commission-payment-profile') return commissions.commissionProfileResponse;
   if (path === '/account/commission-payment-profile/onboarding') return commissions.commissionOnboardingResponse;
   if (path === '/account/commission-payment-profile/dashboard') return commissions.commissionDashboardResponse;
@@ -285,6 +296,10 @@ function generateOpenApi(contracts) {
     const path = contract.path.replace(/:([A-Za-z]+)/g, '{$1}');
     const operation = { operationId: `${contract.method}_${contract.path.replace(/[^A-Za-z0-9]+/g, '_')}`, tags: [contract.tag],
       security: contract.authenticated ? [{ bearerSession: [] }] : [], deprecated: contract.deprecated, parameters: [], responses: {} };
+    if (contract.path.startsWith('/support/access-requests/:id')) {
+      operation.security = [{ supportRecovery: [] }];
+      operation.parameters.push({ name: 'X-Support-Recovery-Token',in: 'header',required: true,schema: jsonSchema(supportMessages.token),description: 'Private account-access conversation capability. Expires after 90 days; never grants account access.' });
+    }
     if (contract.paramsSchema) for (const [name, schema] of Object.entries(contract.paramsSchema.shape)) operation.parameters.push({ name, in: 'path', required: true, schema: jsonSchema(schema) });
     if (contract.querySchema) {
       const schema = jsonSchema(contract.querySchema, 'input');
@@ -317,7 +332,7 @@ function generateOpenApi(contracts) {
   Object.assign(paths, require('./app-contract').supplementalPaths({ jsonSchema, errorSchema: error }));
   return { openapi: '3.1.0', info: { title: 'NiteWide API', version: '1.0.0', description: 'Generated from domain route registrations and shared runtime validators. Cross-field refinements and authorization are enforced by domain services.' },
     servers: [{ url: '/api' }], tags: ['public', 'account', 'customer', 'business', 'admissions', 'reporting', 'admin'].map((name) => ({ name })), paths,
-    components: { securitySchemes: { bearerSession: { type: 'http', scheme: 'bearer', bearerFormat: 'Signed server-revocable session' } }, schemas: {
+    components: { securitySchemes: { bearerSession: { type: 'http', scheme: 'bearer', bearerFormat: 'Signed server-revocable session' },supportRecovery: { type: 'apiKey',in: 'header',name: 'X-Support-Recovery-Token' } }, schemas: {
       JsonValue: { anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'null' },
         { type: 'array', items: { $ref: '#/components/schemas/JsonValue' } }, { type: 'object', additionalProperties: { $ref: '#/components/schemas/JsonValue' } }] },
       Error: jsonSchema(error), Event: jsonSchema(event), Offering: jsonSchema(offering), ReportPage: jsonSchema(page(reportRow)), ExportJob: jsonSchema(exportJob), Session: jsonSchema(session),

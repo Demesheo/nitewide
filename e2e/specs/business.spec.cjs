@@ -28,6 +28,12 @@ teamPaginationTest('business entry and workspace journey keeps branding, clean n
     if (page.viewportSize().width > 850) await expectBrandImage(page.locator('.signin-story .brand img'));
     await expectNoOverflow(page);
     await test.info().attach('business-brand-sign-in', { body: await page.screenshot(), contentType: 'image/png' });
+    await page.getByRole('button', { name: 'Contact Nitewide', exact: true }).click();
+    const support = page.getByRole('dialog', { name: 'Contact Nitewide', exact: true });
+    await expect(support.getByRole('textbox', { name: 'Your name', exact: true })).toBeVisible();
+    await expect(support.getByRole('combobox')).toHaveCount(0);
+    await expectNoOverflow(page);
+    await support.getByRole('button', { name: 'Close', exact: true }).click();
   });
   await test.step('Approved UI sign-in opens the responsive branded workspace navigation', async () => {
     const authActions = [];
@@ -61,6 +67,20 @@ teamPaginationTest('business entry and workspace journey keeps branding, clean n
     await expectNoOverflow(page);
   });
   await test.step('Overview charts switch categories and team pagination uses the backend', async () => {
+    await page.locator('.app-footer').getByRole('button', { name: 'Contact Nitewide', exact: true }).click();
+    const messages = page.getByRole('dialog', { name: 'Messages', exact: true });
+    await messages.getByRole('button', { name: 'Report an issue', exact: true }).click();
+    await messages.getByRole('textbox', { name: 'Subject', exact: true }).fill('Question about our workspace');
+    await messages.getByRole('textbox', { name: 'Describe the issue', exact: true }).fill('Please help me understand our workspace access.');
+    await messages.getByRole('button', { name: 'Send to Nitewide', exact: true }).click();
+    await expect(messages.getByLabel('Support conversation')).toContainText('Please help me understand our workspace access.');
+    await expect(messages.locator('.support-messages')).toHaveAttribute('aria-busy', 'false');
+    await messages.evaluate(element => { element.scrollTop = 0; });
+    await expectNoOverflow(page);
+    const supportScreenshot = test.info().outputPath('business-private-support.png');
+    await page.screenshot({ path: supportScreenshot });
+    await test.info().attach('business-private-support', { path: supportScreenshot, contentType: 'image/png' });
+    await messages.getByRole('button', { name: 'Close', exact: true }).click();
     const mix = page.locator('section.panel').filter({ has: page.getByRole('heading', { name: 'Sales mix', exact: true }) });
     await mix.getByRole('tab', { name: 'Events', exact: true }).click();
     await expect(mix).toContainText('Playwright Friday Night');

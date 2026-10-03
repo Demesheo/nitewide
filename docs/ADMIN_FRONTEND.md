@@ -24,6 +24,7 @@ Seed only when deliberately preparing a demo database (`npm run db:seed`), not a
 | Events | Inspect the flyer, edit with the full shared creator editor, cancel/archive with history retained. |
 | People | Inspect identities, access and bookings; invite, edit, suspend/archive within staff permissions. |
 | Support | Cases, record links, priorities, status, assignment and audited history. |
+| Messages | Private Nitewide support conversations, accessible from the header without adding another primary navigation item. |
 | Analytics | SQL-backed drill-down and stable full-result CSV exports. |
 | Audit | Paginated retained platform history. |
 
@@ -51,11 +52,19 @@ Face-value sales, buyer-added fees, business-absorbed fees, combined fees, commi
 
 Tables paginate in SQL. CSVs include the full authorized filtered result, not the visible page. Small exports are immediate; large exports prepare a stable snapshot with progress, download, retry and expiry. Staff capability is rechecked on export access. See [Reporting and snapshot exports](REPORTING_EXPORTS.md).
 
+## Private support conversations
+
+Customer and Business footer links open Contact Nitewide in the existing Messages interface. Each submitted issue creates an Admin support case and a separate private conversation. Messages includes explicit search, multiselect case-status filters and bounded pagination; a conversation links to its case, and the case links back. Event, booking and organization context is optional and validated against the requester's current access. Organizer conversations and refund requests remain separate.
+
+Staff with `support.view` may inspect messages; replies and case changes require `support.manage`. Resolved/closed cases are read-only for replies. Requesters see their case status and public conversation, never internal resolution notes, assignments or audit details. Signed-in replies/status changes produce generic in-app notifications, not email.
+
+The signed-out form is limited to account-access help. Submitted names/emails are unverified and never associate the conversation with an existing account. Its private recovery link contains a capability in the URL fragment; only a hash is stored server-side. The link grants conversation access, not account access, and expires after 90 days. Admin must independently verify ownership before changing any account.
+
 ## Guardrails and later work
 
 No permanent-delete UI/API. Suspension/archive retain IDs, bookings, admissions and audit. Organization suspension blocks new sales, invitations and business changes while honoring existing passes/admissions; event cancellation is separate. Credential/QR hashes, provider identifiers, encrypted email payloads and storage keys are not editable. Contact-change, last-owner/admin, capacity and pricing protections are enforced server-side.
 
-Platform owner has full access; operations manages events and reads reports; support manages cases and inspects directories; read-only inspects directories/reports/cases/audit. Ownership, finance and staff access changes remain platform-owner controls. Full self-service business configuration, customer/business support intake, Stripe Connect, reconciliation, disputes/refunds and step-up controls are separate phases; the current Request access form is a review intake, not self-service provisioning.
+Platform owner has full access; operations manages events and reads reports; support manages cases and inspects directories; read-only inspects directories/reports/cases/audit. Ownership, finance and staff access changes remain platform-owner controls. Full self-service business configuration, reconciliation, disputes/refunds and step-up controls remain separate work; the current Request access form is a review intake, not self-service provisioning.
 
 ## Verification
 

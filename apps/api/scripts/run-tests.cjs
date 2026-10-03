@@ -19,6 +19,7 @@ INTEGRATION_TESTS.push('guestlist-quantity-integration.test.js');
 INTEGRATION_TESTS.push('commission-ledger-integration.test.js');
 INTEGRATION_TESTS.push('commission-payment-integration.test.js');
 INTEGRATION_TESTS.push('organizer-messages-integration.test.js');
+INTEGRATION_TESTS.push('support-messages-integration.test.js');
 const DEMO_TESTS = ['orlando-seed-integration.test.js', 'posh-importer-integration.test.js', 'seed-cleanup-integration.test.js', 'seed-guestlists-integration.test.js', 'venue-selection-integration.test.js'];
 const DEFAULT_CONCURRENCY = 2;
 const MAX_CONCURRENCY = 2;

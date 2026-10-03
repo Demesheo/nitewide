@@ -1,4 +1,4 @@
-export const sections = ['overview', 'businesses', 'events', 'people', 'support', 'analytics', 'audit'];
+export const sections = ['overview', 'businesses', 'events', 'people', 'support', 'messages', 'analytics', 'audit'];
 export const primaryResources = { businesses: 'organizations', events: 'events', people: 'users', audit: 'audit' };
 export const directoryResources = {
   businesses: ['organizations', 'locations', 'onboarding_invitations'],

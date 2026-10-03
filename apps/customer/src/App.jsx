@@ -40,7 +40,7 @@ import { AuthDialog } from "./components/auth-dialog";
 import { PasswordResetDialog } from './components/password-reset-dialog';
 import { OnboardingSetup } from './components/onboarding-setup';
 import { Notifications } from "./components/notifications";
-import { Messages } from './components/messages';
+import { Messages, ContactNitewide } from './components/messages';
 import { notificationTarget, loadNotificationBooking } from './lib/notification-target';
 import { AccountDialog, initials } from './components/account-dialog';
 import { ConnectionsPage } from './components/connections-page';
@@ -120,6 +120,8 @@ function CustomerApp() {
     [walletOpen, setWalletOpen] = useState(() => new URLSearchParams(window.location.search).has('commissionProfileReturn'));
   const [notificationBooking, setNotificationBooking] = useState(null);
   const [messageBooking, setMessageBooking] = useState(null), [messageThread, setMessageThread] = useState(null);
+  const [supportThread, setSupportThread] = useState(null);
+  useEffect(() => { setSupportThread(null); }, [session?.accessToken]);
   const [bookingRoute, setBookingRoute] = useState(initialRoute.booking);
   const [myEventsRoute, setMyEventsRoute] = useState({ myEventId: initialRoute.myEventId, myStatus: initialRoute.myStatus, myPage: initialRoute.myPage, mySearch: initialRoute.mySearch });
   const myEventsAccess = useMyEventsAccess(session, view === 'my-events');
@@ -182,7 +184,9 @@ function CustomerApp() {
       return false;
     }
     const target = notificationTarget(item);
-    if (target?.type === 'message') {
+    if (target?.type === 'support-message') {
+      setSupportThread(target.id);
+    } else if (target?.type === 'message') {
       setMessageThread(target.id);
     } else if (target?.type === 'checkout') {
       if (!target.id) throw new Error('This purchase reminder no longer has a linked checkout.');
@@ -805,7 +809,7 @@ function CustomerApp() {
             {session ? (
               <>
                 <Notifications key={session.user.id} session={session} onNotification={openNotification} refreshKey={`${bookingsRevision}:${selected?.id || ''}:${paymentCheckout?.status || ''}`} />
-                <Messages key={`messages:${session.user.id}`} session={session} initialBooking={messageBooking} initialThreadId={messageThread} onOpened={() => { setMessageBooking(null); setMessageThread(null); }} />
+                <Messages key={`messages:${session.user.id}`} session={session} initialBooking={messageBooking} initialThreadId={messageThread} initialSupportThreadId={supportThread} onSupportOpened={() => setSupportThread(null)} supportContext={selected ? { eventId: selected.id, eventTitle: selected.title } : undefined} onOpened={() => { setMessageBooking(null); setMessageThread(null); }} />
                 <button className="profile-avatar profile-trigger" aria-label={`Open ${session.user.displayName}'s profile`} title="Your profile" onClick={() => setWalletOpen(true)}>{initials(session.user.displayName)}</button>
               </>
             ) : (
@@ -996,7 +1000,7 @@ function CustomerApp() {
           <Brand />
           <p className="copyright">© {new Date().getFullYear()} Nitewide</p>
         </div>
-        <a className="business-nav-link footer-business" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a>
+        <div className="footer-links"><ContactNitewide session={session}/><a className="business-nav-link footer-business" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a></div>
       </footer>
 
       <Dialog

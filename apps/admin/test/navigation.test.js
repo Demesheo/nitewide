@@ -42,6 +42,10 @@ test('Events date filters and timezone survive opening a record and returning', 
 test('return navigation cannot redirect outside the application', () => {
   assert.equal(returnQuery('?section=events&returnTo=https%3A%2F%2Fexample.com'), '?section=events&resource=events');
   assert.equal(readRoute('?section=untrusted').section, 'overview');
+  const messageRoute = readRoute('?section=messages&thread=private-conversation');
+  assert.equal(messageRoute.section, 'messages');
+  assert.equal(messageRoute.params.get('thread'), 'private-conversation');
+  assert.equal(messageRoute.id, null);
 });
 test('consolidated directories retain purchases, invitations and history without generic owner writes', () => {
   const all = Object.values(directoryResources).flat();

@@ -1,6 +1,19 @@
 // Closed inventory: route registration fails if a new operation lacks review.
 // Generated artifact parity tests also detect removals or schema drift.
 const routeInventory = [
+  { method: 'post',path: '/support/requests',successStatuses: [200] },
+  { method: 'post',path: '/support/access-requests',successStatuses: [200] },
+  { method: 'get',path: '/support/access-requests/:id',successStatuses: [200] },
+  { method: 'post',path: '/support/access-requests/:id/replies',successStatuses: [200] },
+  { method: 'post',path: '/support/access-requests/:id/read',successStatuses: [200] },
+  { method: 'get',path: '/support/messages',successStatuses: [200] },
+  { method: 'get',path: '/support/messages/:id',successStatuses: [200] },
+  { method: 'post',path: '/support/messages/:id/replies',successStatuses: [200] },
+  { method: 'post',path: '/support/messages/:id/read',successStatuses: [200] },
+  { method: 'get',path: '/admin/support/messages',successStatuses: [200] },
+  { method: 'get',path: '/admin/support/messages/:id',successStatuses: [200] },
+  { method: 'post',path: '/admin/support/messages/:id/replies',successStatuses: [200] },
+  { method: 'post',path: '/admin/support/messages/:id/read',successStatuses: [200] },
 {"method":"get","path":"/account/commission-payment-profile","successStatuses":[200]},
 {"method":"post","path":"/account/commission-payment-profile","successStatuses":[201]},
 {"method":"post","path":"/account/commission-payment-profile/onboarding","successStatuses":[200]},

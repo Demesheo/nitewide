@@ -40,6 +40,12 @@ Demo password for every account below: `NitewideDemo!2026`.
 
 ## User workflows
 
+### Contact Nitewide
+
+Contact Nitewide stays in the footer rather than the primary workspace navigation. It opens the Nitewide support view in the existing Messages dialog; organizer conversations and customer refund requests remain separate. Business users can submit a private issue, optionally attach their selected business/event/booking context, follow case status and exchange in-app replies with Admin. The API verifies current access to attached records. Resolved/closed cases are read-only, and no support email is sent.
+
+Public Business pages offer a limited signed-out account-access form. A private, copyable recovery link allows reading/replying without an account for 90 days. Its secret is carried in the URL fragment and hashed server-side. Submitted contact details are unverified and never grant business access or associate the request with an existing identity.
+
 ### Mobile-first workspace
 
 The workspace keeps its full desktop layout above 850px. At phone/tablet widths, `src/mobile.css` supplies a business-only responsive layer; Customer and Admin are unaffected.

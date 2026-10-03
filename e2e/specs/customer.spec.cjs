@@ -15,7 +15,7 @@ async function selectVipCheckout(page) {
   return details;
 }
 
-test('approved brand logo and favicon load without changing customer header or footer navigation', async ({ page }) => {
+test('customer footer journey keeps branding and private signed-out access support unobtrusive', async ({ page, fixture }, testInfo) => {
   await page.goto('/');
   const home = page.getByRole('banner').getByRole('link', { name: 'Nitewide home', exact: true });
   await expectBrandImage(home.locator('img'));
@@ -27,6 +27,27 @@ test('approved brand logo and favicon load without changing customer header or f
   await expectBrandImage(footer.getByRole('link', { name: 'Nitewide home', exact: true }).locator('img'));
   await expect(footer.getByRole('link', { name: 'For business', exact: true })).toBeVisible();
   await expectNoOverflow(page);
+  await footer.getByRole('button', { name: 'Contact Nitewide', exact: true }).click();
+  const support = page.getByRole('dialog', { name: 'Contact Nitewide', exact: true });
+  await expect(support.getByText(/Help with signing in or accessing your account/)).toBeVisible();
+  await expect(support.getByRole('combobox')).toHaveCount(0);
+  await support.getByRole('textbox', { name: 'Your name', exact: true }).fill('Customer needing access');
+  await support.getByRole('textbox', { name: 'Email', exact: true }).fill(fixture.accounts.customer.email);
+  await support.getByRole('textbox', { name: 'Describe the issue', exact: true }).fill('I cannot sign into my customer account.');
+  const sent = page.waitForResponse(response => new URL(response.url()).pathname === '/api/support/access-requests' && response.request().method() === 'POST');
+  await support.getByRole('button', { name: 'Send to Nitewide', exact: true }).click();
+  expect((await sent).ok()).toBeTruthy();
+  await expect(support.getByRole('button', { name: 'Copy private recovery link', exact: true })).toBeVisible();
+  await expect(support.getByLabel('Support conversation')).toContainText('I cannot sign into my customer account.');
+  await expect(support.locator('.support-messages')).toHaveAttribute('aria-busy', 'false');
+  await support.evaluate(element => { element.scrollTop = 0; });
+  await expectNoOverflow(page);
+  const supportScreenshot = testInfo.outputPath('customer-private-support.png');
+  await page.screenshot({ path: supportScreenshot });
+  await testInfo.attach('customer-private-support', { path: supportScreenshot, contentType: 'image/png' });
+  await page.reload();
+  await expect(page.getByRole('dialog', { name: 'Contact Nitewide', exact: true }).getByLabel('Support conversation')).toContainText('I cannot sign into my customer account.');
+  await page.getByRole('dialog', { name: 'Contact Nitewide', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
   await footer.getByRole('link', { name: 'Nitewide home', exact: true }).click();
   await expect(page).toHaveURL(url => url.pathname === '/' && !url.searchParams.has('event'));
   await expect(home).toBeVisible();

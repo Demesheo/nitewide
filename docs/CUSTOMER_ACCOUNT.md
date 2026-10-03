@@ -2,6 +2,12 @@
 
 The customer header uses compact Discover / Booked / Saved navigation, plus Connections for eligible signed-in customers, notifications, and an initials avatar. The avatar opens Profile settings; Booked opens purchases and guestlist entries. Connections has its own feed. There is no separate ticket shortcut. All visitors find For business in the footer beside the brand, replacing the former city list.
 
+## Contact Nitewide
+
+An unobtrusive footer link opens Nitewide support in Messages. Organizer conversations and refund requests stay in their own Organizer view. Signed-in customers can report an issue, optionally attach their currently open event/booking, see case status and exchange private in-app replies with Nitewide. Context is checked server-side; other customers' records cannot be attached or read. Resolved/closed conversations are read-only. Reply/status notifications contain no private message text, and no support email is sent.
+
+Signed-out visitors can submit account-access help only. They receive a copyable private recovery link, with its secret in the URL fragment, to return and read/reply without registering. The link expires after 90 days and must be kept private. It does not authenticate an account or verify ownership of the submitted email.
+
 ## My nights
 
 Purchases and guest list entries are read from PostgreSQL through authenticated `/api/customer/bookings`, including seeded orders and new demo orders. Upcoming/past is determined by the event's end timestamp, so live events remain upcoming. Dates display in the event's local timezone. Both appear in one chronological list, paginated ten entries at a time with stable ID and kind tie-breakers. Both render the shared `NightCard` component with identical artwork, spacing, layout and opening behavior; guest passes are labeled “Guest list entry,” with their party size and request status. Each receipt preserves its original item quantities, amounts, fees, and status.

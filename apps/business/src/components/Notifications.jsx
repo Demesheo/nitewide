@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { api } from '@/lib/api';
 import { ServerPager } from './ServerPager';
 
-export function Notifications({ session, onNavigate, onMessage, capabilities = {} }) {
+export function Notifications({ session, onNavigate, onMessage, onSupportMessage, capabilities = {} }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [result, setResult] = useState(null);
@@ -32,7 +32,9 @@ export function Notifications({ session, onNavigate, onMessage, capabilities = {
   async function openItem(item) {
     try {
       await markRead(item);
-      if (item.metadata?.threadId && onMessage) {
+      if (['support_message', 'support_status'].includes(item.kind) && item.metadata?.threadId) {
+        setOpen(false); onSupportMessage?.(item.metadata.threadId);
+      } else if (item.metadata?.threadId && onMessage) {
         setOpen(false); onMessage(item.metadata.threadId);
       } else if (item.eventId) {
         setOpen(false);

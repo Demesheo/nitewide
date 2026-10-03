@@ -11,7 +11,7 @@ const defaultPriority = category => categoryRank(category) === 0 ? 'high' : 'nor
 const rankSql = alias => `(CASE WHEN ${alias}.category IN ('admission','paid_booking') THEN 0 WHEN ${alias}.category IN ('account_access','security') THEN 10
   WHEN ${alias}.category IN ('guestlist','referral','reporting') THEN 20 ELSE 30 END + CASE ${alias}.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END)`;
 const plain = record => record.toJSON ? record.toJSON() : record;
-function createAdminSupportService({ models,permissions,now = () => new Date() }) {
+function createAdminSupportService({ models,permissions,notifications,now = () => new Date() }) {
   const db = models.User?.sequelize || models.Event?.sequelize;
   const select = (sql,replacements = {},transaction) => db.query(sql,{ replacements,transaction,type: QueryTypes.SELECT });
   const authorize = (actor,permission,transaction) => permissions.assertInternalPermission(actor,permission,transaction);
@@ -46,7 +46,8 @@ function createAdminSupportService({ models,permissions,now = () => new Date() }
       const row = await models.SupportCase.findByPk(z.uuid().parse(id),{ transaction });
       if (!row) throw notFound('Support case');
       const history = await models.AuditLog.findAndCountAll({ where: { entityType: 'SupportCase',entityId: id },order: [['createdAt','DESC'],['id','DESC']],limit: 50,transaction });
-      return { case: plain(row),history: history.rows.map(plain),historyMeta: { total: history.count,page: 1,pageSize: 50,hasMore: history.count>50 } };
+      const [conversation] = await select('SELECT id FROM support_conversations WHERE case_id=:id',{ id },transaction);
+      return { case: plain(row),supportThreadId: conversation?.id || null,history: history.rows.map(plain),historyMeta: { total: history.count,page: 1,pageSize: 50,hasMore: history.count>50 } };
     });
   }
   async function history(actor,id,query = {}) {
@@ -115,7 +116,13 @@ function createAdminSupportService({ models,permissions,now = () => new Date() }
       // The model's version increment and the row lock make duplicate/replayed edits fail.
       await row.update({ ...changes,organizationId: data.organizationId,customerUserId: data.customerUserId,eventId: data.eventId,
         updatedByAdminUserId: actor },{ transaction });
-      await audit(actor,row,'updated',before,reason,transaction); return plain(row);
+      await audit(actor,row,'updated',before,reason,transaction);
+      if (before.status!==row.status) {
+        const [conversation] = await select('SELECT id,requester_user_id FROM support_conversations WHERE case_id=:id',{ id },transaction);
+        if (conversation?.requester_user_id) await notifications?.emit({ userId: conversation.requester_user_id,kind: 'support_status',title: 'Support case updated',
+          message: 'Your support case status changed. Open Messages to view it.',metadata: { threadId: conversation.id } },transaction);
+      }
+      return plain(row);
     });
   }
   async function needsAttention(actor,query = {}) {

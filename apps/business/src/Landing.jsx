@@ -18,6 +18,7 @@ import { features, pricing, questions, roadmap } from "./lib/landing-content";
 import { customerLink } from "./lib/customer-link";
 import FeeComparison from "./components/fee-comparison";
 import { BrandMark, BusinessBrand } from './components/BusinessBrand';
+import { ContactNitewide } from './components/Messages';
 import "./landing.css";
 
 const icons = {
@@ -555,6 +556,7 @@ export default function Landing() {
         </section>
       </main>
       <footer className="lp-footer lp-container">
+        <ContactNitewide/>
         <Brand />
         <p>Made for the people who make it happen.</p>
         <a href="#main">Back to top ↑</a>

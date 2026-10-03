@@ -1,0 +1,21 @@
+.support-messages { min-width:0; display:grid; gap:12px; }
+.support-messages h2 { font-size:18px; margin:0; }
+.support-messages h3 { font-size:16px; margin:0; overflow-wrap:anywhere; }
+.support-messages p { margin:0; }
+.support-messages input { width:100%; min-height:44px; border:1px solid #ffffff25; border-radius:8px; padding:10px; background:#ffffff08; color:inherit; }
+.support-recovery { display:grid; gap:12px; border:1px solid #ffffff25; border-radius:10px; padding:12px; font-size:13px; }
+.support-status { font-size:13px; color:#b9b2c3; }
+.support-tabs { display:flex; gap:8px; flex-wrap:wrap; }
+.support-tabs button { min-height:44px; }
+.contact-nitewide-link { font-size:12px; min-height:44px; }
+.support-honeypot { position:absolute; left:-10000px; width:1px; height:1px; overflow:hidden; }
+.support-filter { display:grid; gap:12px; }
+.support-filter label { display:grid; gap:8px; }
+.support-filter fieldset { display:flex; gap:12px; flex-wrap:wrap; border:1px solid #ffffff25; border-radius:8px; padding:12px; }
+.support-filter fieldset label { display:flex; align-items:center; min-height:44px; gap:6px; }
+.support-filter input[type=checkbox] { width:20px; min-height:20px; }
+.footer-links { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:8px; }
+.app-footer { align-items:center; flex-wrap:wrap; gap:8px; }
+.signin-form > footer { text-align:center; }
+.support-context { display:flex !important; align-items:center; }
+.support-context input { width:20px; min-height:20px; }

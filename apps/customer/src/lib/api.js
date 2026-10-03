@@ -1,6 +1,6 @@
 import { customerPresentation } from './demo-visibility.js';
 const API = import.meta.env.VITE_API_URL || "/api";
-export async function api(path, { token, body, signal, ...options } = {}) {
+export async function api(path, { token, body, signal, headers, ...options } = {}) {
   let response;
   try {
     response = await fetch(`${API}${path}`, {
@@ -9,6 +9,7 @@ export async function api(path, { token, body, signal, ...options } = {}) {
       headers: {
         ...(body ? { "Content-Type": "application/json" } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...headers,
       },
       ...(body
         ? { body: JSON.stringify(body), method: options.method || "POST" }

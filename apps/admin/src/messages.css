@@ -1,0 +1,6 @@
+.admin-message-trigger { position: relative; min-width: 44px; min-height: 44px; }
+.top-actions .admin-message-count { display: grid; place-items: center; position: absolute; top: 1px; right: 0; min-width: 17px; height: 17px; padding: 0 3px; border-radius: 999px; color: var(--primary-foreground, #181423); background: var(--primary); font-size: 10px; font-weight: 700; pointer-events: none; }
+.admin-messages-workspace { display: grid; gap: 20px; min-width: 0; }
+.admin-messages-workspace .management-panel { min-width: 0; }
+.support-case-navigation { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+@media (max-width: 600px) { .admin-messages-workspace { gap: 14px; } .support-case-navigation > button { min-height: 44px; } }

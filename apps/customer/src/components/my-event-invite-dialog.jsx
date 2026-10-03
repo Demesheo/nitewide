@@ -45,7 +45,11 @@ export function MyEventInviteDialog({ session, detail, capabilities, onClose, on
   useEffect(() => { if (result && !busy) copyRef.current?.focus({ preventScroll: true }); }, [result, busy]);
   useEffect(() => { if (!loading && writable && pools?.open && !focusedForm.current) { nameRef.current?.focus({ preventScroll: true }); focusedForm.current = true; } }, [loading, writable, pools]);
 
-  const change = (key) => (event) => { setFields((current) => ({ ...current, [key]: event.target.value })); setError(''); };
+  const change = (key) => (event) => {
+    const value = event.target.value;
+    setFields((current) => ({ ...current, [key]: value }));
+    setError('');
+  };
   const close = () => { if (!lock.current && !copying) onClose(); };
   async function submit(event) {
     event.preventDefault();

@@ -35,7 +35,7 @@ function createRouter(options) {
   const businessEventRead = createBusinessEventReadService({ models });
   const businessInstructionsRead = createBusinessInstructionsReadService({ models, permissions, email, deliveryTrackingConfigured });
   const admin = createAdminService({ models, permissions, email, customerAppUrl });
-  const adminSupport = require('../services/admin-support-service').createAdminSupportService({ models, permissions });
+  const adminSupport = require('../services/admin-support-service').createAdminSupportService({ models, permissions,notifications });
   const analytics = createAnalyticsService({ models, permissions });
   const team = createTeamService({ models, permissions, email, businessAppUrl });
   const eventWorkspace = createEventWorkspaceService({ models, permissions, email, businessAppUrl });
@@ -59,6 +59,8 @@ function createRouter(options) {
   require('./customer-my-events').registerCustomerMyEventsRoutes(context);
   require('./customer').registerCustomerRoutes(context);
   require('./organizer-messages').registerOrganizerMessageRoutes({ ...context, organizerMessages });
+  const supportMessages = require('../services/support-message-service').createSupportMessageService({ models,permissions,notifications,sequelize: options.sequelize });
+  require('./support-messages').registerSupportMessageRoutes({ ...context,supportMessages });
   const commissionSettings = require('../services/commission-settings-service').createCommissionSettingsService({ models, permissions });
   const commissionSchemas = require('../http/commission-schemas');
   router.patch('/business/organizations/:organizationId/people/:userId/commission-settings', requireUser, require('./contract-router').validate(commissionSchemas.organizationPersonCommissionSettings), require('./contract-router').asyncHandler(async (req,res) => {

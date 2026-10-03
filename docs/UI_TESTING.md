@@ -84,6 +84,8 @@ Offline HTTP tests also enforce the hosted release cache policy: entry HTML is `
 
 Active admin rebuild specs cover directory/navigation state, capability boundaries, onboarding, audited edits, scoped venues and venue teams, support cases, analytics drill-downs and complete exports, and compact event artwork/layout. The real admin identity journey also covers customer access denial, retryable failed logout and session revocation. Removed legacy lifecycle paths were not part of the active browser gate; required API lifecycle/history tests remain, but are not equivalent rebuilt-interface UI coverage.
 
+The private Nitewide support journey verifies real requester intake, Admin replies, case linkage/resolution, private internal notes and unverified guest capability access on both devices. Existing Customer footer and Business entry/workspace journeys additionally exercise the quiet footer links, signed-out recovery after reload and Business issue submission. Shared interaction tests cover stable uncertain-send retries, token/session changes, unread acknowledgment and guest secrets confined to fragment recovery links. Required API/database tests enforce record scope, staff reply permissions, lifecycle/rate limits and private recovery-token checks; no real email or provider calls are used.
+
 These are real interaction regressions, not screenshots-only checks or mocked API response snapshots. Extend the suite whenever a fixed bug or stable repeated workflow warrants coverage. It is not exhaustive coverage of every control.
 
 ### Consolidate customer journeys, not safety coverage
