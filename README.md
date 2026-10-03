@@ -24,6 +24,7 @@ This repository contains:
 - `TODO.md` — completed, current, next, and later work
 - `docs/PRODUCT_ROADMAP.md` — dated sprints, milestones, regions, quality targets, and scale gates
 - `docs/LAUNCH_HOSTING_PLAN.md` — agreed $34.50/month lean Render and Cloudflare launch plan, saved for later implementation
+- `docs/PRODUCTION_LAUNCH_CHECKLIST.md` — staged production preparation, payment readiness, full-suite verification, recovery and launch approval gates
 - `docs/LINEAR_BACKLOG.md` — Linear goals, labels, cycles, and initial user-story backlog
 - `docs/TOP_25_NIGHTLIFE_METROS.md` — ranked U.S. nightlife metro targets, rollout interpretation, and market-launch scorecard
 - `docs/PAYMENT_PROVIDER_EVALUATION.md` — Stripe MVP decision and post-launch Stax/PayPal evaluation framework

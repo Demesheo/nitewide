@@ -54,6 +54,12 @@ not itself deploy the adapter or change Render's environment settings.
 
 ## Launch prerequisites
 
+Use the [production launch checklist](PRODUCTION_LAUNCH_CHECKLIST.md) as the master
+release gate for Customer, Business, Admin, API and worker preparation. It expands
+these prerequisites with configuration checks, merchant routing, actual provider
+verification, recovery drills and final approval; recording the plan does not mark
+those checks complete or authorize infrastructure changes.
+
 1. Create production separately from the public demo, using fresh secrets and a
    clean database without demo credentials, mock purchases, or automatic reseeding.
 2. Implement R2 storage, upload finalization, orphan cleanup, and media migration.
