@@ -12,8 +12,11 @@ const projectGroups = {
   'customer-operations': { apps: ['customer'], specs: ['customer-my-events.spec.cjs', 'commissions-messages.spec.cjs'] },
   business: { apps: ['business'], specs: [] },
   'business-core': { apps: ['business'], specs: ['business.spec.cjs'] },
-  'business-operations': { apps: ['business'], specs: ['business-access.spec.cjs', 'business-payments.spec.cjs', 'commissions-messages.spec.cjs'] },
-  'platform-operations': { apps: ['customer', 'admin-rebuild'], specs: ['customer-my-events.spec.cjs', 'commissions-messages.spec.cjs', 'admin-rebuild.spec.cjs', 'admin-access-requests.spec.cjs'] },
+  // Run 61 measured Customer operations at ~95s, Business operations at
+  // ~84s and Admin at ~128s. Keep the shared Messages file with both customer
+  // and business projects so its device/spec pairs cannot run in two lanes.
+  'business-operations': { apps: ['business', 'customer'], specs: ['business-access.spec.cjs', 'business-payments.spec.cjs', 'commissions-messages.spec.cjs', 'customer-my-events.spec.cjs'] },
+  'platform-operations': { apps: ['admin-rebuild'], specs: ['admin-rebuild.spec.cjs', 'admin-access-requests.spec.cjs'] },
   'admin-rebuild': { apps: ['admin-rebuild'], specs: [] },
 };
 

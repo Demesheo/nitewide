@@ -60,6 +60,9 @@ test('CI balances four file partitions while keeping every device/spec pair exac
   const expected = config.projects.flatMap(project => project.testMatch.map(file => `${project.name}:${file}`));
   assert.deepEqual(coverage.sort(), expected.sort(), 'Every configured device/spec pair runs exactly once');
   assert.equal(new Set(coverage).size, coverage.length, 'No duplicated device/spec executions');
+  assert.deepEqual(projectGroups['business-operations'].apps, ['business', 'customer']);
+  assert.ok(projectGroups['business-operations'].specs.includes('customer-my-events.spec.cjs'));
+  assert.deepEqual(projectGroups['platform-operations'], { apps: ['admin-rebuild'], specs: ['admin-rebuild.spec.cjs', 'admin-access-requests.spec.cjs'] });
   const legacy = containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: 'customer' } });
   assert.deepEqual(legacy.args.slice(-6), ['npm', 'run', 'test:e2e', '--', '--project=customer-iphone', '--project=customer-desktop']);
   assert.throws(() => containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: 'customer --workers=4' } }), /supported browser project group/);

@@ -216,8 +216,8 @@ For agent-assisted browser work, use an owned Codex side tab when manual investi
 | --- | --- |
 | `customer-core` | `customer.spec.cjs` |
 | `business-core` | Business projects: `business.spec.cjs` |
-| `business-operations` | Business projects: access, payments and Messages/commissions specs |
-| `platform-operations` | Customer projects: My events and Messages; admin projects: both rebuilt-admin specs |
+| `business-operations` | Business projects: access, payments and Messages/commissions; Customer projects: My events and Messages |
+| `platform-operations` | Admin projects: both rebuilt-admin specs |
 
 All six active projects remain required; the `verify` gate fails unless every matrix job and the unit/build jobs pass. A Node regression checks that every configured device/spec pair appears exactly once across the four jobs. No image is published and no Render request is made before that gate passes. Browser tests remain single-worker within each job; separate jobs never share a database.
 
@@ -273,6 +273,14 @@ npx playwright show-trace test-results/<failed-test>/trace.zip
 ```
 
 Review trace actions, DOM snapshots, requests and error screenshots. Never upload `.env`, authentication state from real accounts, or live application data as CI artifacts.
+
+## Follow-up lane balancing and request setup
+
+[Hosted run 61](https://github.com/Demesheo/nitewide/actions/runs/37143184834) verified the previous cleanup on the pinned Linux runtime: every job passed in 6m 2s, compared with 9m 30s for run 59's successful second attempt. Its platform-operations job took 5m, while business-operations took 2m 37s. The follow-up moves Customer My events and Customer Messages to business-operations, alongside Business access, payments and commissions; platform-operations now owns only Admin. The shared Messages spec remains in one lane for both apps. Actual CLI inventories select **36/26/50/44** cases, still every one of the same 156 journey/device selections exactly once, with no extra runners or concurrent database mutations.
+
+Only repeated prerequisites changed. The Business adjusted-approval journey creates its five-spot pending request through the real customer API rather than replaying the Customer request form. Customer My events retains that complete form interaction on both devices: initial one spot, minus disabled, increase to five, plus disabled, touch sizing, server rejection of six, actual submission and pending state. Both review interfaces still adjust five to four through the UI, assert the submitted decision, and open the real Customer notification plus all four distinct QR passes. Promoter and past-event My events journeys use fresh API sign-in instead of repeating the sign-in form; their real role-scoped UI, unauthorized/past-event mutation rejection and independent sessions remain unchanged. Dedicated UI sign-in journeys remain active.
+
+The complete local `CI=true npm run test:release` gate passed **607 API unit tests, 37/209/180 Admin/Business/Customer frontend tests, all 31 isolated database suites, and 150 browser cases plus the same six intentional skips**, with zero failures or recovered flakes. Sequential local browser JUnit time was 327.6s; this does not predict the parallel hosted lane timing. No production source, timeout, retry, assertion for the tested review outcomes, or payment/authorization release gate changed. The next pushed GitHub run will measure the lane improvement against run 61.
 
 ## Remaining manual verification
 

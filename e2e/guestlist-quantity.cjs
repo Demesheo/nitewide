@@ -3,7 +3,7 @@ const { urls } = require('./environment.cjs');
 
 // A separate browser session keeps the guest and reviewer identities isolated.
 // All requests still target the generated Playwright database, never dev data.
-async function requestFiveSpots({ browser, page, request, fixture, testInfo }) {
+async function fiveSpotRequest({ browser, page, request, fixture, testInfo }, throughUi) {
   const context = await browser.newContext({ viewport: page.viewportSize(),
     isMobile: Boolean(testInfo.project.use.isMobile), hasTouch: Boolean(testInfo.project.use.hasTouch),
     reducedMotion: 'reduce', serviceWorkers: 'block' });
@@ -16,6 +16,18 @@ async function requestFiveSpots({ browser, page, request, fixture, testInfo }) {
     const headers = { authorization: `Bearer ${token}` };
     const withdrawn = await request.delete(`${urls.api}/api/customer/guestlists/${fixture.ids.pending}`, { headers });
     expect(withdrawn.ok()).toBeTruthy();
+    if (!throughUi) {
+      // The Customer My events journey covers the real request form on
+      // both devices. Business review needs a real pending API request, not a
+      // second tour of that same form. Its review, notification and QR passes
+      // still use the actual Business and Customer interfaces and database.
+      const submitted = await request.post(`${urls.api}/api/events/${fixture.ids.event}/guestlist`, { headers, data: { partySize: 5 } });
+      expect(submitted.status()).toBe(202);
+      const entry = (await submitted.json()).data.entry;
+      expect(entry.partySize).toBe(5);
+      expect(entry.status).toBe('pending');
+      return { context, guest, entry, token, errors, request };
+    }
     const invalid = await request.post(`${urls.api}/api/events/${fixture.ids.event}/guestlist`, { headers, data: { partySize: 6 } });
     expect(invalid.status(), 'the server also caps customer requests at five').toBe(422);
     await guest.goto(`${urls.customer}/?event=${fixture.ids.event}`);
@@ -45,6 +57,9 @@ async function requestFiveSpots({ browser, page, request, fixture, testInfo }) {
     return { context, guest, entry, token, errors, request };
   } catch (error) { await context.close(); throw error; }
 }
+
+const requestFiveSpots = options => fiveSpotRequest(options, true);
+const seedFiveSpotRequest = options => fiveSpotRequest(options, false);
 
 async function expectFourApprovedPasses({ guest, entry, token, request, errors }, _fixture, testInfo) {
   const response = await request.get(`${urls.api}/api/customer/guestlists/${entry.id}/pass`, { headers: { authorization: `Bearer ${token}` } });
@@ -76,4 +91,4 @@ async function expectFourApprovedPasses({ guest, entry, token, request, errors }
   expect(errors, 'guest session has no uncaught runtime errors').toEqual([]);
 }
 
-module.exports = { requestFiveSpots, expectFourApprovedPasses };
+module.exports = { requestFiveSpots, seedFiveSpotRequest, expectFourApprovedPasses };

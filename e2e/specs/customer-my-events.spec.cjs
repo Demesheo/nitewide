@@ -295,7 +295,7 @@ test('manager can cancel a guestlist denial confirmation and then explicitly den
 
 operatorTest('promoter sees only credited performance and their own guestlist, not direct requests', async ({ page, request, fixture }, testInfo) => {
   await operatorScenario(request);
-  await openMyEvent(page, fixture, 'promoter', login);
+  await openMyEvent(page, fixture, 'promoter');
   await expect(page.getByRole('heading', { name: 'Your performance', exact: true })).toBeVisible();
   await expect(page.locator('.my-event-stats')).toContainText('$25.00');
   await expect(page.locator('.my-event-stats')).not.toContainText('$65.00');
@@ -316,7 +316,7 @@ operatorTest('promoter sees only credited performance and their own guestlist, n
 
 operatorTest('past event guestlists and statistics are readable but invitations and reviews are rejected server-side', async ({ page, request, fixture }) => {
   await operatorScenario(request, true);
-  await login(page, fixture, 'customer', 'business', `/?tab=my-events&myStatus=past&myEvent=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'customer', 'business', `/?tab=my-events&myStatus=past&myEvent=${fixture.ids.event}`);
   await expect(page.getByRole('heading', { name: 'Event performance', exact: true })).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'This event has ended.' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Copy my referral link', exact: true })).toBeDisabled();

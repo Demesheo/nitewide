@@ -7,7 +7,7 @@ const admissionsTest = baseTest.extend({ fixtureRecipe: 'admissions' });
 const { expectBrandImage, expectBrandIcons } = require('../brand-checks.cjs');
 const QRCode = require('qrcode');
 const { urls } = require('../environment.cjs');
-const { requestFiveSpots, expectFourApprovedPasses } = require('../guestlist-quantity.cjs');
+const { seedFiveSpotRequest, expectFourApprovedPasses } = require('../guestlist-quantity.cjs');
 const { checkPasswordVisibility } = require('../password-visibility.cjs');
 const { gestureClipboard } = require('../clipboard.cjs');
 
@@ -426,7 +426,7 @@ test('organization invitation links and resend links open the team acceptance sc
 });
 
 test('business reviewer adjusts a five-spot request to four separate passes and a matching notification', async ({ page, browser, request, fixture }, testInfo) => {
-  const customer = await requestFiveSpots({ browser, page, request, fixture, testInfo });
+  const customer = await seedFiveSpotRequest({ browser, page, request, fixture, testInfo });
   try {
     await eventDetails(page, fixture);
     await page.getByRole('tab', { name: 'Guestlist', exact: true }).click();
