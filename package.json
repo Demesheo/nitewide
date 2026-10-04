@@ -16,6 +16,7 @@
     "dev:admin": "npm run dev --workspace @nitewide/admin",
     "build": "npm run build --workspaces --if-present",
     "deploy:demo": "node deploy/trigger-demo.cjs",
+    "payments:preflight": "node deploy/payment-preflight.cjs",
     "secrets:generate": "node scripts/generate-secrets.cjs",
     "test": "node scripts/run-default-tests.cjs",
     "test:quick": "node scripts/run-quick-tests.cjs",

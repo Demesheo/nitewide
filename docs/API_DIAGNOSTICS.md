@@ -55,6 +55,42 @@ Metrics reset on process restart and describe one process only. They are not per
 
 Readiness returns 503 for a failed database check, an expired readiness deadline or draining. Liveness remains 200 during draining until the server closes. Health responses contain no connection details and are not cached. Concurrent readiness probes share one in-flight database check, preventing a hung check from flooding the pool. The HTTP deadline does not cancel the underlying probe; PostgreSQL and connection deadlines bound that work separately.
 
+## Payment deployment preflight
+
+`GET /api/admin/diagnostics/payments` is a separate, authenticated **internal-admin-only** diagnostic with `Cache-Control: no-store`. It does not change `/health/live`, `/health/ready`, merchant assignments or checkout behavior. A payment configuration problem must not take discovery, free claims, guestlists or existing passes offline. HTTP 200 means the diagnostic returned a report, not that payments passed: inspect its `mode` and checks.
+
+The report distinguishes `disabled`, `sandbox-ready` and `configuration-blocked`. It checks the effective runtime's test credential formats, both distinct webhook signing secrets, hosted callback/CORS settings, payment schema/migration ledger, active published paid-event merchant routing, and fresh payment-worker identity. The bundled hosted demo additionally requires customer `/` and business `/app` callbacks on the same origin; standalone deployments are not restricted to those paths. Live mode remains unsupported. Missing, restricted, stale, disconnected or wrong-organization merchants are counted without returning account IDs, customer information or raw provider/database errors. Free events do not require a merchant; inactive and ended events are excluded from new-checkout routing checks.
+
+The database inspection uses a bounded read-only transaction and aggregate queries, not one provider request per event. Concurrent HTTP probes share one inspection. It makes **no Stripe requests, charges, refunds, emails or database writes**, and it never refreshes merchant readiness. Stored provider observations use the same freshness policy as checkout, so an expired observation must be refreshed through the existing authorized Business Payments workflow before rechecking.
+
+Worker heartbeats carry a keyed payment-configuration comparison token and release identity in the existing private heartbeat details. The diagnostic compares every fresh running worker (two-minute heartbeat window) with the API, including whether payment reconciliation is enabled. Missing or mismatched evidence blocks hosted sandbox readiness; local development warns when no worker is running. The comparison token is not a raw secret, is not logged, and is not returned in the preflight report. It establishes runtime parity, not correct external provider settings.
+
+The image build embeds its public Git SHA in `apps/api/release.json` and verifies it before publication. Native Render Git deployments without that file use `RENDER_GIT_COMMIT`; a malformed or missing baked revision is not substituted with an operator-provided claim. API and worker must use the same reviewed image and settings. No runtime secret is a build argument.
+
+### Release commands
+
+Run on the target runtime, after reviewed migrations and after its worker has produced a heartbeat:
+
+```sh
+npm run payments:preflight -- --require-paid --expect-revision <full-40-character-commit-SHA>
+```
+
+Or inspect the **actually running deployed API**, using a current internal-admin session stored privately as `PAYMENT_PREFLIGHT_ADMIN_TOKEN` (never as a command argument or query string):
+
+```sh
+npm run payments:preflight -- --url https://nitewide-demo.onrender.com --require-paid --expect-revision <full-40-character-commit-SHA>
+```
+
+The deployed command rejects redirects and validates the response against the executable report contract before printing it. The local command uses injected runtime settings; only local development may need the ignored root `.env`. Both exit nonzero for blocked results; `--require-paid` also rejects disabled payments, the absence of a usable paid-event route, or missing/mismatched payment-worker evidence even locally. `--expect-revision` prevents an older healthy release from passing as the candidate. The command has a 20-second overall deadline. Running it without `--require-paid` permits an intentionally disabled free-only environment; that is not paid-launch approval.
+
+Treat this command as an explicit payment release gate after API/worker startup, not as the general host health check. Do not automatically redeploy, reseed, change settings or change merchants when it fails. The current demo workflow embeds/verifies release identity, but does not receive production credentials or automatically run a remote authenticated payment check. A production promotion process still needs to invoke this gate against its candidate environment.
+
+### Evidence it cannot establish
+
+Credential **formats** do not establish that secret and publishable keys belong to the same Stripe sandbox; that needs separately recorded identity and end-to-end evidence. Stripe documents [key roles and environment isolation](https://docs.stripe.com/keys). Likewise, two correctly shaped signing secrets do not establish that the Dashboard destinations use those secrets, the right event subscriptions/API version, the right URLs, or that Stripe actually delivers events. Confirm both destinations' signed delivery in Workbench using [Stripe's webhook guidance](https://docs.stripe.com/webhooks).
+
+`sandbox-ready` means these configuration/routing checks passed, **not** that production payments, actual webhook delivery, wallet availability, financial settlement or backups have been verified. The report explicitly labels key-pair identity and webhook delivery unverified and merchant readiness stored-snapshot-only. Keep the controlled provider, physical-device and launch approval gates in the [production checklist](PRODUCTION_LAUNCH_CHECKLIST.md).
+
 ## Environment configuration
 
 Set these variables in the repository's ignored local `.env` or the API and worker services' Render environment settings. The `.env.example` contains the defaults. Do not put secrets or connection URLs in source control.

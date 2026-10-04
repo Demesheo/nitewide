@@ -1,6 +1,7 @@
 const { z } = require('zod');
 const { MAX_IMAGE_BYTES } = require('../services/media-service');
 const { webhookAcknowledgment } = require('./payment-schemas');
+const { paymentPreflightReport, paymentPreflightQuery } = require('./payment-preflight-schemas');
 
 const count = z.number().int().nonnegative();
 const duration = z.number().nonnegative();
@@ -37,6 +38,9 @@ const operations = [
   { method: 'get', path: '/health/ready', authenticated: false, responses: { 200: health, 503: health } },
   { method: 'get', path: '/health', authenticated: false, responses: { 200: health, 503: health } },
   { method: 'get', path: '/api/admin/diagnostics/metrics', authenticated: true, responses: { 200: envelope(metrics) } },
+  { method: 'get', path: '/api/admin/diagnostics/payments', authenticated: true, query: paymentPreflightQuery,
+    description: 'Internal administrators only. Read-only sandbox configuration, schema, stored merchant readiness and API/worker parity diagnostic; no provider requests. HTTP 200 includes blocked/disabled outcomes. Key-pair identity and actual webhook delivery remain unverified. Independent of general service readiness.',
+    responses: { 200: envelope(paymentPreflightReport) } },
   { method: 'post', path: '/api/business/uploads/image', authenticated: true, multipart: true, responses: { 201: envelope(image) } },
   { method: 'get', path: '/api/media/images/:assetId', authenticated: false, image: true, params: z.object({ assetId: z.uuid() }) },
   { method: 'post', path: '/api/webhooks/resend', authenticated: false, signedWebhook: true, responses: { 204: null } },
@@ -61,6 +65,7 @@ function supplementalPaths({ jsonSchema }) {
     const operation = { operationId: `app_${metadata.method}_${metadata.path.replace(/[^A-Za-z0-9]+/g, '_')}`,
       tags: [api ? metadata.path.includes('/admin/') ? 'admin' : metadata.signedWebhook ? 'account' : 'business' : 'public'],
       security: metadata.authenticated ? [{ bearerSession: [] }] : [], parameters: [], responses: {} };
+    if (metadata.description) operation.description = metadata.description;
     if (!api) operation.servers = [{ url: '/' }];
     if (metadata.params) for (const [name, schema] of Object.entries(metadata.params.shape)) {
       operation.parameters.push({ name, in: 'path', required: true, schema: jsonSchema(schema) });

@@ -31,6 +31,9 @@ COPY --from=build /app/apps/customer/dist apps/customer/dist
 COPY --from=build /app/apps/business/dist apps/business/dist
 COPY --from=build /app/apps/admin/dist apps/admin/dist
 COPY deploy ./deploy
+ARG RELEASE_REVISION
+# Public commit identity only; payment credentials remain runtime secrets.
+RUN node -e 'const fs=require("node:fs"); const revision=process.env.RELEASE_REVISION || ""; if(revision && !/^[a-f0-9]{40}$/.test(revision)) throw Error("Invalid release revision"); fs.writeFileSync("/app/apps/api/release.json", JSON.stringify({revision: revision || null}));'
 RUN mkdir -p /app/media && chown node:node /app/media
 USER node
 EXPOSE 10000

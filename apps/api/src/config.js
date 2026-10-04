@@ -2,6 +2,7 @@ const { z } = require('zod');
 const ipaddr = require('ipaddr.js');
 const { databaseConnectionConfig } = require('./db/connection-config');
 const { sharedSandboxAccountId } = require('./domain/shared-sandbox-merchant');
+const { releaseRevision } = require('./diagnostics/payment-runtime');
 
 const DEVELOPMENT_SECRETS = {
   AUTH_TOKEN_SECRET: 'nitewide-development-secret-change-me',
@@ -147,6 +148,7 @@ function getConfig(environment = process.env) {
   }
   return {
     ...values,
+    RELEASE_REVISION: releaseRevision(environment),
     LOG_LEVEL: values.LOG_LEVEL || (values.NODE_ENV === 'test' ? 'silent' : 'info'),
     bindHost: values.BIND_HOST || (values.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1'),
     hostedDemo: values.HOSTED_DEMO === 'true',

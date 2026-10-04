@@ -20,6 +20,8 @@ const { asyncHandler } = require('./http/middleware');
 const { DomainError } = require('./domain/errors');
 const { createDiagnostics } = require('./diagnostics/observability');
 const { createHealth } = require('./diagnostics/health');
+const { createPaymentPreflight } = require('./diagnostics/payment-preflight');
+const { paymentPreflightQuery } = require('./http/payment-preflight-schemas');
 const { createPaymentServices } = require('./payments/services');
 const { stripeConfiguration } = require('./payments/stripe-client');
 const { createPaymentController } = require('./controllers/payment-controller');
@@ -63,6 +65,8 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   const checkout = services.checkout || createCheckoutService({ sequelize, models, notificationJobs, environment: config.NODE_ENV, hostedDemo: config.hostedDemo, email, customerAppUrl: config.CUSTOMER_APP_URL });
   const payments = createPaymentServices({ sequelize, models, config, permissions, notificationJobs, checkout, services });
   app.locals.payments = payments;
+  const paymentPreflight = services.paymentPreflight || createPaymentPreflight({ sequelize, models, config, stripe: payments.stripe });
+  app.locals.paymentPreflight = paymentPreflight;
   for (const [path, receive] of [['/api/webhooks/stripe', payments.stripeWebhooks.receive], ['/api/webhooks/stripe/accounts', payments.stripeWebhooks.receiveAccountNotification]]) {
     app.post(path, express.raw({ type: 'application/json', limit: '256kb' }), asyncHandler(async (req, res) => {
       if (!Buffer.isBuffer(req.body)) throw new DomainError('Expected a signed JSON event', { code: 'INVALID_WEBHOOK', status: 400 });
@@ -90,6 +94,11 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   app.get('/api/admin/diagnostics/metrics', requireUser, asyncHandler(async (req, res) => {
     await permissions.assertInternal(req.userId);
     res.set('Cache-Control', 'no-store').json({ data: diagnostics.snapshot() });
+  }));
+  app.get('/api/admin/diagnostics/payments', requireUser, asyncHandler(async (req, res) => {
+    await permissions.assertInternal(req.userId);
+    const input = paymentPreflightQuery.parse(req.query);
+    res.set('Cache-Control', 'no-store').json({ data: await paymentPreflight.inspect({ ...input, requirePaid: input.requirePaid === 'true' }) });
   }));
   app.use('/api', createMediaRouter({ models, requireUser, config, uploadDir: config.MEDIA_UPLOAD_DIR, storage: services.mediaStorage }));
   const guestlistService = services.requestGuestlist && services.reviewGuestlist ? null : createGuestlistService({ sequelize, models, permissions, email, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, reviewEmailsEnabled: config.businessGuestlistReviewEmails });

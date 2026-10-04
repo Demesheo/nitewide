@@ -77359,6 +77359,499 @@
         }
       }
     },
+    "/admin/diagnostics/payments": {
+      "get": {
+        "operationId": "app_get__api_admin_diagnostics_payments",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "requirePaid",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "default": "false",
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "expectRevision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            "style": "form",
+            "explode": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "scope": {
+                          "type": "string",
+                          "const": "payment-preflight"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "disabled",
+                            "sandbox-ready",
+                            "configuration-blocked"
+                          ]
+                        },
+                        "checkedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "checks": {
+                          "maxItems": 100,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "enum": [
+                                  "PAYMENTS_DISABLED",
+                                  "LIVE_PAYMENTS_UNSUPPORTED",
+                                  "STRIPE_MODE_INVALID",
+                                  "STRIPE_SECRET_KEY_MISSING",
+                                  "STRIPE_SECRET_KEY_INVALID",
+                                  "STRIPE_PUBLISHABLE_KEY_MISSING",
+                                  "STRIPE_PUBLISHABLE_KEY_INVALID",
+                                  "STRIPE_WEBHOOK_SECRET_MISSING",
+                                  "STRIPE_WEBHOOK_SECRET_INVALID",
+                                  "STRIPE_ACCOUNT_WEBHOOK_SECRET_MISSING",
+                                  "STRIPE_ACCOUNT_WEBHOOK_SECRET_INVALID",
+                                  "STRIPE_WEBHOOK_SECRETS_NOT_DISTINCT",
+                                  "STRIPE_CONFIGURATION_FORMATS",
+                                  "CUSTOMER_CALLBACK_INVALID",
+                                  "BUSINESS_CALLBACK_INVALID",
+                                  "CALLBACK_URLS_CONFIGURED",
+                                  "CALLBACK_CORS_MISMATCH",
+                                  "HOSTED_DEMO_CALLBACK_ROUTING_MISMATCH",
+                                  "SHARED_SANDBOX_ROUTING",
+                                  "SHARED_SANDBOX_ROUTING_FORBIDDEN",
+                                  "PAYMENT_RUNTIME_UNAVAILABLE",
+                                  "KEY_PAIR_IDENTITY_NOT_VERIFIED",
+                                  "WEBHOOK_DELIVERY_NOT_VERIFIED",
+                                  "PROVIDER_READINESS_SNAPSHOT_ONLY",
+                                  "PAYMENT_SCHEMA_READY",
+                                  "PAYMENT_SCHEMA_MISSING",
+                                  "PAYMENT_DATABASE_UNAVAILABLE",
+                                  "PAYMENT_DIAGNOSTIC_TIMEOUT",
+                                  "PAYMENT_ROUTING_READY",
+                                  "PAYMENT_ROUTING_BLOCKED",
+                                  "PAYMENT_ROUTING_COMPLEXITY_LIMIT",
+                                  "PAID_ROUTES_MISSING",
+                                  "WORKER_RUNTIME_READY",
+                                  "WORKER_RUNTIME_MISSING",
+                                  "WORKER_RUNTIME_MISMATCH",
+                                  "RELEASE_REVISION_UNKNOWN",
+                                  "RELEASE_REVISION_MISMATCH",
+                                  "RELEASE_REVISION_MATCH"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pass",
+                                  "warn",
+                                  "fail",
+                                  "not-checked"
+                                ]
+                              },
+                              "message": {
+                                "type": "string",
+                                "enum": [
+                                  "Stripe payments are disabled. Free events and guestlists remain independent of this diagnostic.",
+                                  "Live payments are unsupported by this release. Use disabled or test mode; do not replace sandbox credentials with live credentials.",
+                                  "Set STRIPE_MODE to disabled or test.",
+                                  "Test mode requires STRIPE_SECRET_KEY in both API and worker environments.",
+                                  "STRIPE_SECRET_KEY must have the sandbox secret-key format.",
+                                  "Test mode requires STRIPE_PUBLISHABLE_KEY in both API and worker environments.",
+                                  "STRIPE_PUBLISHABLE_KEY must have the sandbox publishable-key format.",
+                                  "Set STRIPE_WEBHOOK_SECRET for the connected-account snapshot webhook in both API and worker environments.",
+                                  "STRIPE_WEBHOOK_SECRET must have the Stripe signing-secret format.",
+                                  "Set STRIPE_ACCOUNT_WEBHOOK_SECRET for the Accounts v2 notification webhook in both API and worker environments.",
+                                  "STRIPE_ACCOUNT_WEBHOOK_SECRET must have the Stripe signing-secret format.",
+                                  "The snapshot and Accounts v2 webhook destinations require separate signing secrets.",
+                                  "Sandbox credential and separate webhook-secret formats are configured. Their provider identity has not been verified.",
+                                  "Set an explicit valid CUSTOMER_APP_URL. Hosted payments require a public HTTPS URL without credentials, query or fragment.",
+                                  "Set an explicit valid BUSINESS_APP_URL. Hosted payments require a public HTTPS URL without credentials, query or fragment.",
+                                  "Customer and business callback URL configuration passed the deployment-format checks.",
+                                  "CORS_ORIGINS must include the configured customer and business callback origins for hosted payments.",
+                                  "Bundled hosted-demo callbacks must share one public origin, with CUSTOMER_APP_URL at the root and BUSINESS_APP_URL at /app or /app/.",
+                                  "Shared sandbox merchant routing overrides event and business selection. It is permitted only for development, test or an explicitly hosted demo and must be removed before production payments.",
+                                  "Remove STRIPE_SANDBOX_SHARED_ACCOUNT_ID: shared routing is allowed only in a development, test or explicitly hosted-demo sandbox runtime.",
+                                  "The payment runtime does not match the configured enabled sandbox mode.",
+                                  "Key formats do not prove that the secret and publishable keys belong to the same Stripe sandbox. Verify that identity separately.",
+                                  "Configured secrets do not prove that Stripe delivers to both deployed webhook destinations. Verify delivery separately in Stripe Workbench.",
+                                  "Merchant readiness uses stored provider observations with the checkout policy freshness window. This diagnostic does not refresh Stripe or prove a future checkout will succeed.",
+                                  "Required payment tables, columns and migration ledger entries are present.",
+                                  "Payment tables, columns or migration ledger entries are missing. Apply the reviewed migrations through the normal release process before paid checkout.",
+                                  "The read-only payment database inspection could not complete. Check database availability and retry this diagnostic.",
+                                  "The payment diagnostic deadline expired. Check database availability and retry; the in-flight inspection remains bounded and shared.",
+                                  "All active published paid events resolve to merchants that satisfy the current stored payment-readiness policy.",
+                                  "Some active published paid events have unavailable, mismatched, disabled, disconnected, unready or stale merchants. Review event and business payment selection and refresh provider status through the authorized business workflow.",
+                                  "Payment routing has too many distinct readiness states for this bounded inspection. Review merchant configuration before paid checkout.",
+                                  "No active published paid events were found. This report cannot establish a working paid-event merchant route.",
+                                  "Fresh running payment workers match this API release and payment configuration.",
+                                  "No fresh running worker has matching payment reconciliation, release and configuration evidence. Check the worker release, environment settings and heartbeat.",
+                                  "A fresh running worker has different or missing payment configuration, release or reconciliation evidence. Deploy the matching reviewed API and worker release and environment settings.",
+                                  "This runtime has no valid release revision evidence. Hosted sandbox readiness requires a known API and worker release.",
+                                  "The runtime release does not match the requested release revision.",
+                                  "The runtime release matches the requested release revision."
+                                ]
+                              }
+                            },
+                            "required": [
+                              "code",
+                              "status",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "schema": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "ready",
+                                "blocked",
+                                "unavailable",
+                                "not-checked"
+                              ]
+                            },
+                            "missingTableCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "missingColumnCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "missingMigrationCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "missingTableCount",
+                            "missingColumnCount",
+                            "missingMigrationCount"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "routing": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "ready",
+                                "blocked",
+                                "unavailable",
+                                "not-checked"
+                              ]
+                            },
+                            "activePaidEventCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "readyEventCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "blockedEventCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "eventSpecificCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "organizationDefaultCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "sharedSandboxCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "activePaidEventCount",
+                            "readyEventCount",
+                            "blockedEventCount",
+                            "eventSpecificCount",
+                            "organizationDefaultCount",
+                            "sharedSandboxCount"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "workers": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "ready",
+                                "blocked",
+                                "unavailable",
+                                "not-checked"
+                              ]
+                            },
+                            "healthyWorkerCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "matchingWorkerCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "mismatchedWorkerCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "healthyWorkerCount",
+                            "matchingWorkerCount",
+                            "mismatchedWorkerCount"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "runtime": {
+                          "type": "object",
+                          "properties": {
+                            "revision": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^[a-f0-9]{40}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "revision"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "evidence": {
+                          "type": "object",
+                          "properties": {
+                            "keyPairIdentity": {
+                              "type": "string",
+                              "const": "not-verified"
+                            },
+                            "webhookDelivery": {
+                              "type": "string",
+                              "const": "not-verified"
+                            },
+                            "providerReadiness": {
+                              "type": "string",
+                              "const": "stored-snapshot-only"
+                            }
+                          },
+                          "required": [
+                            "keyPairIdentity",
+                            "webhookDelivery",
+                            "providerReadiness"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "scope",
+                        "mode",
+                        "checkedAt",
+                        "checks",
+                        "schema",
+                        "routing",
+                        "workers",
+                        "runtime",
+                        "evidence"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Structured API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Structured API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Structured API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Structured API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Internal administrators only. Read-only sandbox configuration, schema, stored merchant readiness and API/worker parity diagnostic; no provider requests. HTTP 200 includes blocked/disabled outcomes. Key-pair identity and actual webhook delivery remain unverified. Independent of general service readiness."
+      }
+    },
     "/business/uploads/image": {
       "post": {
         "operationId": "app_post__api_business_uploads_image",

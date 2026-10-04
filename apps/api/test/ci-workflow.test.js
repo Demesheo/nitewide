@@ -118,6 +118,11 @@ test('all parallel verification jobs gate publication without registry writes or
   }
   assert.equal((workflow.match(/uses: docker\/build-push-action/g) || []).length, 1);
   assert.match(section('build'), /push: false/);
+  const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
+  assert.match(workflow, /build-args:\s*\|\s*RELEASE_REVISION=\$\{\{ github\.sha \}\}/);
+  assert.match(workflow, /Runtime release identity differs from verified image/);
+  assert.match(dockerfile, /ARG RELEASE_REVISION/);
+  assert.match(dockerfile, /\/app\/apps\/api\/release\.json/);
   assert.match(section('build'), /cache-from: type=gha,scope=nitewide-demo-amd64/);
   assert.match(section('build'), /compression-level: 0/);
   assert.match(section('build'), /retention-days: 1/);
