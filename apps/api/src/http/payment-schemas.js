@@ -60,8 +60,9 @@ const paymentEarnings = z.object({ period: z.literal('all_time'), scope: z.liter
   dashboardConnected: z.null().describe('Unavailable until individual Stripe onboarding and recipient connectivity are implemented.'),
   dashboardUrl: z.null(), payoutsUnavailableReason: z.literal('bank_payouts_not_tracked') }).strict();
 const emptyPaymentQuery = z.object({}).strict();
+const earningsQuery = z.object({ organizationId: z.union([z.uuid(), z.literal('independent')]).optional() }).strict();
 
 module.exports = { paymentCheckoutSchema, refundSchema, createProfile, selection, paymentAccountQuery,
   paymentControl,disconnectPermission,disconnectImpact,disconnectResult,
   paymentConfiguration, checkoutSummary, checkoutPreparation, checkoutResumption, refundSummary, paymentAccount, paymentAccountPage,
-  onboardingLink, webhookAcknowledgment, paymentOverviewCurrency, paymentOverview, earningsCurrency, paymentEarnings, emptyPaymentQuery };
+  onboardingLink, webhookAcknowledgment, paymentOverviewCurrency, paymentOverview, earningsCurrency, paymentEarnings, emptyPaymentQuery, earningsQuery };

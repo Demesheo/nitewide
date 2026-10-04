@@ -4,12 +4,96 @@ const authTest = baseTest.extend({ fixtureRecipe: 'business-auth' });
 const teamPaginationTest = baseTest.extend({ fixtureRecipe: 'team-pagination' });
 const reportsExportTest = baseTest.extend({ fixtureRecipe: 'reports-export' });
 const admissionsTest = baseTest.extend({ fixtureRecipe: 'admissions' });
+const workspacesTest = baseTest.extend({ fixtureRecipe: 'business-workspaces' });
 const { expectBrandImage, expectBrandIcons } = require('../brand-checks.cjs');
 const QRCode = require('qrcode');
 const { urls } = require('../environment.cjs');
 const { seedFiveSpotRequest, expectFourApprovedPasses } = require('../guestlist-quantity.cjs');
 const { checkPasswordVisibility } = require('../password-visibility.cjs');
 const { gestureClipboard } = require('../clipboard.cjs');
+
+workspacesTest('one organization context persists across every workspace; aggregate reports include only owned organizations', async ({ page, fixture }) => {
+  // Verify CSV content through the cross-browser download path rather than a
+  // native Chromium file picker, which Playwright cannot accept for the user.
+  await page.addInitScript(() => { delete window.showSaveFilePicker; });
+  await loginViaApi(page, fixture, 'business', 'business', `/app?workspaceOrganization=${fixture.ids.org}`);
+  const selector = page.getByRole('combobox', { name: 'Workspace organization', exact: true });
+  const choose = async name => { await selector.click(); await page.getByRole('option', { name, exact: true }).click(); };
+  const assertSelection = async (name, id) => {
+    await expect(selector).toHaveText(name);
+    await expect.poll(() => new URL(page.url()).searchParams.get('workspaceOrganization')).toBe(id);
+    await expectNoOverflow(page);
+  };
+  await test.step('A single selection follows navigation and reload, without finance rights leaking from another organization', async () => {
+    await choose('Managed Nights');
+    await assertSelection('Managed Nights', fixture.ids.organization1);
+    await businessSection(page, 'Events');
+    await expect(page.getByRole('button', { name: 'Open Managed Nights Event', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open Owner Nights Event', exact: true })).toHaveCount(0);
+    await businessSection(page, 'Organization');
+    await expect(page.getByRole('heading', { name: 'Build your team', exact: true })).toBeVisible();
+    await assertSelection('Managed Nights', fixture.ids.organization1);
+    await businessSection(page, 'Payments');
+    await expect(page.getByRole('heading', { name: 'My commissions', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add payment account', exact: true })).toHaveCount(0);
+    await businessSection(page, 'Admissions');
+    await expect(page.getByRole('button', { name: 'Start admissions for Managed Nights Event', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Start admissions for Owner Nights Event', exact: true })).toHaveCount(0);
+    await assertSelection('Managed Nights', fixture.ids.organization1);
+    await businessSection(page, 'Analytics');
+    await assertSelection('Managed Nights', fixture.ids.organization1);
+    await page.reload();
+    await assertSelection('Managed Nights', fixture.ids.organization1);
+    await page.goto('/app');
+    await assertSelection('Managed Nights', fixture.ids.organization1);
+  });
+  await test.step('Promoter membership remains personal; changing organizations removes stale operational state', async () => {
+    await choose('Promoter Nights');
+    await page.getByRole('navigation').getByRole('button', { name: /^(My )?events$/i }).filter({ visible: true }).click();
+    await expect(page.getByRole('button', { name: 'Open Promoter Nights Event', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Create event', exact: true })).toHaveCount(0);
+    await businessSection(page, 'Organization');
+    await expect(page.getByRole('button', { name: 'Invite team member', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Start an organization', exact: true })).toBeVisible();
+    await assertSelection('Promoter Nights', fixture.ids.organization2);
+  });
+  await test.step('Only reporting pages offer All organizations and both reports and exports receive an owner-only query', async () => {
+    await businessSection(page, 'Overview');
+    const summary = page.waitForResponse(response => response.url().includes('/api/business/reports/summary?') && new URL(response.url()).searchParams.get('ownedOnly') === 'true');
+    await choose('All organizations');
+    expect((await summary).ok()).toBeTruthy();
+    await expect(page.getByText('Only organizations where you are an owner.', { exact: true })).toBeVisible();
+    await assertSelection('All organizations', 'owned');
+    await businessSection(page, 'Analytics');
+    await assertSelection('All organizations', 'owned');
+    await page.getByRole('button', { name: 'Events', exact: true }).filter({ hasNot: page.locator('svg') }).click();
+    const report = page.getByRole('table', { name: 'events report', exact: true });
+    await expect(report).toContainText('Owner Nights Event');
+    await expect(report).toContainText('Playwright Friday Night');
+    await expect(report).not.toContainText('Managed Nights Event');
+    await expect(report).not.toContainText('Promoter Nights Event');
+    const download = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
+    const csv = await require('node:fs/promises').readFile(await (await download).path(), 'utf8');
+    expect(csv).toContain('Owner Nights Event'); expect(csv).not.toContain('Managed Nights Event'); expect(csv).not.toContain('Promoter Nights Event');
+    const reportScreenshot = test.info().outputPath('organization-reporting-scope.png');
+    await page.screenshot({ path: reportScreenshot });
+    await test.info().attach('organization-reporting-scope', { path: reportScreenshot, contentType: 'image/png' });
+    await businessSection(page, 'Events');
+    await assertSelection('Promoter Nights', fixture.ids.organization2);
+    await selector.click();
+    await expect(page.getByRole('option', { name: 'All organizations', exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await choose('Owner Nights');
+    await page.getByRole('button', { name: 'Create event', exact: true }).click();
+    const editor = page.getByRole('dialog');
+    await expect(editor.getByRole('combobox', { name: 'Organization', exact: true })).toHaveText('Owner Nights');
+    await expectNoOverflow(page);
+    const editorScreenshot = test.info().outputPath('organization-scoped-event-editor.png');
+    await page.screenshot({ path: editorScreenshot });
+    await test.info().attach('organization-scoped-event-editor', { path: editorScreenshot, contentType: 'image/png' });
+  });
+});
 
 teamPaginationTest('business entry and workspace journey keeps branding, clean navigation and real reports usable', async ({ page, fixture }) => {
   await test.step('Landing and a clean sign-in boot retain readable approved branding', async () => {
@@ -74,12 +158,12 @@ teamPaginationTest('business entry and workspace journey keeps branding, clean n
     await expectNoOverflow(page);
     await test.info().attach('business-setup-checklist', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
     await setup.getByRole('button', { name: 'View organization', exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`section=team&teamOrganizationId=${fixture.ids.org}`));
+    await expect(page).toHaveURL(new RegExp(`workspaceOrganization=${fixture.ids.org}.*section=team|section=team.*workspaceOrganization=${fixture.ids.org}`));
     await businessSection(page, 'Overview');
     await expect(setup.locator('ol')).not.toBeVisible();
     await setup.locator('summary').click();
     await setup.getByRole('button', { name: 'View events', exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`section=events&organizationIds=${fixture.ids.org}`));
+    await expect(page).toHaveURL(new RegExp(`workspaceOrganization=${fixture.ids.org}.*section=events|section=events.*workspaceOrganization=${fixture.ids.org}`));
     await page.goBack();
     await expect(setup.locator('ol')).not.toBeVisible();
     await expectNoOverflow(page);
@@ -159,7 +243,7 @@ teamPaginationTest('business entry and workspace journey keeps branding, clean n
     await businessSection(page, 'Overview');
     await expect(page.locator('.business-overview')).toHaveAttribute('aria-busy', 'false');
     await expect(page.locator('.business-overview').getByRole('alert')).toHaveCount(0);
-    await expect(page).toHaveURL(/\/app(?:\?section=overview)?$/);
+    await expect.poll(() => new URL(page.url()).searchParams.get('section') || 'overview').toBe('overview');
     await expectNoOverflow(page);
   });
 });

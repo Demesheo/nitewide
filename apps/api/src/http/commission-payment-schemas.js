@@ -3,6 +3,7 @@ const commissionProfileInput = z.object({ displayName: z.string().trim().min(1).
 const statementSelection = z.object({ statementIds: z.array(z.uuid()).min(1).max(100).refine(ids => new Set(ids).size === ids.length, 'Select each event statement once'), paymentMethod: z.enum(['card', 'us_bank_account']) }).strict();
 const commissionApproval = statementSelection.extend({ idempotencyKey: z.uuid(), approvedTotalCents: z.number().int().min(50).max(99_999_999), feeEstimateAcknowledged: z.literal(true) }).strict();
 const commissionPage = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), pageSize: z.coerce.number().int().min(1).max(50).default(20), recipientUserId: z.uuid().optional(), currency: z.string().regex(/^[A-Za-z]{3}$/).transform(v => v.toUpperCase()).optional() }).strict();
+const ownCommissionPage = commissionPage.omit({ recipientUserId: true }).extend({ organizationId: z.union([z.uuid(), z.literal('independent')]).optional() }).strict();
 const commissionControl = z.object({}).strict();
 const commissionOnboardingInput = z.object({ returnTo: z.enum(['business', 'customer']).default('customer') }).strict();
 const commissionFeeReviewInput = z.object({ invoicingFeeCents: z.number().int().min(0).max(99_999_999), evidenceReference: z.string().trim().min(1).max(500), reason: z.string().trim().min(1).max(1000), idempotencyKey: z.uuid() }).strict();
@@ -32,5 +33,5 @@ const commissionPaymentResponse = z.object({ paymentId: uuid, organizationId: uu
   feeReview: z.object({ invoicingFeeCents: cents, evidenceReference: z.string(), reason: z.string(), reviewedAt: time, reviewedByUserId: uuid }).strict().nullable(),
   netSettlementStatus: z.string(), residualCents: cents.nullable(), fundsReceived: z.boolean(), recipientBankPayoutVerified: z.literal(false), statements: z.array(commissionInvoiceStatement),
   approvedAt: time, errorCode: z.string().nullable(), retryable: z.boolean().optional() }).strict();
-module.exports = { commissionProfileInput, statementSelection, commissionApproval, commissionPage, commissionControl, commissionOnboardingInput, commissionFeeReviewInput,
+module.exports = { commissionProfileInput, statementSelection, commissionApproval, commissionPage, ownCommissionPage, commissionControl, commissionOnboardingInput, commissionFeeReviewInput,
   commissionProfileResponse, commissionOnboardingResponse, commissionDashboardResponse, commissionStatementResponse, commissionStatementPageResponse, commissionQuoteResponse, commissionPaymentResponse };

@@ -51,7 +51,7 @@ export function PaymentAccounts({ session, organization, request = api, navigate
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const id = params.get('paymentAccountReturn');
-    if (!organization.canManageFinance || !id || params.get('paymentOrganization') !== organization.id) return;
+    if (!organization.canManageFinance || !id || (params.get('paymentOrganization') || params.get('workspaceOrganization')) !== organization.id) return;
     let active = true;
     setBusy(id);
     request(`${base}/${encodeURIComponent(id)}/synchronize`, session, { method: 'POST' })

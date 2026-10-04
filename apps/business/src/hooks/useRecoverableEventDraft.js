@@ -8,10 +8,16 @@ function readDraft(key) {
 }
 
 export function useRecoverableEventDraft({ session, event, identity = null, initialDraft }) {
-  const key = `nitewide:business:draft:${session.user.id}:${identity || event?.id || 'new'}`;
+  const legacyKey = `nitewide:business:draft:${session.user.id}:${identity || event?.id || 'new'}`;
+  const key = event ? legacyKey : `${legacyKey}:${initialDraft.organizationId || 'independent'}`;
   const initial = useRef(initialDraft);
   const [draft, setDraft] = useState(initialDraft);
-  const [recovery, setRecovery] = useState(() => readDraft(key));
+  const [recovery, setRecovery] = useState(() => {
+    const saved = readDraft(key) || readDraft(legacyKey);
+    // Never restore an unfinished event from another organization into the
+    // currently selected workspace. Old copies remain recoverable there.
+    return saved && (saved.draft.organizationId || null) === (initialDraft.organizationId || null) ? saved : null;
+  });
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial.current);
   const persistNow = () => {
     if (!dirty) return;
@@ -32,7 +38,11 @@ export function useRecoverableEventDraft({ session, event, identity = null, init
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
   const restore = () => { if (recovery) setDraft(recovery.draft); setRecovery(null); };
-  const discardRecovery = () => { sessionStorage.removeItem(key); setRecovery(null); };
-  const clear = () => sessionStorage.removeItem(key);
+  const clear = () => {
+    sessionStorage.removeItem(key);
+    const legacy = readDraft(legacyKey);
+    if (legacy && (legacy.draft.organizationId || null) === (initialDraft.organizationId || null)) sessionStorage.removeItem(legacyKey);
+  };
+  const discardRecovery = () => { clear(); setRecovery(null); };
   return { draft, setDraft, dirty, recovery, restore, discardRecovery, clear, persistNow };
 }

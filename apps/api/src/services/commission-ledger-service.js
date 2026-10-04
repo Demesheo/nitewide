@@ -307,9 +307,9 @@ function createCommissionLedgerService({ sequelize, models, now = () => new Date
   async function listStatements({ organizationId, recipientUserId, currency, page = 1, pageSize = 20, transaction } = {}) {
     if (!organizationId && !recipientUserId) throw new Error('A business or recipient scope is required');
     if (!Number.isInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) throw new RangeError('Invalid statement page');
-    const values = { organizationId: organizationId || null, recipientUserId: recipientUserId || null, currency: currency || null,
+    const values = { organizationId: organizationId === 'independent' ? null : organizationId || null, independent: organizationId === 'independent', recipientUserId: recipientUserId || null, currency: currency || null,
       current: now(), limit: pageSize, offset: (page - 1) * pageSize };
-    const predicate = `(:organizationId IS NULL OR s.organization_id=:organizationId) AND (:recipientUserId IS NULL OR s.recipient_user_id=:recipientUserId) AND (:currency IS NULL OR s.currency=:currency)`;
+    const predicate = `(:organizationId IS NULL OR s.organization_id=:organizationId) AND (NOT :independent OR s.organization_id IS NULL) AND (:recipientUserId IS NULL OR s.recipient_user_id=:recipientUserId) AND (:currency IS NULL OR s.currency=:currency)`;
     const [count] = await select(`SELECT COUNT(*)::integer AS total FROM commission_statements s WHERE ${predicate}`, values, transaction);
     const rows = await select(`SELECT s.id,s.organization_id AS "organizationId",s.event_id AS "eventId",s.recipient_user_id AS "recipientUserId",s.currency,
       s.event_title AS "eventTitle",s.status,s.available_at AS "availableAt",s.approved_at AS "approvedAt",${totalsSql}

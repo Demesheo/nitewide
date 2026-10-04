@@ -97,6 +97,7 @@ const eventEditor = z
     });
   });
 const reportFilters = z.object({
+  ownedOnly: z.enum(['true', 'false']).default('false'),
   timezone: reportTimezone,
   venueIds: z.preprocess(value => value === undefined ? [] : Array.isArray(value) ? value : [value], z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(100).default([])),
   organizationId: z.union([uuid, z.literal("independent")]).optional(),

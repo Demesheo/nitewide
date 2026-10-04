@@ -32,7 +32,7 @@ function savedEventScrollY() {
 
 export function PagedEvents({ session, onEdit, onDuplicate, onCreate, onUnauthorized, ownOnly = false,
   initialEventId = null, initialTab = null, initialGuestlistEntryId = null,
-  organizationIds = [], venueIds = [], revision = 0, onSelectionChange, capabilities }) {
+  organizationIds = [], venueIds = [], revision = 0, onSelectionChange, onOrganizationResolved, capabilities }) {
   const collectionRef = useRef(null);
   const returnScroll = useRef(savedEventScrollY());
   const [initialLocation] = useState(readWorkspaceLocation);
@@ -83,7 +83,7 @@ export function PagedEvents({ session, onEdit, onDuplicate, onCreate, onUnauthor
     setSelectedId(null); onSelectionChange?.(null);
     window.history.replaceState({ ...window.history.state, eventsScrollY: returnScroll.current }, '', window.location.href);
   }
-  if (selectedId) return <PagedEventDetail key={selectedId} eventId={selectedId} session={session} capabilities={capabilities} refreshToken={revision} initialTab={selectedId === initialEventId ? initialTab : null} initialGuestlistEntryId={selectedId === initialEventId ? initialGuestlistEntryId : null} onBack={back} onEdit={onEdit} onDuplicate={onDuplicate} onUnauthorized={onUnauthorized} onTabChange={(tab) => writeWorkspaceLocation({ tab })}/>;
+  if (selectedId) return <PagedEventDetail key={selectedId} organizationId={organizationIds[0]} onOrganizationResolved={onOrganizationResolved} eventId={selectedId} session={session} capabilities={capabilities} refreshToken={revision} initialTab={selectedId === initialEventId ? initialTab : null} initialGuestlistEntryId={selectedId === initialEventId ? initialGuestlistEntryId : null} onBack={back} onEdit={onEdit} onDuplicate={onDuplicate} onUnauthorized={onUnauthorized} onTabChange={(tab) => writeWorkspaceLocation({ tab })}/>;
   const rows = (result?.items || []).map((event) => ({ ...event, name: event.title, phase: eventPhase(event, now), date: Date.parse(event.startsAt), venue: event.location?.name || 'Independent event', salesCents: event.lifetimeSales?.salesCents || 0, paidOrders: event.lifetimeSales?.paidOrders || 0 }));
   const counts = result?.counts || { upcoming: 0, past: 0, draft: 0 };
   const goPage = (next) => { setPage(next); writeWorkspaceLocation({ eventPage: next }); };

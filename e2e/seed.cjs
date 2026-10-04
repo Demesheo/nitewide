@@ -24,6 +24,7 @@ const recipes = Object.freeze(Object.fromEntries(Object.entries({
   'admin-access': { roles: ['customer', 'admin'] },
   'business-auth': { roles: ['business'], organization: true },
   'business-access': { roles: ['customer', 'business', 'admin', 'promoter'], organization: true, events: 1, affiliates: true },
+  'business-workspaces': { ...commerce, orders: 0, draft: false, guestlist: false, notifications: false, workspaceScopes: true },
   commerce,
   admissions: { ...commerce, events: 2, orders: 2, draft: false },
   'bookings-pagination': { ...commerce, events: 14, orders: 12 },
@@ -68,9 +69,20 @@ async function seed(models, config, { credited = false, recipe: recipeName = 'le
       await models.Organization.create({ id: ids.org, name: 'Playwright Nightlife', slug: 'playwright-nightlife', locationId: ids.location, planTier: 'premium' }, options);
       // Organization's compatibility afterSave hook already creates this link.
       await models.OrganizationVenue.findOrCreate({ where: { organizationId: ids.org, locationId: ids.location }, ...options });
-      await models.OrganizationOwner.create({ organizationId: ids.org, userId: accounts.business.id, role: 'admin' }, options);
+      await models.OrganizationOwner.create({ organizationId: ids.org, userId: accounts.business.id, role: recipe.workspaceScopes ? 'owner' : 'admin' }, options);
       if (recipe.team) await models.OrganizationEmployee.bulkCreate(Array.from({ length: recipe.team }, (_, i) => ({ organizationId: ids.org, userId: uuid(1000 + i), status: 'active' })), options);
       if (recipe.affiliates) await models.OrgAffiliate.bulkCreate([{ organizationId: ids.org, userId: accounts.business.id, code: 'PW-SAM', defaultGuestlistAllocation: 10 }, { organizationId: ids.org, userId: accounts.promoter.id, code: 'PW-LEO', defaultGuestlistAllocation: 10, defaultCommissionBps: 500 }], options);
+      if (recipe.workspaceScopes) {
+        for (const [index, name, role] of [[1, 'Managed Nights', 'admin'], [2, 'Promoter Nights', 'affiliate'], [3, 'Owner Nights', 'owner']]) {
+          const organizationId = uuid(50 + index * 10), eventId = uuid(800 + index);
+          ids[`organization${index}`] = organizationId; ids[`workspaceEvent${index}`] = eventId;
+          await models.Organization.create({ id: organizationId, name, slug: `playwright-workspace-${index}` }, options);
+          if (role === 'affiliate') await models.OrgAffiliate.create({ organizationId, userId: accounts.business.id, code: `PW-SCOPE-${index}`, status: 'active' }, options);
+          else await models.OrganizationOwner.create({ organizationId, userId: accounts.business.id, role }, options);
+          await models.Event.create({ id: eventId, organizationId, creatorUserId: accounts.business.id, title: `${name} Event`, slug: `playwright-workspace-event-${index}`,
+            status: 'published', startsAt: new Date(Date.now() + 3600000), endsAt: new Date(Date.now() + 18000000), guestlistCapacity: 10 }, options);
+        }
+      }
     }
     for (let index = 0; index < recipe.events; index++) {
       const eventId = uuid(100 + index);

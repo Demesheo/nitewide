@@ -73,6 +73,7 @@ test('business workflows preserve scope, navigation, delivery confirmation, and 
         organizations: [{ id: orgA, name: 'North Hall', canManage: true }, { id: orgB, name: 'South Hall', canManage: true }],
         venues: [
           { id: venueA, label: 'North Room', organizationId: orgA, locationIds: ['20000000-0000-4000-8000-000000000001'] },
+          { id: 'd'.repeat(64), label: 'North Annex', organizationId: orgA, locationIds: ['20000000-0000-4000-8000-000000000004'] },
           { id: venueB, label: 'South Room', organizationId: orgB, locationIds: ['20000000-0000-4000-8000-000000000002'] },
           { id: venueC, label: 'Studio West', organizationId: orgB, locationIds: ['20000000-0000-4000-8000-000000000003'], location: { name: 'Studio West', addressLine1: '3 Test Way', city: 'Denver', region: 'CO', postalCode: '80202', countryCode: 'US', privacy: 'public', timezone: 'America/Denver' } },
         ],
@@ -188,7 +189,7 @@ test('business workflows preserve scope, navigation, delivery confirmation, and 
     });
     const { default: App } = await vite.ssrLoadModule('/src/App.jsx');
     const React = await import('react');
-    const { render, screen, waitFor } = await import('@testing-library/react');
+    const { render, renderHook, act, screen, waitFor } = await import('@testing-library/react');
     const user = (await import('@testing-library/user-event')).default.setup({ document: dom.window.document });
     dom.window.sessionStorage.setItem('nitewide.business.session', JSON.stringify({
       accessToken: 'test-session-token',
@@ -261,8 +262,8 @@ test('business workflows preserve scope, navigation, delivery confirmation, and 
     const firstRequest = requests.find((url) => url.pathname === '/api/business/events' && url.searchParams.get('venueIds') === venueA);
     assert.equal(firstRequest.searchParams.get('pageSize'), '10');
 
-    await user.click(screen.getByRole('button', { name: 'Organizations' }));
-    await user.click(screen.getByRole('checkbox', { name: 'South Hall' }));
+    await user.click(screen.getByRole('combobox', { name: 'Workspace organization' }));
+    await user.click(screen.getByRole('option', { name: 'South Hall' }));
     await waitFor(() => assert.ok(requests.some((url) => url.pathname === '/api/business/events' && url.searchParams.get('organizationIds') === orgB && !url.searchParams.has('venueIds'))));
     assert.equal(screen.getByRole('button', { name: 'Venues' }).textContent.includes('selected'), false);
 
@@ -336,6 +337,40 @@ test('business workflows preserve scope, navigation, delivery confirmation, and 
     await screen.findByText(/Unsaved event changes from this tab are available/);
     await user.click(screen.getByRole('button', { name: 'Restore draft' }));
     assert.equal(screen.getByRole('textbox', { name: 'Event name' }).value, 'Saved on close immediately');
+    });
+    await t.test('new-event recovery and discard stay inside their organization, including legacy drafts', async () => {
+      const { useRecoverableEventDraft } = await vite.ssrLoadModule('/src/hooks/useRecoverableEventDraft.js');
+      const session = { user: { id: 'draft-scope-test' } };
+      const initialA = { organizationId: orgA, title: '' }, initialB = { organizationId: orgB, title: '' };
+      const legacyKey = 'nitewide:business:draft:draft-scope-test:new';
+      dom.window.sessionStorage.setItem(legacyKey, JSON.stringify({ schema: 1, draft: { ...initialA, title: 'Legacy North draft' } }));
+      const open = initialDraft => renderHook(() => useRecoverableEventDraft({ session, initialDraft }));
+      let hook = open(initialB);
+      try {
+        assert.equal(hook.result.current.recovery, null);
+        act(() => hook.result.current.discardRecovery());
+        assert.ok(dom.window.sessionStorage.getItem(legacyKey), 'discarding in B preserves the old A draft');
+      } finally { hook.unmount(); }
+      hook = open(initialA);
+      try {
+        assert.equal(hook.result.current.recovery.draft.title, 'Legacy North draft');
+        act(() => hook.result.current.restore());
+        act(() => hook.result.current.persistNow());
+        assert.ok(dom.window.sessionStorage.getItem(`${legacyKey}:${orgA}`));
+      } finally { hook.unmount(); }
+      hook = open(initialB);
+      try {
+        assert.equal(hook.result.current.recovery, null);
+        act(() => hook.result.current.setDraft({ ...initialB, title: 'South draft' }));
+        act(() => hook.result.current.persistNow());
+      } finally { hook.unmount(); }
+      hook = open(initialA);
+      try {
+        assert.equal(hook.result.current.recovery.draft.title, 'Legacy North draft');
+        act(() => hook.result.current.clear());
+        assert.equal(dom.window.sessionStorage.getItem(legacyKey), null);
+        assert.ok(dom.window.sessionStorage.getItem(`${legacyKey}:${orgB}`), 'clearing A preserves the scoped B draft');
+      } finally { hook.unmount(); }
     });
     await t.test('Admissions empty state previews next assigned event and opens its details', async () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }));

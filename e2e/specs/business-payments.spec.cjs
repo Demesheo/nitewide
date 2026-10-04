@@ -16,7 +16,7 @@ async function mockPaymentSummaries(page) {
     return route.fulfill({ json: { data: merchantOverview(organizationId) } });
   });
   await page.route('**/api/business/payments/earnings', route => route.fulfill({ json: { data: ownEarnings() } }));
-  await page.route('**/api/account/commission-earnings', route => route.fulfill({ json: { data: ownEarnings() } }));
+  await page.route('**/api/account/commission-earnings**', route => route.fulfill({ json: { data: ownEarnings() } }));
 }
 
 async function enableFinanceFixture(page, { canViewEarnings = false } = {}) {

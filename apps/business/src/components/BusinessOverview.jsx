@@ -9,14 +9,15 @@ import { BusinessTeamPerformance } from './BusinessTeamPerformance';
 import { PersonalOverview } from './PersonalOverview';
 import { PersonalActivityTable } from './PersonalActivityTable';
 
-function queryFor({ days, organizationIds, venueIds, timezone }) {
+function queryFor({ days, organizationIds, ownedOnly, venueIds, timezone }) {
   const params = new URLSearchParams({ days: String(days), timezone });
   organizationIds.forEach((id) => params.append('organizationIds', id));
+  if (ownedOnly) params.set('ownedOnly', 'true');
   venueIds.forEach((id) => params.append('venueIds', id));
   return params.toString();
 }
 
-export function BusinessOverview({ session, days, organizationIds, venueIds, ownOnly, revision, onNavigate, onUnauthorized }) {
+export function BusinessOverview({ session, days, organizationIds, ownedOnly = false, venueIds, ownOnly, revision, onNavigate, onUnauthorized }) {
   const [timezone] = useState(browserReportTimezone);
   const [overview, setOverview] = useState(null);
   const [attention, setAttention] = useState(null);
@@ -26,12 +27,12 @@ export function BusinessOverview({ session, days, organizationIds, venueIds, own
   const [attentionLoading, setAttentionLoading] = useState(false);
   const [summaryRetry, setSummaryRetry] = useState(0);
   const [attentionRetry, setAttentionRetry] = useState(0);
-  const query = useMemo(() => queryFor({ days, organizationIds, venueIds, timezone }), [days, organizationIds, venueIds, timezone]);
+  const query = useMemo(() => queryFor({ days, organizationIds, ownedOnly, venueIds, timezone }), [days, organizationIds, ownedOnly, venueIds, timezone]);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true); setError('');
     api(`/business/reports/summary?${query}`, session, { signal: controller.signal })
-      .then(setOverview)
+      .then(value => { if (!controller.signal.aborted) setOverview(value); })
       .catch((err) => { if (err.name === 'AbortError') return; if (err.status === 401) onUnauthorized(); else setError(err.message); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();

@@ -73,6 +73,7 @@ test('isolated commission ledger preserves purchase history, handles order-only 
     assert.equal((await models.CommissionEarning.findByPk(earning.id)).disputeHold, true, 'refund denial cannot release a dispute hold');
     assert.equal((await service.listStatements({ organizationId: org.id })).rows[0].heldCommissionCents, 500);
     assert.equal((await service.listStatements({ organizationId: other.id })).rows.length, 0);
+    assert.equal((await service.listStatements({ organizationId: 'independent', recipientUserId: person.id })).rows.length, 0, 'an independent scope does not include business commission statements');
     const statementIds = [listing.rows[0].id];
     await event.update({ endsAt: '2026-10-09T12:00:00Z' });
     assert.equal((await service.listStatements({ organizationId: org.id })).rows[0].payableCommissionCents, 0);

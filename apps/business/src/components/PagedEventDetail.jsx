@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, CalendarDays, CircleDollarSign, LockKeyhole, MapPin, Pencil, Ticket, Users } from 'lucide-react';
 import { api, mediaSrc } from '@/lib/api';
 import { money, eventDateLabel } from '@/lib/business';
@@ -21,7 +21,9 @@ function Metric({ label, value, detail, icon: Icon }) {
 }
 
 export function PagedEventDetail({ eventId, session, capabilities, refreshToken, initialTab = null,
-  initialGuestlistEntryId = null, onBack, onEdit, onDuplicate, onUnauthorized, onTabChange }) {
+  initialGuestlistEntryId = null, organizationId, onOrganizationResolved, onBack, onEdit, onDuplicate, onUnauthorized, onTabChange }) {
+  const resolveOrganization = useRef(onOrganizationResolved);
+  resolveOrganization.current = onOrganizationResolved;
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -32,11 +34,18 @@ export function PagedEventDetail({ eventId, session, capabilities, refreshToken,
     const controller = new AbortController();
     setLoading(true); setError('');
     api(`/business/events/${eventId}/summary`, session, { signal: controller.signal })
-      .then(setData)
+      .then(value => {
+        if (controller.signal.aborted) return;
+        const eventOrganization = value.event.organizationId || 'independent';
+        if (organizationId && eventOrganization !== organizationId && resolveOrganization.current) {
+          resolveOrganization.current(eventOrganization, eventId, initialTab, initialGuestlistEntryId); return;
+        }
+        setData(value);
+      })
       .catch((err) => { if (err.name === 'AbortError') return; if (err.status === 401) onUnauthorized(); else setError(err.message); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [eventId, session, refreshToken, revision, onUnauthorized]);
+  }, [eventId, organizationId, session, refreshToken, revision, onUnauthorized]);
   function saved(message) { setNotice(message); setRevision((value) => value + 1); }
   function chooseTab(value) { setTab(value); onTabChange?.(value); }
   // Native touch/assistive clicks can omit the mousedown/focus sequence used

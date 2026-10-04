@@ -6,7 +6,6 @@ import { readWorkspaceLocation, writeWorkspaceLocation } from '@/lib/workspace-n
 export function useWorkspaceNavigation() {
   const [initial] = useState(readWorkspaceLocation);
   const [page, setPage] = useState(initial.section);
-  const [selectedOrganizations, setSelectedOrganizations] = useState(initial.organizationIds);
   const [selectedVenues, setSelectedVenues] = useState(initial.venueIds);
   const [days, setDays] = useState(initial.days);
   const [eventToOpen, setEventToOpen] = useState(initial.eventId);
@@ -19,7 +18,7 @@ export function useWorkspaceNavigation() {
   useEffect(() => {
     const restore = () => { const state = readWorkspaceLocation();
       setPage(state.section); setEventToOpen(state.eventId); setGuestlistEntryToOpen(state.entryId);
-      setEventTabToOpen(state.tab); setSelectedOrganizations(state.organizationIds);
+      setEventTabToOpen(state.tab);
       setSelectedVenues(state.venueIds); setDays(state.days);
       setEventNavigationRevision((value) => value + 1);
     };
@@ -30,17 +29,15 @@ export function useWorkspaceNavigation() {
   function navigate(value, eventId = null, entryId = null, eventTab = null, destination = {}) {
     writeWorkspaceLocation({ ...destination, section: value, event: eventId, entry: entryId, tab: eventTab });
     setPage(value); setEventToOpen(eventId); setGuestlistEntryToOpen(entryId); setEventTabToOpen(eventTab);
-    setSelectedOrganizations(destination.organizationIds || []); setSelectedVenues(destination.venueIds || []); setDays('30');
+    setSelectedVenues(destination.venueIds || []); setDays('30');
     setEventNavigationRevision((revision) => revision + 1);
   }
-  function chooseOrganizations(ids) { setSelectedOrganizations(ids); setSelectedVenues([]);
-    writeWorkspaceLocation({ organizationIds: ids, venueIds: [] }); }
   function chooseVenues(ids) { setSelectedVenues(ids); writeWorkspaceLocation({ venueIds: ids }); }
   function chooseDays(value) { setDays(value); writeWorkspaceLocation({ days: value }); }
   function selectEvent(id) { setEventToOpen(id);
     writeWorkspaceLocation({ event: id, entry: null, tab: null }); }
 
-  return { page, setPage, selectedOrganizations, setSelectedOrganizations, selectedVenues, setSelectedVenues,
+  return { page, setPage, selectedVenues, setSelectedVenues,
     days, eventToOpen, guestlistEntryToOpen, eventTabToOpen, eventNavigationRevision,
-    navigate, chooseOrganizations, chooseVenues, chooseDays, selectEvent };
+    navigate, chooseVenues, chooseDays, selectEvent };
 }

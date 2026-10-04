@@ -71,6 +71,7 @@ function createBusinessReadService({ models, email = null, stripe = null, delive
   async function organizations(scope, { transaction } = {}) {
     const broadAccess = `(:isAdmin OR ${organizationMember.replace(/\be\.organization_id\b/g,'org.id')})`;
     const rows = await select(`SELECT org.id, org.name, org.plan_tier AS "planTier",
+      EXISTS (SELECT 1 FROM organization_owners owner_scope WHERE owner_scope.organization_id=org.id AND owner_scope.user_id=:userId AND owner_scope.lifecycle_state='active' AND owner_scope.role='owner') AS "isOwner",
       CASE WHEN ${broadAccess} THEN org.location_id ELSE NULL END AS "locationId",
       ${broadAccess} AS "organizationWideAccess",
       EXISTS (SELECT 1 FROM organization_owners finance WHERE finance.organization_id=org.id AND finance.user_id=:userId AND finance.lifecycle_state='active' AND (finance.role='owner' OR finance.role='admin' AND finance.finance_authorized)) AS "canManageFinance",
@@ -108,13 +109,17 @@ function createBusinessReadService({ models, email = null, stripe = null, delive
   }
   async function bootstrap(userId) {
     const scope = await actor(userId);
-    const [earningsAccess] = await select(`SELECT ${canViewEarningsSql} AS "canViewEarnings"`, { userId });
+    const [earningsAccess] = await select(`SELECT ${canViewEarningsSql} AS "canViewEarnings",
+      EXISTS (SELECT 1 FROM events e WHERE e.organization_id IS NULL AND ${base}) AS "canViewIndependent",
+      EXISTS (SELECT 1 FROM organization_owners portfolio_owner JOIN organizations portfolio_org ON portfolio_org.id=portfolio_owner.organization_id
+        WHERE portfolio_owner.user_id=:userId AND portfolio_owner.lifecycle_state='active' AND portfolio_owner.role='owner'
+          AND portfolio_org.lifecycle_state='active' AND portfolio_org.status='active') AS "canViewOwnedOrganizations"`, scope);
     const orgs = await organizations(scope);
     const venueOptions = await venues(scope,orgs);
     return { organizations: orgs, venues: venueOptions, setupProgress: await setupProgress(scope, orgs), optionsTruncated: { organizations: orgs.hasMore,venues: venueOptions.hasMore },
       capabilities: { emailConfigured: Boolean(email?.enabled), deliveryTrackingConfigured,
         smsConfigured: false, instructions: Boolean(email?.enabled), notifications: true },
-      scope: { canCreateIndependent: Boolean(scope.canManageBusinesses || scope.user.independentCreator), isInternalAdmin: Boolean(scope.user.isInternalAdmin), canViewEarnings: Boolean(earningsAccess?.canViewEarnings) } };
+      scope: { canCreateIndependent: Boolean(scope.canManageBusinesses || scope.user.independentCreator), canViewIndependent: Boolean(earningsAccess?.canViewIndependent), canViewOwnedOrganizations: Boolean(earningsAccess?.canViewOwnedOrganizations), isInternalAdmin: Boolean(scope.user.isInternalAdmin), canViewEarnings: Boolean(earningsAccess?.canViewEarnings) } };
   }
   async function setupProgress(scope, orgs) {
     // Organization onboarding belongs to owners/organization managers, not
@@ -164,6 +169,11 @@ function createBusinessReadService({ models, email = null, stripe = null, delive
   async function filters(scope, input = {}, { dates = false, transaction } = {}) {
     const clauses = [];
     const values = { ...scope };
+    // Recheck actual ownership for every aggregate and export. Finance grants,
+    // manager roles and internal admin permissions never expand this scope.
+    if (input.ownedOnly === 'true') clauses.push(`EXISTS (SELECT 1 FROM organization_owners owner_scope
+      JOIN organizations owner_org ON owner_org.id=owner_scope.organization_id AND owner_org.lifecycle_state='active' AND owner_org.status='active'
+      WHERE owner_scope.organization_id=e.organization_id AND owner_scope.user_id=:userId AND owner_scope.lifecycle_state='active' AND owner_scope.role='owner')`);
     const organizationIds = input.organizationIds?.length ? input.organizationIds : input.organizationId ? [input.organizationId] : [];
     if (organizationIds.length) {
       const real = organizationIds.filter((id) => id !== 'independent');

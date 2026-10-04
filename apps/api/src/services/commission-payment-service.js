@@ -132,7 +132,7 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
     });
   }
   async function ownStatements(userId, query = {}) {
-    const input = commissionPage.omit({ recipientUserId: true }).parse(query);
+    const input = require('../http/commission-payment-schemas').ownCommissionPage.parse(query);
     if (!require('./lifecycle-service').activeUser(await models.User.findByPk(userId))) throw require('../domain/errors').forbidden('An active account is required');
     const result = await ledger.listStatements({ recipientUserId: userId, ...input });
     return { ...result, rows: undefined, hasMore: result.page * result.pageSize < result.total, items: await withPaymentState(result.rows || result.items) };

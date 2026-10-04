@@ -234,6 +234,14 @@ This is a functioning local business MVP, not a claim of launch readiness. Exist
 Dependency check (2026-09-21): `npm audit` reports two moderate findings in the existing Sequelize → uuid chain (GHSA-w5hq-g745-h8pq). The suggested automatic fix downgrades Sequelize across major versions and was not applied. Track an upstream-compatible remediation separately; the upload dependencies do not introduce the reported chain.
 # Multi-venue organizations
 
+## Persistent organization context
+
+- One **Organization** selector above the workspace heading scopes Overview, Analytics, Events, Admissions, Payments and Organization. Selection is retained in `workspaceOrganization` in the URL and a user-specific local preference. Browser Back/Forward restores context; revoked or unavailable selections are validated against fresh bootstrap permissions.
+- **All organizations** is offered only on Overview and Analytics, and only to users with at least one active `owner` membership. It includes only organizations they own, not organizations they manage or promote for. Reports, attention items, table drilldowns and CSV/background exports use `ownedOnly=true`, which rechecks ownership in SQL. Internal admin privileges and finance grants do not widen this personal aggregate.
+- Leaving the aggregate for an operational tab restores the last concrete organization. Selecting another organization clears the old section's event, venue, pagination and drilldown state. Exact event/Stripe/team deep links open their authorized organization rather than falling back to an unrelated managed business.
+- Team and finance permissions remain organization-specific. Personal Stripe onboarding is account-level, but the commission figures and statements on Payments are scoped to the selected organization. Event creation uses that organization; unsaved new-event recovery is isolated by organization.
+- The shared selector has a compact 44px desktop control and full-width mobile layout. The `business-workspaces` browser journey verifies the same owner/manager/promoter transitions, persistence, owner-only exports and event creation on desktop Chrome and iPhone WebKit.
+
 Organizations are ownership/permission containers; their event locations identify the physical venues. Proper and Room 22 share the Proper organization and authorized ownership/management, but remain separate venues.
 
 - Overview, Events, and Analytics offer a **Venues** multi-select when more than one authorized venue exists. Choose either venue, several, or clear the selection for all within the organization scope. Guestlists use the venue of the opened event.

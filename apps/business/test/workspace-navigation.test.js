@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { readWorkspaceLocation, writeWorkspaceLocation } from '../src/lib/workspace-navigation.js';
+import { resolveOrganizationScope, readOrganizationPreference, organizationPreferenceKey } from '../src/lib/organization-scope.js';
 
 async function withLocation(path, run) {
   const dom = new JSDOM('', { url: `http://localhost${path}` });
@@ -185,5 +186,41 @@ test('same-URL explicit Events navigation cleans stale scroll without adding his
     assert.notEqual(window.history.state, stateBefore);
     assert.equal(window.history.state.eventsScrollY, undefined);
     assert.equal(window.history.state.marker, 'kept');
+  });
+});
+
+test('one persisted organization survives section navigation; owner aggregates never include manager or promoter memberships', async () => {
+  const owner = '00000000-0000-4000-8000-000000000611';
+  const manager = '00000000-0000-4000-8000-000000000612';
+  const promoter = '00000000-0000-4000-8000-000000000613';
+  const data = { organizations: [{ id: owner, isOwner: true }, { id: manager, isOwner: false, canManageFinance: true }, { id: promoter }], scope: {} };
+  await withLocation('/app', window => {
+    writeWorkspaceLocation({ workspaceOrganization: manager });
+    for (const section of ['analytics', 'events', 'admissions', 'payments', 'team', 'overview']) {
+      writeWorkspaceLocation({ section });
+      assert.equal(readWorkspaceLocation().workspaceOrganization, manager);
+      assert.deepEqual(resolveOrganizationScope(data, section, manager, owner).organizationIds, [manager]);
+    }
+    for (const section of ['overview', 'analytics']) {
+      const aggregate = resolveOrganizationScope(data, section, 'owned', promoter);
+      assert.equal(aggregate.ownedOnly, true);
+      assert.deepEqual(aggregate.organizations.map(org => org.id), [owner]);
+      assert.deepEqual(aggregate.organizationIds, [], 'server resolves current ownership, not a stale cached list');
+    }
+    for (const section of ['events', 'admissions', 'payments', 'team']) {
+      assert.equal(resolveOrganizationScope(data, section, 'owned', promoter).selection, promoter);
+    }
+    const demoted = { ...data, organizations: data.organizations.map(org => ({ ...org, isOwner: false })) };
+    assert.equal(resolveOrganizationScope(demoted, 'overview', 'owned', promoter).ownedOnly, false);
+    assert.equal(resolveOrganizationScope({ organizations: data.organizations.slice(1), scope: { canViewOwnedOrganizations: true } }, 'analytics', 'owned', manager).ownedOnly, true, 'bounded selector options cannot truncate the owner portfolio');
+    assert.equal(resolveOrganizationScope({ ...data, scope: { canViewOwnedOrganizations: false } }, 'analytics', 'owned', manager).ownedOnly, false, 'current server ownership overrides a cached role');
+    assert.equal(resolveOrganizationScope({ organizations: [], scope: { canViewIndependent: true } }, 'events', '', '').selection, 'independent', 'assigned independent events remain available without creation permission');
+    assert.equal(resolveOrganizationScope(data, 'events', 'revoked', manager).selection, manager);
+    const preference = { selection: manager, lastOrganization: manager };
+    window.localStorage.setItem(organizationPreferenceKey('user-a'), JSON.stringify(preference));
+    assert.deepEqual(readOrganizationPreference('user-a', window.localStorage), preference);
+    assert.deepEqual(readOrganizationPreference('user-b', window.localStorage), { selection: '', lastOrganization: '' });
+    window.localStorage.setItem(organizationPreferenceKey('user-a'), '{bad');
+    assert.deepEqual(readOrganizationPreference('user-a', window.localStorage), { selection: '', lastOrganization: '' });
   });
 });

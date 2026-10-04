@@ -56,6 +56,13 @@ test('admissions HTTP: permissions, QR integrity, concurrent scans, manual entry
     const searchedEvents = await request(`${listPath}?search=${encodeURIComponent(pagedEvents.data.events[0].title)}`, 'manager');
     assert.equal(searchedEvents.status, 200, JSON.stringify(searchedEvents));
     assert.ok(searchedEvents.data.events.some((entry) => entry.id === pagedEvents.data.events[0].id));
+    const scopedEvents = await request(`${listPath}?organizationId=${ids.org}`, 'manager');
+    assert.ok(scopedEvents.data.items.some(event => event.id === ids.event));
+    const independentEvents = await request(`${listPath}?organizationId=independent`, 'manager');
+    assert.equal(independentEvents.data.total, 0);
+    assert.equal(independentEvents.data.nextEvent, null, 'next-event guidance obeys the same selected organization');
+    const foreignEvents = await request(`${listPath}?organizationId=${require('node:crypto').randomUUID()}`, 'promoter');
+    assert.equal(foreignEvents.data.total, 0, 'an explicit organization filter never bypasses event admission grants');
     assert.equal((await request(listPath, 'outsider')).status, 403, 'customer-only identities cannot enter the Business admissions workspace');
     assert.equal((await request(`${listPath}/${ids.event}`, 'outsider')).status, 403);
     assert.equal((await request(`${listPath}/${ids.otherEvent}`, 'promoter')).status, 403);

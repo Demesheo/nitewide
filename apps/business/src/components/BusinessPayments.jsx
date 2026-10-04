@@ -50,7 +50,7 @@ function PaymentOverview({ session, organization, request }) {
   </section>;
 }
 
-export function BusinessPayments({ session, organizations = [], canViewEarnings = false, request = api }) {
+export function BusinessPayments({ session, organizations = [], organizationId, canViewEarnings = false, request = api }) {
   const [location, setLocation] = useState(readLocation);
   const financeOrganizations = organizations.filter(org => org.canManageFinance);
   const personal = canViewEarnings && (location.view === 'commissions' || !financeOrganizations.length);
@@ -69,7 +69,7 @@ export function BusinessPayments({ session, organizations = [], canViewEarnings 
   return <div className="business-payments">
     {financeOrganizations.length > 0 && canViewEarnings && <div className="payment-view-selector" aria-label="Payment views"><Button variant={!personal ? 'default' : 'outline'} aria-pressed={!personal} onClick={() => choose('business')}>Business payments</Button><Button variant={personal ? 'default' : 'outline'} aria-pressed={personal} onClick={() => choose('commissions')}>My commissions</Button></div>}
     {!personal && financeOrganizations.length > 1 && <label className="payment-organization-select" htmlFor="payments-organization">Business<select id="payments-organization" value={organization.id} onChange={event => choose('business', event.target.value)}>{financeOrganizations.map(org => <option key={org.id} value={org.id}>{org.name}</option>)}</select></label>}
-    {personal ? <MyCommissions key={`commissions:${session.user.id}`} session={session} request={request} /> : <PaymentOverview key={`overview:${session.user.id}:${organization.id}`} session={session} organization={organization} request={request} />}
+    {personal ? <MyCommissions key={`commissions:${session.user.id}:${organizationId}`} organizationId={organizationId} session={session} request={request} /> : <PaymentOverview key={`overview:${session.user.id}:${organization.id}`} session={session} organization={organization} request={request} />}
     {!personal && <PaymentAccounts key={`accounts:${session.user.id}:${organization.id}`} session={session} organization={organization} request={request} />}
     {!personal && <CommissionStatements key={`statements:${session.user.id}:${organization.id}`} session={session} organization={organization} request={request} />}
     {!personal && <CommissionSettings key={`commission-settings:${session.user.id}:${organization.id}`} session={session} organizationId={organization.id} request={request} />}

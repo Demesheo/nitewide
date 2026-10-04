@@ -456,7 +456,8 @@ test('analytics table controls stay with the active table and preserve URL scope
     await user.click(screen.getByRole('button', { name: 'Reset', exact: true }));
     await screen.findByRole('heading', { name: 'Regions', exact: true });
     const resetParams = new URLSearchParams(dom.window.location.search);
-    for (const key of ['organizationIds', 'venueIds', 'reportRegion', 'reportRegions', 'reportEvent', 'reportPerson',
+    assert.equal(resetParams.get('organizationIds'), 'org-a', 'Reset keeps the shared organization context');
+    for (const key of ['venueIds', 'reportRegion', 'reportRegions', 'reportEvent', 'reportPerson',
       'reportOfferingKind', 'reportOfferingName', 'reportSearch', 'reportTeamSearch', 'reportTable', 'reportSort', 'reportPage']) {
       assert.equal(resetParams.has(key), false, `Reset clears ${key} (defaults stay implicit)`);
     }

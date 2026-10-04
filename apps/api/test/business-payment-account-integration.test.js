@@ -240,6 +240,9 @@ test('payment overview and own earnings retain verified currency evidence and fi
     assert.deepEqual(await reports.overview(manager.id,org.id),overview);
     for(const denied of [ordinary,promoter,other,outsider]) await assert.rejects(reports.overview(denied.id,org.id),{code:'FORBIDDEN'});
     const earnings=paymentSchemas.paymentEarnings.parse(await reports.earnings(promoter.id));
+    assert.deepEqual(await reports.earnings(promoter.id,{organizationId:org.id}),earnings,'a selected organization retains only the recipient’s own evidence');
+    assert.deepEqual((await reports.earnings(promoter.id,{organizationId:randomUUID()})).currencies,[],'a foreign scope cannot expose another business or recipient’s earnings');
+    assert.deepEqual((await reports.earnings(promoter.id,{organizationId:'independent'})).currencies,[],'organization earnings do not leak into independent-event scope');
     assert.deepEqual(earnings.currencies.find(row=>row.currency==='USD'),{currency:'USD',verifiedEarnedCents:500,verifiedRefundedCents:200,demoEarnedCents:600,demoRefundedCents:700,
       verifiedPaidOrders:2,verifiedRefundedOrders:1,demoPaidOrders:1,demoRefundedOrders:1,
       unpaidCommissionCents:0,heldCommissionCents:0,payableCommissionCents:0,reservedCommissionCents:0,paidCommissionCents:0,businessLossCents:0});

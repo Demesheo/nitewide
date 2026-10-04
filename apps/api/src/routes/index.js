@@ -78,7 +78,7 @@ function createRouter(options) {
   require('./business-payments').registerBusinessPaymentRoutes(context);
   require('./commission-payments').registerCommissionPaymentRoutes({ ...context, commissionPayments: options.commissionPayments, individualCommissionProfiles: options.individualCommissionProfiles });
   router.get('/account/commission-earnings', requireUser, require('./contract-router').asyncHandler(async (req, res) => {
-    res.set('Cache-Control', 'no-store').json({ data: await require('../services/business-payment-overview-service').createBusinessPaymentOverviewService({ models }).earnings(req.userId) });
+    res.set('Cache-Control', 'no-store').json({ data: await require('../services/business-payment-overview-service').createBusinessPaymentOverviewService({ models }).earnings(req.userId, req.query) });
   }));
   require('./admissions').registerAdmissionsRoutes(context);
   require('./reporting').registerReportingRoutes(context);

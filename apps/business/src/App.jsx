@@ -44,6 +44,8 @@ import { writeWorkspaceLocation } from '@/lib/workspace-navigation';
 import { reusableDraft } from '@/lib/event-reuse';
 import { useWorkspaceNavigation } from '@/hooks/useWorkspaceNavigation';
 import { useBusinessBootstrap } from '@/hooks/useBusinessBootstrap';
+import { useOrganizationScope } from '@/hooks/useOrganizationScope';
+import { OWNED_ORGANIZATIONS, allowsOwnedOrganizations } from '@/lib/organization-scope';
 import { downloadBusinessReport, reportQuery, browserReportTimezone } from '@/lib/report-client';
 import { PreparedExports } from '@/components/PreparedExports';
 
@@ -60,9 +62,9 @@ export default function App() {
   const [onboardingToken, setOnboardingToken] = useState(() => new URLSearchParams(window.location.search).get('onboarding'));
   const [onboardingSignIn, setOnboardingSignIn] = useState(false);
   const [inviteToken, setInviteToken] = useState(() => new URLSearchParams(window.location.search).get('invite'));
-  const { page, setPage, selectedOrganizations, setSelectedOrganizations, selectedVenues, setSelectedVenues,
+  const { page, setPage, selectedVenues, setSelectedVenues,
     days, eventToOpen, guestlistEntryToOpen, eventTabToOpen, eventNavigationRevision,
-    navigate: navigateRoute, chooseOrganizations, chooseVenues, chooseDays, selectEvent } = useWorkspaceNavigation();
+    navigate: navigateRoute, chooseVenues, chooseDays, selectEvent } = useWorkspaceNavigation();
   const [notice, setNotice] = useState("");
   const [exporting, setExporting] = useState(false);
   const [loginNotice, setLoginNotice] = useState("");
@@ -93,7 +95,6 @@ export default function App() {
     setMobileNav(false);
     setProfileOpen(false);
     setOrganizationRequestOpen(false);
-    setSelectedOrganizations([]);
     setSelectedVenues([]);
     setNotice("");
     setPage("overview");
@@ -104,6 +105,15 @@ export default function App() {
   const expire = useCallback(() => signOut(true), [signOut]);
   const requireBusinessAccess = useCallback(() => signOut(true, false, 'Your Nitewide account does not have active Business access. Request access below, or accept your invitation to complete onboarding.'), [signOut]);
   const { data, loading, error, revision, setRevision } = useBusinessBootstrap(session, onboardingToken || inviteToken, expire, requireBusinessAccess);
+  const invitationWorkspace = useRef(null);
+  useEffect(() => {
+    const destination = invitationWorkspace.current;
+    if (!destination || !data?.organizations.some(org => org.id === destination.organizationId)) return;
+    invitationWorkspace.current = null;
+    navigateRoute(destination.section, destination.eventId, null, null, { workspaceOrganization: destination.organizationId });
+  }, [data, navigateRoute]);
+  const organizationScope = useOrganizationScope(data, session?.user?.id, page);
+  const selectedOrganizations = organizationScope.organizationIds;
   const previousPage = useRef(page);
   useEffect(() => {
     // Venue/payment changes have their own workspaces. Re-read saved milestones
@@ -167,11 +177,32 @@ export default function App() {
     if (!onboardingToken && !inviteToken && window.location.pathname === '/sign-in') writeWorkspaceLocation({}, { replace: true });
   }
   function navigate(value, eventId = null, entryId = null, eventTab = null, destination = {}) {
-    navigateRoute(value, eventId, entryId, eventTab, destination); setMobileNav(false);
+    const hint = destination.workspaceOrganization || destination.paymentOrganization || destination.teamOrganizationId || destination.organizationIds?.[0];
+    const { paymentOrganization, teamOrganizationId, organizationIds, ...rest } = destination;
+    navigateRoute(value, eventId, entryId, eventTab, { ...rest, workspaceOrganization: organizationScope.forSection(value, hint) }); setMobileNav(false);
+  }
+  function chooseOrganization(id) {
+    setEditor(null); setNotice('');
+    navigate(page, null, null, null, { workspaceOrganization: id });
+  }
+  function resolveEventOrganization(id, eventId, tab, entryId) {
+    if (id !== 'independent' && !data?.organizations.some(org => org.id === id)) {
+      setNotice('Your organization access has changed. Refresh your workspace to open this event.');
+      navigate('events'); return;
+    }
+    navigate('events', eventId, entryId, tab, { workspaceOrganization: id });
   }
   if (onboardingToken && onboardingSignIn) return <BusinessSignIn invitationOnly onSession={login} notice={loginNotice || 'Sign in with the email address on your invitation. You will return to the invitation to accept access.'} />;
   if (onboardingToken) return <><OnboardingSetup token={onboardingToken} session={session} onSignIn={() => setOnboardingSignIn(true)} onSwitchAccount={async (signIn) => { if (!await signOut()) setOnboardingSignIn(signIn); }} onContinue={() => { setOnboardingToken(null); writeWorkspaceLocation({ onboarding: null }, { replace: true }); setRevision((value) => value + 1); }} />{notice && <p role="alert">{notice}</p>}</>;
-  if (inviteToken) return <TeamInviteLanding token={inviteToken} session={session} onSession={login} onAccepted={(updated, accepted) => { login(updated); setInviteToken(null); writeWorkspaceLocation({ invite: null }, { replace: true }); setNotice('Invitation accepted. Your access is ready.'); navigate(accepted?.eventId ? 'events' : 'team', accepted?.eventId || null); setRevision((value) => value + 1); }} />;
+  if (inviteToken) return <TeamInviteLanding token={inviteToken} session={session} onSession={login} onAccepted={(updated, accepted) => {
+    login(updated); setInviteToken(null); writeWorkspaceLocation({ invite: null }, { replace: true }); setNotice('Invitation accepted. Your access is ready.');
+    const section = accepted?.eventId ? 'events' : 'team';
+    // A newly accepted membership may not be in the previous bootstrap yet.
+    // Select it once the server confirms the refreshed organization grants.
+    if (accepted?.organizationId) invitationWorkspace.current = { section, eventId: accepted.eventId || null, organizationId: accepted.organizationId };
+    navigate(section, accepted?.eventId || null, null, null, { workspaceOrganization: accepted?.organizationId });
+    setRevision((value) => value + 1);
+  }} />;
   if (!session || new URLSearchParams(window.location.search).has('resetPassword')) return <BusinessSignIn onSession={login} notice={loginNotice} />;
   if (!data) return <main className="business-access-gate"><Brand /><section className="business-access-gate-card" aria-label="Business access check">
     {error ? <><h1>We couldn’t open your workspace.</h1><p className="error" role="alert">{error}</p><div className="business-access-gate-actions"><Button onClick={() => setRevision((value) => value + 1)}>Try again</Button><Button variant="outline" onClick={() => signOut(true, false, 'Sign in to try opening your Business workspace again.')}>Return to sign in</Button></div></>
@@ -192,12 +223,17 @@ export default function App() {
         ? "Your payments, clearly."
         : "The right people. A great night.";
   const hasIndependentWorkspace = Boolean(data?.scope?.canCreateIndependent);
-  const activeOrg = selectedOrganizations.length === 1 ? data?.organizations.find((o) => o.id === selectedOrganizations[0]) : data?.organizations.length === 1 && !hasIndependentWorkspace ? data.organizations[0] : null;
-  const showVenueSelector = (data?.venues?.length || 0) > 1;
-  const showOrganizationSelector = (data?.organizations.length || 0) + Number(hasIndependentWorkspace) > 1;
-  const { canManage, ownOnly } = workspaceAccess(data, session.user);
+  const activeOrg = organizationScope.organizations.length === 1 && !organizationScope.ownedOnly ? organizationScope.organizations[0] : null;
+  const scopedVenues = data.venues.filter(venue => organizationScope.ownedOnly
+    ? organizationScope.owners.some(org => org.id === venue.organizationId)
+    : venue.organizationId === activeOrg?.id || organizationScope.selection === 'independent' && !venue.organizationId);
+  const showVenueSelector = scopedVenues.length > 1;
+  const scopedData = { ...data, organizations: organizationScope.organizations, scope: { ...data.scope, canCreateIndependent: organizationScope.selection === 'independent' && hasIndependentWorkspace } };
+  const access = workspaceAccess(scopedData, session.user);
+  const canManage = organizationScope.ownedOnly || access.canManage;
+  const ownOnly = !organizationScope.ownedOnly && access.ownOnly;
   const canManageTeam = data
-    ? Boolean(session.user.isInternalAdmin || data.organizations?.some((org) => org.canManage || org.canCreateEvents))
+    ? Boolean(activeOrg && (session.user.isInternalAdmin || activeOrg.canManage || activeOrg.canCreateEvents))
     : Boolean(session.user.isInternalAdmin || session.roles?.some((role) => ['organization_owner', 'venue_manager'].includes(role)));
   const canViewPayments = Boolean(data.organizations?.some(org => org.canManageFinance) || data.scope?.canViewEarnings);
   const visibleNavigation = navigation.filter(([id]) => id !== 'payments' || canViewPayments);
@@ -210,11 +246,11 @@ export default function App() {
             <Sparkles size={19} />
           </span>
           <div>
-            <strong>{activeOrg?.name || (selectedOrganizations.length === 1 && selectedOrganizations[0] === 'independent' ? 'Independent events' : 'Your business')}</strong>
+            <strong>{organizationScope.ownedOnly ? 'Your organizations' : activeOrg?.name || (organizationScope.selection === 'independent' ? 'Independent events' : 'Your business')}</strong>
             <small>
               {ownOnly ? 'Your venue activity' : activeOrg
                 ? `${activeOrg.planTier === "premium" ? "Premium" : "Free"} workspace`
-                : "All your experiences"}
+                : "Owned organizations only"}
             </small>
           </div>
         </div>
@@ -320,6 +356,16 @@ export default function App() {
           </div>
         </header>
         <main className="main-content">
+          <div className="workspace-organization-control">
+            <label htmlFor="workspace-organization">Organization</label>
+            <Choice id="workspace-organization" label="Workspace organization" value={organizationScope.selection} onChange={chooseOrganization}
+              options={[
+                ...data.organizations.map(org => [org.id, org.name]),
+                ...(hasIndependentWorkspace || data.scope?.canViewIndependent ? [['independent', 'Independent events']] : []),
+                ...(allowsOwnedOrganizations(page) && organizationScope.canViewOwnedOrganizations ? [[OWNED_ORGANIZATIONS, 'All organizations', 'Only organizations where you are an owner']] : []),
+              ]}/>
+            {organizationScope.ownedOnly && <span className="hint">Only organizations where you are an owner.</span>}
+          </div>
           {<div className="page-heading">
             <div>
               <span className="eyebrow">
@@ -346,7 +392,7 @@ export default function App() {
                     : "Review requests and keep every guestlist in balance."}
               </p>
             </div>
-            {canManage && (visiblePage === "overview" || visiblePage === "events") && (
+            {canManage && !organizationScope.ownedOnly && (visiblePage === "overview" || visiblePage === "events") && (
               <Button onClick={() => setEditor({})}>
                 <Plus />
                 Create event
@@ -355,16 +401,7 @@ export default function App() {
             {visiblePage === "team" && <Button variant="outline" onClick={() => setOrganizationRequestOpen(true)}>Start an organization</Button>}
           </div>}
           {visiblePage !== "analytics" && visiblePage !== "team" && visiblePage !== "admissions" && visiblePage !== "payments" && <div className="page-controls">
-            {showOrganizationSelector && <MultiSelect
-              label="Organizations"
-              selected={selectedOrganizations}
-              onChange={chooseOrganizations}
-              options={[
-                ...(hasIndependentWorkspace ? [{ id: 'independent', label: 'Independent events' }] : []),
-                ...(data?.organizations || []).map((o) => ({ id: o.id, label: o.name })),
-              ]}
-            />}
-            {showVenueSelector && <MultiSelect label="Venues" options={data.venues} selected={selectedVenues} onChange={chooseVenues} />}
+            {showVenueSelector && <MultiSelect label="Venues" options={scopedVenues} selected={selectedVenues} onChange={chooseVenues} />}
             {page !== "events" && <div>
               <Choice
                 label="Sales period"
@@ -379,7 +416,7 @@ export default function App() {
               />
               <Button variant="outline" disabled={!data || loading || exporting} onClick={async () => {
                 setExporting(true);
-                try { await downloadBusinessReport(session, reportQuery({ days, organizationIds: selectedOrganizations, venueIds: selectedVenues, timezone: browserReportTimezone() })); }
+                try { await downloadBusinessReport(session, reportQuery({ days, organizationIds: selectedOrganizations, ownedOnly: organizationScope.ownedOnly, venueIds: selectedVenues, timezone: browserReportTimezone() })); }
                 catch (err) { setNotice(err.message); }
                 finally { setExporting(false); }
               }}><ArrowDownToLine/>{exporting ? 'Preparing…' : 'Export report'}</Button>
@@ -412,7 +449,7 @@ export default function App() {
             </div>
           )}
           {loading && <LoadingState className="workspace-loading">{data ? 'Updating your workspace…' : 'Opening your workspace…'}</LoadingState>}
-          {(data || visiblePage === 'admissions') && (
+          {organizationScope.ready && (
             <div
               className={loading ? "content-updating" : ""}
               aria-busy={loading}
@@ -425,20 +462,20 @@ export default function App() {
                 </p>
               )}
               {visiblePage === "overview" && data && <>
-                <BusinessSetupProgress organizations={data.organizations} progress={data.setupProgress} selectedOrganizations={selectedOrganizations}
+                {!organizationScope.ownedOnly && <BusinessSetupProgress organizations={organizationScope.organizations} progress={data.setupProgress} selectedOrganizations={selectedOrganizations}
                   onOrganization={(id) => navigate('team', null, null, null, { teamOrganizationId: id })}
                   onPayments={(id) => navigate('payments', null, null, null, { paymentOrganization: id })}
                   onEvents={(id) => navigate('events', null, null, null, { organizationIds: [id] })}
-                  onCreate={(id) => setEditor({ organizationId: id })}/>
-                <BusinessOverview session={session} days={days} organizationIds={selectedOrganizations} venueIds={selectedVenues} ownOnly={ownOnly} revision={revision} onNavigate={navigate} onUnauthorized={expire}/>
+                  onCreate={(id) => setEditor({ organizationId: id })}/>}
+                <BusinessOverview key={organizationScope.selection} session={session} days={days} organizationIds={selectedOrganizations} ownedOnly={organizationScope.ownedOnly} venueIds={selectedVenues} ownOnly={ownOnly} revision={revision} onNavigate={navigate} onUnauthorized={expire}/>
               </>}
-              {visiblePage === "analytics" && data && <BusinessAnalytics session={session} ownOnly={ownOnly}
-                organizations={data.organizations} venues={data.venues} canCreateIndependent={data.scope.canCreateIndependent}
+              {visiblePage === "analytics" && data && <BusinessAnalytics key={organizationScope.selection} session={session} ownOnly={ownOnly}
+                organizationIds={selectedOrganizations} ownedOnly={organizationScope.ownedOnly} venues={scopedVenues}
                 onEvent={(id) => navigate('events', id)} onUnauthorized={expire}/>}
-              {visiblePage === "admissions" && <Admissions session={session} onAdmitted={refreshAdmissions} onUnauthorized={expire} onOpenEvent={(id) => navigate('events', id)}/>}
+              {visiblePage === "admissions" && <Admissions key={organizationScope.selection} organizationId={organizationScope.selection} session={session} onAdmitted={refreshAdmissions} onUnauthorized={expire} onOpenEvent={(id) => navigate('events', id)}/>}
               {visiblePage === "events" && data && (
                 <PagedEvents
-                  key={eventNavigationRevision}
+                  key={`${organizationScope.selection}:${eventNavigationRevision}`}
                   session={session}
                   ownOnly={ownOnly}
                   initialEventId={eventToOpen}
@@ -447,21 +484,23 @@ export default function App() {
                   onUnauthorized={expire}
                   onEdit={(event, initialStep = 0) => setEditor({ event, initialStep })}
                   onDuplicate={(source, choices) => setEditor({ duplicateSource: source, copyChoices: choices,
-                    presetDraft: reusableDraft(source, choices, data.organizations, data.venues) })}
+                    presetDraft: reusableDraft(source, choices, organizationScope.organizations, scopedVenues) })}
                   onCreate={() => setEditor({})}
                   organizationIds={selectedOrganizations}
                   venueIds={selectedVenues}
                   revision={revision}
                   capabilities={data.capabilities}
                   onSelectionChange={selectEvent}
+                  onOrganizationResolved={resolveEventOrganization}
                 />
               )}
               {visiblePage === "team" && data && (canManageTeam
-                ? <BusinessTeam session={session} organizations={data.organizations.filter((org) => org.canManage || org.canCreateEvents)} onUnauthorized={expire} />
+                ? <BusinessTeam key={activeOrg.id} session={session} organizations={[activeOrg]} onUnauthorized={expire} />
                 : <p className="hint">Team and venue management are available only where you are an owner or authorized manager.</p>)}
-              {visiblePage === "payments" && canViewPayments && <BusinessPayments session={session} organizations={data.organizations} canViewEarnings={Boolean(data.scope?.canViewEarnings)} />}
+              {visiblePage === "payments" && canViewPayments && <BusinessPayments key={organizationScope.selection} session={session} organizations={activeOrg ? [activeOrg] : []} organizationId={organizationScope.selection} canViewEarnings={Boolean(data.scope?.canViewEarnings)} />}
             </div>
           )}
+          {!organizationScope.ready && <p className="hint">No active organization is available. You can request a separate organization from the Organization tab.</p>}
           <footer className="app-footer">
             <ContactNitewide session={session}/>
             <span>Nitewide Business</span>
@@ -477,15 +516,11 @@ export default function App() {
           copyChoices={editor.copyChoices || null}
           presetDraft={editor.presetDraft || null}
           initialStep={editor.initialStep ?? 0}
-          organizations={data.organizations}
-          venues={data.venues}
-          canCreateIndependent={data.scope.canCreateIndependent}
+          organizations={organizationScope.organizations}
+          venues={scopedVenues}
+          canCreateIndependent={organizationScope.selection === 'independent' && hasIndependentWorkspace}
           defaultOrganization={
-            editor.organizationId || (selectedOrganizations.length === 1 && selectedOrganizations[0] === "independent"
-              ? null
-              : activeOrg?.canManage
-                ? activeOrg.id
-                : data.organizations.find((o) => o.canManage || o.canCreateEvents)?.id || null)
+            editor.organizationId || activeOrg?.id || null
           }
           session={session}
           onClose={() => setEditor(null)}
@@ -493,11 +528,9 @@ export default function App() {
           onSaved={(message) => {
             setEditor(null);
             setNotice(message);
-            setSelectedOrganizations([]);
             setSelectedVenues([]);
             setRevision((r) => r + 1);
-            setPage("events");
-            writeWorkspaceLocation({ section: 'events', event: null, entry: null, tab: null });
+            navigate('events');
           }}
         />
       )}

@@ -1,12 +1,13 @@
 import { waitForExport } from './export-job-client.js';
 export const browserReportTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
-export function reportQuery({ days = '30', startDate = '', endDate = '', organizationIds = [], venueIds = [], regions = [], search = '', sort = 'sales_desc',
+export function reportQuery({ days = '30', startDate = '', endDate = '', organizationIds = [], ownedOnly = false, venueIds = [], regions = [], search = '', sort = 'sales_desc',
   timezone = browserReportTimezone(), eventId = '', personId = '', offeringKind = '', offeringName = '' }) {
   const params = new URLSearchParams();
   if (startDate && endDate) { params.set('startDate', startDate); params.set('endDate', endDate); }
   else params.set('days', String(days));
   organizationIds.forEach((value) => params.append('organizationIds', value));
+  if (ownedOnly) params.set('ownedOnly', 'true');
   venueIds.forEach((value) => params.append('venueIds', value));
   regions.forEach((value) => params.append('regions', value));
   if (eventId) params.set('eventId', eventId);

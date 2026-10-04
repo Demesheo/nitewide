@@ -38,13 +38,13 @@ const reportDates = (state) => {
   return { startDate, endDate };
 };
 
-export function BusinessAnalytics({ session, ownOnly = false, organizations = [], venues = [], canCreateIndependent = false, onEvent, onUnauthorized }) {
+export function BusinessAnalytics({ session, ownOnly = false, organizationIds: workspaceOrganizations, ownedOnly = false, venues = [], onEvent, onUnauthorized }) {
   const [initial] = useState(readWorkspaceLocation);
   const [initialDates] = useState(() => reportDates(initial));
   const [period, setPeriod] = useState(initial.reportPeriod);
   const [startDate, setStartDate] = useState(initialDates.startDate);
   const [endDate, setEndDate] = useState(initialDates.endDate);
-  const [organizationIds, setOrganizationIds] = useState(initial.organizationIds);
+  const organizationIds = workspaceOrganizations || initial.organizationIds;
   const [venueIds, setVenueIds] = useState(initial.venueIds);
   const [region, setRegion] = useState(initial.reportRegion);
   const [regions, setRegions] = useState(initial.reportRegions);
@@ -71,7 +71,7 @@ export function BusinessAnalytics({ session, ownOnly = false, organizations = []
   useEffect(() => { const restore = () => { const state = readWorkspaceLocation();
     const dates = reportDates(state);
     setPeriod(state.reportPeriod); setStartDate(dates.startDate); setEndDate(dates.endDate);
-    setOrganizationIds(state.organizationIds); setVenueIds(state.venueIds); setRegion(state.reportRegion); setRegions(state.reportRegions);
+    setVenueIds(state.venueIds); setRegion(state.reportRegion); setRegions(state.reportRegions);
     setSearch(state.reportSearch); setDraftSearch(state.reportSearch); setSort(state.reportSort); setTable(state.reportTable);
     setReportEvent(state.reportEvent); setEventHint(null);
     setReportPerson(state.reportPerson); setPersonHint(null);
@@ -79,10 +79,10 @@ export function BusinessAnalytics({ session, ownOnly = false, organizations = []
     setReportPage(state.reportPage); setReportPageSize(state.reportPageSize); setTimezone(state.reportTimezone);
   }; window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore); }, []);
   const query = useMemo(() => ready ? reportQuery({ days: period, startDate: period === 'custom' ? startDate : '',
-    endDate: period === 'custom' ? endDate : '', organizationIds, venueIds, regions: region ? [region] : regions,
+    endDate: period === 'custom' ? endDate : '', organizationIds, ownedOnly, venueIds, regions: region ? [region] : regions,
     search, sort: 'sales_desc', timezone, eventId: reportEvent, personId: reportPerson,
     offeringKind: reportOfferingKind, offeringName: reportOfferingName }) : null,
-  [ready, period, startDate, endDate, organizationIds, venueIds, region, regions, search, timezone, reportEvent,
+  [ready, period, startDate, endDate, organizationIds, ownedOnly, venueIds, region, regions, search, timezone, reportEvent,
     reportPerson, reportOfferingKind, reportOfferingName]);
   useEffect(() => {
     if (!query) { setLoading(false); setError(''); return; }
@@ -143,11 +143,11 @@ export function BusinessAnalytics({ session, ownOnly = false, organizations = []
   const resetReport = () => {
     // Reset report navigation, not the operator's chosen reporting dates.
     const nextTable = ownOnly ? 'events' : 'regions';
-    setOrganizationIds([]); setVenueIds([]); setRegion(''); setRegions([]);
+    setVenueIds([]); setRegion(''); setRegions([]);
     setReportEvent(''); setEventHint(null); setReportPerson(''); setPersonHint(null);
     setReportOfferingKind(''); setReportOfferingName(''); setSearch(''); setDraftSearch('');
     setTable(nextTable); setSort('sales_desc'); setReportPage(1);
-    writeWorkspaceLocation({ organizationIds: [], venueIds: [], reportRegion: null, reportRegions: [],
+    writeWorkspaceLocation({ venueIds: [], reportRegion: null, reportRegions: [],
       reportEvent: null, reportPerson: null, reportOfferingKind: null, reportOfferingName: null,
       reportSearch: null, reportTable: nextTable, reportSort: 'sales_desc', reportPage: 1,
       reportTeamPage: 1, reportTeamSearch: null, reportTeamRoles: [], reportTeamSort: 'sales_desc' });
@@ -222,7 +222,7 @@ export function BusinessAnalytics({ session, ownOnly = false, organizations = []
   const categories = categoryChoices.map(([id, label]) => ({ id, label, active: table === id,
     onClick: () => changeTable(id) }));
   const visuals = summary && { ...summary, options: { regions: regionOptions }, hierarchy: regionOptions.length > 1 ? summary.regionalMix || [] : summary.eventMix.map((row) => ({ ...row, level: 'event' })) };
-  const hasScopeFilters = (!ownOnly && regionOptions.length > 1) || (organizations.length + Number(canCreateIndependent)) > 1 || venues.length > 1;
+  const hasScopeFilters = (!ownOnly && regionOptions.length > 1) || venues.length > 1;
   const filters = hasScopeFilters && <div className="analytics-filters flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card p-4" aria-label="Analytics scope filters">
       {!ownOnly && regionOptions.length > 1 && <MultiSelect label="Regions" options={regionOptions.map((id) => ({ id, label: id }))} selected={region ? [region] : regions} onChange={(ids) => { if (sameIds(ids, region ? [region] : regions)) return;
         const nextSort = tableSort('regions', sort);
@@ -230,16 +230,6 @@ export function BusinessAnalytics({ session, ownOnly = false, organizations = []
         setReportOfferingKind(''); setReportOfferingName(''); setTable('regions'); setSort(nextSort); setReportPage(1);
         writeWorkspaceLocation({ reportRegions: ids, reportRegion: null, venueIds: [], reportEvent: null, reportPerson: null,
           reportOfferingKind: null, reportOfferingName: null, reportTable: 'regions', reportSort: nextSort, reportPage: 1, reportTeamPage: 1 }); }}/>}
-      {(organizations.length + Number(canCreateIndependent)) > 1 && <MultiSelect label="Organizations" options={[...(canCreateIndependent ? [{ id: 'independent', label: 'Independent events' }] : []), ...organizations.map((row) => ({ id: row.id, label: row.name }))]} selected={organizationIds}
-        onChange={(value) => { if (sameIds(value, organizationIds)) return;
-          const resetDetail = Boolean(reportEvent || reportPerson || reportOfferingKind || reportOfferingName);
-          const nextSort = resetDetail ? tableSort('events', sort) : sort;
-          setOrganizationIds(value); setVenueIds([]); setReportEvent(''); setEventHint(null); setReportPerson(''); setPersonHint(null);
-          setReportOfferingKind(''); setReportOfferingName(''); setReportPage(1);
-          if (resetDetail) { setTable('events'); setSort(nextSort); }
-          writeWorkspaceLocation({ organizationIds: value, venueIds: [], reportEvent: null, reportPerson: null,
-            reportOfferingKind: null, reportOfferingName: null, reportTable: resetDetail ? 'events' : table,
-            reportSort: nextSort, reportPage: 1, reportTeamPage: 1 }); }}/>}
       {venues.length > 1 && <MultiSelect label="Venues" options={venues.filter((row) => !organizationIds.length || organizationIds.includes(row.organizationId))} selected={venueIds}
         onChange={(value) => { if (sameIds(value, venueIds)) return;
           const resetDetail = Boolean(reportEvent || reportPerson || reportOfferingKind || reportOfferingName);

@@ -35171,18 +35171,6 @@
             }
           },
           {
-            "name": "recipientUserId",
-            "in": "query",
-            "required": false,
-            "style": "form",
-            "explode": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-            }
-          },
-          {
             "name": "currency",
             "in": "query",
             "required": false,
@@ -35191,6 +35179,26 @@
             "schema": {
               "type": "string",
               "pattern": "^[A-Za-z]{3}$"
+            }
+          },
+          {
+            "name": "organizationId",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                {
+                  "type": "string",
+                  "const": "independent"
+                }
+              ]
             }
           }
         ],
@@ -38874,7 +38882,28 @@
           }
         ],
         "deprecated": false,
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                {
+                  "type": "string",
+                  "const": "independent"
+                }
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful response",
@@ -39273,6 +39302,26 @@
               "default": "",
               "type": "string",
               "maxLength": 120
+            }
+          },
+          {
+            "name": "organizationId",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                {
+                  "type": "string",
+                  "const": "independent"
+                }
+              ]
             }
           }
         ],
@@ -40639,6 +40688,21 @@
         "deprecated": false,
         "parameters": [
           {
+            "name": "ownedOnly",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": "false",
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "name": "timezone",
             "in": "query",
             "required": false,
@@ -41389,6 +41453,21 @@
         ],
         "deprecated": false,
         "parameters": [
+          {
+            "name": "ownedOnly",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": "false",
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
           {
             "name": "timezone",
             "in": "query",
@@ -43052,6 +43131,21 @@
             }
           },
           {
+            "name": "ownedOnly",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": "false",
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "name": "timezone",
             "in": "query",
             "required": false,
@@ -44079,6 +44173,21 @@
         "deprecated": false,
         "parameters": [
           {
+            "name": "ownedOnly",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": "false",
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "name": "timezone",
             "in": "query",
             "required": false,
@@ -44449,6 +44558,21 @@
         "deprecated": false,
         "parameters": [
           {
+            "name": "ownedOnly",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": "false",
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "name": "timezone",
             "in": "query",
             "required": false,
@@ -44733,6 +44857,21 @@
         ],
         "deprecated": false,
         "parameters": [
+          {
+            "name": "ownedOnly",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": "false",
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
           {
             "name": "timezone",
             "in": "query",
@@ -45434,6 +45573,21 @@
         ],
         "deprecated": false,
         "parameters": [
+          {
+            "name": "ownedOnly",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": "false",
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
           {
             "name": "timezone",
             "in": "query",
@@ -47041,6 +47195,21 @@
                 "offerings",
                 "team",
                 "customers"
+              ]
+            }
+          },
+          {
+            "name": "ownedOnly",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": "false",
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
               ]
             }
           },

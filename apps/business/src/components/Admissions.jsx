@@ -12,7 +12,7 @@ import { admissionResult } from '@/lib/admissions';
 import './admissions.css';
 
 const dateLabel = (event) => new Date(event.startsAt).toLocaleString('en-US', { timeZone: event.location?.timezone || 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-export function Admissions({ session, onAdmitted, onUnauthorized, onOpenEvent }) {
+export function Admissions({ session, organizationId, onAdmitted, onUnauthorized, onOpenEvent }) {
   const [events, setEvents] = useState(null), [event, setEvent] = useState(null), [eventSearch, setEventSearch] = useState('');
   const [eventQuery, setEventQuery] = useState(''), [eventPage, setEventPage] = useState(1), [eventTotal, setEventTotal] = useState(0), [eventLoading, setEventLoading] = useState(false);
   const [nextEvent, setNextEvent] = useState(null);
@@ -37,6 +37,7 @@ export function Admissions({ session, onAdmitted, onUnauthorized, onOpenEvent })
       setEventLoading(true);
       try {
         const params = new URLSearchParams({ page: String(eventPage), pageSize: '20', search: eventQuery });
+        if (organizationId) params.set('organizationId', organizationId);
         const data = await api(`/business/admissions/events?${params}`, session, { signal: controller.signal });
         if (!controller.signal.aborted) { setEvents(data.items); setEventTotal(data.total); setNextEvent(data.nextEvent); setError(''); }
       } catch (err) { if (!controller.signal.aborted) { if (err.status === 401) onUnauthorized(); else setError(err.message); } }
@@ -45,7 +46,7 @@ export function Admissions({ session, onAdmitted, onUnauthorized, onOpenEvent })
     load();
     const timer = setInterval(() => { if (!document.hidden) load(); }, 30000);
     return () => { controller.abort(); clearInterval(timer); };
-  }, [session, onUnauthorized, revision, eventPage, eventQuery]);
+  }, [session, organizationId, onUnauthorized, revision, eventPage, eventQuery]);
   useEffect(() => {
     if (!eventId) return;
     const controller = new AbortController(); let pending = false;

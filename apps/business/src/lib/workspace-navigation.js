@@ -14,8 +14,8 @@ const pageSizeNumber = (value) => [10, 25, 50].includes(Number(value)) ? Number(
 const timezoneNumber = (value) => { if (!value || value.length > 64) return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   try { new Intl.DateTimeFormat('en', { timeZone: value }); return value; } catch { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } };
 
-// A URL describes one workspace section. Shared scope keys are useful in each
-// section, but they are copied only by interactions within that section.
+// Organization context belongs to the entire workspace; drill-down and filter
+// state still belongs to one section and is cleared on navigation.
 const scopeKeys = ['organizationIds', 'venueIds'];
 const sectionKeys = {
   overview: new Set([...scopeKeys, 'days', 'overviewTeamRoles', 'overviewTeamSearch', 'overviewTeamSort', 'overviewTeamPage', 'overviewTeamPageSize']),
@@ -51,7 +51,7 @@ function sectionParams(params) {
   const section = activeSection(params);
   const allowed = sectionKeys[section];
   const scoped = new URLSearchParams();
-  for (const [key, value] of params) if (allowed.has(key)) scoped.append(key, value);
+  for (const [key, value] of params) if (key === 'workspaceOrganization' || allowed.has(key)) scoped.append(key, value);
   if (section === 'events' && !scoped.get('event')) {
     scoped.delete('entry'); scoped.delete('tab');
   }
@@ -62,7 +62,7 @@ export function readWorkspaceLocation(search = window.location.search) {
   const { section, params } = sectionParams(new URLSearchParams(search));
   const eventId = params.get('event');
   return {
-    section, eventId, entryId: params.get('entry'),
+    section, eventId, entryId: params.get('entry'), workspaceOrganization: params.get('workspaceOrganization') || '',
     paymentOrganization: reportEventId(params.get('paymentOrganization')),
     paymentView: params.get('paymentView') === 'commissions' ? 'commissions' : 'business',
     tab: tabs.has(params.get('tab')) ? params.get('tab') : null,
@@ -118,7 +118,11 @@ export function writeWorkspaceLocation(changes, { replace = false } = {}) {
   url.pathname = '/app';
   // Explicit section changes are navigation: begin with that destination's
   // state. A partial write keeps only parameters owned by the active section.
-  if (Object.hasOwn(changes, 'section')) url.search = '';
+  if (Object.hasOwn(changes, 'section')) {
+    const organization = url.searchParams.get('workspaceOrganization');
+    url.search = '';
+    if (organization) url.searchParams.set('workspaceOrganization', organization);
+  }
   for (const [key, value] of Object.entries(changes)) {
     url.searchParams.delete(key);
     if (Array.isArray(value)) value.forEach((item) => url.searchParams.append(key, item));
@@ -144,4 +148,5 @@ export function writeWorkspaceLocation(changes, { replace = false } = {}) {
     return;
   }
   window.history[replace ? 'replaceState' : 'pushState'](nextState, '', next);
+  window.dispatchEvent(new window.Event('nitewide:workspace-location'));
 }

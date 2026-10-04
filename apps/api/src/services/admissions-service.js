@@ -7,7 +7,7 @@ const { hasInternalPermission } = require('./internal-admin-permissions');
 const { activeEventAffiliates } = require('./event-affiliate-scope');
 
 function createAdmissionsService({ models: m, permissions, now = () => new Date() }) {
-  async function events(userId, { page = 1, pageSize = 20, search = '' } = {}) {
+  async function events(userId, { page = 1, pageSize = 20, search = '', organizationId } = {}) {
     const user = await m.User.findByPk(userId);
     if (!activeUser(user)) throw forbidden('An active account is required');
     const [leaders, employees, promoters, affiliates] = await Promise.all([
@@ -22,7 +22,9 @@ function createAdmissionsService({ models: m, permissions, now = () => new Date(
     const venueScopes = venueGrants.map((grant) => ({ organizationId: grant.organizationId, locationId: grant.locationId }));
     const time = now();
     const scope = activeEventScope(m, { locationAttributes: ['name', 'timezone', 'city'], admission: true });
+    const organizationFilter = organizationId ? { organizationId: organizationId === 'independent' ? null : organizationId } : {};
     const where = { ...scope.where,
+      ...organizationFilter,
       status: 'published', startsAt: { [Op.lte]: new Date(+time + ADMISSION_WINDOW_MS) }, endsAt: { [Op.gte]: new Date(+time - ADMISSION_WINDOW_MS) },
       ...(!hasInternalPermission(user, 'events.manage') ? { [Op.or]: [{ organizationId: orgIds }, { organizationId: null, creatorUserId: userId }, { id: assignedIds }, ...venueScopes] } : {}),
     };
@@ -34,6 +36,7 @@ function createAdmissionsService({ models: m, permissions, now = () => new Date(
     const result = await m.Event.findAndCountAll({ where, attributes: ['id', 'title', 'startsAt', 'endsAt', 'imageUrl'], include: scope.include, distinct: true, subQuery: false,
       order: [['startsAt', 'ASC'], ['id', 'ASC']], limit: pageSize, offset: (page - 1) * pageSize });
     const next = await m.Event.findOne({ where: { ...scope.where, status: 'published',
+      ...organizationFilter,
       startsAt: { [Op.gt]: new Date(+time + ADMISSION_WINDOW_MS) },
       ...(!hasInternalPermission(user, 'events.manage') ? { [Op.or]: [{ organizationId: orgIds }, { organizationId: null, creatorUserId: userId }, { id: assignedIds }, ...venueScopes] } : {}) },
       attributes: ['id', 'title', 'startsAt', 'endsAt'], include: scope.include,

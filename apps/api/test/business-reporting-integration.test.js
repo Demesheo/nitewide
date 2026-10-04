@@ -149,6 +149,33 @@ test('Team, Overview, and Analytics agree across isolated owner, manager, employ
       assert.equal(overview.summary[field], analytics.summary[field], `overview/analytics total ${field}`);
     }
 
+    // A portfolio aggregate is based on ownership, not the user's strongest
+    // role elsewhere, finance authorization, or a cached bootstrap list.
+    await models.OrganizationOwner.update({ role: 'admin', financeAuthorized: true }, { where: { organizationId: ids.organizations[1], userId: ids.owner } });
+    try {
+      const bootstrap = await businessRead.bootstrap(ids.owner);
+      assert.equal(bootstrap.organizations.find(org => org.id === ids.organizations[0]).isOwner, true);
+      assert.equal(bootstrap.organizations.find(org => org.id === ids.organizations[1]).isOwner, false);
+      assert.equal(bootstrap.scope.canViewOwnedOrganizations, true);
+      assert.equal((await businessRead.bootstrap(ids.managers[0])).scope.canViewOwnedOrganizations, false);
+      const ownedQuery = reportDetailQuery.parse({ ownedOnly: 'true', days: 30 });
+      assert.equal((await businessRead.overview(ids.owner, reportQuery.parse({ ownedOnly: 'true' }))).summary.salesCents, 5000);
+      assert.equal((await businessReports.summary(ids.owner, ownedQuery)).summary.salesCents, 5000);
+      assert.deepEqual((await businessReports.table(ids.owner, 'events', ownedQuery)).items.map(row => row.id), [ids.events[0]]);
+      const prepared = await businessReports.prepareTable(ids.owner, 'events', ownedQuery);
+      const exported = await sequelize.query(prepared.sql, { replacements: prepared.values, type: require('sequelize').QueryTypes.SELECT });
+      assert.deepEqual(exported.map(prepared.mapRow).map(row => row.id), [ids.events[0]], 'CSV and paginated tables share the owner-only filter');
+      await models.User.update({ isInternalAdmin: true }, { where: { id: ids.owner } });
+      assert.equal((await businessReports.summary(ids.owner, ownedQuery)).summary.salesCents, 5000, 'internal privileges cannot widen a personal owner aggregate');
+      await models.OrganizationOwner.update({ role: 'admin' }, { where: { organizationId: ids.organizations[0], userId: ids.owner } });
+      assert.equal((await businessRead.bootstrap(ids.owner)).scope.canViewOwnedOrganizations, false);
+      assert.equal((await businessReports.summary(ids.owner, ownedQuery)).summary.salesCents, 0, 'demotion immediately removes that organization from the aggregate');
+      assert.equal((await businessReports.summary(ids.managers[0], ownedQuery)).summary.salesCents, 0, 'managers do not receive an all-organizations aggregate');
+    } finally {
+      await models.OrganizationOwner.update({ role: 'owner', financeAuthorized: false }, { where: { userId: ids.owner } });
+      await models.User.update({ isInternalAdmin: false }, { where: { id: ids.owner } });
+    }
+
     const { createAdminReportService } = require('../src/services/admin-report-service');
     const adminReports = createAdminReportService({ models, permissions, businessRead, reports: businessReports });
     await assert.rejects(adminReports.bootstrap(ids.owner), { code: 'FORBIDDEN' });

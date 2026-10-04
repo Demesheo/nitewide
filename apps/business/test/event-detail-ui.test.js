@@ -104,7 +104,7 @@ test('standalone Guestlists navigation is removed while notifications deep-link 
   const guestlists = readFileSync(new URL('../src/components/Guestlists.jsx', import.meta.url), 'utf8');
   assert.doesNotMatch(app, /\["guestlists", Users, "Guestlists"\]|visiblePage === "guestlists"/);
   assert.match(app, /initialGuestlistEntryId=\{guestlistEntryToOpen\}/);
-  assert.match(app, /key=\{eventNavigationRevision\}/);
+  assert.match(app, /key=\{`\$\{organizationScope.selection\}:\$\{eventNavigationRevision\}`\}/);
   assert.match(events, /initialGuestlistEntryId=\{selectedId === initialEventId \? initialGuestlistEntryId : null\}/);
   assert.match(events, /selectedId !== initialEventId && !data.events.some/);
   assert.match(notifications, /onNavigate\('events', item.eventId, item.metadata\?\.entryId,\s*item.kind === 'guestlist_request' \? 'guestlist' : null\)/);
