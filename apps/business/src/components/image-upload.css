@@ -1,0 +1,18 @@
+.upload-preview-action {
+  padding: 0;
+  border: 1px dashed var(--border, #615073);
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.upload-preview-action:hover:not(:disabled) {
+  background: var(--accent, #302c41);
+  border-color: var(--primary, #b9a9ff);
+}
+.upload-preview-action:focus-visible {
+  outline: 2px solid var(--primary, #b9a9ff);
+  outline-offset: 3px;
+}
+.upload-preview-action:disabled { cursor: progress; opacity: .6; }
+@media (prefers-reduced-motion: reduce) {
+  .upload-preview-action { transition: none; }
+}

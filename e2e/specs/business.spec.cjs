@@ -84,6 +84,21 @@ teamPaginationTest('business entry and workspace journey keeps branding, clean n
     await expect(setup.locator('ol')).not.toBeVisible();
     await expectNoOverflow(page);
   });
+  await test.step('The empty artwork area opens the file picker without submitting a new event', async () => {
+    await page.getByRole('button', { name: 'Create event', exact: true }).click();
+    const editor = page.getByRole('dialog', { name: 'Create an event', exact: true });
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      editor.getByRole('button', { name: 'Upload event image or flyer', exact: true }).click(),
+    ]);
+    expect(await chooser.element().getAttribute('id')).toBe('event-image');
+    await chooser.setFiles([]);
+    await expect(editor.getByLabel('Event image or flyer', { exact: true })).toBeVisible();
+    await expectNoOverflow(page);
+    await test.info().attach('business-empty-artwork-upload', { body: await editor.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+    await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(editor).toHaveCount(0);
+  });
   await test.step('Overview charts switch categories and team pagination uses the backend', async () => {
     await page.locator('.app-footer').getByRole('button', { name: 'Contact Nitewide', exact: true }).click();
     const messages = page.getByRole('dialog', { name: 'Messages', exact: true });

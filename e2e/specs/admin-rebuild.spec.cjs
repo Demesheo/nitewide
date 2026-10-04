@@ -271,6 +271,14 @@ test('read-only staff can view records but cannot onboard or alter ownership', a
 test('shared event editor retains ticket controls and confirms affected attendee count', async ({ page }) => {
   const state = await mockAdmin(page); await page.goto(`/?section=events&resource=events&record=${event.id}`); await page.getByRole('button', { name: 'Edit details', exact: true }).click();
   const editor = page.getByRole('dialog', { name: 'Edit event', exact: true });
+  const upload = editor.getByRole('button', { name: 'Upload event image or flyer', exact: true });
+  await upload.focus();
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), upload.press('Enter')]);
+  expect(await chooser.element().getAttribute('id')).toBe('event-image');
+  await chooser.setFiles([]);
+  await expect(editor.getByLabel('Event image or flyer', { exact: true })).toBeVisible();
+  await expectNoOverflow(page);
+  await test.info().attach('admin-empty-artwork-upload', { body: await editor.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
   await editor.getByLabel('Starts at (venue time)').fill('2026-10-10T20:00'); await editor.getByLabel('Reason for this change').fill('Verified event schedule change'); await editor.getByRole('button', { name: 'Continue', exact: true }).click(); await editor.getByRole('button', { name: 'Continue', exact: true }).click();
   await editor.locator('summary').filter({ hasText: 'General admission' }).click(); await expect(editor.getByLabel('Price per unit ($)')).toBeVisible(); await expect(editor.getByLabel('Guests per unit')).toBeDisabled(); await expectNoOverflow(page);
   await editor.getByRole('button', { name: 'Save changes', exact: true }).click(); const confirmation = page.getByRole('dialog', { name: 'Confirm significant event change' }); await expect(confirmation).toContainText('12 affected attendees');

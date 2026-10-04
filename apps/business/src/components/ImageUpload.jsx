@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ImagePlus, Trash2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { api, mediaSrc } from "../lib/api";
+import './image-upload.css';
 export function ImageUpload({ value, session, onChange, onBusy, request = api }) {
+  const fileInput = useRef(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function upload(e) {
@@ -37,17 +39,23 @@ export function ImageUpload({ value, session, onChange, onBusy, request = api })
   }
   return (
     <section className="image-upload" aria-label="Event artwork">
-      <div className="upload-preview">
-        {value ? (
+      {value ? (
+        <div className="upload-preview">
           <img src={mediaSrc(value)} alt="Event flyer preview" />
-        ) : (
-          <ImagePlus size={30} />
-        )}
-      </div>
+        </div>
+      ) : (
+        <button type="button" className="upload-preview upload-preview-action"
+          aria-label="Upload event image or flyer" aria-controls="event-image"
+          title="Upload event image or flyer" disabled={busy}
+          onClick={() => fileInput.current?.click()}>
+          <ImagePlus size={30} aria-hidden="true" />
+        </button>
+      )}
       <div className="upload-controls">
         <label className="field" htmlFor="event-image">
           <span>Event image or flyer</span>
           <Input
+            ref={fileInput}
             id="event-image"
             type="file"
             accept="image/jpeg,image/png,image/webp"
