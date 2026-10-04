@@ -433,7 +433,7 @@ test('organization invitation links and resend links open the team acceptance sc
   expect(copiedToken).toMatch(/^nwti1\./);
   const preview = await request.get(`${urls.api}/api/team/invitations/${copiedToken}`);
   expect(preview.status()).toBe(200);
-  expect((await preview.json()).data.email).toBe(fixture.accounts.customer.email);
+  expect((await preview.json()).data).toMatchObject({ email: fixture.accounts.customer.email, accountMode: 'existing' });
   const tamperedToken = copiedToken.slice(0, -1) + (copiedToken.endsWith('A') ? 'B' : 'A');
   expect((await request.get(`${urls.api}/api/team/invitations/${tamperedToken}`)).status()).toBe(404);
   await testInfo.attach('pending-team-invitation', { body: await pending.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
@@ -449,17 +449,64 @@ test('organization invitation links and resend links open the team acceptance sc
     await recipient.goto(renewed);
     await expect(recipient.getByRole('heading', { name: 'Playwright Nightlife invited you to join as employee', exact: true })).toBeVisible();
     await expect(recipient.getByLabel('Email', { exact: true })).toHaveValue(fixture.accounts.customer.email);
+    await expect(recipient.getByRole('button', { name: 'Sign in and accept', exact: true })).toBeVisible();
+    await expect(recipient.getByLabel('Confirm password', { exact: true })).toHaveCount(0);
     await expectNoOverflow(recipient);
     await testInfo.attach('team-invitation-acceptance', { body: await recipient.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
     const viewport = recipient.viewportSize();
     await recipient.setViewportSize({ width: 320, height: 568 });
     await expectNoOverflow(recipient);
     await recipient.setViewportSize(viewport);
-    await recipient.getByRole('button', { name: 'New to Nitewide? Create an account', exact: true }).click();
+    await recipient.getByLabel('Password', { exact: true }).fill(fixture.password);
+    await recipient.getByRole('button', { name: 'Sign in and accept', exact: true }).click();
+    await expect(recipient).toHaveURL(/section=team/);
+    const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem('nitewide.business.session')));
+    const newEmail = `test+team-${fixture.accounts.customer.id}@nitewide.test`;
+    const newInvite = await request.post(`${urls.api}/api/business/organizations/${fixture.ids.org}/invitations`, {
+      headers: { Authorization: `Bearer ${session.accessToken}` }, data: { name: 'New Teammate', email: newEmail, role: 'employee' },
+    });
+    expect(newInvite.status()).toBe(201);
+    const newToken = (await newInvite.json()).data.token;
+    // Clear the prior identity before opening a different recipient's invitation.
+    await recipient.evaluate(() => sessionStorage.clear());
+    await recipient.goto(`${urls.business}/app?invite=${newToken}`);
+    await expect(recipient.getByRole('button', { name: 'Create account and accept', exact: true })).toBeVisible();
     await expect(recipient.getByLabel('Name', { exact: true })).toBeVisible();
+    await expect(recipient.getByLabel('Name', { exact: true })).toHaveValue('New Teammate');
+    await expect(recipient.getByLabel('Email', { exact: true })).toHaveValue(newEmail);
     await expect(recipient.getByLabel('Password', { exact: true })).toHaveAttribute('autocomplete', 'new-password');
+    await expect(recipient.getByLabel('Confirm password', { exact: true })).toBeVisible();
+    const requirements = recipient.getByRole('list', { name: 'Password requirements', exact: true });
+    await expect(requirements).toContainText('8–128 characters');
+    await expect(requirements).toContainText('One uppercase letter');
+    await expect(requirements).toContainText('One lowercase letter');
+    await expect(requirements).toContainText('One number');
     await expectNoOverflow(recipient);
     await testInfo.attach('team-invitation-create-account', { body: await recipient.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+    let registrations = 0;
+    recipient.on('request', req => { if (new URL(req.url()).pathname === '/api/auth/register' && req.method() === 'POST') registrations++; });
+    const password = recipient.getByLabel('Password', { exact: true });
+    const confirmPassword = recipient.getByLabel('Confirm password', { exact: true });
+    await password.fill('weakpass');
+    await confirmPassword.fill('weakpass');
+    await recipient.getByRole('button', { name: 'Create account and accept', exact: true }).click();
+    await expect(recipient.getByRole('alert')).toContainText('one uppercase letter, one number');
+    expect(registrations).toBe(0);
+    await password.fill('Accept12');
+    await confirmPassword.fill('Different123');
+    await recipient.getByRole('button', { name: 'Create account and accept', exact: true }).click();
+    await expect(recipient.getByRole('alert')).toHaveText('Passwords do not match.');
+    expect(registrations).toBe(0);
+    await confirmPassword.fill('Accept12');
+    await expect(requirements.locator('li[data-met="true"]')).toHaveCount(4);
+    await recipient.getByRole('button', { name: 'Create account and accept', exact: true }).click();
+    await expect(recipient).toHaveURL(/section=team/);
+    expect(registrations).toBe(1);
+    const acceptedSession = await recipient.evaluate(() => JSON.parse(sessionStorage.getItem('nitewide.business.session')));
+    expect(acceptedSession.user.email).toBe(newEmail);
+    expect(acceptedSession.roles).toContain('employee');
+    expect(acceptedSession.roles).not.toContain('venue_manager');
+    await expectNoOverflow(recipient);
   } finally { await recipient.close(); }
 });
 

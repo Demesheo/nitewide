@@ -796,6 +796,7 @@ test(
       assert.match(copiedInviteToken,/^nwti1\./);
       const inviteToken = renewedInvite.body.data.token;
       const preview = await req(`/team/invitations/${inviteToken}`,null);
+      assert.equal(preview.body.data.accountMode,'existing');
       assert.equal(preview.body.data.eventId,inviteEventId);
       assert.equal(preview.body.data.organizationName,undefined);
       assert.equal(preview.body.data.commissionBps,0);

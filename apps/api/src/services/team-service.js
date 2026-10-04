@@ -138,8 +138,10 @@ function createTeamService({ models, permissions, email: emailService = null, bu
     const row = await models.TeamInvitation.findOne({ where: { ...(id ? { id } : { tokenHash: hash(token) }), acceptedAt: null, expiresAt: { [Op.gt]: new Date() } }, include: [{ model: models.Organization, as: 'organization', attributes: ['id', 'name'] }, { model: models.Event, as: 'event', attributes: ['id','title','endsAt','status'] }] });
     if (!row || id && !verifyTeamInvitationToken(token, row)) throw notFound('Active invitation');
     if (row.eventId) assertEventEditable(row.event);
+    // Only a valid private invitation may reveal which authentication form to use.
+    const recipient = await models.User.findOne({ where: { email: row.email.trim().toLowerCase() }, attributes: ['id'] });
     const terms = commissionTerms(row.commissionBps ?? 0);
-    return { email: row.email, name: row.name, phone: row.phone, role: row.role, organizationName: row.organization?.name, eventId:row.eventId, eventTitle:row.event?.title, commissionBps:terms.effectiveCommissionBps, ...terms, expiresAt: row.expiresAt };
+    return { email: row.email, name: row.name, phone: row.phone, role: row.role, accountMode: recipient ? 'existing' : 'new', organizationName: row.organization?.name, eventId:row.eventId, eventTitle:row.event?.title, commissionBps:terms.effectiveCommissionBps, ...terms, expiresAt: row.expiresAt };
   }
   async function eventInvitations(userId, eventId) {
     await permissions.assertManageEvent(userId,eventId);

@@ -34,7 +34,7 @@ function registerBusinessRoutes({ router, managementController, commerceControll
   router.post('/business/organizations/:organizationId/invitations', requireUser, validate(inviteInput), asyncHandler(async (req, res) => res.status(201).json({ data: await team.invite(req.userId, req.params.organizationId, req.body) })));
   router.delete('/business/organizations/:organizationId/invitations/:invitationId', requireUser, asyncHandler(async (req, res) => res.json({ data: await team.revoke(req.userId, req.params.organizationId, req.params.invitationId) })));
   router.post('/business/organizations/:organizationId/invitations/:invitationId/resend', requireUser, asyncHandler(async (req, res) => res.json({ data: await team.resend(req.userId, req.params.organizationId, req.params.invitationId) })));
-  router.get('/team/invitations/:token', asyncHandler(async (req, res) => res.json({ data: await team.invitation(req.params.token) })));
+  router.get('/team/invitations/:token', asyncHandler(async (req, res) => res.set('Cache-Control', 'no-store').json({ data: await team.invitation(req.params.token) })));
   router.post('/team/invitations/:token/accept', requireUser, asyncHandler(async (req, res) => res.json({ data: await team.accept(req.userId, req.params.token) })));
   router.get('/business/bootstrap', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessRead.bootstrap(req.userId) })));
   router.get('/business/events', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessRead.events(req.userId, businessSchemas.eventListQuery.parse(req.query)) })));

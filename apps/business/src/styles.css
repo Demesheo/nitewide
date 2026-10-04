@@ -1457,6 +1457,7 @@ textarea:focus-visible {
 .team-invite-scope p + p { margin-top: 10px; }
 .team-invite-box .signin-help > button { width: 100%; white-space: normal; height: auto; min-height: 44px; }
 .team-invite-session { display: grid; gap: 16px; margin: 24px 0; overflow-wrap: anywhere; }
+.team-invite-field-error { color: #f2a6b6; font-size: 12px; line-height: 1.5; }
 @media (max-width: 850px) {
   .team-invite-page.signin { display: flex; flex-direction: column; }
   .team-invite-page .signin-story { padding: max(24px, env(safe-area-inset-top)) 24px 22px; border-right: 0; border-bottom: 1px solid var(--border); min-height: 0; }

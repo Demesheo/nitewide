@@ -159,17 +159,29 @@ test('legacy invitation preview and acceptance preserve configured terms while s
     invitedByUserId: 'actor', commissionBps: 1500, expiresAt: new Date(Date.now() + 60000),
     async update(values) { Object.assign(this, values); } };
   let createdAssignment;
+  let recipient = { id: 'recipient' };
+  let activeInvitation = invitation;
+  let recipientLookups = 0;
   const models = {
     Event: { findByPk: async () => event },
-    User: { findByPk: async (id) => ({ id, email: invitation.email, isActive: true }) },
+    User: { findByPk: async (id) => ({ id, email: invitation.email, isActive: true }), findOne: async ({ where, attributes }) => {
+      assert.deepEqual(where, { email: invitation.email }); assert.deepEqual(attributes, ['id']); recipientLookups++; return recipient;
+    } },
     TeamInvitation: { sequelize: { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: 'UPDATE' } }) },
-      findOne: async () => invitation, findAll: async () => [invitation] },
+      findOne: async () => activeInvitation, findAll: async () => [invitation] },
     EventAffiliate: { findOrCreate: async ({ where, defaults }) => {
       createdAssignment = { id: 'assignment', ...where, ...defaults, toJSON() { return { id: this.id, commissionBps: this.commissionBps }; } };
       return [createdAssignment, true];
     } }, AuditLog: { create: async () => ({}) },
   };
   const service = createTeamService({ models, permissions: { assertManageEvent: async () => {} } });
+  assert.equal((await service.invitation('legacy-link')).accountMode, 'existing');
+  recipient = null;
+  assert.equal((await service.invitation('legacy-link')).accountMode, 'new');
+  activeInvitation = null;
+  await assert.rejects(service.invitation('invalid-link'), { code: 'NOT_FOUND' });
+  assert.equal(recipientLookups, 2, 'invalid links never query whether an email has an account');
+  activeInvitation = invitation;
   for (const preview of [await service.invitation('legacy-link'), ...(await service.eventInvitations('actor', event.id))]) {
     assert.equal(preview.commissionBps, 0);
     assert.equal(preview.configuredCommissionBps, 1500);

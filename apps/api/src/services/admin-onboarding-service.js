@@ -8,6 +8,7 @@ const { active, activeUser } = require('./lifecycle-service');
 const { hasInternalPermission } = require('./internal-admin-permissions');
 const { unscoped, setBusinessRole, bumpBusiness, bumpAccount } = require('./business-membership-policy');
 const { BUSINESS_SLUG_PATTERN, createBusinessSlug } = require('../domain/business-slug');
+const { password: passwordSchema } = require('../http/schemas');
 
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 const text = (max) => z.string().trim().min(1).max(max);
@@ -147,7 +148,7 @@ function createAdminOnboardingService({ models, permissions, email = null, custo
     return transaction(async (tx) => {
       const { row, user } = await lookup(raw, tx);
       if (row.accountMode === 'new') {
-        const values = z.object({ password: z.string().min(12).max(128), confirmPassword: z.string().min(12).max(128) }).strict().refine((value) => value.password === value.confirmPassword, 'Passwords must match').parse(input);
+        const values = z.object({ password: passwordSchema, confirmPassword: z.string().min(1).max(128) }).strict().refine((value) => value.password === value.confirmPassword, { path: ['confirmPassword'], message: 'Passwords must match' }).parse(input);
         if (!user.onboardingPending || await models.UserCredential.findByPk(user.id, { transaction: tx })) throw conflict('Sign in with this account instead; credentials will not be overwritten', 'ONBOARDING_CREDENTIAL_EXISTS');
         await models.UserCredential.create({ userId: user.id, ...await createPasswordRecord(values.password), passwordChangedAt: now() }, { transaction: tx });
       } else {

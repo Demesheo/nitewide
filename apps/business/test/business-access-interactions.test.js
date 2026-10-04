@@ -10,7 +10,7 @@ const response = (data, status = 200) => new Response(JSON.stringify(status < 40
 
 async function withRuntime(run, { path = '/sign-in', storedSession = null, fetcher = async () => response({}) } = {}) {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: `http://localhost${path}`, pretendToBeVisual: true });
-  const values = { window: dom.window, document: dom.window.document, navigator: dom.window.navigator, sessionStorage: dom.window.sessionStorage, localStorage: dom.window.localStorage, HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement, HTMLButtonElement: dom.window.HTMLButtonElement, Element: dom.window.Element, Node: dom.window.Node, Event: dom.window.Event, MouseEvent: dom.window.MouseEvent, MutationObserver: dom.window.MutationObserver, getComputedStyle: dom.window.getComputedStyle.bind(dom.window), requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window), cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window), IS_REACT_ACT_ENVIRONMENT: true };
+  const values = { window: dom.window, document: dom.window.document, navigator: dom.window.navigator, sessionStorage: dom.window.sessionStorage, localStorage: dom.window.localStorage, FormData: dom.window.FormData, HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement, HTMLButtonElement: dom.window.HTMLButtonElement, Element: dom.window.Element, Node: dom.window.Node, Event: dom.window.Event, MouseEvent: dom.window.MouseEvent, MutationObserver: dom.window.MutationObserver, getComputedStyle: dom.window.getComputedStyle.bind(dom.window), requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window), cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window), IS_REACT_ACT_ENVIRONMENT: true };
   const original = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries(values)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
@@ -84,6 +84,63 @@ test('access request preserves draft on failure, prevents duplicate submission, 
     await user.click(queries.getByRole('button', { name: 'Back to sign in' }));
     assert.equal(dom.window.document.activeElement, queries.getByRole('button', { name: 'Request access' }));
   }, { fetcher: async () => { attempts += 1; if (attempts === 1) return response({ message: 'Temporarily unavailable. Please try again.' }, 503); return new Promise((done) => { complete = done; }); } });
+});
+
+test('invitation signup recovers an account-creation race and retries acceptance without creating another account', async () => {
+  let acceptAttempts = 0, accepted;
+  await withRuntime(async ({ mount, queries, user, calls, waitFor }) => {
+    await mount('/src/components/Team.jsx', 'TeamInviteLanding', { token: 'private-invitation', session: null, onAccepted: (...args) => { accepted = args; } });
+    await queries.findByRole('button', { name: 'Create account and accept', exact: true });
+    assert.equal(queries.getByLabelText('Email', { exact: true }).readOnly, true);
+    assert.ok(queries.getByLabelText('Confirm password', { exact: true }));
+    assert.equal(queries.getByRole('list', { name: 'Password requirements' }).querySelectorAll('li').length, 4);
+    await user.type(queries.getByLabelText('Password', { exact: true }), 'Accept12');
+    await user.type(queries.getByLabelText('Confirm password', { exact: true }), 'Accept12');
+    await user.click(queries.getByRole('button', { name: 'Create account and accept', exact: true }));
+    await queries.findByRole('button', { name: 'Sign in and accept', exact: true });
+    assert.match(queries.getByRole('alert').textContent, /This email now has an account/);
+    assert.equal(queries.queryByLabelText('Confirm password', { exact: true }), null);
+    assert.equal(queries.getByLabelText('Password', { exact: true }).value, '', 'changing auth mode clears the secret');
+    await user.type(queries.getByLabelText('Password', { exact: true }), 'ExistingPassword123');
+    await user.click(queries.getByRole('button', { name: 'Sign in and accept', exact: true }));
+    await queries.findByRole('button', { name: 'Accept invitation', exact: true });
+    await queries.findByRole('alert');
+    assert.equal(accepted, undefined, 'failed acceptance cannot grant access');
+    await user.click(queries.getByRole('button', { name: 'Accept invitation', exact: true }));
+    await waitFor(() => assert.ok(accepted));
+    assert.equal(calls.filter(call => call.path === '/api/auth/register').length, 1);
+    assert.equal(calls.filter(call => call.path === '/api/auth/sign-in').length, 1);
+    assert.equal(acceptAttempts, 2);
+    assert.ok(accepted[0].roles.includes('employee'));
+    assert.deepEqual(accepted[1], { organizationId: 'organization', role: 'employee' });
+  }, { fetcher: async ({ path }) => {
+    if (path === '/api/team/invitations/private-invitation') return response({ email: session.user.email, name: 'Test Customer', role: 'employee', organizationName: 'Fixture Nights', accountMode: 'new' });
+    if (path === '/api/auth/register') return response({ code: 'DUPLICATE', message: 'A unique value is already in use' }, 409);
+    if (path === '/api/auth/sign-in') return response(session);
+    if (path.endsWith('/accept')) return ++acceptAttempts === 1 ? response({ message: 'Try again' }, 503) : response({ organizationId: 'organization', role: 'employee' });
+    if (path === '/api/auth/me') return response({ user: session.user, roles: ['customer', 'employee'] });
+    throw new Error(`Unexpected request: ${path}`);
+  } });
+});
+
+test('new owner activation shows the shared password requirements and accepts an eight-character confirmed password', async () => {
+  await withRuntime(async ({ mount, queries, user, calls }) => {
+    await mount('/src/components/OnboardingSetup.jsx', 'OnboardingSetup', { token: 'private-owner-invitation', session: null });
+    await queries.findByRole('button', { name: 'Confirm email and activate' });
+    assert.equal(queries.getByRole('list', { name: 'Password requirements' }).querySelectorAll('li').length, 4);
+    await user.type(queries.getByLabelText('New password', { exact: true }), 'weakpass');
+    await user.type(queries.getByLabelText('Confirm password', { exact: true }), 'weakpass');
+    await user.click(queries.getByRole('button', { name: 'Confirm email and activate' }));
+    assert.match(queries.getByRole('alert').textContent, /one uppercase letter, one number/);
+    assert.equal(calls.filter(call => call.path.endsWith('/accept')).length, 0);
+    await user.clear(queries.getByLabelText('New password', { exact: true }));
+    await user.type(queries.getByLabelText('New password', { exact: true }), 'Accept12');
+    await user.clear(queries.getByLabelText('Confirm password', { exact: true }));
+    await user.type(queries.getByLabelText('Confirm password', { exact: true }), 'Accept12');
+    await user.click(queries.getByRole('button', { name: 'Confirm email and activate' }));
+    await queries.findByRole('heading', { name: "You're all set." });
+    assert.deepEqual(calls.find(call => call.path.endsWith('/accept')).body, { token: 'private-owner-invitation', password: 'Accept12', confirmPassword: 'Accept12' });
+  }, { fetcher: async ({ path }) => path.endsWith('/preview') ? response({ accountMode: 'new', email: session.user.email, displayName: 'New Owner', kind: 'organization', expiresAt: '2099-01-01T00:00:00.000Z' }) : response({}) });
 });
 
 test('restored customer session never renders protected navigation and Business denial does not revoke customer auth', async () => {

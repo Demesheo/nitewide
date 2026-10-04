@@ -118,9 +118,14 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
 
     const mismatch = await request('/auth/onboarding/accept', null, 'POST', { token: orgToken, password: 'FixturePassword123', confirmPassword: 'OtherPassword123' });
     assert.equal(mismatch.status, 422);
+    for (const password of ['Short1', 'lowercase123', 'UPPERCASE123', 'NoNumbersHere']) {
+      const weak = await request('/auth/onboarding/accept', null, 'POST', { token: orgToken, password, confirmPassword: password });
+      assert.equal(weak.status, 422, 'owner activation enforces the same password policy as regular sign-up');
+    }
+    assert.equal(await models.UserCredential.findByPk(orgInvite.body.data.userId), null, 'invalid passwords never create credentials');
     const concurrentAccept = await Promise.all([
-      request('/auth/onboarding/accept', null, 'POST', { token: orgToken, password: 'FixturePassword123', confirmPassword: 'FixturePassword123' }),
-      request('/auth/onboarding/accept', null, 'POST', { token: orgToken, password: 'FixturePassword123', confirmPassword: 'FixturePassword123' }),
+      request('/auth/onboarding/accept', null, 'POST', { token: orgToken, password: 'Accept12', confirmPassword: 'Accept12' }),
+      request('/auth/onboarding/accept', null, 'POST', { token: orgToken, password: 'Accept12', confirmPassword: 'Accept12' }),
     ]);
     assert.equal(concurrentAccept.filter((result) => result.status === 200).length, 1, JSON.stringify(concurrentAccept));
     assert.equal(concurrentAccept.filter((result) => result.status === 409).length, 1, JSON.stringify(concurrentAccept));
