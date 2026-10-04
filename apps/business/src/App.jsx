@@ -23,6 +23,7 @@ import { Choice } from "@/components/controls";
 import { EventEditor } from "@/components/EventEditor";
 import { PagedEvents } from '@/components/PagedEvents';
 import { BusinessOverview } from '@/components/BusinessOverview';
+import { BusinessSetupProgress } from '@/components/BusinessSetupProgress';
 import { BusinessAnalytics } from "@/components/BusinessAnalytics";
 import { MultiSelect } from "@/components/MultiSelect";
 import { Notifications } from "@/components/Notifications";
@@ -100,6 +101,13 @@ export default function App() {
   const expire = useCallback(() => signOut(true), [signOut]);
   const requireBusinessAccess = useCallback(() => signOut(true, false, 'Your Nitewide account does not have active Business access. Request access below, or accept your invitation to complete onboarding.'), [signOut]);
   const { data, loading, error, revision, setRevision } = useBusinessBootstrap(session, onboardingToken || inviteToken, expire, requireBusinessAccess);
+  const previousPage = useRef(page);
+  useEffect(() => {
+    // Venue/payment changes have their own workspaces. Re-read saved milestones
+    // on return, including browser Back, rather than showing the old bootstrap.
+    if (page === 'overview' && previousPage.current !== 'overview') setRevision(value => value + 1);
+    previousPage.current = page;
+  }, [page, setRevision]);
   useEffect(() => {
     if (data && page === 'payments' && !data.organizations?.some(org => org.canManageFinance) && !data.scope?.canViewEarnings) navigateRoute('overview');
   }, [data, page, navigateRoute]);
@@ -155,8 +163,8 @@ export default function App() {
     setLoginNotice("");
     if (!onboardingToken && !inviteToken && window.location.pathname === '/sign-in') writeWorkspaceLocation({}, { replace: true });
   }
-  function navigate(value, eventId = null, entryId = null, eventTab = null) {
-    navigateRoute(value, eventId, entryId, eventTab); setMobileNav(false);
+  function navigate(value, eventId = null, entryId = null, eventTab = null, destination = {}) {
+    navigateRoute(value, eventId, entryId, eventTab, destination); setMobileNav(false);
   }
   if (onboardingToken && onboardingSignIn) return <BusinessSignIn invitationOnly onSession={login} notice={loginNotice || 'Sign in with the email address on your invitation. You will return to the invitation to accept access.'} />;
   if (onboardingToken) return <><OnboardingSetup token={onboardingToken} session={session} onSignIn={() => setOnboardingSignIn(true)} onSwitchAccount={async (signIn) => { if (!await signOut()) setOnboardingSignIn(signIn); }} onContinue={() => { setOnboardingToken(null); writeWorkspaceLocation({ onboarding: null }, { replace: true }); setRevision((value) => value + 1); }} />{notice && <p role="alert">{notice}</p>}</>;
@@ -411,7 +419,14 @@ export default function App() {
                   Organization event editing requires owner or manager access.
                 </p>
               )}
-              {visiblePage === "overview" && data && <BusinessOverview session={session} days={days} organizationIds={selectedOrganizations} venueIds={selectedVenues} ownOnly={ownOnly} revision={revision} onNavigate={navigate} onUnauthorized={expire}/>}
+              {visiblePage === "overview" && data && <>
+                <BusinessSetupProgress organizations={data.organizations} progress={data.setupProgress} selectedOrganizations={selectedOrganizations}
+                  onOrganization={(id) => navigate('team', null, null, null, { teamOrganizationId: id })}
+                  onPayments={(id) => navigate('payments', null, null, null, { paymentOrganization: id })}
+                  onEvents={(id) => navigate('events', null, null, null, { organizationIds: [id] })}
+                  onCreate={(id) => setEditor({ organizationId: id })}/>
+                <BusinessOverview session={session} days={days} organizationIds={selectedOrganizations} venueIds={selectedVenues} ownOnly={ownOnly} revision={revision} onNavigate={navigate} onUnauthorized={expire}/>
+              </>}
               {visiblePage === "analytics" && data && <BusinessAnalytics session={session} ownOnly={ownOnly}
                 organizations={data.organizations} venues={data.venues} canCreateIndependent={data.scope.canCreateIndependent}
                 onEvent={(id) => navigate('events', id)} onUnauthorized={expire}/>}
@@ -459,11 +474,11 @@ export default function App() {
           venues={data.venues}
           canCreateIndependent={data.scope.canCreateIndependent}
           defaultOrganization={
-            selectedOrganizations.length === 1 && selectedOrganizations[0] === "independent"
+            editor.organizationId || (selectedOrganizations.length === 1 && selectedOrganizations[0] === "independent"
               ? null
               : activeOrg?.canManage
                 ? activeOrg.id
-                : data.organizations.find((o) => o.canManage || o.canCreateEvents)?.id || null
+                : data.organizations.find((o) => o.canManage || o.canCreateEvents)?.id || null)
           }
           session={session}
           onClose={() => setEditor(null)}

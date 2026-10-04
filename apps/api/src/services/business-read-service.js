@@ -9,6 +9,7 @@ const { hasInternalPermission } = require('./internal-admin-permissions');
 const { venueMemberSql,venueManagerSql } = require('./venue-access-policy');
 const { canViewEarningsSql } = require('./business-payment-report-policy');
 const { netSubtotalSql, commissionExpenseSql: netCommissionSql, financialOrderSql } = require('./refund-report-policy');
+const { paymentsReady } = require('./business-payment-account-service');
 
 // Every collection and aggregate starts from this SQL scope. In particular, a
 // revoked automatic assignment cannot keep a former staff member in an event.
@@ -58,7 +59,7 @@ const cleanVenue = column => `REGEXP_REPLACE(LOWER(COALESCE(${column},'')),'[^a-
 const venueIdentitySql = `encode(digest('["'||COALESCE(e.organization_id::text,'creator:'||e.creator_user_id::text)||'","'||
   ${['name','address_line1','city','region','country_code'].map(column => cleanVenue(`filter_location.${column}`)).join(`||'","'||`)}||'"]','sha256'),'hex')`;
 
-function createBusinessReadService({ models, email = null, deliveryTrackingConfigured = false, now = () => new Date(), internalReadPermission = 'reports.view' }) {
+function createBusinessReadService({ models, email = null, stripe = null, deliveryTrackingConfigured = false, now = () => new Date(), internalReadPermission = 'reports.view' }) {
   const select = (sql, replacements, { transaction } = {}) => models.Event.sequelize.query(sql, { replacements, transaction, type: QueryTypes.SELECT });
   async function actor(userId, { transaction } = {}) {
     const user = await models.User.findByPk(userId, { transaction, attributes: ['id', 'isActive', 'lifecycleState', 'onboardingPending', 'isInternalAdmin', 'internalAdminRole', 'independentCreator'] });
@@ -110,10 +111,55 @@ function createBusinessReadService({ models, email = null, deliveryTrackingConfi
     const [earningsAccess] = await select(`SELECT ${canViewEarningsSql} AS "canViewEarnings"`, { userId });
     const orgs = await organizations(scope);
     const venueOptions = await venues(scope,orgs);
-    return { organizations: orgs, venues: venueOptions,optionsTruncated: { organizations: orgs.hasMore,venues: venueOptions.hasMore },
+    return { organizations: orgs, venues: venueOptions, setupProgress: await setupProgress(scope, orgs), optionsTruncated: { organizations: orgs.hasMore,venues: venueOptions.hasMore },
       capabilities: { emailConfigured: Boolean(email?.enabled), deliveryTrackingConfigured,
         smsConfigured: false, instructions: Boolean(email?.enabled), notifications: true },
       scope: { canCreateIndependent: Boolean(scope.canManageBusinesses || scope.user.independentCreator), isInternalAdmin: Boolean(scope.user.isInternalAdmin), canViewEarnings: Boolean(earningsAccess?.canViewEarnings) } };
+  }
+  async function setupProgress(scope, orgs) {
+    // Organization onboarding belongs to owners/organization managers, not
+    // promoters, employees, or managers restricted to one venue. One bounded
+    // query reads milestones, independent of report dates and event pagination.
+    const managed = orgs.filter(org => org.canManage);
+    if (!managed.length) return [];
+    const shared = stripe?.mode === 'test' && stripe.sandboxSharedAccountId || null;
+    const rows = await select(`SELECT org.id, org.onboarding_established AS "onboardingEstablished",
+      EXISTS (SELECT 1 FROM organization_venues ov JOIN locations loc ON loc.id=ov.location_id
+        WHERE ov.organization_id=org.id AND loc.lifecycle_state='active') AS "venueAdded",
+      EXISTS (SELECT 1 FROM events e WHERE e.organization_id=org.id AND ${access} AND ${manages}
+        AND (e.status IN ('published','completed') OR EXISTS (SELECT 1 FROM audit_logs a
+          WHERE a.entity_type='Event' AND a.entity_id=e.id AND a.organization_id=org.id
+            AND (a.after->>'status'='published' OR a.before->>'status'='published')))) AS "firstEventPublished",
+      CASE WHEN merchant.id IS NOT NULL THEN jsonb_build_object(
+        'stripeAccountId',pa.stripe_account_id, 'accountApiVersion',pa.account_api_version,
+        'mode',pa.mode, 'lifecycleState',pa.lifecycle_state, 'detailsSubmitted',pa.details_submitted,
+        'chargesEnabled',pa.charges_enabled, 'cardPaymentsActive',pa.card_payments_active,
+        'controllerMatches',pa.controller_matches, 'synchronizedAt',pa.synchronized_at,
+        'paymentsDisabledAt',pa.payments_disabled_at, 'disconnectStatus',pa.disconnect_status
+      ) ELSE NULL END AS "paymentAccount"
+      FROM organizations org
+      LEFT JOIN payment_accounts pa ON ${shared ? "pa.stripe_account_id=:shared AND pa.mode='test' AND pa.lifecycle_state='active'" : 'pa.id=org.default_payment_account_id AND pa.organization_id=org.id'}
+      LEFT JOIN organizations merchant ON merchant.id=pa.organization_id AND merchant.lifecycle_state='active' AND merchant.status='active'
+      WHERE org.id IN (:ids) AND org.lifecycle_state='active' AND org.status='active'
+        AND (:canManageBusinesses OR EXISTS (SELECT 1 FROM organization_owners setup_owner
+          WHERE setup_owner.organization_id=org.id AND setup_owner.user_id=:userId AND setup_owner.lifecycle_state='active'))`,
+    { ...scope, ids: managed.map(org => org.id), shared });
+    const byId = new Map(managed.map(org => [org.id, org]));
+    const observedAt = now();
+    return rows.map(row => {
+      const org = byId.get(row.id), account = row.paymentAccount;
+      let stripeStatus = 'not_connected';
+      if (!stripe?.enabled || stripe.mode !== 'test') stripeStatus = 'unavailable';
+      else if (account?.paymentsDisabledAt || account && (account.lifecycleState !== 'active' || account.disconnectStatus !== 'none')) stripeStatus = 'disabled';
+      else if (paymentsReady(account, observedAt)) stripeStatus = 'ready';
+      else if (account && paymentsReady({ ...account, synchronizedAt: observedAt }, observedAt)) stripeStatus = 'needs_refresh';
+      else if (account) stripeStatus = 'needs_attention';
+      // Account identifiers, requirements and financial data stay on the
+      // finance-authorized routes. The checklist is guidance, never a gate.
+      return { organizationId: org.id, accessAccepted: true, organizationConfigured: Boolean(org.name?.trim()),
+        venueAdded: row.venueAdded, firstEventPublished: row.firstEventPublished,
+        stripe: { status: stripeStatus, canManage: Boolean(org.canManageFinance && row.onboardingEstablished), sharedSandbox: Boolean(shared) } };
+    });
   }
   async function filters(scope, input = {}, { dates = false, transaction } = {}) {
     const clauses = [];

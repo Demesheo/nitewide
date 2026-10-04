@@ -64,6 +64,24 @@ teamPaginationTest('business entry and workspace journey keeps branding, clean n
       await test.info().attach('business-brand-workspace', { body: await page.screenshot(), contentType: 'image/png' });
     }
     await expectBrandIcons(page);
+    const setup = page.getByRole('region', { name: 'Business setup', exact: true });
+    await expect(setup).toContainText('3/3 essentials');
+    await expect(setup.locator('ol')).not.toBeVisible();
+    await setup.locator('summary').click();
+    await expect(setup.locator('li')).toHaveCount(5);
+    await expect(setup).toContainText('Free events and guestlists are available without Stripe. Saved venues are optional.');
+    await expect(setup.getByRole('button', { name: 'View venues', exact: true })).toBeVisible();
+    await expectNoOverflow(page);
+    await test.info().attach('business-setup-checklist', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
+    await setup.getByRole('button', { name: 'View organization', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`section=team&teamOrganizationId=${fixture.ids.org}`));
+    await businessSection(page, 'Overview');
+    await expect(setup.locator('ol')).not.toBeVisible();
+    await setup.locator('summary').click();
+    await setup.getByRole('button', { name: 'View events', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`section=events&organizationIds=${fixture.ids.org}`));
+    await page.goBack();
+    await expect(setup.locator('ol')).not.toBeVisible();
     await expectNoOverflow(page);
   });
   await test.step('Overview charts switch categories and team pagination uses the backend', async () => {

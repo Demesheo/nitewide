@@ -61,6 +61,43 @@ const attentionFixture = {
   ],
 };
 
+test('setup checklist separates optional venues and paid readiness, selects authorized organizations and keeps actions scoped', async () => {
+  await withBusinessDom(async ({ vite, React, render, screen, user, within }) => {
+    const { BusinessSetupProgress } = await vite.ssrLoadModule('/src/components/BusinessSetupProgress.jsx');
+    const organizations = [{ id: 'org-a', name: 'New organizer', canManage: true }, { id: 'org-b', name: 'Established organizer', canManage: true }, { id: 'staff-org', name: 'Staff only', canManage: false }];
+    const progress = [{ organizationId: 'org-a', accessAccepted: true, organizationConfigured: true, venueAdded: false, firstEventPublished: false, stripe: { status: 'not_connected', canManage: true, sharedSandbox: false } },
+      { organizationId: 'org-b', accessAccepted: true, organizationConfigured: true, venueAdded: true, firstEventPublished: true, stripe: { status: 'needs_refresh', canManage: false, sharedSandbox: true } }];
+    const actions = [];
+    const props = { organizations, progress, onCreate: id => actions.push(['create', id]), onEvents: id => actions.push(['events', id]), onOrganization: id => actions.push(['organization', id]), onPayments: id => actions.push(['payments', id]) };
+    const view = render(React.createElement(BusinessSetupProgress, props), { container: document.getElementById('root') });
+    const section = screen.getByRole('region', { name: 'Business setup' });
+    assert.equal(section.querySelector('details').open, true);
+    assert.ok(screen.getByText('2/3 essentials'));
+    assert.ok(screen.getByText('Optional'));
+    assert.ok(screen.getByText('Paid events only'));
+    assert.ok(screen.getByText(/Free events and guestlists are available without Stripe/));
+    assert.equal(within(screen.getByLabelText('Setup for')).queryByRole('option', { name: 'Staff only' }), null);
+    await user.click(screen.getByRole('button', { name: 'Create your first event' }));
+    await user.click(screen.getByRole('button', { name: 'Add a venue' }));
+    await user.click(screen.getByRole('button', { name: 'Set up payments' }));
+    assert.deepEqual(actions, [['create', 'org-a'], ['organization', 'org-a'], ['payments', 'org-a']]);
+    await user.selectOptions(screen.getByLabelText('Setup for'), 'org-b');
+    assert.equal(section.querySelector('details').open, false, 'established businesses start with a compact disclosure');
+    await user.click(section.querySelector('summary'));
+    assert.ok(screen.getByText('3/3 essentials'));
+    assert.ok(screen.getByText(/fresh Stripe status check/));
+    assert.ok(screen.getByText('Shared sandbox routing · test payments only'));
+    assert.equal(screen.queryByRole('button', { name: 'Check Stripe status' }), null, 'finance authorization is required for the payment action');
+    await user.click(screen.getByRole('button', { name: 'View events' }));
+    assert.deepEqual(actions.at(-1), ['events', 'org-b']);
+    view.rerender(React.createElement(BusinessSetupProgress, { ...props, selectedOrganizations: ['org-a'] }));
+    assert.equal(screen.queryByLabelText('Setup for'), null);
+    assert.ok(screen.getByRole('button', { name: 'Create your first event' }));
+    view.rerender(React.createElement(BusinessSetupProgress, { ...props, selectedOrganizations: ['staff-org'] }));
+    assert.equal(screen.queryByRole('region', { name: 'Business setup' }), null);
+  });
+});
+
 test('Needs attention expands, shows full counts, and preserves routes for supported action kinds', async () => {
   await withBusinessDom(async ({ vite, React, render, screen, user }) => {
     const { OverviewNeedsAttention } = await vite.ssrLoadModule('/src/components/OverviewNeedsAttention.jsx');

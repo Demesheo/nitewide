@@ -161,13 +161,18 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     assert.equal(bootstrap.status, 200);
     assert.equal(bootstrap.body.data.organizations.length, 1);
     assert.equal(bootstrap.body.data.venues.length, 1);
+    assert.deepEqual(bootstrap.body.data.setupProgress, [{ organizationId: ids.organization, accessAccepted: true,
+      organizationConfigured: true, venueAdded: true, firstEventPublished: true,
+      stripe: { status: 'unavailable', canManage: true, sharedSandbox: false } }]);
     for (const userId of [ids.manager, ids.employee, ids.promoter]) {
       const roleBootstrap = await request('/business/bootstrap', userId);
       assert.deepEqual([roleBootstrap.body.data.organizations.length, roleBootstrap.body.data.venues.length], [1, 1]);
       if (userId === ids.promoter) assert.equal(roleBootstrap.body.data.organizations[0].canManage, false);
+      assert.equal(roleBootstrap.body.data.setupProgress.length, userId === ids.manager ? 1 : 0, 'setup tasks are not exposed to staff or former owners');
     }
     const independentBootstrap = await request('/business/bootstrap', ids.independent);
     assert.deepEqual([independentBootstrap.body.data.organizations.length, independentBootstrap.body.data.scope.canCreateIndependent], [0, true]);
+    assert.deepEqual(independentBootstrap.body.data.setupProgress, []);
     });
 
     await t.test('organization roster and invitation lists are bounded and manager-only', async () => {
@@ -761,6 +766,48 @@ test('business read APIs enforce scope, stable pagination, correct aggregates, a
     assert.deepEqual([requestHistoryBeforeAttention,
       await m.GuestlistEntry.count({ where: { id: attentionCases.map(({ entryId }) => entryId) } })], [attentionCases.length, attentionCases.length],
     'expiry only filters needs-attention results and leaves pending guestlist history intact');
+    });
+    await t.test('setup milestones allow address-only free publishing and follow verified merchant routing without provider calls', async () => {
+      const { createBusinessReadService } = require('../src/services/business-read-service');
+      const org = await m.Organization.create({ name: 'Address-only organizer', slug: `setup-${randomUUID()}` });
+      await m.OrganizationOwner.create({ organizationId: org.id, userId: ids.owner, role: 'owner' });
+      const stripe = { enabled: true, mode: 'test', retrieveAccount() { throw new Error('Bootstrap must never call Stripe'); } };
+      const service = createBusinessReadService({ models: m, stripe, now: () => now });
+      const progress = async (read = service) => (await read.bootstrap(ids.owner)).setupProgress.find(row => row.organizationId === org.id);
+      assert.deepEqual(await progress(), { organizationId: org.id, accessAccepted: true, organizationConfigured: true,
+        venueAdded: false, firstEventPublished: false, stripe: { status: 'not_connected', canManage: true, sharedSandbox: false } });
+      const created = await request('/business/events', ids.owner, { method: 'POST', body: {
+        organizationId: org.id, title: 'Free address-only event', slug: `setup-free-${randomUUID()}`, summary: '', description: '', category: 'private',
+        startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), status: 'published', isDiscoverable: false,
+        capacity: null, guestlistCapacity: 5, location: { name: '', addressLine1: '22 Test Street', city: 'Orlando', region: 'FL', postalCode: '', countryCode: 'US', timezone: 'America/New_York', privacy: 'public' },
+        offerings: [{ name: 'Free admission', kind: 'ticket', priceCents: 0, inventoryMode: 'finite', quantityTotal: 20, entriesPerUnit: 1, minPerOrder: 1, maxPerOrder: 5, isActive: true }],
+      } });
+      assert.equal(created.status, 201, JSON.stringify(created.body));
+      assert.equal((await progress()).firstEventPublished, true);
+      assert.equal((await progress()).venueAdded, false, 'an event address must not become a required managed venue');
+      // Cancellation/archive and an elapsed event do not erase a completed
+      // publication milestone recorded in the existing audit history.
+      await m.Event.update({ status: 'cancelled', lifecycleState: 'archived', startsAt: new Date(+now - 7200000), endsAt: new Date(+now - 3600000) }, { where: { id: created.body.data.id } });
+      assert.equal((await progress()).firstEventPublished, true);
+      const profile = await m.PaymentAccount.create({ organizationId: org.id, name: 'Setup merchant', stripeAccountId: `acct_${randomUUID().replaceAll('-', '')}`,
+        mode: 'test', accountApiVersion: 'v2', chargesEnabled: true, detailsSubmitted: true, cardPaymentsActive: true, controllerMatches: true, synchronizedAt: now });
+      await org.update({ defaultPaymentAccountId: profile.id });
+      assert.equal((await progress()).stripe.status, 'ready');
+      await profile.update({ synchronizedAt: new Date(+now - 300001) });
+      assert.equal((await progress()).stripe.status, 'needs_refresh', 'stale verification is never presented as currently ready');
+      await profile.update({ synchronizedAt: now, paymentsDisabledAt: now });
+      assert.equal((await progress()).stripe.status, 'disabled');
+      await profile.update({ paymentsDisabledAt: null, cardPaymentsActive: false });
+      assert.equal((await progress()).stripe.status, 'needs_attention');
+      await profile.update({ cardPaymentsActive: true });
+      await org.update({ defaultPaymentAccountId: null });
+      const sharedService = createBusinessReadService({ models: m, stripe: { ...stripe, sandboxSharedAccountId: profile.stripeAccountId }, now: () => now });
+      assert.deepEqual((await progress(sharedService)).stripe, { status: 'ready', canManage: true, sharedSandbox: true });
+      const managerProgress = (await sharedService.bootstrap(ids.manager)).setupProgress[0];
+      assert.equal(managerProgress.stripe.canManage, false, 'non-finance managers see guidance, not payment management controls');
+      assert.equal(JSON.stringify(managerProgress).includes(profile.stripeAccountId), false);
+      await org.update({ lifecycleState: 'suspended' });
+      assert.equal((await sharedService.bootstrap(ids.manager)).setupProgress[0].stripe.status, 'not_connected', 'a suspended shared merchant cannot claim payment readiness');
     });
   } finally {
     if (disabledWebhookServer) await new Promise((resolve) => disabledWebhookServer.close(resolve));

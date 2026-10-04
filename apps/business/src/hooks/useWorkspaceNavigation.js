@@ -27,10 +27,10 @@ export function useWorkspaceNavigation() {
     return () => window.removeEventListener('popstate', restore);
   }, []);
 
-  function navigate(value, eventId = null, entryId = null, eventTab = null) {
-    writeWorkspaceLocation({ section: value, event: eventId, entry: entryId, tab: eventTab });
+  function navigate(value, eventId = null, entryId = null, eventTab = null, destination = {}) {
+    writeWorkspaceLocation({ ...destination, section: value, event: eventId, entry: entryId, tab: eventTab });
     setPage(value); setEventToOpen(eventId); setGuestlistEntryToOpen(entryId); setEventTabToOpen(eventTab);
-    setSelectedOrganizations([]); setSelectedVenues([]); setDays('30');
+    setSelectedOrganizations(destination.organizationIds || []); setSelectedVenues(destination.venueIds || []); setDays('30');
     setEventNavigationRevision((revision) => revision + 1);
   }
   function chooseOrganizations(ids) { setSelectedOrganizations(ids); setSelectedVenues([]);

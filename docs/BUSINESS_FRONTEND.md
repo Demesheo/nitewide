@@ -40,6 +40,14 @@ Demo password for every account below: `NitewideDemo!2026`.
 
 ## User workflows
 
+### Guided business setup
+
+Overview includes an organization-specific **Business setup** checklist for owners and organization managers. It opens for organizations that have not published an event and collapses for returning organizers. Choose the organization when managing more than one; actions open that organization’s workspace, payment settings, or event editor.
+
+The three essentials are accepted Business access, an organization configured by Nitewide, and a first published event. **Saved venues are optional:** events can be created and published with just an address. **Stripe is for paid events only:** free offerings and guestlists remain available without Stripe completion. Neither optional step is counted as an essential or used as a new publishing restriction.
+
+`GET /api/business/bootstrap` includes bounded, role-scoped `setupProgress`. Progress uses saved data, not report date filters or the visible event page. Publication history survives cancellation/archive via the existing event audit trail. Stripe status uses the same provider-verified readiness policy and actual default/shared-sandbox routing as paid publication; stale verification offers a fresh status check, never a false readiness claim. Only finance-authorized users receive payment-management actions; no Stripe account IDs or financial requirements are exposed in the checklist. The checklist makes no Stripe requests. Returning to Overview or refocusing the app refreshes saved progress. No migration or reseed is needed.
+
 ### Contact Nitewide
 
 Contact Nitewide stays in the footer rather than the primary workspace navigation. It opens the Nitewide support view in the existing Messages dialog; organizer conversations and customer refund requests remain separate. Business users can submit a private issue, optionally attach their selected business/event/booking context, follow case status and exchange in-app replies with Admin. The API verifies current access to attached records. Resolved/closed cases are read-only, and no support email is sent.

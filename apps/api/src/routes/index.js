@@ -25,7 +25,7 @@ function createRouter(options) {
   const unavailable = async () => { throw new (require('../domain/errors').DomainError)('Sandbox payments are not configured', { code: 'PAYMENTS_NOT_ENABLED', status: 503 }); };
   const paymentController = options.paymentController || Object.fromEntries(['prepare', 'verify', 'cancel', 'refund', 'adminRefund'].map(name => [name, unavailable]));
   const business = createBusinessService({ models, permissions, email, customerAppUrl, businessAppUrl, environment, hostedDemo, stripe });
-  const businessRead = createBusinessReadService({ models, email, deliveryTrackingConfigured });
+  const businessRead = createBusinessReadService({ models, email, stripe, deliveryTrackingConfigured });
   const businessReports = createBusinessReportService({ models, businessRead });
   const adminReports = createAdminReportService({ models, permissions, businessRead, reports: businessReports });
   const reportExports = createReportExportService({ models, businessRead, reports: businessReports, historicalReports: adminReports.reports });
