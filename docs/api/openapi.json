@@ -5240,6 +5240,10 @@
                     "type": "string",
                     "minLength": 10,
                     "maxLength": 2000
+                  },
+                  "confirmedAuthority": {
+                    "type": "boolean",
+                    "const": true
                   }
                 },
                 "required": [
@@ -5247,9 +5251,686 @@
                   "email",
                   "businessName",
                   "role",
-                  "details"
+                  "details",
+                  "confirmedAuthority"
                 ],
                 "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/organization-requests": {
+      "post": {
+        "operationId": "post__account_organization_requests",
+        "tags": [
+          "public"
+        ],
+        "security": [
+          {
+            "bearerSession": []
+          }
+        ],
+        "deprecated": false,
+        "parameters": [],
+        "responses": {
+          "202": {
+            "description": "Accepted asynchronous work",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        },
+                        "request": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "businessName": {
+                              "type": "string"
+                            },
+                            "role": {
+                              "type": "string",
+                              "enum": [
+                                "owner",
+                                "manager"
+                              ]
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "pending",
+                                "approved",
+                                "declined"
+                              ]
+                            },
+                            "purpose": {
+                              "type": "string",
+                              "enum": [
+                                "business_access",
+                                "new_organization"
+                              ]
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            "reviewedAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "organizationId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "businessName",
+                            "role",
+                            "status",
+                            "purpose",
+                            "createdAt",
+                            "reviewedAt",
+                            "organizationId"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "duplicate": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "request",
+                        "duplicate"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "displayName": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 120
+                  },
+                  "phone": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\+[1-9]\\d{7,14}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "businessName": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 160
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "owner",
+                      "manager"
+                    ]
+                  },
+                  "details": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 2000
+                  },
+                  "confirmedAuthority": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "required": [
+                  "displayName",
+                  "businessName",
+                  "role",
+                  "details",
+                  "confirmedAuthority"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "get__account_organization_requests",
+        "tags": [
+          "public"
+        ],
+        "security": [
+          {
+            "bearerSession": []
+          }
+        ],
+        "deprecated": false,
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": 1,
+              "type": "number",
+              "minimum": 1,
+              "maximum": 100000
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": 25,
+              "type": "number",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": "",
+              "type": "string",
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "statuses",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": [],
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "declined"
+                  ]
+                },
+                {
+                  "maxItems": 3,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "approved",
+                      "declined"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "businessName": {
+                                "type": "string"
+                              },
+                              "role": {
+                                "type": "string",
+                                "enum": [
+                                  "owner",
+                                  "manager"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pending",
+                                  "approved",
+                                  "declined"
+                                ]
+                              },
+                              "purpose": {
+                                "type": "string",
+                                "enum": [
+                                  "business_access",
+                                  "new_organization"
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              "reviewedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "organizationId": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "businessName",
+                              "role",
+                              "status",
+                              "purpose",
+                              "createdAt",
+                              "reviewedAt",
+                              "organizationId"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "page": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "pageSize": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "hasMore": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "page",
+                        "pageSize",
+                        "total",
+                        "hasMore"
+                      ],
+                      "additionalProperties": {
+                        "$ref": "#/components/schemas/JsonValue"
+                      }
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
               }
             }
           }
@@ -5375,6 +6056,37 @@
                               "businessName": {
                                 "type": "string"
                               },
+                              "purpose": {
+                                "type": "string",
+                                "enum": [
+                                  "business_access",
+                                  "new_organization"
+                                ]
+                              },
+                              "requesterUserId": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "confirmedAuthorityAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "role": {
                                 "type": "string",
                                 "enum": [
@@ -5469,6 +6181,9 @@
                               "email",
                               "phone",
                               "businessName",
+                              "purpose",
+                              "requesterUserId",
+                              "confirmedAuthorityAt",
                               "role",
                               "details",
                               "status",
@@ -5720,6 +6435,37 @@
                         "businessName": {
                           "type": "string"
                         },
+                        "purpose": {
+                          "type": "string",
+                          "enum": [
+                            "business_access",
+                            "new_organization"
+                          ]
+                        },
+                        "requesterUserId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "confirmedAuthorityAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "role": {
                           "type": "string",
                           "enum": [
@@ -5814,6 +6560,9 @@
                         "email",
                         "phone",
                         "businessName",
+                        "purpose",
+                        "requesterUserId",
+                        "confirmedAuthorityAt",
                         "role",
                         "details",
                         "status",
@@ -6037,6 +6786,37 @@
                             "businessName": {
                               "type": "string"
                             },
+                            "purpose": {
+                              "type": "string",
+                              "enum": [
+                                "business_access",
+                                "new_organization"
+                              ]
+                            },
+                            "requesterUserId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "confirmedAuthorityAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "role": {
                               "type": "string",
                               "enum": [
@@ -6131,6 +6911,9 @@
                             "email",
                             "phone",
                             "businessName",
+                            "purpose",
+                            "requesterUserId",
+                            "confirmedAuthorityAt",
                             "role",
                             "details",
                             "status",
@@ -6702,6 +7485,37 @@
                             "businessName": {
                               "type": "string"
                             },
+                            "purpose": {
+                              "type": "string",
+                              "enum": [
+                                "business_access",
+                                "new_organization"
+                              ]
+                            },
+                            "requesterUserId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "confirmedAuthorityAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "role": {
                               "type": "string",
                               "enum": [
@@ -6796,6 +7610,9 @@
                             "email",
                             "phone",
                             "businessName",
+                            "purpose",
+                            "requesterUserId",
+                            "confirmedAuthorityAt",
                             "role",
                             "details",
                             "status",

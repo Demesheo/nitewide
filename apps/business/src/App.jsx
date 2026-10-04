@@ -34,6 +34,7 @@ import { BusinessPayments } from "@/components/BusinessPayments";
 import { OnboardingSetup } from "@/components/OnboardingSetup";
 import { BusinessProfile } from "@/components/BusinessProfile";
 import { BusinessSignIn } from "@/components/BusinessSignIn";
+import { OrganizationRequestDialog } from '@/components/OrganizationRequestDialog';
 import { BusinessBrand as Brand } from "@/components/BusinessBrand";
 import { LoadingState } from "@/components/LoadingState";
 import { Admissions } from "@/components/Admissions";
@@ -69,6 +70,7 @@ export default function App() {
   const verificationAttempted = useRef(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [organizationRequestOpen, setOrganizationRequestOpen] = useState(false);
   const [messageThread, setMessageThread] = useState(null);
   const [supportThread, setSupportThread] = useState(null);
   const menuTrigger = useRef(null);
@@ -90,6 +92,7 @@ export default function App() {
     setEditor(null);
     setMobileNav(false);
     setProfileOpen(false);
+    setOrganizationRequestOpen(false);
     setSelectedOrganizations([]);
     setSelectedVenues([]);
     setNotice("");
@@ -197,8 +200,8 @@ export default function App() {
     ? Boolean(session.user.isInternalAdmin || data.organizations?.some((org) => org.canManage || org.canCreateEvents))
     : Boolean(session.user.isInternalAdmin || session.roles?.some((role) => ['organization_owner', 'venue_manager'].includes(role)));
   const canViewPayments = Boolean(data.organizations?.some(org => org.canManageFinance) || data.scope?.canViewEarnings);
-  const visibleNavigation = navigation.filter(([id]) => (id !== 'team' || canManageTeam) && (id !== 'payments' || canViewPayments));
-  const visiblePage = (page === 'team' && !canManageTeam) || (page === 'payments' && !canViewPayments) ? 'overview' : page;
+  const visibleNavigation = navigation.filter(([id]) => id !== 'payments' || canViewPayments);
+  const visiblePage = page === 'payments' && !canViewPayments ? 'overview' : page;
   const sidebarContent = <>
         <Brand />
         <div className="workspace-label">WORKSPACE</div>
@@ -260,6 +263,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar desktop-sidebar">{sidebarContent}</aside>
+      {organizationRequestOpen && <OrganizationRequestDialog session={session} onClose={() => setOrganizationRequestOpen(false)} onUnauthorized={expire}/>}
       <Dialog open={mobileNav} onOpenChange={setMobileNav}>
         <DialogContent className="business-nav-drawer" onCloseAutoFocus={(event) => { event.preventDefault(); menuTrigger.current?.focus(); }}>
           <DialogTitle className="sr-only">Workspace navigation</DialogTitle>
@@ -334,7 +338,7 @@ export default function App() {
                   : page === "events"
                     ? ownOnly ? 'Your events and the people you brought in.' : "Create, refine, and bring your experiences to life."
                     : page === "team"
-                      ? "Invite employees and promoters into your authorized organizations."
+                      ? canManageTeam ? "Manage your organizations or start a separate one." : "Start your own organization without changing your existing roles."
                     : page === "admissions"
                       ? "Scan passes or admit guests manually for your events."
                     : page === "payments"
@@ -348,6 +352,7 @@ export default function App() {
                 Create event
               </Button>
             )}
+            {visiblePage === "team" && <Button variant="outline" onClick={() => setOrganizationRequestOpen(true)}>Start an organization</Button>}
           </div>}
           {visiblePage !== "analytics" && visiblePage !== "team" && visiblePage !== "admissions" && visiblePage !== "payments" && <div className="page-controls">
             {showOrganizationSelector && <MultiSelect
@@ -451,7 +456,9 @@ export default function App() {
                   onSelectionChange={selectEvent}
                 />
               )}
-              {visiblePage === "team" && data && canManageTeam && <BusinessTeam session={session} organizations={data.organizations.filter((org) => org.canManage || org.canCreateEvents)} onUnauthorized={expire} />}
+              {visiblePage === "team" && data && (canManageTeam
+                ? <BusinessTeam session={session} organizations={data.organizations.filter((org) => org.canManage || org.canCreateEvents)} onUnauthorized={expire} />
+                : <p className="hint">Team and venue management are available only where you are an owner or authorized manager.</p>)}
               {visiblePage === "payments" && canViewPayments && <BusinessPayments session={session} organizations={data.organizations} canViewEarnings={Boolean(data.scope?.canViewEarnings)} />}
             </div>
           )}

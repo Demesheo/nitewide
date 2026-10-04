@@ -5,7 +5,7 @@ const { assertBusinessAccess } = require('../src/services/business-access-policy
 const { buildContract } = require('../src/http/contract-build');
 
 const request = { displayName: 'Business Contact', email: ' OWNER@Example.com ', phone: '(407) 555-0123',
-  businessName: 'Downtown Events', role: 'owner', details: 'I operate this business and need access.' };
+  businessName: 'Downtown Events', role: 'owner', details: 'I operate this business and need access.', confirmedAuthority: true };
 const approval = { kind: 'organization', recipient: { email: 'OWNER@Example.com', displayName: 'Business Contact' },
   organization: { name: 'Downtown Events' }, confirmedAuthority: true, reason: 'Confirmed business authority', version: 0 };
 
@@ -15,8 +15,13 @@ test('public access requests accept contact details, normalize email and phone, 
   for (const extra of [{ password: 'Unrequested12345' }, { isInternalAdmin: true }, { independentCreator: true }, { organizationId: 'id' }]) {
     assert.equal(schemas.requestAccess.safeParse({ ...request, ...extra }).success, false);
   }
-  for (const change of [{ phone: '' }, { phone: '123' }, { role: 'employee' }, { details: 'Short' }, { businessName: 'x'.repeat(161) }]) {
+  for (const change of [{ confirmedAuthority: false }, { confirmedAuthority: undefined }, { phone: '' }, { phone: '123' }, { role: 'employee' }, { details: 'Short' }, { businessName: 'x'.repeat(161) }]) {
     assert.equal(schemas.requestAccess.safeParse({ ...request, ...change }).success, false);
+  }
+  const { email, ...signedRequest } = request;
+  assert.equal(schemas.organizationRequest.safeParse(signedRequest).success, true);
+  for (const extra of [{ email }, { requesterUserId: 'other' }, { organizationId: 'other' }, { confirmedAuthority: false }]) {
+    assert.equal(schemas.organizationRequest.safeParse({ ...signedRequest, ...extra }).success, false);
   }
 });
 
@@ -51,6 +56,9 @@ test('access request operations publish executable body, query, auth and respons
   const find = (method, path) => contracts.find(operation => operation.method === method && operation.path === path);
   assert.equal(find('post', '/business/access-requests').authenticated, false);
   assert.equal(find('post', '/business/access-requests').requestSchema, schemas.requestAccess);
+  assert.equal(find('post', '/account/organization-requests').authenticated, true);
+  assert.equal(find('post', '/account/organization-requests').requestSchema, schemas.organizationRequest);
+  assert.equal(find('get', '/account/organization-requests').querySchema, schemas.query);
   assert.equal(find('get', '/admin/business-access/requests').querySchema, schemas.query);
   assert.equal(find('post', '/admin/business-access/requests/:id/approve').requestSchema, schemas.approve);
   assert.equal(find('post', '/admin/business-access/requests/:id/decline').authenticated, true);

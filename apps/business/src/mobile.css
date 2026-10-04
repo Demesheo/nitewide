@@ -185,6 +185,7 @@
   .analytics-metrics strong { font-size: clamp(21px, 5.6vw, 28px); overflow-wrap: anywhere; }
   .analytics-metrics small { font-size: 11px; line-height: 1.45; }
   [data-slot="dialog-content"] { max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px); width: calc(100% - 24px); max-width: calc(100% - 24px); overflow-y: auto; overscroll-behavior: contain; padding: 24px 18px; border-radius: 20px; }
+  .organization-request-dialog[data-slot="dialog-content"] { width: calc(100vw - 32px); max-width: 680px; max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 32px); }
   [data-slot="dialog-header"] { text-align: left; padding-right: 30px; }
   [data-slot="dialog-title"] { line-height: 1.25; }
   [data-slot="dialog-close"] { top: 10px; right: 10px; min-height: 44px; display: grid; place-items: center; }

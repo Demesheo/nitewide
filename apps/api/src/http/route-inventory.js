@@ -79,6 +79,8 @@ const routeInventory = [
   { method: 'get', path: '/customer/checkout-attempts/:idempotencyKey', successStatuses: [200] },
   { method: 'post', path: '/auth/business/sign-in', successStatuses: [200] },
   { method: 'post', path: '/business/access-requests', successStatuses: [202] },
+  { method: 'post', path: '/account/organization-requests', successStatuses: [202] },
+  { method: 'get', path: '/account/organization-requests', successStatuses: [200] },
   { method: 'get', path: '/admin/business-access/requests', successStatuses: [200] },
   { method: 'get', path: '/admin/business-access/requests/:id', successStatuses: [200] },
   { method: 'post', path: '/admin/business-access/requests/:id/approve', successStatuses: [200] },

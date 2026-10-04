@@ -44,9 +44,12 @@ const exportJob = z.object({ id: uuid, status: z.enum(['queued', 'snapshotting',
   createdAt: dateTime, expiresAt: dateTime, filename: z.string().nullable(), error: z.string().nullable(),
   statusUrl: z.string(), downloadUrl: z.string() });
 const accessRequest = z.object({ id: uuid, displayName: z.string(), email: z.email(), phone: z.string(), businessName: z.string(),
+  purpose: z.enum(['business_access','new_organization']), requesterUserId: uuid.nullable(), confirmedAuthorityAt: dateTime.nullable(),
   role: z.enum(['owner','manager']), details: z.string(), status: z.enum(['pending','approved','declined']), version: count,
   reviewedByUserId: uuid.nullable(), reviewedAt: dateTime.nullable(), reviewReason: z.string().nullable(),
   organizationId: uuid.nullable(), onboardingInvitationId: uuid.nullable(), createdAt: dateTime, updatedAt: dateTime });
+const ownOrganizationRequest = accessRequest.pick({ id: true, businessName: true, role: true, status: true,
+  purpose: true, createdAt: true, reviewedAt: true, organizationId: true }).strict();
 const onboardingInvitation = z.object({ id: uuid, userId: uuid, email: z.email(), accountMode: z.enum(['new','existing']),
   organizationId: uuid.nullable(), role: z.enum(['owner','manager']).nullable(), financeAuthorized: z.boolean(),
   ownershipIntent: z.string().nullable(), outgoingOwnerUserId: uuid.nullable(), outgoingRole: z.string().nullable(),
@@ -69,6 +72,7 @@ const guestlistRow = guest.extend({ eventId: uuid, userId: uuid.nullable(), even
 // Dynamic management resources retain JSON extension fields by design.
 const responses = { entity, event, offering, user, session, guest, sales, reportRow, exportJob, accessRequest, onboardingInvitation, error, page, envelope };
 const queries = {
+  '/account/organization-requests': businessAccess.query,
   '/support/messages': supportMessages.pageQuery,
   '/support/messages/:id': supportMessages.pageQuery,
   '/support/access-requests/:id': supportMessages.pageQuery,
@@ -183,6 +187,8 @@ function responseFor(method, path) {
   if (path === '/openapi.json') return record;
   if (['/auth/register', '/auth/sign-in', '/auth/business/sign-in', '/auth/password/change'].includes(path)) return session;
   if (path === '/business/access-requests') return z.object({ message: z.string() });
+  if (path === '/account/organization-requests') return method === 'get' ? page(ownOrganizationRequest)
+    : z.object({ message: z.string(), request: ownOrganizationRequest, duplicate: z.boolean() }).strict();
   if (path === '/admin/business-access/requests') return page(accessRequest);
   if (path === '/admin/business-access/requests/:id') return accessRequest;
   if (path === '/admin/business-access/requests/:id/approve') return z.object({ request: accessRequest, invitation: onboardingInvitation });

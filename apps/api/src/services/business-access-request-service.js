@@ -1,5 +1,6 @@
 const { Op, Transaction } = require('sequelize');
-const { conflict, notFound, DomainError } = require('../domain/errors');
+const { conflict, forbidden, notFound, DomainError } = require('../domain/errors');
+const { activeUser } = require('./lifecycle-service');
 const { mutationTransaction } = require('./mutation-transaction');
 const { pageResult } = require('./business-read-service');
 const schemas = require('../http/business-access-schemas');
@@ -13,17 +14,43 @@ function createBusinessAccessRequestService({ models, permissions, onboarding, n
       return work(transaction);
     });
   }
-  async function submit(body) {
-    const input = schemas.requestAccess.parse(body);
-    await db.transaction(async transaction => {
+  const applicantView = row => ({ id: row.id, businessName: row.businessName, role: row.role, status: row.status,
+    purpose: row.purpose, createdAt: row.createdAt, reviewedAt: row.reviewedAt || null, organizationId: row.organizationId || null });
+  async function applicant(actor, transaction) {
+    const user = await models.User.findByPk(actor, { transaction, lock: transaction.LOCK.SHARE });
+    if (!activeUser(user)) throw forbidden('An active Nitewide account is required to request an organization');
+    return user;
+  }
+  async function submit(body, actor = null) {
+    const { confirmedAuthority, ...values } = (actor ? schemas.organizationRequest : schemas.requestAccess).parse(body);
+    let requested, duplicate = false;
+    await mutationTransaction(db, async transaction => {
+      const user = actor ? await applicant(actor, transaction) : null;
+      const input = { ...values, ...(user ? { email: user.email } : {}) };
       // Serialize same-contact requests without revealing account or queue state.
       await db.query('SELECT pg_advisory_xact_lock(hashtextextended(:email, 10427))', { replacements: { email: input.email }, transaction });
       const existing = await models.BusinessAccessRequest.findOne({ where: { email: input.email, status: 'pending' }, transaction });
-      if (existing) return;
-      const row = await models.BusinessAccessRequest.create(input, { transaction });
-      await models.AuditLog.create({ actorUserId: null, entityType: 'BusinessAccessRequest', entityId: row.id, action: 'business.access.requested', after: { status: 'pending' } }, { transaction });
+      if (existing) { requested = existing; duplicate = true; return; }
+      const row = await models.BusinessAccessRequest.create({ ...input, requesterUserId: actor,
+        purpose: actor ? 'new_organization' : 'business_access', confirmedAuthorityAt: confirmedAuthority ? now() : null }, { transaction });
+      requested = row;
+      await models.AuditLog.create({ actorUserId: actor, entityType: 'BusinessAccessRequest', entityId: row.id, action: 'business.access.requested',
+        after: { status: 'pending', purpose: row.purpose, confirmedAuthority: true } }, { transaction });
     });
-    return RECEIVED;
+    return actor ? { message: duplicate ? 'You already have a request awaiting Nitewide review. Your existing access is unchanged.'
+      : 'Your new organization request is awaiting Nitewide review. Your existing access is unchanged.', request: applicantView(requested), duplicate } : RECEIVED;
+  }
+  async function mine(actor, query) {
+    const input = schemas.query.parse(query);
+    return db.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ }, async transaction => {
+      const user = await applicant(actor, transaction);
+      const where = { [Op.or]: [{ requesterUserId: actor }, { email: user.email }] };
+      if (input.statuses.length) where.status = { [Op.in]: [...new Set(input.statuses)] };
+      if (input.search) where.businessName = { [Op.iLike]: `%${input.search.replace(/[\\%_]/g, '\\$&')}%` };
+      const { rows, count } = await models.BusinessAccessRequest.findAndCountAll({ where,
+        order: [['createdAt','DESC'],['id','ASC']], limit: input.pageSize, offset: (input.page - 1) * input.pageSize, transaction });
+      return pageResult(rows.map(applicantView), count, input.page, input.pageSize);
+    });
   }
   async function list(actor, query) {
     const input = schemas.query.parse(query);
@@ -56,6 +83,10 @@ function createBusinessAccessRequestService({ models, permissions, onboarding, n
       let invitation = null;
       if (approving) {
         if (input.recipient.email !== row.email) throw conflict('Use the email submitted with this request.', 'ACCESS_REQUEST_EMAIL_MISMATCH');
+        if (row.requesterUserId) {
+          const applicantUser = await models.User.findByPk(row.requesterUserId, { transaction, lock: transaction.LOCK.SHARE });
+          if (!activeUser(applicantUser) || applicantUser.email !== row.email) throw conflict('The applicant account changed or is unavailable. Review the account before preparing onboarding.', 'ACCESS_REQUEST_ACCOUNT_CHANGED');
+        }
         const { version, ...onboardingInput } = input;
         invitation = await onboarding.create(actor, onboardingInput, transaction);
         if (invitation.delivery !== 'queued') throw new DomainError('The onboarding email could not be queued. The request is still pending; try again when email delivery is available.', { code: 'EMAIL_UNAVAILABLE', status: 503 });
@@ -68,6 +99,6 @@ function createBusinessAccessRequestService({ models, permissions, onboarding, n
       return { request: row, ...(invitation ? { invitation } : {}) };
     }, { accessChange: true });
   }
-  return { submit, list, detail, approve: (actor,id,body) => review(actor,id,body,true), decline: (actor,id,body) => review(actor,id,body,false) };
+  return { submit, mine, list, detail, approve: (actor,id,body) => review(actor,id,body,true), decline: (actor,id,body) => review(actor,id,body,false) };
 }
 module.exports = { createBusinessAccessRequestService };

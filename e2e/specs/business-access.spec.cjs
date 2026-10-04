@@ -25,6 +25,7 @@ async function fillRequest(page, email, role = 'owner') {
   await page.getByLabel('Business name', { exact: true }).fill('Playwright Access Nights');
   await page.getByLabel('Your role', { exact: true }).selectOption(role);
   await page.getByRole('textbox', { name: 'Tell us about your business', exact: true }).fill('We host local music events and would like one business workspace.');
+  await page.getByRole('checkbox', { name: /I am the owner or an authorized manager/ }).check();
 }
 async function screenshot(page, testInfo, name) {
   const path = testInfo.outputPath(`${name}.png`);
@@ -68,7 +69,7 @@ adminAccessTest('public access request journey preserves failed drafts, prevents
     await expect(page.getByRole('form', { name: 'Request Business access' })).toContainText('10–2,000 characters');
     await fillRequest(page, fixture.accounts.customer.email, 'manager');
     await expectNoOverflow(page); await screenshot(page, testInfo, 'business-access-request-form');
-    const touchTargets = await page.locator('#business-access-request-form input, #business-access-request-form select, #business-access-request-form textarea, #business-access-request-form button').evaluateAll(elements => elements.map(element => Math.round(element.getBoundingClientRect().height)));
+    const touchTargets = await page.locator('#business-access-request-form input:not([type="checkbox"]), #business-access-request-form .organization-request-authority, #business-access-request-form select, #business-access-request-form textarea, #business-access-request-form button').evaluateAll(elements => elements.map(element => Math.round(element.getBoundingClientRect().height)));
     expect(touchTargets.every(height => height >= 44)).toBeTruthy();
     await page.getByRole('button', { name: 'Send request', exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('temporarily unavailable');
@@ -90,7 +91,7 @@ adminAccessTest('public access request journey preserves failed drafts, prevents
     expect(posts).toHaveLength(2);
     expect(attempts).toBe(2);
     for (const post of posts) {
-      expect(Object.keys(post.postDataJSON()).sort()).toEqual(['businessName', 'details', 'displayName', 'email', 'phone', 'role']);
+      expect(Object.keys(post.postDataJSON()).sort()).toEqual(['businessName', 'confirmedAuthority', 'details', 'displayName', 'email', 'phone', 'role']);
       expect(post.headers().authorization).toBeUndefined();
     }
     expect(await page.evaluate(key => sessionStorage.getItem(key), sessionKey)).toBeNull();
@@ -115,6 +116,64 @@ adminAccessTest('public access request journey preserves failed drafts, prevents
     const emails = await request.get(`${urls.api}/__e2e/emails`, { headers: { 'x-e2e-control': controlToken } });
     expect(await emails.json()).toEqual([]);
   });
+});
+
+test('a promoter requests a separate organization from their existing workspace and retains pending state across reloads', async ({ page, request, fixture }, testInfo) => {
+  const managementRequests = [];
+  page.on('request', request => { if (/\/business\/organizations\/[^/]+\/(team-page|invitations-page)/.test(request.url())) managementRequests.push(request.url()); });
+  await login(page, fixture, 'business', 'promoter');
+  await expect(page.locator('.app-shell')).toBeVisible();
+  const openRequest = async () => {
+    await expect(page.getByRole('navigation').getByRole('button', { name: 'Start an organization', exact: true })).toHaveCount(0);
+    await page.getByRole('navigation').getByRole('button', { name: 'Organization', exact: true }).filter({ visible: true }).click();
+    await expect(page.getByRole('heading', { name: 'Your organization, together.', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Invite team member', exact: true })).toHaveCount(0);
+    await expectNoOverflow(page);
+    await page.getByRole('button', { name: 'Start an organization', exact: true }).click();
+    return page.getByRole('dialog', { name: 'Start an organization', exact: true });
+  };
+  const dialog = await openRequest();
+  await expect(dialog.getByRole('heading', { name: 'Start an organization.' })).toBeVisible();
+  await expect(dialog.getByLabel('Full name', { exact: true })).toHaveValue(fixture.accounts.promoter.name);
+  await expect(dialog.getByText(fixture.accounts.promoter.email, { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel('Email address', { exact: true })).toHaveCount(0);
+  await expect(dialog.getByText('Separate organization. Same Nitewide account.', { exact: true })).toBeVisible();
+  const layout = await dialog.evaluate(element => {
+    const rect = element.getBoundingClientRect(), form = element.querySelector('form');
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, columns: getComputedStyle(form).gridTemplateColumns.split(' ').length };
+  });
+  expect(layout.x).toBeGreaterThanOrEqual(15); expect(layout.y).toBeGreaterThanOrEqual(15);
+  expect(layout.height).toBeLessThanOrEqual(page.viewportSize().height - 31);
+  expect(layout.columns).toBe(testInfo.project.name.endsWith('iphone') ? 1 : 2);
+  if (!testInfo.project.name.endsWith('iphone')) {
+    const cancel = await dialog.getByRole('button', { name: 'Cancel', exact: true }).boundingBox();
+    expect(cancel.y + cancel.height).toBeLessThanOrEqual(page.viewportSize().height - 15);
+  }
+  await screenshot(page, testInfo, 'separate-organization-request');
+  await dialog.getByLabel('Phone number', { exact: true }).fill('(407) 555-0199');
+  await dialog.getByLabel('Business name', { exact: true }).fill('Leo Independent Events');
+  await dialog.getByLabel('Your role', { exact: true }).selectOption('owner');
+  await dialog.getByLabel('Tell us about your business', { exact: true }).fill('I run my own promotion group separately from my existing affiliations.');
+  await dialog.getByRole('checkbox', { name: /I am the owner or an authorized manager/ }).check();
+  const submission = page.waitForResponse(response => response.url().endsWith('/api/account/organization-requests') && response.request().method() === 'POST');
+  await dialog.getByRole('button', { name: 'Send request', exact: true }).click();
+  const receipt = await submission;
+  expect(receipt.status()).toBe(202); expect(receipt.request().postDataJSON().email).toBeUndefined();
+  await expect(dialog.getByRole('heading', { name: 'Request received.', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('status')).toContainText('existing access is unchanged');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  const admin = await identity(request, fixture, 'admin');
+  const queue = await request.get(`${urls.api}/api/admin/business-access/requests?search=${encodeURIComponent(fixture.accounts.promoter.email)}`, { headers: { Authorization: `Bearer ${admin.accessToken}` } });
+  expect(queue.ok()).toBeTruthy(); const queued = (await queue.json()).data.items[0];
+  expect(queued.purpose).toBe('new_organization'); expect(queued.requesterUserId).toBe(fixture.accounts.promoter.id); expect(queued.confirmedAuthorityAt).toBeTruthy();
+  await page.reload(); await expect(page.locator('.app-shell')).toBeVisible();
+  const pending = await openRequest();
+  await expect(pending.getByRole('heading', { name: 'Leo Independent Events', exact: true })).toBeVisible();
+  await expect(pending.getByRole('button', { name: 'Send request', exact: true })).toHaveCount(0);
+  await pending.getByRole('button', { name: 'Back to workspace', exact: true }).click();
+  expect(await page.evaluate(key => Boolean(sessionStorage.getItem(key)), sessionKey)).toBe(true);
+  expect(managementRequests).toEqual([]);
+  await expectNoOverflow(page);
 });
 
 customerAuthTest('a copied customer token is checked before any workspace navigation renders and generic customer auth remains valid', async ({ page, request, fixture }) => {

@@ -16,7 +16,7 @@ const { buildContract } = require('../src/http/contract-build');
 const PASSWORD = 'ApprovedBusiness12345';
 const WHY = 'Verified this contact has business authority';
 const contact = email => ({ displayName: 'Business Contact', email, phone: '(407) 555-0123',
-  businessName: 'Downtown Promotion Group', role: 'owner', details: 'I operate this business and want to manage its events.' });
+  businessName: 'Downtown Promotion Group', role: 'owner', details: 'I operate this business and want to manage its events.', confirmedAuthority: true });
 const approval = (email, version = 0, extra = {}) => ({ kind: 'organization',
   recipient: { email, displayName: 'Verified Contact', role: 'manager', financeAuthorized: false },
   organization: { name: 'Verified Promotion Group', description: 'Reviewed organization', planTier: 'free' },
@@ -302,6 +302,74 @@ test('Business entry and manually reviewed access requests preserve authority, i
       finally { signInRelease.resolve(); m.UserCredential.findByPk = originalLookup; }
       assert.equal((await signInAttempt).error?.code, 'BUSINESS_ACCESS_REQUIRED');
       assert.equal(await m.AuthSession.count({ where: { userId: principal.id } }), sessionsBefore);
+    });
+    await t.test('an existing manager, employee and promoter can request separate ownership without cross-organization escalation', async () => {
+      const principal = await makeUser('Multi-organization operator');
+      const orgs = {};
+      for (const role of ['manager', 'employee', 'promoter', 'unrelated']) {
+        orgs[role] = await m.Organization.create({ name: `Existing ${role}`, slug: `existing-${role}-${crypto.randomUUID()}` });
+      }
+      const manager = await m.OrganizationOwner.create({ organizationId: orgs.manager.id, userId: principal.id, role: 'admin', financeAuthorized: false });
+      const employee = await m.OrganizationEmployee.create({ organizationId: orgs.employee.id, userId: principal.id, status: 'active' });
+      const promoter = await m.OrgAffiliate.create({ organizationId: orgs.promoter.id, userId: principal.id, code: `OWN-${crypto.randomUUID()}`, status: 'active' });
+      const priorRows = [manager, employee, promoter].map(row => row.toJSON());
+      const beforeUsers = await m.User.count(), beforeOrgs = await m.Organization.count();
+      const signedBody = contact(principal.email); delete signedBody.email;
+      await api('post', '/account/organization-requests', null, signedBody).expect(401);
+      await api('post', '/account/organization-requests', users.customer, { ...signedBody, email: users.admin.email }).expect(422);
+      await api('post', '/account/organization-requests', users.customer, { ...signedBody, confirmedAuthority: false }).expect(422);
+      const submitted = validateResponse('post', '/account/organization-requests', await api('post', '/account/organization-requests', principal, signedBody).expect(202));
+      assert.equal(submitted.duplicate, false); assert.equal(submitted.request.status, 'pending');
+      assert.equal(await m.User.count(), beforeUsers); assert.equal(await m.Organization.count(), beforeOrgs);
+      const pending = await m.BusinessAccessRequest.findByPk(submitted.request.id);
+      assert.equal(pending.email, principal.email); assert.equal(pending.requesterUserId, principal.id);
+      assert.equal(pending.purpose, 'new_organization'); assert.ok(pending.confirmedAuthorityAt);
+      const duplicate = validateResponse('post', '/account/organization-requests', await api('post', '/account/organization-requests', principal, { ...signedBody, businessName: 'Another requested name' }).expect(202));
+      assert.equal(duplicate.duplicate, true); assert.equal(duplicate.request.id, pending.id);
+      const own = validateResponse('get', '/account/organization-requests', await api('get', '/account/organization-requests', principal).expect(200));
+      assert.equal(own.total, 1); assert.equal(own.items[0].id, pending.id);
+      assert.equal('reviewReason' in own.items[0], false); assert.equal('requesterUserId' in own.items[0], false);
+      const someoneElse = validateResponse('get', '/account/organization-requests', await api('get', '/account/organization-requests', users.customer).query({ search: principal.email }).expect(200));
+      assert.equal(someoneElse.total, 0);
+      await api('get', '/account/organization-requests', principal).query({ userId: users.admin.id }).expect(422);
+      await api('post', `/admin/business-access/requests/${pending.id}/approve`, principal, approval(principal.email)).expect(403);
+      const acceptedReview = await access.approve(users.admin.id, pending.id, approval(principal.email, 0, { recipient: { email: principal.email, displayName: principal.displayName, role: 'owner' } }));
+      assert.equal(acceptedReview.invitation.accountMode, 'existing');
+      const newOrgId = acceptedReview.invitation.organizationId;
+      assert.equal(await permissions.canManageOrganization(principal.id, newOrgId), false, 'admin approval alone grants no access');
+      const token = await invitationToken(acceptedReview.invitation);
+      await assert.rejects(onboarding.accept(token, {}, users.customer.id), { code: 'FORBIDDEN' });
+      await onboarding.accept(token, {}, principal.id);
+      assert.equal(await permissions.canManageOrganization(principal.id, newOrgId), true);
+      assert.equal(await permissions.canManageFinance(principal.id, newOrgId), true);
+      assert.equal(await permissions.canManageOrganization(principal.id, orgs.manager.id), true);
+      assert.equal(await permissions.canManageFinance(principal.id, orgs.manager.id), false);
+      for (const role of ['employee', 'promoter', 'unrelated']) {
+        assert.equal(await permissions.canManageOrganization(principal.id, orgs[role].id), false, role);
+        assert.equal(await permissions.canManageFinance(principal.id, orgs[role].id), false, role);
+        await assert.rejects(permissions.assertCreateEvent(principal.id, orgs[role].id, null), { code: 'FORBIDDEN' });
+      }
+      await permissions.assertCreateEvent(principal.id, newOrgId, null);
+      const afterRows = await Promise.all([m.OrganizationOwner.findByPk(manager.id), m.OrganizationEmployee.findByPk(employee.id), m.OrgAffiliate.findByPk(promoter.id)]);
+      assert.deepEqual(afterRows.map(row => row.toJSON()), priorRows, 'roles, status, finance settings and row versions in other organizations never change');
+      assert.equal(await m.User.count(), beforeUsers); assert.equal(await m.Organization.count(), beforeOrgs + 1);
+      assert.equal((await m.User.findByPk(principal.id)).independentCreator, false);
+      assert.equal((await m.User.findByPk(principal.id)).isInternalAdmin, false);
+      const audit = await m.AuditLog.findOne({ where: { entityId: pending.id, action: 'business.access.requested' } });
+      assert.equal(audit.actorUserId, principal.id); assert.equal(audit.after.confirmedAuthority, true);
+      const another = await access.submit({ ...signedBody, businessName: 'A second separate organization' }, principal.id);
+      const organizationCount = await m.Organization.count(), invitationCount = await m.OnboardingInvitation.count();
+      await principal.reload();
+      await principal.update({ email: newEmail() });
+      const history = await access.mine(principal.id, {});
+      assert.equal(history.total, 2, 'captured request ownership survives a later email change');
+      await assert.rejects(access.approve(users.admin.id, another.request.id, approval(pending.email)), { code: 'ACCESS_REQUEST_ACCOUNT_CHANGED' });
+      await principal.update({ email: pending.email, lifecycleState: 'suspended', isActive: false });
+      await assert.rejects(access.submit(signedBody, principal.id), { code: 'FORBIDDEN' });
+      await assert.rejects(access.mine(principal.id, {}), { code: 'FORBIDDEN' });
+      await assert.rejects(access.approve(users.admin.id, another.request.id, approval(pending.email)), { code: 'ACCESS_REQUEST_ACCOUNT_CHANGED' });
+      assert.equal(await m.Organization.count(), organizationCount); assert.equal(await m.OnboardingInvitation.count(), invitationCount);
+      assert.equal((await m.BusinessAccessRequest.findByPk(another.request.id)).status, 'pending');
     });
     assert.equal(providerCalls, 0, 'only durable offline queue writes are allowed; email is never sent');
   } finally { await durableEmail.stop(); await db.close(); }

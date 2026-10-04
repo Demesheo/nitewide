@@ -109,7 +109,12 @@ test('access request recovery, filters and reviewed details preserve independent
 
 
 test('decline requires an audit reason and explicit stale refresh while retaining history', async ({ page }) => {
-  const state = await mockReviews(page); state.declineFailures.push(409); await page.goto(`/?section=businesses&businessView=requests&request=${uuid(1)}`);
+  const state = await mockReviews(page); state.declineFailures.push(409);
+  Object.assign(state.rows[0], { purpose: 'new_organization', requesterUserId: uuid(102), confirmedAuthorityAt: '2026-10-02T12:00:00Z' });
+  await page.goto(`/?section=businesses&businessView=requests&request=${uuid(1)}`);
+  await expect(page.getByText('NEW ORGANIZATION REQUEST', { exact: true })).toBeVisible();
+  await expect(page.getByText(/An existing Nitewide account is requesting a separate organization/)).toBeVisible();
+  await expect(page.getByText('Applicant authority confirmation', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Decline request', exact: true }).click(); const dialog = page.getByRole('dialog', { name: 'Decline access request' });
   await expect(dialog.getByRole('button', { name: 'Decline request', exact: true })).toBeDisabled(); await dialog.getByLabel('Required audit reason').fill('Verified duplicate access request');
   await dialog.getByRole('button', { name: 'Decline request', exact: true }).click(); await expect(dialog.getByRole('alert')).toContainText('Refresh before continuing');
@@ -144,7 +149,7 @@ adminAccessTest('real API Admin approval queues secure onboarding but grants no 
   // No browser routes are mocked in this case. The disposable harness replaces
   // only the external email boundary; auth, review, transactions and data are real.
   const contact = fixture.accounts.customer;
-  const submitted = await request.post(`${urls.api}/api/business/access-requests`, { data: { displayName: contact.name, email: contact.email, phone: '(407) 555-0199', businessName: 'Playwright Reviewed Business', role: 'owner', details: 'We organize local events and need a reviewed business workspace.' } });
+  const submitted = await request.post(`${urls.api}/api/business/access-requests`, { data: { displayName: contact.name, email: contact.email, phone: '(407) 555-0199', businessName: 'Playwright Reviewed Business', role: 'owner', details: 'We organize local events and need a reviewed business workspace.', confirmedAuthority: true } });
   expect(submitted.status()).toBe(202);
   await login(page, fixture, 'admin');
   await test.step('Needs attention opens the exact real submitted request', async () => {

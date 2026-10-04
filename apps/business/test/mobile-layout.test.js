@@ -65,7 +65,9 @@ test('operational tables share phone sorting and labeled cells without dropping 
 
 test('mobile navigation uses the same authorized destinations and accessible dialog as desktop', () => {
   const source = read('src/App.jsx');
-  assert.match(source, /navigation\.filter\(\(\[id\]\) => \(id !== 'team' \|\| canManageTeam\) && \(id !== 'payments' \|\| canViewPayments\)\)/);
+  assert.match(source, /navigation\.filter\(\(\[id\]\) => id !== 'payments' \|\| canViewPayments\)/);
+  assert.match(source, /visiblePage === "team" && data && \(canManageTeam\s*\? <BusinessTeam/);
+  assert.doesNotMatch(source, /className="start-organization-button"/);
   assert.equal((source.match(/visibleNavigation\.map\(/g) || []).length, 2);
   assert.match(source, /<Dialog open=\{mobileNav\}/);
   assert.match(source, /onCloseAutoFocus=/);

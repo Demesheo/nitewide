@@ -7,6 +7,7 @@ const POLICIES = {
   login: { seconds: 900, ip: 60, account: 30, pair: 10 },
   registration: { seconds: 3600, ip: 20, account: 5 },
   access_request: { seconds: 86400, ip: 20, account: 3 },
+  organization_request: { seconds: 86400, ip: 20, user: 3 },
   recovery: { seconds: 3600, ip: 30, account: 5, user: 5 },
   password_change: { seconds: 3600, ip: 30, user: 5 },
   invitation: { seconds: 3600, ip: 300, user: 100 },
@@ -31,6 +32,7 @@ function routePolicy(method, path) {
   path = path.toLowerCase().replace(/\/+$/, '');
   if (method === 'POST' && ['/auth/sign-in','/auth/business/sign-in'].includes(path)) return 'login';
   if (method === 'POST' && path === '/business/access-requests') return 'access_request';
+  if (method === 'POST' && path === '/account/organization-requests') return 'organization_request';
   if (method === 'POST' && path === '/auth/register') return 'registration';
   if (method === 'POST' && path === '/auth/password/change') return 'password_change';
   if (['GET','POST'].includes(method) && /^\/guestlist-invitations\/[^/]+\/(claim|pass)$/.test(path)) return 'guestlist_link';

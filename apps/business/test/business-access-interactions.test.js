@@ -10,7 +10,7 @@ const response = (data, status = 200) => new Response(JSON.stringify(status < 40
 
 async function withRuntime(run, { path = '/sign-in', storedSession = null, fetcher = async () => response({}) } = {}) {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: `http://localhost${path}`, pretendToBeVisual: true });
-  const values = { window: dom.window, document: dom.window.document, navigator: dom.window.navigator, sessionStorage: dom.window.sessionStorage, localStorage: dom.window.localStorage, FormData: dom.window.FormData, HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement, HTMLButtonElement: dom.window.HTMLButtonElement, Element: dom.window.Element, Node: dom.window.Node, Event: dom.window.Event, MouseEvent: dom.window.MouseEvent, MutationObserver: dom.window.MutationObserver, getComputedStyle: dom.window.getComputedStyle.bind(dom.window), requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window), cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window), IS_REACT_ACT_ENVIRONMENT: true };
+  const values = { window: dom.window, document: dom.window.document, navigator: dom.window.navigator, sessionStorage: dom.window.sessionStorage, localStorage: dom.window.localStorage, FormData: dom.window.FormData, HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement, HTMLButtonElement: dom.window.HTMLButtonElement, Element: dom.window.Element, Node: dom.window.Node, NodeFilter: dom.window.NodeFilter, Event: dom.window.Event, CustomEvent: dom.window.CustomEvent, MouseEvent: dom.window.MouseEvent, MutationObserver: dom.window.MutationObserver, getComputedStyle: dom.window.getComputedStyle.bind(dom.window), requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window), cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window), IS_REACT_ACT_ENVIRONMENT: true };
   const original = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries(values)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
@@ -67,6 +67,7 @@ test('access request preserves draft on failure, prevents duplicate submission, 
     await user.type(queries.getByLabelText('Business name'), 'Fixture Nights');
     await user.selectOptions(queries.getByLabelText('Your role'), 'owner');
     await user.type(queries.getByRole('textbox', { name: 'Tell us about your business' }), 'We host monthly music events.');
+    await user.click(queries.getByRole('checkbox', { name: /I am the owner or an authorized manager/ }));
     await user.click(queries.getByRole('button', { name: 'Send request' }));
     await queries.findByRole('alert');
     assert.equal(queries.getByLabelText('Business name').value, 'Fixture Nights');
@@ -79,11 +80,42 @@ test('access request preserves draft on failure, prevents duplicate submission, 
     assert.equal(dom.window.document.activeElement, sent);
     assert.match(queries.getByRole('status').textContent, /Access is not granted until onboarding is completed/);
     assert.equal(calls.every((call) => call.path === '/api/business/access-requests' && !call.init.headers.Authorization), true);
-    assert.deepEqual(Object.keys(calls[1].body).sort(), ['businessName', 'details', 'displayName', 'email', 'phone', 'role']);
+    assert.deepEqual(Object.keys(calls[1].body).sort(), ['businessName', 'confirmedAuthority', 'details', 'displayName', 'email', 'phone', 'role']);
     assert.equal(dom.window.sessionStorage.getItem('nitewide.business.session'), null);
     await user.click(queries.getByRole('button', { name: 'Back to sign in' }));
     assert.equal(dom.window.document.activeElement, queries.getByRole('button', { name: 'Request access' }));
   }, { fetcher: async () => { attempts += 1; if (attempts === 1) return response({ message: 'Temporarily unavailable. Please try again.' }, 503); return new Promise((done) => { complete = done; }); } });
+});
+
+test('signed-in organization requests preserve identity, require authority and recover pending requests without workspace grants', async () => {
+  let received;
+  const applicant = { ...session, user: { ...session.user, displayName: 'Existing Promoter', phone: '+14075550199' }, roles: ['promoter'] };
+  const pending = { id: 'pending', businessName: 'My Independent Events', status: 'pending' };
+  await withRuntime(async ({ mount, user, queries, calls }) => {
+    await mount('/src/components/OrganizationRequestDialog.jsx', 'OrganizationRequestDialog', { session: applicant, onClose() {}, onUnauthorized() { throw Error('Unexpected logout'); } });
+    await queries.findByRole('heading', { name: 'Start an organization.' });
+    assert.equal(queries.queryByRole('textbox', { name: 'Email address' }), null);
+    assert.ok(queries.getByText(applicant.user.email));
+    assert.equal(queries.getByLabelText('Full name').value, applicant.user.displayName);
+    await user.type(queries.getByLabelText('Business name'), 'My Independent Events');
+    await user.selectOptions(queries.getByLabelText('Your role'), 'owner');
+    await user.type(queries.getByLabelText('Tell us about your business'), 'I will host independent music nights.');
+    const checkbox = queries.getByRole('checkbox', { name: /I am the owner or an authorized manager/ });
+    assert.equal(checkbox.checked, false); await user.click(checkbox);
+    await user.click(queries.getByRole('button', { name: 'Send request' }));
+    await queries.findByRole('heading', { name: 'Request received.' });
+    const sent = calls.find(call => call.init.method === 'POST');
+    assert.equal(sent.path, '/api/account/organization-requests'); assert.equal(sent.init.headers.Authorization, `Bearer ${applicant.accessToken}`);
+    assert.equal('email' in sent.body, false); assert.equal(sent.body.confirmedAuthority, true);
+    assert.match(queries.getByRole('status').textContent, /existing access is unchanged/);
+    assert.equal(received, true);
+  }, { fetcher: async ({ init }) => init.method === 'POST' ? (received = true, response({ message: 'Your existing access is unchanged.', request: pending, duplicate: false }, 202)) : response({ items: [] }) });
+  await withRuntime(async ({ mount, queries, calls }) => {
+    await mount('/src/components/OrganizationRequestDialog.jsx', 'OrganizationRequestDialog', { session: applicant, onClose() {} });
+    await queries.findByRole('heading', { name: pending.businessName });
+    assert.equal(queries.queryByRole('button', { name: 'Send request' }), null);
+    assert.equal(calls.length, 1);
+  }, { fetcher: async () => response({ items: [pending] }) });
 });
 
 test('invitation signup recovers an account-creation race and retries acceptance without creating another account', async () => {
