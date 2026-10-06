@@ -14,12 +14,15 @@ import Support from './components/Support';
 import Messages from './components/Messages';
 import PageHeader from './components/PageHeader';
 import { AdminBrand, AdminLoginMark } from './components/AdminBrand';
+import { publicAppLink } from '../../shared/app-links.mjs';
 import './styles.css';
 import './rebuild.css';
 import './messages.css';
 
 const navigation = [['overview', 'Overview', LayoutDashboard], ['businesses', 'Businesses', Building2], ['events', 'Events', CalendarDays], ['people', 'People', Users], ['support', 'Support', LifeBuoy], ['analytics', 'Analytics', ChartNoAxesCombined], ['audit', 'Audit', History]];
 const descriptions = { overview: 'Platform performance and the issues that need your attention.', businesses: 'Business workspaces, venues, ownership and account setup.', events: 'Events, offerings, purchases and admission history.', people: 'People and their access across the platform.', support: 'Resolve booking, admission and account issues with a retained case history.', analytics: 'Explore performance, then open individual records with report context intact.', audit: 'The history of platform changes and delivery activity.' };
+const customerUrl = publicAppLink('customerUrl', import.meta.env.VITE_CUSTOMER_URL || 'http://localhost:5173');
+const businessUrl = publicAppLink('businessHome', import.meta.env.VITE_BUSINESS_URL || 'http://localhost:5174');
 
 function Login({ onAuthenticated }) {
   const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
@@ -28,7 +31,7 @@ function Login({ onAuthenticated }) {
     try { const session = await signIn(email, password); if (!session.roles?.includes('internal_admin')) { clearSession(); throw new Error('This account is not authorized for Nitewide Admin.'); } onAuthenticated(session); }
     catch (err) { setError(err.message); } finally { setBusy(false); }
   }
-  return <main className="login-shell"><section className="login-story"><AdminBrand /><div><p className="eyebrow">PLATFORM OPERATIONS</p><h1>Keep every night<br/>running smoothly.</h1><p>A shared workspace for business operations, support and platform performance.</p></div><small>For authorized Nitewide staff.</small></section><section className="login-panel"><form id="admin-signin-form" aria-label="Admin sign in" className="login-card" onSubmit={submit}><AdminLoginMark /><p className="eyebrow">SECURE ACCESS</p><h2>Sign in to command center</h2><p>Use an internal administrator account.</p><label htmlFor="admin-signin-email">Email<Input id="admin-signin-email" name="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)}/></label><label htmlFor="admin-signin-password">Password<Input id="admin-signin-password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)}/></label>{error && <p className="error" role="alert">{error}</p>}<Button disabled={busy}>{busy ? 'Signing in…' : 'Sign in securely'}</Button><div className="app-links"><a href={import.meta.env.VITE_CUSTOMER_URL || 'http://localhost:5173'}>Customer app ↗</a><a href={import.meta.env.VITE_BUSINESS_URL || 'http://localhost:5174'}>Business app ↗</a></div></form></section></main>;
+  return <main className="login-shell"><section className="login-story"><AdminBrand /><div><p className="eyebrow">PLATFORM OPERATIONS</p><h1>Keep every night<br/>running smoothly.</h1><p>A shared workspace for business operations, support and platform performance.</p></div><small>For authorized Nitewide staff.</small></section><section className="login-panel"><form id="admin-signin-form" aria-label="Admin sign in" className="login-card" onSubmit={submit}><AdminLoginMark /><p className="eyebrow">SECURE ACCESS</p><h2>Sign in to command center</h2><p>Use an internal administrator account.</p><label htmlFor="admin-signin-email">Email<Input id="admin-signin-email" name="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)}/></label><label htmlFor="admin-signin-password">Password<Input id="admin-signin-password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)}/></label>{error && <p className="error" role="alert">{error}</p>}<Button disabled={busy}>{busy ? 'Signing in…' : 'Sign in securely'}</Button><div className="app-links"><a href={customerUrl}>Customer app ↗</a><a href={businessUrl}>Business app ↗</a></div></form></section></main>;
 }
 
 function Dashboard({ session, onSignOut }) {
@@ -67,7 +70,7 @@ function Dashboard({ session, onSignOut }) {
           <MessageSquare size={19} aria-hidden="true" />
           {messageUnread > 0 && <span className="admin-message-count">{messageUnread > 9 ? '9+' : messageUnread}</span>}
         </Button>}
-        <a href={import.meta.env.VITE_BUSINESS_URL || 'http://localhost:5174'}>Business app ↗</a><span>{session.user.displayName}</span>
+        <a href={businessUrl}>Business app ↗</a><span>{session.user.displayName}</span>
       </div>
     </header>
     {mobileNav && <button className="nav-backdrop" aria-label="Close navigation" onClick={() => setMobileNav(false)}/>}

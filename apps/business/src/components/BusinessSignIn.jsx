@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { BusinessAccessRequestForm } from './BusinessAccessRequestForm';
 import { BrandMark, BusinessBrand } from './BusinessBrand';
 import { ContactNitewide } from './Messages';
+import { publicAppLink } from '../../../shared/app-links.mjs';
 
 export function BusinessSignIn({ onSession, notice = '', invitationOnly = false }) {
   const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get('resetPassword'));
@@ -49,7 +50,7 @@ export function BusinessSignIn({ onSession, notice = '', invitationOnly = false 
     <div className="story-content"><span className="eyebrow">THE BUSINESS BEHIND THE NIGHT</span><h1>Great nights.<br/><em>Even better <br/>business.</em></h1><p>Your events, your people, your performance.<br/>One clear view of everything that matters.</p>
       <div className="story-pills"><span><BarChart3 size={16}/>Real-time insights</span><span><Ticket size={16}/>Built for experiences</span></div></div>
     <div className="story-footer">A new standard for going out.<span>Made for the people who make it happen.</span></div><div className="orb orb-one"/><div className="orb orb-two"/></section>
-    <section className="signin-form"><div className="signin-box"><a className="signin-back" href={import.meta.env.VITE_BUSINESS_HOME || '/'}>← About Nitewide Business</a>
+    <section className="signin-form"><div className="signin-box"><a className="signin-back" href={publicAppLink('businessHome', import.meta.env.VITE_BUSINESS_HOME || '/')}>← About Nitewide Business</a>
       <span className="login-mark"><BrandMark /></span>{mode === 'request' ? <BusinessAccessRequestForm initialEmail={email} onBack={backToSignIn} /> : <><span className="eyebrow">YOUR BUSINESS, CONNECTED</span>
       <h2>{mode === 'forgot' ? 'Reset your password.' : mode === 'reset' ? 'Choose a new password.' : 'Welcome back.'}</h2>
       <p>{mode === 'forgot' ? 'If an account exists, we’ll send a one-hour reset link.' : mode === 'reset' ? 'Use a strong password with uppercase, lowercase and a number.' : invitationOnly ? 'Sign in with your Nitewide account to accept your invitation.' : 'Sign in with your approved Nitewide Business account.'}</p>

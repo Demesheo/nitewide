@@ -2,6 +2,7 @@ const { QueryTypes, Transaction } = require('sequelize');
 const ipaddr = require('ipaddr.js');
 const { paymentsReady } = require('../services/business-payment-account-service');
 const { paymentRuntimeEvidence } = require('./payment-runtime');
+const { subdomainApps } = require('../domain/app-routing');
 
 const REQUIRED_MIGRATIONS = Object.freeze([
   '202609300006-email-worker-leases.cjs', '202610010006-stripe-sandbox.cjs',
@@ -67,6 +68,7 @@ const CHECK_MESSAGES = Object.freeze({
   CALLBACK_URLS_CONFIGURED: 'Customer and business callback URL configuration passed the deployment-format checks.',
   CALLBACK_CORS_MISMATCH: 'CORS_ORIGINS must include the configured customer and business callback origins for hosted payments.',
   HOSTED_DEMO_CALLBACK_ROUTING_MISMATCH: 'Bundled hosted-demo callbacks must share one public origin, with CUSTOMER_APP_URL at the root and BUSINESS_APP_URL at /app or /app/.',
+  APP_ROUTING_INVALID: 'Subdomain routing requires distinct public HTTPS customer, business and admin URLs at their expected paths, with all three origins in CORS.',
   SHARED_SANDBOX_ROUTING: 'Shared sandbox merchant routing overrides event and business selection. It is permitted only for development, test or an explicitly hosted demo and must be removed before production payments.',
   SHARED_SANDBOX_ROUTING_FORBIDDEN: 'Remove STRIPE_SANDBOX_SHARED_ACCOUNT_ID: shared routing is allowed only in a development, test or explicitly hosted-demo sandbox runtime.',
   PAYMENT_RUNTIME_UNAVAILABLE: 'The payment runtime does not match the configured enabled sandbox mode.',
@@ -107,6 +109,9 @@ function validCallback(value, publicOnly) {
 
 function inspectPaymentConfiguration(config = {}) {
   const checks = [];
+  if (config.APP_ROUTING_MODE === 'subdomains') {
+    try { subdomainApps(config); } catch { checks.push(check('APP_ROUTING_INVALID', 'fail')); }
+  }
   const mode = config.STRIPE_MODE || 'disabled';
   if (mode === 'live' || /^sk_live_/.test(config.STRIPE_SECRET_KEY || '')
     || /^pk_live_/.test(config.STRIPE_PUBLISHABLE_KEY || '')) checks.push(check('LIVE_PAYMENTS_UNSUPPORTED', 'fail'));
@@ -130,7 +135,7 @@ function inspectPaymentConfiguration(config = {}) {
       checks.push(check('CALLBACK_URLS_CONFIGURED', 'pass'));
       const origins = config.corsOrigins || (config.CORS_ORIGINS || '').split(',').map(value => value.trim());
       if (hosted(config) && !callbackValues.every(value => origins.includes(new URL(value).origin))) checks.push(check('CALLBACK_CORS_MISMATCH', 'fail'));
-      if (config.hostedDemo === true || config.HOSTED_DEMO === 'true') {
+      if (config.APP_ROUTING_MODE !== 'subdomains' && (config.hostedDemo === true || config.HOSTED_DEMO === 'true')) {
         const [customer, business] = callbackValues.map(value => new URL(value));
         if (customer.origin !== business.origin || customer.pathname !== '/' || !['/app', '/app/'].includes(business.pathname)) {
           checks.push(check('HOSTED_DEMO_CALLBACK_ROUTING_MISMATCH', 'fail'));

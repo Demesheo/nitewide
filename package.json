@@ -34,6 +34,7 @@
     "test:api:plans": "node scripts/run-report-plans.cjs",
     "test:stripe:sandbox": "node apps/api/stripe-tests/run.cjs --run",
     "test:e2e": "node e2e/run.cjs",
+    "test:app-routing": "node e2e/check-app-routing.cjs",
     "test:e2e:headed": "node e2e/run.cjs --headed",
     "test:e2e:ui": "node e2e/run.cjs --ui",
     "test:e2e:report": "playwright show-report",

@@ -25,6 +25,7 @@ const { paymentPreflightQuery } = require('./http/payment-preflight-schemas');
 const { createPaymentServices } = require('./payments/services');
 const { stripeConfiguration } = require('./payments/stripe-client');
 const { createPaymentController } = require('./controllers/payment-controller');
+const { subdomainApps, appForHost } = require('./domain/app-routing');
 
 function createApp({ sequelize, models, config, healthCheck = () => sequelize.authenticate(), services = {}, staticRoot }) {
   const app = express(); app.disable('x-powered-by');
@@ -52,6 +53,14 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
     const ready = await health.ready();
     res.set('Cache-Control', 'no-store').status(ready ? 200 : 503).json({ status: ready ? 'ok' : health.draining ? 'draining' : 'degraded', service: 'nitewide-api' });
   });
+  if (config.APP_ROUTING_MODE === 'subdomains') {
+    const apps = subdomainApps(config);
+    app.use((req, res, next) => {
+      if (appForHost(req.get('host'), apps)) return next();
+      res.set('Cache-Control', 'no-store');
+      next(new DomainError('Route not found', { code: 'NOT_FOUND', status: 404 }));
+    });
+  }
   app.use((_req, _res, next) => next(health.draining ? new DomainError('The service is restarting. Please try again.', { code: 'SERVICE_DRAINING', status: 503 }) : undefined));
   if (config.APP_ENVIRONMENT === 'staging') {
     app.use((_req, res, next) => { res.set('X-Robots-Tag', 'noindex, nofollow, noarchive'); next(); });
@@ -118,7 +127,7 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   app.locals.reportExports = router.reportExports;
   app.use('/api', router);
   app.use('/api/admin/background', requireUser, require('./routes/background-jobs').createBackgroundJobRouter({ sequelize, models, permissions, email, notificationJobs }));
-  if (config.serveFrontends || config.hostedDemo) require('./http/app-static').installAppStatic(app, staticRoot);
+  if (config.serveFrontends || config.hostedDemo) require('./http/app-static').installAppStatic(app, staticRoot, config);
   app.use((req, res, next) => {
     const domainMethods = req.path.startsWith('/api/') ? router.allowedMethods?.(req.path.slice(4)) || [] : [];
     const methods = [...new Set([...domainMethods, ...require('./http/app-contract').externalAllowedMethods(req.path)])].sort();

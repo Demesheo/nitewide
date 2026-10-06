@@ -20,6 +20,7 @@ import { ManagerFinancePermission } from './ManagerFinancePermission';
 import { BrandMark, BusinessBrand } from './BusinessBrand';
 import { PendingTeamInvitation } from './PendingTeamInvitation';
 import { PasswordRequirements, passwordRequirementError } from '../../../shared/password-requirements.jsx';
+import { publicAppLink } from '../../../shared/app-links.mjs';
 
 const teamColumns = [['name', 'Name'], ['role', 'Role'], ['email', 'Email'], ['status', 'Status'], ['salesCents', 'Referred sales'], ['orders', 'Orders'], ['customers', 'Customers']].map(([key, label]) => ({ key, label }));
 
@@ -267,7 +268,7 @@ export function TeamInviteLanding({ token, session, onAccepted }) {
     } finally { accepting.current = false; setBusy(false); }
   }
   return <main className="signin team-invite-page">
-    <section className="signin-story"><BusinessBrand href={import.meta.env.VITE_BUSINESS_HOME || '/'} />
+    <section className="signin-story"><BusinessBrand href={publicAppLink('businessHome', import.meta.env.VITE_BUSINESS_HOME || '/')} />
       <div className="story-content"><span className="eyebrow">YOUR NEXT CHAPTER</span><h1>{invite?.eventId ? 'Make this event yours.' : 'Join the team.'}</h1><p>Your people. Your opportunities.<br/>One Nitewide account.</p>
         <div className="story-pills"><span><Users size={16} aria-hidden="true"/>Work together</span><span><Ticket size={16} aria-hidden="true"/>Make great nights</span></div></div>
       <div className="story-footer">Built for the people behind the night.</div>

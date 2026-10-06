@@ -39,6 +39,7 @@ test('regular release configuration isolates staging/production, bounds pools an
       { DATABASE_URL: `postgres://app:password@database.example/nitewide_${APP_ENVIRONMENT === 'staging' ? 'production' : 'staging'}` },
       { CUSTOMER_APP_URL: undefined }, { BUSINESS_APP_URL: undefined }, { CUSTOMER_APP_URL: 'http://localhost:5173' },
       { BUSINESS_APP_URL: 'https://other.example.test/app' }, { BUSINESS_APP_URL: `${environment.CUSTOMER_APP_URL}/business` },
+      { ADMIN_APP_URL: 'https://other.example.test/admin' }, { ADMIN_APP_URL: `${environment.CUSTOMER_APP_URL}/` },
       { CUSTOMER_APP_URL: `${environment.CUSTOMER_APP_URL}/?invite=unexpected` },
       { DATABASE_POOL_MAX: '0' }, { DATABASE_POOL_MAX: '41' }, { RENDER_GIT_COMMIT: 'not-a-sha' },
       { STRIPE_SANDBOX_SHARED_ACCOUNT_ID: 'acct_sharedfixture' }, { STRIPE_SECRET_KEY: 'sk_live_forbidden' },
@@ -48,11 +49,33 @@ test('regular release configuration isolates staging/production, bounds pools an
     await assert.rejects(main(['seed'], environment), /Use deploy\/run/);
     if (APP_ENVIRONMENT === 'staging') assert.throws(() => releaseConfig({ ...environment,
       CUSTOMER_APP_URL: 'https://nitewide.com', BUSINESS_APP_URL: 'https://nitewide.com/app' }), /production customer hostname/);
+    const subdomains = { ...environment, APP_ROUTING_MODE: 'subdomains',
+      CUSTOMER_APP_URL: `https://${APP_ENVIRONMENT}.nitewide.test`, BUSINESS_APP_URL: `https://business-${APP_ENVIRONMENT}.nitewide.test/app`,
+      ADMIN_APP_URL: `https://admin-${APP_ENVIRONMENT}.nitewide.test`,
+      CORS_ORIGINS: `https://${APP_ENVIRONMENT}.nitewide.test,https://business-${APP_ENVIRONMENT}.nitewide.test,https://admin-${APP_ENVIRONMENT}.nitewide.test` };
+    assert.equal(releaseConfig(subdomains).APP_ROUTING_MODE, 'subdomains');
+    for (const invalid of [
+      { APP_ROUTING_MODE: 'unknown' }, { ADMIN_APP_URL: undefined }, { ADMIN_APP_URL: '' },
+      { ADMIN_APP_URL: 'https://localhost' }, { ADMIN_APP_URL: subdomains.CUSTOMER_APP_URL },
+      { ADMIN_APP_URL: 'https://invalid_host.example.test' }, { ADMIN_APP_URL: 'https://admin.example.test.' },
+      { ADMIN_APP_URL: `${subdomains.ADMIN_APP_URL}/admin` }, { BUSINESS_APP_URL: `${subdomains.BUSINESS_APP_URL}/` },
+      { CUSTOMER_APP_URL: `${subdomains.CUSTOMER_APP_URL}/app` }, { ADMIN_APP_URL: `${subdomains.ADMIN_APP_URL}?secret=not-public` },
+      { ADMIN_APP_URL: `${subdomains.ADMIN_APP_URL}#fragment` }, { ADMIN_APP_URL: 'https://user:password@admin.nitewide.test' },
+      { CORS_ORIGINS: '*' }, { CORS_ORIGINS: subdomains.CUSTOMER_APP_URL }, { CORS_ORIGINS: `${subdomains.CORS_ORIGINS},https://invalid.test/path` },
+      { CUSTOMER_APP_URL: `${subdomains.CUSTOMER_APP_URL}:8443` },
+    ]) assert.throws(() => releaseConfig({ ...subdomains, ...invalid }));
+    if (APP_ENVIRONMENT === 'staging') for (const [key, value] of [['BUSINESS_APP_URL', 'https://business.nitewide.com/app'], ['ADMIN_APP_URL', 'https://admin.nitewide.com']]) {
+      const crossEnvironment = { ...subdomains, [key]: value };
+      crossEnvironment.CORS_ORIGINS = ['CUSTOMER_APP_URL', 'BUSINESS_APP_URL', 'ADMIN_APP_URL'].map(name => new URL(crossEnvironment[name]).origin).join(',');
+      assert.throws(() => releaseConfig(crossEnvironment), /production app hostnames/);
+    }
   }
   assert.throws(() => getConfig({ ...production, SERVE_FRONTENDS: 'true' }), /explicit staging\/production/);
-  const offline = require('../scripts/test-database.cjs').offlineEnvironment({ APP_ENVIRONMENT: 'production', SERVE_FRONTENDS: 'true' });
+  const offline = require('../scripts/test-database.cjs').offlineEnvironment({ APP_ENVIRONMENT: 'production', APP_ROUTING_MODE: 'subdomains', ADMIN_APP_URL: 'https://admin.nitewide.com', SERVE_FRONTENDS: 'true' });
   assert.equal(offline.APP_ENVIRONMENT, '');
   assert.equal(offline.SERVE_FRONTENDS, 'false');
+  assert.equal(offline.APP_ROUTING_MODE, 'paths');
+  assert.equal(offline.ADMIN_APP_URL, '');
 });
 
 test('release migrations hold the lock, never seed, and close it on CLI failure or interruption', async () => {

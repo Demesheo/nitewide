@@ -78,4 +78,12 @@ test("customer link preserves local hostname and allows deployment override", ()
     customerLink("", { hostname: "example.org", protocol: "https:" }),
     "/",
   );
+  const previousWindow = globalThis.window;
+  try {
+    globalThis.window = { __NITEWIDE_PUBLIC_CONFIG__: { customerUrl: 'https://staging.nitewide.test/' } };
+    assert.equal(customerLink('/', {}), 'https://staging.nitewide.test/');
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
 });

@@ -44,6 +44,12 @@ test('hosted demo public pages need no shared password while account endpoints r
   assert.equal(home.headers['set-cookie'], undefined);
   assert.match(home.headers['x-robots-tag'], /noindex/);
   assert.equal(home.headers['cache-control'], 'no-store');
+  const publicConfig = await request('/app-config.js');
+  const window = {};
+  require('node:vm').runInNewContext(publicConfig.text, { window });
+  assert.deepEqual(JSON.parse(JSON.stringify(window.__NITEWIDE_PUBLIC_CONFIG__)), {
+    customerUrl: '/', businessHome: '/business', businessWorkspace: '/app', adminUrl: '/admin',
+  }, 'path-mode demo without explicit callback URLs must never link to localhost');
   assert.match(home.headers['content-security-policy'], /img-src 'self' data: https:\/\/a{32}\.r2\.cloudflarestorage\.com;/);
   assert.doesNotMatch(home.headers['content-security-policy'], /\*\.r2/);
   assert.equal((await request('/api/auth/me')).status, 401);
@@ -171,5 +177,100 @@ test('entry documents are not cached and missing release assets never become HTM
       assert.equal(response.headers['cache-control'], 'no-store');
       if (method === 'GET') assert.equal(response.text, 'Asset not found');
     }
+  }
+});
+
+test('subdomains route each built app, public configuration and legacy links without relaxing authentication or caching', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'nitewide-subdomain-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const name of ['customer', 'business', 'admin']) {
+    const dist = path.join(root, 'apps', name, 'dist');
+    await mkdir(path.join(dist, 'assets'), { recursive: true });
+    await writeFile(path.join(dist, 'index.html'), `<html><head><title>${name}</title></head><body>${name} test fixture</body></html>`);
+    await writeFile(path.join(dist, 'assets', 'App-abcdefgh.js'), `// ${name}`);
+    await writeFile(path.join(dist, 'favicon.png'), `${name} icon`);
+  }
+  const config = getConfig({ ...demoEnvironment, LOG_LEVEL: 'silent', APP_ROUTING_MODE: 'subdomains',
+    CUSTOMER_APP_URL: 'https://staging.nitewide.test', BUSINESS_APP_URL: 'https://business-staging.nitewide.test/app',
+    ADMIN_APP_URL: 'https://admin-staging.nitewide.test',
+    CORS_ORIGINS: 'https://staging.nitewide.test,https://business-staging.nitewide.test,https://admin-staging.nitewide.test',
+    STRIPE_SECRET_KEY: 'sk_test_syntheticprivate' });
+  const app = createApp({ sequelize: {}, models: {}, config, staticRoot: root, healthCheck: async () => {} });
+  const request = await serve(t, app);
+  const hosts = { customer: 'staging.nitewide.test', business: 'business-staging.nitewide.test', admin: 'admin-staging.nitewide.test' };
+  for (const [name, host] of Object.entries(hosts)) {
+    const headers = { host };
+    for (const url of ['/', '/index.html']) {
+      const page = await request(url, { headers });
+      assert.equal(page.status, 200);
+      assert.match(page.text, new RegExp(`${name} test fixture`));
+      assert.match(page.text, /<script src="\/app-config.js"><\/script><\/head>/);
+      assert.equal(page.headers['cache-control'], 'no-store');
+    }
+    const runtime = await request('/app-config.js', { headers });
+    assert.equal(runtime.status, 200);
+    assert.match(runtime.headers['content-type'], /javascript/);
+    assert.equal(runtime.headers['cache-control'], 'no-store');
+    assert.equal(runtime.headers['x-content-type-options'], 'nosniff');
+    const window = {};
+    require('node:vm').runInNewContext(runtime.text, { window });
+    assert.equal(Object.isFrozen(window.__NITEWIDE_PUBLIC_CONFIG__), true);
+    assert.deepEqual(JSON.parse(JSON.stringify(window.__NITEWIDE_PUBLIC_CONFIG__)), {
+      customerUrl: 'https://staging.nitewide.test/', businessHome: 'https://business-staging.nitewide.test/',
+      businessWorkspace: 'https://business-staging.nitewide.test/app', adminUrl: 'https://admin-staging.nitewide.test/',
+    });
+    for (const secretValue of [config.AUTH_TOKEN_SECRET, config.QR_TOKEN_SECRET, config.EMAIL_ENCRYPTION_KEY, config.DATABASE_URL, config.STRIPE_SECRET_KEY]) {
+      assert.ok(!runtime.text.includes(secretValue));
+    }
+    assert.equal((await request('/api/auth/me', { headers: { ...headers, 'x-user-id': 'admin' } })).status, 401);
+    assert.equal((await request('/api/not-real', { headers })).status, 404);
+    const asset = await request(`${name === 'customer' ? '' : `/${name}`}/assets/App-abcdefgh.js`, { headers });
+    assert.equal(asset.status, 200);
+    assert.equal(asset.text, `// ${name}`);
+    assert.equal(asset.headers['cache-control'], 'public, max-age=31536000, immutable');
+    for (const url of ['/assets/missing.js', '/.env', '/not-real']) {
+      const missing = await request(url, { headers });
+      assert.equal(missing.status, 404);
+      assert.equal(missing.headers['cache-control'], 'no-store');
+      assert.doesNotMatch(missing.headers['content-type'], /text\/html/);
+    }
+    assert.equal((await request('/favicon.png', { headers })).body.toString(), `${name} icon`);
+    const cors = await request('/api/auth/me', { method: 'OPTIONS', headers: { ...headers, origin: config.ADMIN_APP_URL, 'access-control-request-method': 'GET' } });
+    assert.equal(cors.headers['access-control-allow-origin'], config.ADMIN_APP_URL);
+    const blocked = await request('/api/auth/me', { method: 'OPTIONS', headers: { ...headers, origin: 'https://untrusted.test', 'access-control-request-method': 'GET' } });
+    assert.equal(blocked.headers['access-control-allow-origin'], undefined);
+  }
+  const query = new URLSearchParams({ invite: 'synthetic +/?&=# invitation', returnTo: 'https://untrusted.test/' });
+  for (const host of [hosts.customer, hosts.business]) {
+    const invitation = await request(`/?${query}`, { headers: { host } });
+    assert.equal(invitation.status, 302);
+    const target = new URL(invitation.headers.location);
+    assert.equal(target.origin, 'https://business-staging.nitewide.test');
+    assert.equal(target.pathname, '/app');
+    assert.deepEqual([...target.searchParams], [...query]);
+    assert.equal(invitation.headers['cache-control'], 'no-store');
+  }
+  for (const [host, url, expected] of [
+    [hosts.customer, '/business?ref=keep', 'https://business-staging.nitewide.test/?ref=keep'],
+    [hosts.customer, '/sign-in?invite=keep', 'https://business-staging.nitewide.test/sign-in?invite=keep'],
+    [hosts.customer, '/app?section=events', 'https://business-staging.nitewide.test/app?section=events'],
+    [hosts.business, '/admin?section=people', 'https://admin-staging.nitewide.test/?section=people'],
+    [hosts.admin, '/admin?section=people', 'https://admin-staging.nitewide.test/?section=people'],
+  ]) assert.equal((await request(url, { headers: { host } })).headers.location, expected);
+  for (const url of ['/app', '/sign-in', '/app/?section=events']) {
+    assert.match((await request(url, { headers: { host: hosts.business } })).text, /business test fixture/);
+  }
+  for (const url of ['/?guestlistInvite=synthetic', '/?ref=synthetic', '/?onboarding=synthetic']) {
+    assert.match((await request(url, { headers: { host: hosts.customer } })).text, /customer test fixture/);
+  }
+  assert.equal((await request('/business/assets/App-abcdefgh.js', { headers: { host: hosts.customer } })).status, 404);
+  assert.equal((await request('/', { headers: { host: hosts.business.toUpperCase() + ':443' } })).status, 200);
+  for (const host of ['unknown.test', `${hosts.customer}.untrusted.test`, 'nitewide-staging.onrender.com']) {
+    for (const url of ['/', '/app-config.js', '/api/auth/me', '/assets/App-abcdefgh.js']) {
+      const response = await request(url, { headers: { host, 'x-forwarded-host': hosts.admin } });
+      assert.equal(response.status, 404);
+      assert.equal(response.headers['cache-control'], 'no-store');
+    }
+    assert.equal((await request('/health/ready', { headers: { host } })).status, 200);
   }
 });

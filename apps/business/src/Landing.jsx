@@ -16,6 +16,7 @@ import { Badge } from "./components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { features, pricing, questions, roadmap } from "./lib/landing-content";
 import { customerLink } from "./lib/customer-link";
+import { publicAppLink } from '../../shared/app-links.mjs';
 import FeeComparison from "./components/fee-comparison";
 import { BrandMark, BusinessBrand } from './components/BusinessBrand';
 import { ContactNitewide } from './components/Messages';
@@ -33,7 +34,7 @@ const customerUrl = customerLink(
 );
 
 function Brand() {
-  return <BusinessBrand landing href={import.meta.env.VITE_BUSINESS_HOME || '/'} />;
+  return <BusinessBrand landing href={publicAppLink('businessHome', import.meta.env.VITE_BUSINESS_HOME || '/')} />;
 }
 
 function ProductPreview() {

@@ -41,8 +41,11 @@ monorepo and initially serve the three frontends from the web service.
 Cloudflare Free does not make all API responses cacheable: private, authenticated,
 checkout, admission, and current inventory responses must remain uncached.
 Cloudflare protection does not replace application authorization or abuse limits.
-The Squarespace-registered domain can remain registered there; DNS configuration
-will be decided when implementation resumes.
+The Squarespace-registered domain remains registered there; Cloudflare will host
+authoritative DNS after a separately reviewed nameserver cutover. Customer,
+business and admin use distinct hostnames served by the same web service. See
+[the staging domain rehearsal](RENDER_RELEASE_SETUP.md#rehearse-separate-app-domains-on-staging).
+Additional custom-domain charges must be included in the remaining budget.
 
 R2 Standard's free monthly allowances are 10 GB-month storage, one million Class A
 operations, and ten million Class B operations. Usage above those allowances is

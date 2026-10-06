@@ -1,5 +1,5 @@
 const { z } = require('zod');
-const ipaddr = require('ipaddr.js');
+const { assertPublicAppUrl: assertPublicStripeReturnUrl, subdomainApps } = require('./domain/app-routing');
 const { databaseConnectionConfig } = require('./db/connection-config');
 const { sharedSandboxAccountId } = require('./domain/shared-sandbox-merchant');
 const { releaseRevision } = require('./diagnostics/payment-runtime');
@@ -15,6 +15,7 @@ const optionalR2 = validator => z.preprocess(value => value === '' ? undefined :
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   APP_ENVIRONMENT: optionalR2(z.enum(['staging', 'production'])),
+  APP_ROUTING_MODE: z.enum(['paths', 'subdomains']).default('paths'),
   SERVE_FRONTENDS: z.enum(['true', 'false']).default('false'),
   PORT: z.coerce.number().int().positive().default(4000),
   BIND_HOST: z.enum(['127.0.0.1', '0.0.0.0']).optional(),
@@ -59,6 +60,7 @@ const schema = z.object({
   RESEND_TEST_MODE: z.enum(['true', 'false']).default('false'),
   CUSTOMER_APP_URL: z.string().url().default('http://localhost:5173'),
   BUSINESS_APP_URL: z.string().url().optional(),
+  ADMIN_APP_URL: optionalR2(z.string().url()),
   BUSINESS_GUESTLIST_REVIEW_EMAILS: z.enum(['true', 'false']).default('false'),
   EMAIL_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
   EMAIL_WORKER_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(25),
@@ -68,18 +70,6 @@ const schema = z.object({
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().min(250).max(60000).default(2000),
   WORKER_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(10000).max(300000).default(150000),
 });
-
-function assertPublicStripeReturnUrl(value, name) {
-  const invalid = () => { throw new Error(`Hosted Stripe requires an explicit HTTPS public ${name}; localhost, private addresses and URL credentials are not allowed`); };
-  if (typeof value !== 'string' || !value.trim()) invalid();
-  let url;
-  try { url = new URL(value); } catch { invalid(); }
-  if (url.protocol !== 'https:' || url.username || url.password) invalid();
-  const hostname = url.hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
-  if (ipaddr.isValid(hostname)) {
-    if (ipaddr.process(hostname).range() !== 'unicast') invalid();
-  } else if (!hostname.includes('.') || /(?:^|\.)(?:localhost|local|internal|lan|home)$/.test(hostname)) invalid();
-}
 
 function getConfig(environment = process.env) {
   // Account onboarding is available before payment webhooks are configured.
@@ -127,15 +117,22 @@ function getConfig(environment = process.env) {
     throw new Error('AUTH_TOKEN_SECRET, QR_TOKEN_SECRET and EMAIL_ENCRYPTION_KEY must be different keys');
   }
   const database = databaseConnectionConfig(environment);
+  if (values.APP_ROUTING_MODE === 'subdomains') subdomainApps(values);
   if (values.APP_ENVIRONMENT) {
     if (values.NODE_ENV !== 'production' || values.HOSTED_DEMO !== 'false') {
       throw new Error('Staging/production deployments require NODE_ENV=production and HOSTED_DEMO=false');
     }
     for (const name of ['CUSTOMER_APP_URL', 'BUSINESS_APP_URL']) assertPublicStripeReturnUrl(environment[name], name);
     const customer = new URL(values.CUSTOMER_APP_URL), business = new URL(values.BUSINESS_APP_URL);
-    if (customer.pathname !== '/' || business.pathname !== '/app' || customer.origin !== business.origin
-      || customer.search || customer.hash || business.search || business.hash) {
+    if (values.APP_ROUTING_MODE === 'paths' && (customer.pathname !== '/' || business.pathname !== '/app' || customer.origin !== business.origin
+      || customer.search || customer.hash || business.search || business.hash)) {
       throw new Error('Single-origin deployments require CUSTOMER_APP_URL at / and BUSINESS_APP_URL at /app on the same origin');
+    }
+    if (values.APP_ROUTING_MODE === 'paths' && values.ADMIN_APP_URL) {
+      const admin = new URL(values.ADMIN_APP_URL);
+      if (admin.origin !== customer.origin || admin.pathname !== '/admin' || admin.search || admin.hash || admin.username || admin.password) {
+        throw new Error('Path routing requires ADMIN_APP_URL at /admin on the customer origin');
+      }
     }
     if (new URL(database.databaseUrl).pathname !== `/nitewide_${values.APP_ENVIRONMENT}`) {
       throw new Error('Deployment database name must match APP_ENVIRONMENT; dev/demo databases are not release targets');
@@ -145,6 +142,10 @@ function getConfig(environment = process.env) {
     }
     if (values.APP_ENVIRONMENT === 'staging' && /^(?:www\.)?nitewide\.com$/i.test(customer.hostname)) {
       throw new Error('Staging must not use the production customer hostname');
+    }
+    if (values.APP_ENVIRONMENT === 'staging' && [customer, business, ...(values.ADMIN_APP_URL ? [new URL(values.ADMIN_APP_URL)] : [])]
+      .some(url => /^(?:(?:www|business|admin)\.)?nitewide\.com$/i.test(url.hostname))) {
+      throw new Error('Staging must not use production app hostnames');
     }
   }
   if (values.SERVE_FRONTENDS === 'true' && !values.APP_ENVIRONMENT && values.HOSTED_DEMO !== 'true') {

@@ -68,6 +68,11 @@ projects:
                 sync: false
               - key: CUSTOMER_APP_URL
                 sync: false
+              # Bootstrap with paths. Switch both runtimes only after TLS is ready.
+              - key: APP_ROUTING_MODE
+                value: "paths"
+              - key: ADMIN_APP_URL
+                value: ""
               - key: BUSINESS_APP_URL
                 sync: false
               - key: CORS_ORIGINS
@@ -101,6 +106,16 @@ projects:
                   name: nitewide-staging-web
                   type: web
                   envVarKey: CUSTOMER_APP_URL
+              - key: APP_ROUTING_MODE
+                fromService:
+                  name: nitewide-staging-web
+                  type: web
+                  envVarKey: APP_ROUTING_MODE
+              - key: ADMIN_APP_URL
+                fromService:
+                  name: nitewide-staging-web
+                  type: web
+                  envVarKey: ADMIN_APP_URL
               - key: BUSINESS_APP_URL
                 fromService:
                   name: nitewide-staging-web

@@ -115,6 +115,15 @@ test('hosted callbacks require explicit public HTTPS origins without credentials
     assert.ok(hasCheck(report, 'HOSTED_DEMO_CALLBACK_ROUTING_MISMATCH', 'fail'));
   }
   assert.equal(inspectPaymentConfiguration({ ...config, CUSTOMER_APP_URL: 'http://localhost:5173', BUSINESS_APP_URL: 'http://localhost:5174/app' }).mode, 'sandbox-ready');
+  const separate = { ...hosted, hostedDemo: true, APP_ROUTING_MODE: 'subdomains', ADMIN_APP_URL: 'https://admin.nitewide.test',
+    corsOrigins: [...config.corsOrigins, 'https://admin.nitewide.test'] };
+  assert.equal(inspectPaymentConfiguration(separate).mode, 'sandbox-ready');
+  for (const invalid of [{ ADMIN_APP_URL: undefined }, { ADMIN_APP_URL: separate.CUSTOMER_APP_URL }, { corsOrigins: config.corsOrigins }]) {
+    const report = inspectPaymentConfiguration({ ...separate, ...invalid });
+    assert.equal(report.mode, 'configuration-blocked');
+    assert.ok(hasCheck(report, 'APP_ROUTING_INVALID', 'fail'));
+    assert.doesNotMatch(JSON.stringify(report), /admin\.nitewide\.test/);
+  }
 });
 
 test('shared merchant routing is an explicit sandbox warning and fails closed outside permitted runtimes', () => {
