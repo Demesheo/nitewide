@@ -1,0 +1,217 @@
+# Render staging and production setup
+
+Use paid staging as production lite: the same single-origin web/API and separate
+worker layout, with a smaller independent PostgreSQL database. The planning bases
+are $20.30 staging and $34.50 production, totaling $54.80 before taxes and usage
+additions. See [the hosting plan](LAUNCH_HOSTING_PLAN.md) for budget assumptions.
+Cloudflare storage is part of setup now; production DNS cutover follows a healthy
+Render deployment. This guide does not authorize cloud changes or live payments.
+
+## Prepare the release
+
+The existing root `render.yaml` and `deploy/start.cjs` remain demo-only. Do not
+apply that Blueprint to staging or production. Regular releases use:
+
+| Process | Command |
+| --- | --- |
+| API and all three frontends | `node deploy/run.cjs api` |
+| Independent worker | `node deploy/run.cjs worker` |
+| Configuration check without provider calls | `node deploy/run.cjs check` |
+| Reviewed migrations without seeding | `node deploy/run.cjs migrate` |
+
+Regular startup requires an explicit environment, verified database TLS, matching
+database/bucket names, explicit public HTTPS app URLs and an embedded release
+revision. It rejects demo mode, reseeding and shared sandbox merchant routing.
+The API uses `SERVE_FRONTENDS=true`; the worker uses `false`. Each retains its
+existing bounded shutdown handlers. Migration execution holds a database advisory
+lock, applies the migration chain through the CLI and never seeds records.
+
+After a separately approved commit/push, GitHub verifies the `staging` and
+`production` branches using the existing unit/API, browser and image jobs. It
+publishes the exact checked artifact as
+`ghcr.io/demesheo/nitewide:sha-<40-character-commit>`. No additional browser lane
+is introduced. Only `main` automatically deploys the existing demo; neither
+release branch automatically deploys to Render or enables payments.
+
+Use one verified image digest for both release services. Replace both image
+placeholders in the selected template before applying it:
+
+- [Staging Blueprint](../deploy/render.staging.yaml)
+- [Production Blueprint](../deploy/render.production.yaml)
+
+Confirm the artifact belongs to the intended branch/revision and all verification
+jobs succeeded. If GHCR access is private, configure Render registry credentials
+before pulling the image. Production promotion requires human approval of the
+exact verified artifact, migrations and deployment settings; changing a branch
+or publishing an image is not that approval.
+
+Validate the selected file with Render CLI v2.7+ before applying it:
+
+```bash
+render blueprints validate deploy/render.staging.yaml
+```
+
+If the CLI is unavailable, use the Dashboard's Blueprint validation/review; do
+not treat YAML parsing as confirmation that account references or the image are
+valid. Commit/push the reviewed template before the Dashboard reads it from Git.
+
+## Set up Cloudflare storage first
+
+In the existing Cloudflare account, create two **Standard**, private R2 buckets:
+
+| Environment | Bucket | Credential scope |
+| --- | --- | --- |
+| Staging | `nitewide-staging-media` | This bucket only |
+| Production | `nitewide-production-media` | This bucket only |
+
+For each bucket, create a separate R2 S3-compatible credential with **Object Read
+and Write**, limited to that bucket. Store its access key ID and secret access
+key privately. The API uses those S3 credentials, not the token value. The
+Cloudflare account ID can be shared; bucket credentials must not be shared with
+dev/demo or the other release environment. Keep public access and `r2.dev`
+disabled. Standard automatic jurisdiction uses the normal account endpoint;
+jurisdiction-specific buckets require a matching `R2_ENDPOINT` on both runtimes.
+See [Cloudflare R2 credential instructions](https://developers.cloudflare.com/r2/api/tokens/).
+
+Keep `MEDIA_CLEANUP_ENABLED=false` initially. After an authorized upload/read
+and orphan-cleanup verification against the isolated bucket, enable cleanup on
+the same environment's API and worker. Do not configure a blanket upload-age
+deletion rule as an event-end retention policy. R2 free allowances are shared
+across the account; separate buckets do not multiply those allowances.
+
+## Create staging on Render
+
+Stay on Hobby and use the **Nitewide / Staging** project environment. The staging
+template specifies Virginia, a 512 MB web service, a 512 MB independent worker,
+PostgreSQL 18 with 256 MB RAM and **1 GB storage**. Confirm storage explicitly
+instead of accepting a larger Dashboard default. Match the required PostGIS and
+pgcrypto extensions through the existing migration chain. No Redis, persistent
+disk, replica, autoscaling plan upgrade or additional frontend service is needed.
+
+Both release templates and the existing CI database jobs use PostgreSQL 18.
+Use the [isolated PostgreSQL 18 test server](TESTING.md#postgresql-18-release-tests)
+to check migrations and database/browser regressions locally. The development
+database and existing Render demo stay on PostgreSQL 16; upgrading their retained
+data is a separate backup-and-migration operation, not an image-tag change.
+
+Begin with the database, then configure the web service, then start the worker
+after migrations and web readiness succeed. If Blueprint creation starts both
+services together and the worker fails because the schema is not yet migrated,
+retry that worker deployment only after the API's migration step succeeds. Do
+not seed or reset the database to recover a deploy.
+
+The templates intentionally deny external database access with `ipAllowList: []`.
+Our release configuration requires certificate verification, so do not blindly
+use Render's default internal connection string or disable TLS verification.
+Obtain the database's full external DNS connection string and test verified TLS
+from each service and the migration runner. Allow only the approved services'
+Render outbound CIDRs (and any specifically approved temporary operator IP).
+Record those CIDRs in the Blueprint before applying/syncing it; leaving `[]`
+blocks the external URL, and resyncing `[]` would remove a Dashboard-only allow
+list. Do not open `0.0.0.0/0` as a convenience workaround. Remove a copied
+`sslmode=require` parameter, or replace it with `sslmode=verify-full`, and set
+`DATABASE_SSL=true`. A trusted private endpoint can be considered only after its
+CA and hostname verification are proven. See [database security](ENVIRONMENT_SECURITY.md).
+
+The web service's initial secret prompts include the connection URL, app URLs,
+CORS origin and R2 S3 credentials. The worker references the web service's values;
+both use the same environment-scoped generated signing/encryption keys. There
+are no shared secret groups between staging and production. `sync: false` prompts
+apply only on initial creation; later secret changes require an explicit runtime
+update and verification of both services.
+
+Use the actual web hostname issued by Render, not an assumed service-name URL:
+
+```text
+CUSTOMER_APP_URL=https://<actual-staging-host>.onrender.com
+BUSINESS_APP_URL=https://<actual-staging-host>.onrender.com/app
+CORS_ORIGINS=https://<actual-staging-host>.onrender.com
+```
+
+The database path must be `/nitewide_staging`. All three frontend builds use the
+same origin: customer `/`, business landing `/business`, business sign-in
+`/sign-in`, business workspace `/app`, admin `/admin`. Staging sends noindex
+headers; those headers are not access control. Use synthetic data only and
+verify account/role access before adding any sensitive information.
+
+Leave Stripe disabled and email sending unconfigured for initial infrastructure
+checks. Sandbox payments require a later explicit configuration step: install
+the same sandbox keys and separate webhook secrets on API/worker, configure the
+two staging webhook destinations, connect normally routed test merchants and
+run payment preflight/provider verification. Never copy the demo's temporary
+`STRIPE_SANDBOX_SHARED_ACCOUNT_ID` into staging. No production live keys are
+accepted by the current code.
+
+Staging caps each database pool at four connections, email/notification
+concurrency at one and exports at one. Production starts at eight connections
+per process and email/notification concurrency of two. These are bounded starting
+settings, not measured capacity. Measure combined pools, statement latency,
+memory, disk growth and worker backlog before tuning. Database storage growth is
+manual in these templates to avoid silently increasing the fixed hosting bill;
+set storage/billing alerts and respond before capacity is exhausted.
+
+Before calling staging ready, verify the actual revision, migration state,
+`/health/live`, `/health/ready`, entry HTML and referenced assets, all deep links,
+worker heartbeat, private media access and cross-organization authorization.
+Ordinary readiness is not payment readiness. Plan a controlled first-admin
+bootstrap and synthetic organization/event setup; there is no automatic demo
+account or fixture creation in this deployment.
+
+## Configure production DNS after Render is ready
+
+Keep the domain registered with Squarespace. Cloudflare can host authoritative
+DNS without moving its registration. Before changing nameservers, inventory and
+preserve existing DNS records, including mail/verification records, and check
+any existing DNSSEC delegation. A nameserver switch affects the entire domain,
+not just Nitewide's website, and requires a separate reviewed cutover.
+
+Initially use staging's `onrender.com` hostname to avoid spending an additional
+custom-domain allowance. Production will use `nitewide.com` with its intended
+`www` redirect. Keep all three apps on that one origin; app paths are not extra
+custom domains. A `staging.nitewide.com` hostname can be added later after checking
+Render's workspace-wide custom-domain allowance and any additional charge.
+
+After production's direct Render checks pass:
+
+1. Add `nitewide.com` to the production web service in Render and verify the
+   intended `www` redirect association.
+2. In Cloudflare, point the apex and `www` records to the actual production
+   `onrender.com` hostname. Begin **DNS only** for Render certificate validation.
+   Review conflicting web records; do not delete unrelated DNS records.
+3. Wait for Render's domain verification and valid certificates. Then enable
+   Cloudflare proxying and **Full (strict)** encryption. Never use Flexible TLS.
+4. Verify the real proxy chain before changing `TRUST_PROXY_HOPS`, preserving
+   spoofed-forwarding-header protections and legitimate per-client rate limits.
+5. Keep API, webhooks, checkout, passes, Messages, authentication and all entry
+   HTML uncached. Respect `no-store`; cache only appropriate static assets.
+   Do not enable Cache Everything, Rocket Loader or script transformations on
+   payment/authentication pages as an untested optimization.
+6. Update and verify production app URLs, CORS, provider return/webhook URLs and
+   merchant-specific wallet domain registrations. Recheck browser/device flows
+   on the actual custom domain, not only on Render's direct hostname.
+
+Render documents [DNS-only certificate verification before proxying](https://render.com/docs/configure-cloudflare-dns/).
+Cloudflare's [Full (strict) mode](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/full-strict/)
+requires a valid certificate for the origin hostname.
+
+Cloudflare Free DNS/proxy protection and eligible static caching belong in the
+initial setup. Turnstile on appropriate public forms and privacy-conscious
+analytics are separate application/configuration steps before launch where
+needed; this preparation does not claim those integrations are already active.
+Do not place a browser challenge in front of signed Stripe/Resend webhooks.
+Review direct-origin access before relying on Cloudflare-only controls; proxying
+does not automatically prevent requests to the Render origin.
+
+## Repeat the staging rehearsal for production
+
+Use the production template only after reviewing the selected artifact, launch
+scope and operational gates. It creates a different database named
+`nitewide_production`, different generated keys and the production R2 bucket
+binding, with 1 GB database RAM and 5 GB storage. The same application artifacts
+and reviewed migration sequence must pass staged testing before promotion.
+Preserve existing orders and merchant snapshots; never reseed retained history.
+
+Verify backup/restore, rollback, HTTPS device behavior, payment configuration and
+capacity on production's actual resources in a controlled pre-launch phase.
+The smaller staging database cannot prove production will never reach a limit.
+See the [master production launch checklist](PRODUCTION_LAUNCH_CHECKLIST.md).

@@ -15,6 +15,98 @@ const { generateSecrets, main: generate } = require('../../../scripts/generate-s
 const production = { NODE_ENV: 'production', DATABASE_URL: 'postgres://app:password@database.example/nitewide', DATABASE_SSL: 'true',
   ...Object.fromEntries(SECRET_NAMES.map(name => [name, randomBytes(32).toString('hex')])) };
 
+test('regular release configuration isolates staging/production, bounds pools and refuses demo startup', async () => {
+  const { releaseConfig, main } = require('../../../deploy/run.cjs');
+  for (const APP_ENVIRONMENT of ['staging', 'production']) {
+    const environment = { ...production, APP_ENVIRONMENT, HOSTED_DEMO: 'false', SERVE_FRONTENDS: 'true',
+      DATABASE_URL: `postgres://app:password@database.example/nitewide_${APP_ENVIRONMENT}`, DATABASE_POOL_MAX: '4',
+      MEDIA_STORAGE_DRIVER: 'r2', R2_ACCOUNT_ID: 'a'.repeat(32), R2_BUCKET: `nitewide-${APP_ENVIRONMENT}-media`,
+      R2_ACCESS_KEY_ID: 'synthetic-access-key', R2_SECRET_ACCESS_KEY: 'synthetic-r2-secret-key-for-offline-tests',
+      CUSTOMER_APP_URL: `https://${APP_ENVIRONMENT}.example.test`, BUSINESS_APP_URL: `https://${APP_ENVIRONMENT}.example.test/app`,
+      RENDER_GIT_COMMIT: 'a'.repeat(40) };
+    const config = releaseConfig(environment);
+    assert.equal(config.serveFrontends, true);
+    assert.equal(config.hostedDemo, false);
+    assert.equal(config.databaseTls.rejectUnauthorized, true);
+    const db = createSequelize(config);
+    assert.equal(db.options.pool.max, 4);
+    await db.close();
+    for (const invalid of [
+      { NODE_ENV: 'test' }, { HOSTED_DEMO: 'true' }, { DEMO_RESEED_GENERATION: 'unexpected-reset' },
+      { APP_ENVIRONMENT: undefined }, { DATABASE_SSL: 'false' }, { MEDIA_STORAGE_DRIVER: 'local' },
+      { R2_BUCKET: 'nitewide-dev-media' }, { R2_BUCKET: `nitewide-${APP_ENVIRONMENT === 'staging' ? 'production' : 'staging'}-media` },
+      { DATABASE_URL: 'postgres://app:password@database.example/nitewide_demo' },
+      { DATABASE_URL: `postgres://app:password@database.example/nitewide_${APP_ENVIRONMENT === 'staging' ? 'production' : 'staging'}` },
+      { CUSTOMER_APP_URL: undefined }, { BUSINESS_APP_URL: undefined }, { CUSTOMER_APP_URL: 'http://localhost:5173' },
+      { BUSINESS_APP_URL: 'https://other.example.test/app' }, { BUSINESS_APP_URL: `${environment.CUSTOMER_APP_URL}/business` },
+      { CUSTOMER_APP_URL: `${environment.CUSTOMER_APP_URL}/?invite=unexpected` },
+      { DATABASE_POOL_MAX: '0' }, { DATABASE_POOL_MAX: '41' }, { RENDER_GIT_COMMIT: 'not-a-sha' },
+      { STRIPE_SANDBOX_SHARED_ACCOUNT_ID: 'acct_sharedfixture' }, { STRIPE_SECRET_KEY: 'sk_live_forbidden' },
+    ]) assert.throws(() => releaseConfig({ ...environment, ...invalid }));
+    await assert.rejects(main(['api'], { ...environment, SERVE_FRONTENDS: 'false' }), /API must enable/);
+    await assert.rejects(main(['worker'], environment), /worker must disable/);
+    await assert.rejects(main(['seed'], environment), /Use deploy\/run/);
+    if (APP_ENVIRONMENT === 'staging') assert.throws(() => releaseConfig({ ...environment,
+      CUSTOMER_APP_URL: 'https://nitewide.com', BUSINESS_APP_URL: 'https://nitewide.com/app' }), /production customer hostname/);
+  }
+  assert.throws(() => getConfig({ ...production, SERVE_FRONTENDS: 'true' }), /explicit staging\/production/);
+  const offline = require('../scripts/test-database.cjs').offlineEnvironment({ APP_ENVIRONMENT: 'production', SERVE_FRONTENDS: 'true' });
+  assert.equal(offline.APP_ENVIRONMENT, '');
+  assert.equal(offline.SERVE_FRONTENDS, 'false');
+});
+
+test('release migrations hold the lock, never seed, and close it on CLI failure or interruption', async () => {
+  const { EventEmitter } = require('node:events');
+  const { migrate } = require('../../../deploy/migrate.cjs');
+  const config = getConfig(production);
+  for (const outcome of ['success', 'connect-failed', 'lock-failed', 'cli-failed', 'spawn-failed', 'interrupted']) {
+    const actions = [], signals = new EventEmitter();
+    class ClientClass {
+      constructor(options) {
+        assert.equal(options.connectionString, config.DATABASE_URL);
+        assert.equal(options.ssl.rejectUnauthorized, true);
+        assert.equal(options.lock_timeout, 10000);
+      }
+      async connect() {
+        actions.push('connect');
+        if (outcome === 'connect-failed') throw new Error('offline connection failed');
+      }
+      async query(sql) {
+        actions.push('lock');
+        assert.equal(sql, 'SELECT pg_advisory_lock(721092301)');
+        if (outcome === 'lock-failed') throw new Error('offline lock failed');
+      }
+      async end() { actions.push('close'); }
+    }
+    const spawnProcess = (command, args, options) => {
+      actions.push('migrate');
+      assert.equal(command, process.execPath);
+      assert.deepEqual(args.slice(1), ['db:migrate', '--env', 'production']);
+      assert.equal(options.cwd, path.resolve(__dirname, '..'));
+      const child = new EventEmitter();
+      child.kill = signal => {
+        assert.equal(signal, 'SIGTERM');
+        actions.push('terminate');
+        queueMicrotask(() => child.emit('close', null));
+      };
+      queueMicrotask(() => {
+        if (outcome === 'spawn-failed') child.emit('error', new Error('offline spawn failed'));
+        else if (outcome === 'interrupted') signals.emit('SIGTERM');
+        else child.emit('close', outcome === 'success' ? 0 : 1);
+      });
+      return child;
+    };
+    const run = migrate(config, { ClientClass, spawnProcess, signals });
+    if (outcome === 'success') await run;
+    else await assert.rejects(run);
+    assert.equal(actions.at(-1), 'close', outcome);
+    assert.ok(!actions.includes('migrate') || actions.indexOf('lock') < actions.indexOf('migrate'));
+    if (outcome === 'interrupted') assert.ok(actions.includes('terminate'));
+    assert.equal(signals.listenerCount('SIGTERM'), 0);
+    assert.equal(signals.listenerCount('SIGINT'), 0);
+  }
+});
+
 test('hosted Stripe requires explicit HTTPS public return URLs even without email or checkout webhooks', () => {
   const stripe = { ...production, STRIPE_MODE: 'test', STRIPE_SECRET_KEY: 'sk_test_offlinefixture',
     CUSTOMER_APP_URL: 'https://customer.example.test', BUSINESS_APP_URL: 'https://business.example.test/app' };

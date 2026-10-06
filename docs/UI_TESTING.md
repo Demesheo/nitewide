@@ -4,15 +4,24 @@ Playwright exercises the customer, business, and rebuilt admin apps through real
 
 ## Run locally
 
-Use the Node/npm versions pinned in `.node-version` and `package.json`. Start Docker Desktop and the project's PostgreSQL service, then:
+Use the Node/npm versions pinned in `.node-version` and `package.json`. Start Docker Desktop and the isolated PostgreSQL 18 test server, then:
 
 ```sh
 npm ci
 npx playwright install chromium webkit
+npm run test:db:up
+export TEST_DATABASE_ADMIN_URL='postgres://postgres:isolated-pg18-password@127.0.0.1:5434/postgres'
 npm run test:e2e
+unset TEST_DATABASE_ADMIN_URL
+npm run test:db:down
 ```
 
 Linux needs browser system dependencies: `npx playwright install --with-deps chromium webkit`.
+
+Keep `TEST_DATABASE_ADMIN_URL` set while running any focused browser commands
+below against PostgreSQL 18. CI uses the same major version. This separate server
+does not upgrade or share the development database; see
+[database test setup](TESTING.md#postgresql-18-release-tests).
 
 The runner builds all apps with isolated settings and `NODE_ENV=production` before testing, so Vite selects production React and optimized bundles. Only the disposable API/database harness uses `NODE_ENV=test`; provider credentials remain cleared in both environments. You do not need to start the normal local apps; they can continue running separately.
 
@@ -41,7 +50,7 @@ npm run test:e2e -- --list
 - `test:release` runs complete `npm test`, then an unfiltered browser suite with fresh production builds. It accepts no coverage filters. Use this before committing/releasing; CI still requires every matrix lane and image check.
 - Browser `--list` skips builds and database/server startup, uses only its console reporter, and keeps inventory timings separate so it cannot replace successful HTML/JUnit/attempt reports with an all-skipped listing. Targeted local allowlisted projects may reuse builds only when source/shared files, build environment/runtime and compiled outputs match their fingerprints. Missing/changed evidence rebuilds. Do not run another frontend build concurrently against the same `dist` directories; normal development servers can run separately. A full browser run and every CI run rebuild all three served apps regardless of local markers.
 
-API database execution creates one new empty `template0`-derived database per invocation, applies every checked-in migration exactly once, verifies migration metadata plus PostGIS/pgcrypto, closes source sessions and disables new connections before cloning. Each of the **31 mandatory suites** receives its own unique clean clone; no application rows or sessions are shared. Two suites run concurrently by default, bounded to 1–2 via `node apps/api/scripts/run-tests.cjs --integration --concurrency 1`. Each required child must execute nonzero tests with zero skips, cancellations or todo cases. Demo seed suites remain separate explicit opt-ins. On the verified macOS/Linux harness, shutdown tracks child process groups, stops them before database cleanup and retains a generated database if its process group cannot be safely stopped; Windows process-tree cleanup is not verified.
+API database execution creates one new empty `template0`-derived database per invocation, applies every checked-in migration exactly once, verifies migration metadata plus PostGIS/pgcrypto, closes source sessions and disables new connections before cloning. Each mandatory suite receives its own unique clean clone; no application rows or sessions are shared. Two suites run concurrently by default, bounded to 1–2 via `node apps/api/scripts/run-tests.cjs --integration --concurrency 1`. Each required child must execute nonzero tests with zero skips, cancellations or todo cases. Demo seed suites remain separate explicit opt-ins. On the verified macOS/Linux harness, shutdown tracks child process groups, stops them before database cleanup and retains a generated database if its process group cannot be safely stopped; Windows process-tree cleanup is not verified.
 
 Browser tests stay at one worker per database. Named fixture recipes reset the entire owned dataset before each real-data journey: auth-only cases get one actor/no commerce, ordinary commerce gets four actors/one event/one order, and admissions gets a genuine second event/QR credential. Pagination/export recipes deliberately keep the larger 14-event/12-order or 25-team-member datasets. Operator scenarios preserve credited/uncredited sales and party allocations without reseeding the same dataset twice. Unknown recipes fail; legacy full fixtures remain available. Worker shutdown and request/query drain still precede every reset.
 

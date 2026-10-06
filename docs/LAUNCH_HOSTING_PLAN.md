@@ -1,10 +1,14 @@
 # Lean launch hosting plan
 
 Decision recorded: September 30, 2026.
+Budget amended: October 6, 2026 — production plus paid Render staging with the
+same service layout and a smaller database. The combined planning base is
+$54.80 per month, with a total hosting budget below $60.
 
 The agreed starting plan is paid Render services on the free Hobby workspace,
 combined with Cloudflare Free and R2 Standard within its free usage allowances.
-The estimated infrastructure base is $34.50 per month. This decision is saved for
+The estimated production infrastructure base is $34.50 per month, with staging
+adding $20.30 per month. This decision is saved for
 later implementation; it does not authorize purchasing, provisioning, migrating,
 changing DNS, or deploying services now.
 
@@ -21,10 +25,12 @@ changing DNS, or deploying services now.
 | Durable images and flyers | Cloudflare R2 Standard, within free allowances | $0.00 within allowances |
 | **Total base** | | **$34.50** |
 
-Prices are the planning snapshot discussed on September 30, 2026, not a fixed
-quote. Recheck provider pricing and account eligibility before provisioning.
+Compute prices were rechecked on October 6, 2026; storage is conservatively
+budgeted at $0.30 per GB. Confirm the Dashboard quote, including any included
+storage, before provisioning. These estimates are not fixed quotes.
 The estimate excludes usage overages, email, SMS, payment processing, taxes,
-separate staging infrastructure, and any additional backup or monitoring costs.
+and any additional backup or monitoring costs. The $54.80 combined base leaves
+$5.20 below $60 before these additions; it is not a guaranteed invoice cap.
 
 Render's Hobby workspace is free, but the web service, worker, and database are
 paid instances. Render Pro, multiple API replicas, database high availability,
@@ -52,7 +58,57 @@ production will receive separate storage and credentials when introduced. See
 [R2 configuration and cleanup safeguards](MEDIA_STORAGE.md). This decision does
 not itself deploy the adapter or change Render's environment settings.
 
+## Production lite staging
+
+The agreed staging environment uses the same web/API, independently deployed
+worker and PostgreSQL architecture as production, with smaller database resources.
+Both web services initially serve all three frontends. Keep the free Hobby
+workspace; this plan does not require Render Pro.
+
+| Staging component | Starting configuration | Estimated monthly base |
+| --- | --- | ---: |
+| API and customer, business, and admin frontends | One paid Render web service, 512 MB RAM | $7.00 |
+| Background work | Separate paid Render worker, 512 MB RAM | $7.00 |
+| PostgreSQL | Paid Render database, 256 MB RAM | $6.00 |
+| PostgreSQL storage | 1 GB budget allowance | $0.30 |
+| **Staging total base** | | **$20.30** |
+| **Production plus staging base** | | **$54.80** |
+
+The `staging` branch targets the release candidate; the `production` branch
+targets the approved release. Use separate databases, synthetic users, runtime
+secrets, provider credentials, webhook destinations and R2 buckets. Staging must
+not have production database credentials or media write access. Match PostgreSQL
+version, required extensions and migration history, allowing the candidate's
+reviewed migrations to be rehearsed before promotion. Stripe remains test-only
+in staging; live payments are a separate implementation and approval gate.
+
+The smaller database helps expose inefficient queries, unbounded exports,
+connection pressure and worker contention early. It does not establish production
+capacity or guarantee that production will never reach its limits. Use measured
+query plans, latency, memory, storage growth and queue backlog to tune the app;
+run targeted capacity checks separately from normal browser regression suites.
+Production still needs resource/usage alerts, a tested response to approaching
+limits and representative load checks on its actual configuration.
+
+These totals cover two environments only. Keep the existing demo's deployment
+routing unchanged until a separate decision determines whether to reuse it for
+staging or retain it. A third paid demo database or service adds cost and must be
+reconciled with the below-$60 budget. Cloudflare/R2 free allowances are shared
+account allowances, not a separate free allocation for every environment.
+
+Prepare and verify the non-demo image/start commands locally before provisioning
+either environment. Rehearse configuration, migrations, independent API/worker
+deployment, recovery and hosted device checks on staging, then validate the exact
+production configuration in a controlled pre-launch phase. Recording this plan
+does not authorize cloud provisioning, live keys, charges, email sends or
+test-data imports, and does not mark those verification gates complete.
+
 ## Launch prerequisites
+
+Use the [Render and Cloudflare setup guide](RENDER_RELEASE_SETUP.md) for the
+non-demo startup commands, environment templates, isolated R2 buckets, verified
+database connection and later DNS cutover. Prepare storage now; point production
+DNS only after its Render deployment and certificates are verified.
 
 Use the [production launch checklist](PRODUCTION_LAUNCH_CHECKLIST.md) as the master
 release gate for Customer, Business, Admin, API and worker preparation. It expands

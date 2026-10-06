@@ -13,7 +13,7 @@ function createSequelize(config = getConfig()) {
       idle_in_transaction_session_timeout: config.DATABASE_IDLE_TRANSACTION_TIMEOUT_MS ?? 120000,
       connectionTimeoutMillis: config.DATABASE_CONNECT_TIMEOUT_MS ?? 10000,
     },
-    pool: { min: 0, max: 10, idle: 10_000, acquire: config.DATABASE_ACQUIRE_TIMEOUT_MS ?? 30000 },
+    pool: { min: 0, max: config.DATABASE_POOL_MAX ?? 10, idle: 10_000, acquire: config.DATABASE_ACQUIRE_TIMEOUT_MS ?? 30000 },
     define: { underscored: true, timestamps: true },
   });
   return instrumentDatabase(sequelize, createDiagnostics({ level: config.LOG_LEVEL || (config.NODE_ENV === 'test' ? 'silent' : 'info') }));

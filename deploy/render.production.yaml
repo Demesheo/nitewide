@@ -1,0 +1,138 @@
+# Preparation template: replace the image placeholder with a VERIFIED digest before Apply.
+# Database external access is denied until reviewed Render egress CIDRs are added.
+# Do not apply both environment files unless both sets of paid resources are intended.
+previews:
+  generation: "off"
+projects:
+  - name: Nitewide
+    environments:
+      - name: Production
+        envVarGroups:
+          - name: nitewide-production-runtime
+            envVars:
+              - key: NODE_ENV
+                value: "production"
+              - key: APP_ENVIRONMENT
+                value: "production"
+              - key: HOSTED_DEMO
+                value: "false"
+              - key: DATABASE_SSL
+                value: "true"
+              - key: DATABASE_POOL_MAX
+                value: "8"
+              - key: MEDIA_STORAGE_DRIVER
+                value: "r2"
+              - key: R2_BUCKET
+                value: "nitewide-production-media"
+              - key: MEDIA_CLEANUP_ENABLED
+                value: "false"
+              - key: STRIPE_MODE
+                value: "disabled"
+              - key: TRUST_PROXY_HOPS
+                value: "1"
+              - key: LOG_LEVEL
+                value: "info"
+              - key: EMAIL_WORKER_CONCURRENCY
+                value: "2"
+              - key: NOTIFICATION_WORKER_CONCURRENCY
+                value: "2"
+              - key: EXPORT_WORKER_CONCURRENCY
+                value: "1"
+              - key: WORKER_SHUTDOWN_TIMEOUT_MS
+                value: "150000"
+              - key: AUTH_TOKEN_SECRET
+                generateValue: true
+              - key: QR_TOKEN_SECRET
+                generateValue: true
+              - key: EMAIL_ENCRYPTION_KEY
+                generateValue: true
+        services:
+          - type: web
+            name: nitewide-production-web
+            runtime: image
+            plan: 0.5c-512mb
+            region: virginia
+            image:
+              url: ghcr.io/demesheo/nitewide:sha-REPLACE_WITH_VERIFIED_COMMIT
+            dockerCommand: node deploy/run.cjs api
+            preDeployCommand: node deploy/run.cjs migrate
+            healthCheckPath: /health/ready
+            maxShutdownDelaySeconds: 45
+            envVars:
+              - fromGroup: nitewide-production-runtime
+              - key: SERVE_FRONTENDS
+                value: "true"
+              - key: PORT
+                value: "10000"
+              - key: DATABASE_URL
+                sync: false
+              - key: CUSTOMER_APP_URL
+                sync: false
+              - key: BUSINESS_APP_URL
+                sync: false
+              - key: CORS_ORIGINS
+                sync: false
+              - key: R2_ACCOUNT_ID
+                sync: false
+              - key: R2_ACCESS_KEY_ID
+                sync: false
+              - key: R2_SECRET_ACCESS_KEY
+                sync: false
+          - type: worker
+            name: nitewide-production-worker
+            runtime: image
+            plan: 0.5c-512mb
+            region: virginia
+            image:
+              url: ghcr.io/demesheo/nitewide:sha-REPLACE_WITH_VERIFIED_COMMIT
+            dockerCommand: node deploy/run.cjs worker
+            maxShutdownDelaySeconds: 180
+            envVars:
+              - fromGroup: nitewide-production-runtime
+              - key: SERVE_FRONTENDS
+                value: "false"
+              - key: DATABASE_URL
+                fromService:
+                  name: nitewide-production-web
+                  type: web
+                  envVarKey: DATABASE_URL
+              - key: CUSTOMER_APP_URL
+                fromService:
+                  name: nitewide-production-web
+                  type: web
+                  envVarKey: CUSTOMER_APP_URL
+              - key: BUSINESS_APP_URL
+                fromService:
+                  name: nitewide-production-web
+                  type: web
+                  envVarKey: BUSINESS_APP_URL
+              - key: CORS_ORIGINS
+                fromService:
+                  name: nitewide-production-web
+                  type: web
+                  envVarKey: CORS_ORIGINS
+              - key: R2_ACCOUNT_ID
+                fromService:
+                  name: nitewide-production-web
+                  type: web
+                  envVarKey: R2_ACCOUNT_ID
+              - key: R2_ACCESS_KEY_ID
+                fromService:
+                  name: nitewide-production-web
+                  type: web
+                  envVarKey: R2_ACCESS_KEY_ID
+              - key: R2_SECRET_ACCESS_KEY
+                fromService:
+                  name: nitewide-production-web
+                  type: web
+                  envVarKey: R2_SECRET_ACCESS_KEY
+        databases:
+          - name: nitewide-production-db
+            databaseName: nitewide_production
+            user: nitewide_production
+            plan: 0.5c-1g
+            region: virginia
+            postgresMajorVersion: "18"
+            diskSizeGB: 5
+            storageAutoscalingEnabled: false
+            ipAllowList: []

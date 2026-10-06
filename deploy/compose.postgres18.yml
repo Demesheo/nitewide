@@ -1,0 +1,23 @@
+# Disposable release-parity test server, never an application database.
+# The upstream PostGIS image is amd64; Docker Desktop emulates it on Apple silicon.
+name: nitewide-postgres18-tests
+services:
+  postgres:
+    image: postgis/postgis:18-3.6
+    platform: linux/amd64
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: isolated-pg18-password
+    ports:
+      - "127.0.0.1:5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+    volumes:
+      # PostgreSQL 18 uses a different mount path. This anonymous volume is
+      # removed by test:db:down; it is not the development database's volume.
+      - /var/lib/postgresql

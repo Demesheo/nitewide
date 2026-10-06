@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('node:path');
 const fs = require('node:fs');
-function installDemoStatic(app, root = path.resolve(__dirname, '../../../..')) {
+function installAppStatic(app, root = path.resolve(__dirname, '../../../..')) {
   const dirs = Object.fromEntries(['customer', 'business', 'admin'].map(name => [name, path.join(root, 'apps', name, 'dist')]));
   // A new release changes the fingerprinted module URLs referenced by HTML.
   // Never retain the entry document or a missing old module at a cache/CDN.
@@ -10,6 +10,7 @@ function installDemoStatic(app, root = path.resolve(__dirname, '../../../..')) {
     index: false,
     dotfiles: 'deny',
     setHeaders(res, filename) {
+      if (path.extname(filename) === '.html') return res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Cache-Control', /-[A-Za-z0-9_-]{8,}\.(?:js|css)$/.test(path.basename(filename))
         ? 'public, max-age=31536000, immutable'
         : 'public, max-age=0, must-revalidate');
@@ -35,10 +36,8 @@ function installDemoStatic(app, root = path.resolve(__dirname, '../../../..')) {
     if (!url.searchParams.get('invite')) return next();
     noStore(res).redirect(302, `/app${url.search}`);
   }, page('customer'));
-  app.use(express.static(dirs.customer, {
-    index: false,
-    dotfiles: 'deny',
-    setHeaders(res, filename) { if (path.extname(filename) === '.html') noStore(res); },
-  }));
+  app.use('/business', express.static(dirs.business, assetOptions));
+  app.use('/admin', express.static(dirs.admin, assetOptions));
+  app.use(express.static(dirs.customer, assetOptions));
 }
-module.exports = { installDemoStatic };
+module.exports = { installAppStatic };

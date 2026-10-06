@@ -53,6 +53,9 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
     res.set('Cache-Control', 'no-store').status(ready ? 200 : 503).json({ status: ready ? 'ok' : health.draining ? 'draining' : 'degraded', service: 'nitewide-api' });
   });
   app.use((_req, _res, next) => next(health.draining ? new DomainError('The service is restarting. Please try again.', { code: 'SERVICE_DRAINING', status: 503 }) : undefined));
+  if (config.APP_ENVIRONMENT === 'staging') {
+    app.use((_req, res, next) => { res.set('X-Robots-Tag', 'noindex, nofollow, noarchive'); next(); });
+  }
   if (config.hostedDemo) {
     app.use((_req, res, next) => { res.set('X-Robots-Tag', 'noindex, nofollow, noarchive'); res.set('Cache-Control', 'no-store'); next(); });
     // The shared demo is public; normal account authentication and role checks remain.
@@ -115,7 +118,7 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   app.locals.reportExports = router.reportExports;
   app.use('/api', router);
   app.use('/api/admin/background', requireUser, require('./routes/background-jobs').createBackgroundJobRouter({ sequelize, models, permissions, email, notificationJobs }));
-  if (config.hostedDemo) require('./http/demo-static').installDemoStatic(app, staticRoot);
+  if (config.serveFrontends || config.hostedDemo) require('./http/app-static').installAppStatic(app, staticRoot);
   app.use((req, res, next) => {
     const domainMethods = req.path.startsWith('/api/') ? router.allowedMethods?.(req.path.slice(4)) || [] : [];
     const methods = [...new Set([...domainMethods, ...require('./http/app-contract').externalAllowedMethods(req.path)])].sort();

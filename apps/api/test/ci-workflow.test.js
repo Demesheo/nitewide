@@ -105,6 +105,16 @@ test('CI bounds cascading failures without weakening retries, flaky detection or
 });
 
 test('all parallel verification jobs gate publication without registry writes or duplicate builds', () => {
+  for (const name of ['unit', 'browser']) assert.match(section(name), /image: postgis\/postgis:18-3\.6/);
+  for (const environment of ['staging', 'production']) {
+    const blueprint = fs.readFileSync(path.join(root, `deploy/render.${environment}.yaml`), 'utf8');
+    assert.match(blueprint, /postgresMajorVersion: "18"/);
+  }
+  const testDatabase = fs.readFileSync(path.join(root, 'deploy/compose.postgres18.yml'), 'utf8');
+  assert.match(testDatabase, /image: postgis\/postgis:18-3\.6/);
+  assert.match(testDatabase, /"127\.0\.0\.1:5434:5432"/);
+  assert.match(testDatabase, /- \/var\/lib\/postgresql\n/);
+  assert.doesNotMatch(testDatabase, /nitewide_postgres|\/var\/lib\/postgresql\/data/);
   assert.match(section('verify'), /needs: \[unit, browser, build\]/);
   assert.match(section('verify'), /if: \$\{\{ always\(\) \}\}/);
   for (const name of ['UNIT', 'BROWSER', 'BUILD']) assert.match(section('verify'), new RegExp(`test "\\$${name}_RESULT" = success`));
@@ -140,7 +150,11 @@ test('publication and deployment do not cancel started releases or deploy stale 
     assert.match(section(name), /if: steps.current.outputs.current == 'true'/);
   }
   assert.match(section('deploy'), /needs: publish/);
-  assert.match(section('deploy'), /if: needs.publish.outputs.digest != ''/);
+  assert.match(section('deploy'), /if: github.ref == 'refs\/heads\/main' && needs.publish.outputs.digest != ''/);
+  assert.match(workflow, /branches: \[main, staging, production\]/);
+  assert.match(section('publish'), /refs\/heads\/staging.*refs\/heads\/production/);
+  assert.match(section('publish'), /refs\/heads\/\$GITHUB_REF_NAME/);
+  assert.match(section('publish'), /if \[ "\$GITHUB_REF_NAME" = main \]; then\s+docker tag nitewide-demo:test "\$IMAGE:demo"/);
   assert.match(section('deploy'), /--connect-timeout 10 --max-time 30/);
 });
 

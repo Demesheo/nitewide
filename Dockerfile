@@ -23,7 +23,7 @@ COPY --from=build /app/apps/business/package.json apps/business/package.json
 COPY --from=build /app/apps/customer/package.json apps/customer/package.json
 COPY --from=build /app/apps/admin/package.json apps/admin/package.json
 COPY --from=build /app/apps/pricing apps/pricing
-# Migration CLI is an explicit runtime dependency for this demo image.
+# Migration CLI is an explicit runtime dependency; regular releases run it in a separate pre-deploy step.
 RUN npm install --global npm@12.1.0 && npm ci --omit=dev --workspace @nitewide/api --workspace @nitewide/pricing && npm cache clean --force
 COPY --from=build /app/apps/api/src apps/api/src
 COPY --from=build /app/apps/api/.sequelizerc apps/api/.sequelizerc
@@ -37,5 +37,7 @@ RUN node -e 'const fs=require("node:fs"); const revision=process.env.RELEASE_REV
 RUN mkdir -p /app/media && chown node:node /app/media
 USER node
 EXPOSE 10000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=120s CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+# The worker has no HTTP listener; its heartbeat is monitored in PostgreSQL.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s CMD node -e "if(process.env.APP_ENVIRONMENT && process.env.SERVE_FRONTENDS==='false') process.exit(0); fetch('http://127.0.0.1:'+process.env.PORT+'/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+# Preserve the current demo; release services override CMD with deploy/run.cjs.
 CMD ["node", "deploy/start.cjs"]

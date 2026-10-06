@@ -11,14 +11,53 @@ Run these commands from the repository root:
 | `npm test` | All workspace unit/component tests, mocked email tests, and required API/database regressions | Yes |
 | `npm run test:api` | API unit/mocked email tests and all required API/database regressions | Yes |
 | `npm run test:api:unit` | API unit tests, mock-backed HTTP contracts, hosted routes, and mocked emails | No |
-| `npm run test:api:integration` | All sixteen required isolated database suites | Yes |
+| `npm run test:api:integration` | All required isolated database suites | Yes |
 | `npm run test:api:integration -- --suite admissions-integration.test.js` | One required database suite, with the same provisioning/cleanup protections | Yes |
 | `npm run api:contract` | Regenerate the committed OpenAPI document from route metadata and shared schemas | No |
 | `npm run api:contract:check` | Detect drift between the executable contract and committed document | No |
 
-Workspace equivalents are `npm run test:unit --workspace @nitewide/api` and `npm run test:integration --workspace @nitewide/api`. A focused suite must be one of the required filenames below; unknown options, conflicting modes, arbitrary paths, and demo-only filenames fail before connecting to PostgreSQL. The default `npm test` still runs every required suite; focused commands do not weaken CI coverage.
+Workspace equivalents are `npm run test:unit --workspace @nitewide/api` and `npm run test:integration --workspace @nitewide/api`. A focused suite must be a required filename registered in `apps/api/scripts/run-tests.cjs`; unknown options, conflicting modes, arbitrary paths, and demo-only filenames fail before connecting to PostgreSQL. The default `npm test` still runs every required suite; focused commands do not weaken CI coverage.
 
-GitHub Actions already invokes `npm test` with an ephemeral PostGIS service. These Node/Supertest regressions run in the existing Unit and API tests job and gate image publication/deployment; no extra duplicate CI test job is needed. Playwright remains the separate customer/business browser regression layer. The standard commands above consume **zero email sends**; quota-consuming simulator commands remain explicitly separate.
+GitHub Actions already invokes `npm test` with an ephemeral PostgreSQL 18/PostGIS service. These Node/Supertest regressions run in the existing Unit and API tests job and gate image publication/deployment; no extra duplicate CI test job is needed. Playwright remains the separate customer/business browser regression layer. The standard commands above consume **zero email sends**; quota-consuming simulator commands remain explicitly separate.
+
+### PostgreSQL 18 release tests
+
+The staging and production templates specify PostgreSQL 18. Test against that major version
+without touching the existing PostgreSQL 16 development database on port 5433:
+
+```sh
+npm run test:db:up
+export TEST_DATABASE_ADMIN_URL='postgres://postgres:isolated-pg18-password@127.0.0.1:5434/postgres'
+npm run test:api:integration
+# Or run the full unit, component, database and browser release gate:
+npm run test:release
+unset TEST_DATABASE_ADMIN_URL
+npm run test:db:down
+```
+
+The Compose project publishes port 5434 on loopback only, uses test-only
+credentials and a separate anonymous volume at `/var/lib/postgresql`, the
+[PostGIS image's PostgreSQL 18 mount path](https://github.com/postgis/docker-postgis#pgdata-volume-path-change).
+Its upstream image is amd64, so Docker Desktop uses emulation on Apple silicon.
+`test:db:down` removes only this test project's containers, network and anonymous
+volumes; do not run it while tests are active. Tests allocate and remove only
+their generated databases, with all live provider credentials cleared.
+
+Without the explicit `TEST_DATABASE_ADMIN_URL`, the existing local helper still
+uses port 5433 for legacy development checks. Those PostgreSQL 16 checks do not
+establish PostgreSQL 18 release compatibility. Do not attach the development
+volume to the PostgreSQL 18 server or change its image tag to migrate retained
+data. The hosted demo's database and smoke stack also remain on 16.
+
+The October 6, 2026 compatibility run used PostgreSQL 18.6 and PostGIS 3.6.4
+in the isolated Docker server, with Node 24.19.0 and npm 11.5.1 locally. All 50
+migrations applied, all 33 mandatory database suites passed (205 tests), and
+630 API unit plus 433 frontend tests passed. The full phone/desktop browser
+run passed 156 cases, with six intentional cross-app skips and no failures or
+recovered flakes. CI retains its pinned Node 24.21.0/npm 12.1.0 gate; local
+compatibility results do not replace it or the deployed staging checks. These
+tests cover new-database migrations, not a retained-data major-version upgrade,
+Render TLS, backups or production capacity.
 
 ### Adding HTTP regressions
 
@@ -42,7 +81,7 @@ Bind explicit fixture servers with `app.listen(0, '127.0.0.1')`, await their lis
 
 ## Required database regressions
 
-Run `npm test` from the repository root, or `npm test --workspace @nitewide/api` for the API alone. The API runner first executes unit tests and mocked email tests, then runs these required integration suites serially:
+Run `npm test` from the repository root, or `npm test --workspace @nitewide/api` for the API alone. The API runner first executes unit tests and mocked email tests, then runs required integration suites with bounded concurrency of two. Each suite receives its own disposable database. Coverage includes:
 
 - `admissions-integration.test.js`: permission boundaries, QR integrity, concurrent admissions, reporting, and customer passes.
 - `business-integration.test.js`: authentication, organization isolation, checkout, sales, event creation/editing, and guestlist approvals through the REST boundary.

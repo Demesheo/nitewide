@@ -5,7 +5,7 @@ const { mkdtemp, mkdir, writeFile, rm } = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { createApp } = require('../src/app');
-const { installDemoStatic } = require('../src/http/demo-static');
+const { installAppStatic } = require('../src/http/app-static');
 const { getConfig } = require('../src/config');
 const { createRequireUser } = require('../src/http/middleware');
 const { request: httpRequest } = require('./support/http-client.cjs');
@@ -58,6 +58,31 @@ test('production authentication cannot be bypassed using the development user he
   assert.equal((await request('/', { headers: { 'x-user-id': 'admin' } })).status, 401);
   assert.equal((await request('/', { headers: { authorization: 'Bearer valid-session' } })).status, 200);
 });
+test('non-demo releases serve all apps with secure routes and stage-only indexing protection', async t => {
+  const { createDemoStaticFixture } = require('./support/demo-static-fixture.cjs');
+  const root = await createDemoStaticFixture(t);
+  for (const APP_ENVIRONMENT of ['staging', 'production']) {
+    const config = getConfig({ ...demoEnvironment, HOSTED_DEMO: 'false', APP_ENVIRONMENT, SERVE_FRONTENDS: 'true',
+      DATABASE_URL: `postgres://test:test@database.example/nitewide_${APP_ENVIRONMENT}`, DATABASE_SSL: 'true',
+      CUSTOMER_APP_URL: `https://${APP_ENVIRONMENT}.example.test`, BUSINESS_APP_URL: `https://${APP_ENVIRONMENT}.example.test/app`,
+      MEDIA_STORAGE_DRIVER: 'r2', R2_ACCOUNT_ID: 'a'.repeat(32), R2_BUCKET: `nitewide-${APP_ENVIRONMENT}-media`,
+      R2_ACCESS_KEY_ID: 'synthetic-access-key', R2_SECRET_ACCESS_KEY: 'synthetic-r2-secret-key-for-offline-tests' });
+    const app = createApp({ sequelize: {}, models: {}, config, staticRoot: root, healthCheck: async () => {} });
+    const request = await serve(t, app);
+    for (const [url, name] of [['/', 'customer'], ['/business', 'business'], ['/sign-in', 'business'], ['/app?section=events', 'business'], ['/admin/', 'admin']]) {
+      const response = await request(url);
+      assert.equal(response.status, 200);
+      assert.match(response.text, new RegExp(`${name} test fixture`));
+      assert.equal(response.headers['cache-control'], 'no-store');
+      assert.equal(Boolean(response.headers['x-robots-tag']), APP_ENVIRONMENT === 'staging');
+    }
+    assert.equal((await request('/api/auth/me', { headers: { 'x-user-id': 'admin' } })).status, 401);
+    assert.equal((await request('/api/not-real')).status, 404);
+    assert.equal((await request('/demo-access')).status, 404);
+    assert.equal((await request('/business/assets/missing.js')).status, 404);
+    assert.equal((await request('/.env')).status, 404);
+  }
+});
 test('single-origin demo maps each app and assets without swallowing unknown API routes', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'nitewide-static-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -67,7 +92,7 @@ test('single-origin demo maps each app and assets without swallowing unknown API
     await writeFile(path.join(dist, 'index.html'), app === 'admin' ? '<main>admin</main>' : `<html><body><main>${app}</main></body></html>`);
     await writeFile(path.join(dist, 'assets', 'app.js'), `// ${app}`);
   }
-  const app = express(); installDemoStatic(app, root);
+  const app = express(); installAppStatic(app, root);
   const request = await serve(t, app);
   for (const [url, name] of [['/', 'customer'], ['/business', 'business'], ['/app', 'business'], ['/sign-in', 'business'], ['/admin', 'admin']]) {
     const response = await request(url); const html = response.text;
@@ -88,7 +113,7 @@ test('single-origin demo maps each app and assets without swallowing unknown API
 test('legacy root team/promoter invitations redirect to Business without changing customer links', async t => {
   const { createDemoStaticFixture } = require('./support/demo-static-fixture.cjs');
   const root = await createDemoStaticFixture(t);
-  const app = express(); installDemoStatic(app, root);
+  const app = express(); installAppStatic(app, root);
   const request = await serve(t, app);
   const token = 'synthetic +/?&=# invitation';
   const query = new URLSearchParams({ invite: token, returnTo: 'https://untrusted.example/', city: 'Orlando, FL' });
@@ -123,7 +148,7 @@ test('entry documents are not cached and missing release assets never become HTM
     await writeFile(path.join(dist, 'assets', 'index-abcdefgh.css'), 'body { color: white; }');
     await writeFile(path.join(dist, 'assets', 'unversioned.js'), 'export default {};');
   }
-  const app = express(); installDemoStatic(app, root);
+  const app = express(); installAppStatic(app, root);
   const request = await serve(t, app);
   for (const url of ['/', '/?city=Orlando', '/index.html', '/app', '/app?section=events', '/sign-in', '/business', '/business/', '/admin', '/admin/']) {
     const response = await request(url);

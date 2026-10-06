@@ -14,6 +14,8 @@ const optionalR2 = validator => z.preprocess(value => value === '' ? undefined :
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  APP_ENVIRONMENT: optionalR2(z.enum(['staging', 'production'])),
+  SERVE_FRONTENDS: z.enum(['true', 'false']).default('false'),
   PORT: z.coerce.number().int().positive().default(4000),
   BIND_HOST: z.enum(['127.0.0.1', '0.0.0.0']).optional(),
   DATABASE_URL: z.string().default('postgres://postgres:postgres@localhost:5432/nitewide'),
@@ -23,6 +25,7 @@ const schema = z.object({
   DATABASE_IDLE_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(1000).max(900000).default(120000),
   DATABASE_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(100).max(60000).default(10000),
   DATABASE_ACQUIRE_TIMEOUT_MS: z.coerce.number().int().min(100).max(120000).default(30000),
+  DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(40).default(10),
   LOG_LEVEL: z.enum(['silent', 'error', 'warn', 'info']).optional(),
   READINESS_TIMEOUT_MS: z.coerce.number().int().min(100).max(10000).default(3000),
   API_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
@@ -124,6 +127,29 @@ function getConfig(environment = process.env) {
     throw new Error('AUTH_TOKEN_SECRET, QR_TOKEN_SECRET and EMAIL_ENCRYPTION_KEY must be different keys');
   }
   const database = databaseConnectionConfig(environment);
+  if (values.APP_ENVIRONMENT) {
+    if (values.NODE_ENV !== 'production' || values.HOSTED_DEMO !== 'false') {
+      throw new Error('Staging/production deployments require NODE_ENV=production and HOSTED_DEMO=false');
+    }
+    for (const name of ['CUSTOMER_APP_URL', 'BUSINESS_APP_URL']) assertPublicStripeReturnUrl(environment[name], name);
+    const customer = new URL(values.CUSTOMER_APP_URL), business = new URL(values.BUSINESS_APP_URL);
+    if (customer.pathname !== '/' || business.pathname !== '/app' || customer.origin !== business.origin
+      || customer.search || customer.hash || business.search || business.hash) {
+      throw new Error('Single-origin deployments require CUSTOMER_APP_URL at / and BUSINESS_APP_URL at /app on the same origin');
+    }
+    if (new URL(database.databaseUrl).pathname !== `/nitewide_${values.APP_ENVIRONMENT}`) {
+      throw new Error('Deployment database name must match APP_ENVIRONMENT; dev/demo databases are not release targets');
+    }
+    if (values.MEDIA_STORAGE_DRIVER !== 'r2' || values.R2_BUCKET !== `nitewide-${values.APP_ENVIRONMENT}-media`) {
+      throw new Error('Deployment requires its own nitewide-staging-media or nitewide-production-media R2 bucket');
+    }
+    if (values.APP_ENVIRONMENT === 'staging' && /^(?:www\.)?nitewide\.com$/i.test(customer.hostname)) {
+      throw new Error('Staging must not use the production customer hostname');
+    }
+  }
+  if (values.SERVE_FRONTENDS === 'true' && !values.APP_ENVIRONMENT && values.HOSTED_DEMO !== 'true') {
+    throw new Error('SERVE_FRONTENDS requires an explicit staging/production APP_ENVIRONMENT');
+  }
   if (values.NODE_ENV !== 'production' && values.BIND_HOST === '0.0.0.0') {
     throw new Error('BIND_HOST=0.0.0.0 is reserved for production; local API binds to 127.0.0.1');
   }
@@ -152,6 +178,7 @@ function getConfig(environment = process.env) {
     LOG_LEVEL: values.LOG_LEVEL || (values.NODE_ENV === 'test' ? 'silent' : 'info'),
     bindHost: values.BIND_HOST || (values.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1'),
     hostedDemo: values.HOSTED_DEMO === 'true',
+    serveFrontends: values.SERVE_FRONTENDS === 'true' || values.HOSTED_DEMO === 'true',
     trustProxy: values.TRUST_PROXY_HOPS ?? (values.HOSTED_DEMO === 'true' ? 1 : false),
     ...database,
     DATABASE_URL: database.databaseUrl,

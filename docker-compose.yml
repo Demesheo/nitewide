@@ -1,3 +1,5 @@
+# Existing development data stays on PostgreSQL 16. Never upgrade this named
+# volume by changing the image tag. Release tests use deploy/compose.postgres18.yml.
 services:
   postgres:
     image: postgis/postgis:16-3.4

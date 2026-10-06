@@ -4,7 +4,7 @@ const { mkdtemp, mkdir, readFile, copyFile, writeFile, rm } = require('node:fs/p
 const path = require('node:path');
 const os = require('node:os');
 const express = require('express');
-const { installDemoStatic } = require('../src/http/demo-static');
+const { installAppStatic } = require('../src/http/app-static');
 const { request } = require('./support/http-client.cjs');
 
 const root = path.resolve(__dirname, '../../..');
@@ -45,7 +45,7 @@ test('hosted customer, business and admin icon routes serve PNG bytes rather tha
     for (const [name] of variants) await copyFile(asset(app, name), path.join(dist, 'assets', `nitewide-${name}-v1.png`));
   }
   const app = express();
-  installDemoStatic(app, directory);
+  installAppStatic(app, directory);
   const server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));

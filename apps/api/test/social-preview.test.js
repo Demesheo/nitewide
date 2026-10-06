@@ -4,7 +4,7 @@ const express = require('express');
 const { mkdtemp, mkdir, readFile, copyFile, rm } = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { installDemoStatic } = require('../src/http/demo-static');
+const { installAppStatic } = require('../src/http/app-static');
 const { request: httpRequest } = require('./support/http-client.cjs');
 
 const repo = path.resolve(__dirname, '../../..');
@@ -24,7 +24,7 @@ test('customer preview is present in initial HTML and serves the approved brand 
   const source = path.join(repo, 'apps/customer/public', imagePath);
   await copyFile(source, path.join(images, path.basename(imagePath)));
   const app = express();
-  installDemoStatic(app, root);
+  installAppStatic(app, root);
   const server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
