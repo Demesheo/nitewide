@@ -53,15 +53,24 @@ test('scaled SQL reports and durable snapshot exports', { timeout: 180000 }, asy
       const queuedService = createReportExportService({ models: m, businessRead: read, reports, smallLimit: 0 });
       const input = { ...baseInput, exportTable: 'events' };
       const response = () => ({ status() { return this; }, json() {} });
-      const results = await Promise.allSettled(Array.from({ length: 4 }, () => queuedService.request(ids.owner, input, response())));
-      assert.equal(results.filter((result) => result.status === 'fulfilled').length, 3);
-      assert.equal(results.filter((result) => result.status === 'rejected' && result.reason.code === 'EXPORT_LIMIT').length, 1);
-      assert.equal((await q("SELECT COUNT(*)::integer AS count FROM report_export_jobs WHERE user_id=:id AND status='queued'", { id: ids.owner }))[0].count, 3);
-      const [{ id: failedId }] = await q(`INSERT INTO report_export_jobs(id,user_id,input,auth_stamp,status,created_at,updated_at,expires_at)
-        SELECT gen_random_uuid(),user_id,input,auth_stamp,'failed',NOW(),NOW(),expires_at
-        FROM report_export_jobs WHERE user_id=:id LIMIT 1 RETURNING id`, { id: ids.owner });
-      await assert.rejects(queuedService.retry(ids.owner, failedId), { code: 'EXPORT_LIMIT' });
-      await q('DELETE FROM report_export_jobs WHERE user_id=:id', { id: ids.owner });
+      try {
+        const results = await Promise.allSettled(Array.from({ length: 4 }, () => queuedService.request(ids.owner, input, response())));
+        assert.equal(results.filter((result) => result.status === 'fulfilled').length, 3);
+        const rejected = results.filter((result) => result.status === 'rejected');
+        assert.equal(rejected.length, 1);
+        // The fourth contender may exhaust bounded SSI retries before it can
+        // observe the full queue. Both explicit limit and busy backpressure
+        // must be 429; the durable count still proves the three-job limit.
+        assert.equal(rejected[0].reason.status, 429);
+        assert.ok(['EXPORT_LIMIT', 'EXPORT_BUSY'].includes(rejected[0].reason.code), rejected[0].reason.code);
+        assert.equal((await q("SELECT COUNT(*)::integer AS count FROM report_export_jobs WHERE user_id=:id AND status='queued'", { id: ids.owner }))[0].count, 3);
+        const [{ id: failedId }] = await q(`INSERT INTO report_export_jobs(id,user_id,input,auth_stamp,status,created_at,updated_at,expires_at)
+          SELECT gen_random_uuid(),user_id,input,auth_stamp,'failed',NOW(),NOW(),expires_at
+          FROM report_export_jobs WHERE user_id=:id LIMIT 1 RETURNING id`, { id: ids.owner });
+        await assert.rejects(queuedService.retry(ids.owner, failedId), { code: 'EXPORT_LIMIT' });
+      } finally {
+        await q('DELETE FROM report_export_jobs WHERE user_id=:id', { id: ids.owner });
+      }
     });
     // Representative reporting dataset exceeds every former business cap:
     // 1,200 additional events, 24,000 orders/items, 12,000 distinct buyers.
