@@ -28,6 +28,8 @@ test('regular release configuration isolates staging/production, bounds pools an
     assert.equal(config.serveFrontends, true);
     assert.equal(config.hostedDemo, false);
     assert.equal(config.databaseTls.rejectUnauthorized, true);
+    assert.equal(releaseConfig({ ...environment, TRUST_PROXY_MODE: 'cloudflare-render' }).TRUST_PROXY_MODE, 'cloudflare-render');
+    assert.throws(() => releaseConfig({ ...environment, TRUST_PROXY_MODE: 'cloudflare-render', TRUST_PROXY_HOPS: '2' }), /not both/);
     const db = createSequelize(config);
     assert.equal(db.options.pool.max, 4);
     await db.close();
@@ -71,11 +73,13 @@ test('regular release configuration isolates staging/production, bounds pools an
     }
   }
   assert.throws(() => getConfig({ ...production, SERVE_FRONTENDS: 'true' }), /explicit staging\/production/);
-  const offline = require('../scripts/test-database.cjs').offlineEnvironment({ APP_ENVIRONMENT: 'production', APP_ROUTING_MODE: 'subdomains', ADMIN_APP_URL: 'https://admin.nitewide.com', SERVE_FRONTENDS: 'true' });
+  const offline = require('../scripts/test-database.cjs').offlineEnvironment({ APP_ENVIRONMENT: 'production', APP_ROUTING_MODE: 'subdomains', ADMIN_APP_URL: 'https://admin.nitewide.com', SERVE_FRONTENDS: 'true', TRUST_PROXY_MODE: 'cloudflare-render', TRUST_PROXY_HOPS: '2' });
   assert.equal(offline.APP_ENVIRONMENT, '');
   assert.equal(offline.SERVE_FRONTENDS, 'false');
   assert.equal(offline.APP_ROUTING_MODE, 'paths');
   assert.equal(offline.ADMIN_APP_URL, '');
+  assert.equal(offline.TRUST_PROXY_MODE, '');
+  assert.equal(offline.TRUST_PROXY_HOPS, '');
 });
 
 test('release migrations hold the lock, never seed, and close it on CLI failure or interruption', async () => {
@@ -173,6 +177,10 @@ test('proxy headers are not trusted by default and only bounded explicit hop cou
   assert.equal(getConfig({ TRUST_PROXY_HOPS: '0' }).trustProxy, 0);
   assert.equal(getConfig({ TRUST_PROXY_HOPS: '1' }).trustProxy, 1);
   for (const value of ['true', '-1', '6', '1.5']) assert.throws(() => getConfig({ TRUST_PROXY_HOPS: value }));
+  assert.equal(getConfig({ TRUST_PROXY_MODE: '', TRUST_PROXY_HOPS: '' }).trustProxy, false);
+  assert.throws(() => getConfig({ TRUST_PROXY_MODE: 'cloudflare-render' }), /explicit non-demo/);
+  assert.throws(() => getConfig({ ...production, TRUST_PROXY_MODE: 'cloudflare-render', HOSTED_DEMO: 'true' }), /explicit non-demo/);
+  assert.throws(() => getConfig({ TRUST_PROXY_MODE: 'trust-everything' }));
 });
 
 test('every production mode requires explicit distinct secrets and rejects development/example defaults', () => {

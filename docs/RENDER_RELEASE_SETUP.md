@@ -249,10 +249,26 @@ After staging's direct Render checks pass, perform a separately approved cutover
    Cloudflare proxying and **Full (strict)** encryption. Never use Flexible TLS.
 4. Verify the real proxy chain before changing `TRUST_PROXY_HOPS`, preserving
    spoofed-forwarding-header protections and legitimate per-client rate limits.
+   Staging uses `TRUST_PROXY_MODE=cloudflare-render` **instead of**
+   `TRUST_PROXY_HOPS`. A private/loopback Render ingress is trusted only as the
+   socket peer; subsequent proxy hops must match the finite reviewed
+   [Cloudflare IPv4/IPv6 ranges](https://www.cloudflare.com/ips/). Express stops
+   at the first untrusted address instead of trusting a fixed number of hops.
+   This supports both proxied and shorter direct-ingress paths without accepting
+   a caller's prepended IP. It does not trust `CF-Connecting-IP` or
+   `True-Client-IP` supplied by the caller. The mode is opt-in and does not change
+   existing demo or production configuration. Keep Render's ingress/private
+   network boundary restricted; this is not a policy for arbitrary hosting.
+   Recheck the published ranges during infrastructure reviews and before launch.
 5. Keep API, webhooks, checkout, passes, Messages, authentication and all entry
    HTML uncached. Respect `no-store`; cache only appropriate static assets.
    Do not enable Cache Everything, Rocket Loader or script transformations on
    payment/authentication pages as an untested optimization.
+   The staging-only Cloudflare cache rule bypasses all three staging hostnames
+   except `/assets/`, `/business/assets/` and `/admin/assets/`. Those static
+   prefixes still respect origin cache headers; missing assets remain `no-store`.
+   Verify hashed JS/CSS become cache hits while HTML, `/app-config.js`, API
+   responses (including extension-like paths) and health checks do not.
 6. Update and verify app URLs, CORS, provider return/webhook URLs and
    merchant-specific wallet domain registrations. Recheck browser/device flows
    on the actual custom domain, not only on Render's direct hostname.
@@ -268,7 +284,16 @@ CUSTOMER_APP_URL=https://staging.nitewide.com
 BUSINESS_APP_URL=https://business-staging.nitewide.com/app
 ADMIN_APP_URL=https://admin-staging.nitewide.com
 CORS_ORIGINS=https://staging.nitewide.com,https://business-staging.nitewide.com,https://admin-staging.nitewide.com
+TRUST_PROXY_MODE=cloudflare-render
 ```
+
+Remove `TRUST_PROXY_HOPS` from the staging runtime group when selecting this
+mode; startup refuses ambiguous dual policies. Roll it out only with a verified
+image containing `http/trusted-proxy.js`. API/worker readiness includes the
+proxy policy in its private configuration parity check. Verify the original
+visitor's rate-limit counter increases for requests with and without forged
+forwarding headers, through both ingress paths; do not expose raw IPs, headers
+or signing secrets in a public diagnostic endpoint or logs.
 
 Update these values in the intended Blueprint too before a future sync, so
 bootstrap settings cannot undo the cutover. The staging Blueprint and the

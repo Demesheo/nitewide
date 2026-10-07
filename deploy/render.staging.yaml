@@ -39,8 +39,8 @@ projects:
                 value: "false"
               - key: STRIPE_MODE
                 value: "disabled"
-              - key: TRUST_PROXY_HOPS
-                value: "1"
+              - key: TRUST_PROXY_MODE
+                value: "cloudflare-render"
               - key: LOG_LEVEL
                 value: "info"
               - key: EMAIL_WORKER_CONCURRENCY

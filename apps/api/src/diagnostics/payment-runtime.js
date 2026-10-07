@@ -23,7 +23,7 @@ function paymentRuntimeEvidence(config = {}) {
   }
   const origins = [...new Set(config.corsOrigins || (config.CORS_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean))].sort();
   const settings = {
-    version: 2, apiVersion: STRIPE_API_VERSION,
+    version: 3, apiVersion: STRIPE_API_VERSION,
     environment: config.NODE_ENV || null, hostedDemo: config.hostedDemo === true || config.HOSTED_DEMO === 'true',
     mode: config.STRIPE_MODE || 'disabled',
     secretKey: config.STRIPE_SECRET_KEY || null, publishableKey: config.STRIPE_PUBLISHABLE_KEY || null,
@@ -31,6 +31,7 @@ function paymentRuntimeEvidence(config = {}) {
     connectClientId: config.STRIPE_CONNECT_CLIENT_ID || null, sharedAccount: config.STRIPE_SANDBOX_SHARED_ACCOUNT_ID || null,
     customerUrl: config.CUSTOMER_APP_URL || null, businessUrl: config.businessAppUrl || config.BUSINESS_APP_URL || null,
     routingMode: config.APP_ROUTING_MODE || 'paths', adminUrl: config.ADMIN_APP_URL || null,
+    proxyMode: config.TRUST_PROXY_MODE || null, proxyHops: config.trustProxy ?? config.TRUST_PROXY_HOPS ?? null,
     corsOrigins: origins,
   };
   // A keyed comparison token, never the raw settings or a plain secret hash.

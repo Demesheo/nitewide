@@ -53,7 +53,8 @@ const schema = z.object({
   STRIPE_ACCOUNT_WEBHOOK_SECRET: optionalR2(z.string()),
   STRIPE_CONNECT_CLIENT_ID: optionalR2(z.string().regex(/^ca_[A-Za-z0-9]+$/)),
   STRIPE_SANDBOX_SHARED_ACCOUNT_ID: optionalR2(z.string().regex(/^acct_[A-Za-z0-9]+$/)),
-  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).optional(),
+  TRUST_PROXY_MODE: optionalR2(z.enum(['cloudflare-render'])),
+  TRUST_PROXY_HOPS: optionalR2(z.coerce.number().int().min(0).max(5)),
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().optional(),
   RESEND_WEBHOOK_SECRET: z.string().optional(),
@@ -80,6 +81,12 @@ function getConfig(environment = process.env) {
     for (const name of ['CUSTOMER_APP_URL', 'BUSINESS_APP_URL']) assertPublicStripeReturnUrl(environment[name], name);
   }
   const values = schema.parse(environment);
+  if (values.TRUST_PROXY_MODE) {
+    if (values.TRUST_PROXY_HOPS !== undefined) throw new Error('Use TRUST_PROXY_MODE or TRUST_PROXY_HOPS, not both');
+    if (values.NODE_ENV !== 'production' || !values.APP_ENVIRONMENT || values.HOSTED_DEMO !== 'false') {
+      throw new Error('Cloudflare/Render proxy trust requires an explicit non-demo staging/production deployment');
+    }
+  }
   sharedSandboxAccountId(values);
   // Live mode is deliberately not a configuration option in this integration.
   // Validate even disabled credentials so a live key cannot slip in unnoticed.

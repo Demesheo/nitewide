@@ -27,6 +27,7 @@ const { stripeConfiguration } = require('./payments/stripe-client');
 const { createPaymentController } = require('./controllers/payment-controller');
 const { subdomainApps, appForHost } = require('./domain/app-routing');
 const { paymentRuntimeEvidence } = require('./diagnostics/payment-runtime');
+const { trustedProxy } = require('./http/trusted-proxy');
 
 function createApp({ sequelize, models, config, healthCheck = () => sequelize.authenticate(), services = {}, staticRoot }) {
   const app = express(); app.disable('x-powered-by');
@@ -57,7 +58,7 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
     connectSrc: ["'self'", 'https://api.stripe.com', 'https://checkout.stripe.com', 'https://link.com', 'https://*.link.com'],
   } : {};
   app.use(helmet({ contentSecurityPolicy: { directives: { imgSrc: imageSources, ...paymentSources } } }));
-  app.set('trust proxy', config.trustProxy ?? (config.hostedDemo ? 1 : false));
+  app.set('trust proxy', trustedProxy(config));
   app.use(['/health', '/health/live', '/health/ready'], (_req, res, next) => {
     // Public commit/environment identity only, never settings or fingerprints.
     if (runtime.revision) res.set('X-Nitewide-Revision', runtime.revision);

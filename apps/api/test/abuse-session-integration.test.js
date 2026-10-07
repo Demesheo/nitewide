@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { request: httpRequest } = require('./support/http-client.cjs');
-const { randomUUID } = require('node:crypto');
+const { randomUUID, createHmac } = require('node:crypto');
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 const { createAbuseService, POLICIES } = require('../src/services/abuse-service');
 const { createPasswordRecord, signToken } = require('../src/services/auth-service');
@@ -78,6 +78,30 @@ test('shared PostgreSQL limits and session revocation across API instances', asy
     const shared = createAbuseService({ sequelize, secret: config.AUTH_TOKEN_SECRET });
     for (let i = 0; i < 60; i++) await shared.before({ method: 'POST', path: '/auth/sign-in', ip: '192.0.2.1', body: { email: `different-${i}@example.test` } });
     await assert.rejects(shared.before({ method: 'POST', path: '/auth/sign-in', ip: '::ffff:192.0.2.1', body: { email: 'different-final@example.test' } }), (error) => error.status === 429);
+    // Exercise the actual app middleware and shared counters, not just the
+    // proxy predicate: short and stacked ingress must charge the same visitor.
+    await models.AbuseBucket.destroy({ where: {} });
+    for (let i = 0; i < 2; i++) {
+      const abuse = createAbuseService({ sequelize, secret: config.AUTH_TOKEN_SECRET,
+        policies: { ...POLICIES, session: { seconds: 60, ip: 2, user: 30 } } });
+      const server = createApp({ sequelize, models, config: { ...config, TRUST_PROXY_MODE: 'cloudflare-render' }, services: { abuse } }).listen(0, '127.0.0.1');
+      await new Promise(resolve => server.once('listening', resolve)); servers.push(server);
+    }
+    const visitorRequests = [
+      [2, '198.51.100.7', 401],
+      [3, '192.0.2.9, 198.51.100.7, 172.70.10.2', 401],
+      [2, '192.0.2.10, 198.51.100.7, 172.70.10.2, 162.158.1.2', 429],
+      [3, '198.51.100.8, 172.70.10.2', 401],
+    ];
+    for (const [instance, forwarded, status] of visitorRequests) {
+      assert.equal((await request(instance, '/auth/sessions', { headers: {
+        'X-Forwarded-For': forwarded, 'CF-Connecting-IP': '192.0.2.99', 'True-Client-IP': '192.0.2.99',
+      } })).status, status);
+    }
+    const counter = ip => models.AbuseBucket.findByPk(`session:ip:${createHmac('sha256', config.AUTH_TOKEN_SECRET).update(ip).digest('hex')}`);
+    assert.equal((await counter('198.51.100.7')).count, 3);
+    assert.equal((await counter('198.51.100.8')).count, 1);
+    for (const spoof of ['192.0.2.9', '192.0.2.10', '192.0.2.99', '172.70.10.2']) assert.equal(await counter(spoof), null);
   } finally {
     await Promise.all(servers.map((s) => new Promise((resolve) => s.close(resolve)))); await sequelize.close();
   }
