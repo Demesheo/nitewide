@@ -556,6 +556,14 @@ test('organization invitation links and resend links open the team acceptance sc
   expect((await request.get(`${urls.api}/api/team/invitations/${new URL(original).searchParams.get('invite')}`)).status()).toBe(404);
   expect((await request.get(`${urls.api}/api/team/invitations/${copiedToken}`)).status()).toBe(404);
   const recipient = await context.newPage();
+  const expectEmployeeWorkspace = async () => {
+    await expect(recipient).toHaveURL(url => url.pathname === '/app'
+      && !url.searchParams.has('invite')
+      && !url.searchParams.has('section')
+      && url.searchParams.get('workspaceOrganization') === fixture.ids.org);
+    await expect(recipient.getByRole('heading', { name: 'Your performance, clearly.', exact: true })).toBeVisible();
+    await expect(recipient.getByRole('combobox', { name: 'Workspace organization', exact: true })).toHaveText('Playwright Nightlife');
+  };
   try {
     await recipient.goto(renewed);
     await expect(recipient.getByRole('heading', { name: 'Playwright Nightlife invited you to join as employee', exact: true })).toBeVisible();
@@ -570,7 +578,7 @@ test('organization invitation links and resend links open the team acceptance sc
     await recipient.setViewportSize(viewport);
     await recipient.getByLabel('Password', { exact: true }).fill(fixture.password);
     await recipient.getByRole('button', { name: 'Sign in and accept', exact: true }).click();
-    await expect(recipient).toHaveURL(/section=team/);
+    await expectEmployeeWorkspace();
     const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem('nitewide.business.session')));
     const newEmail = `test+team-${fixture.accounts.customer.id}@nitewide.test`;
     const newInvite = await request.post(`${urls.api}/api/business/organizations/${fixture.ids.org}/invitations`, {
@@ -618,7 +626,7 @@ test('organization invitation links and resend links open the team acceptance sc
     await confirmPassword.fill('Accept12');
     await expect(requirements.locator('li[data-met="true"]')).toHaveCount(4);
     await recipient.getByRole('button', { name: 'Create account and accept', exact: true }).click();
-    await expect(recipient).toHaveURL(/section=team/);
+    await expectEmployeeWorkspace();
     expect(registrations).toBe(1);
     const acceptedSession = await recipient.evaluate(() => JSON.parse(sessionStorage.getItem('nitewide.business.session')));
     expect(acceptedSession.user.email).toBe(newEmail);
