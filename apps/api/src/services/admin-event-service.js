@@ -27,7 +27,8 @@ function createAdminEventService({ models, permissions, business }) {
       include: [{ model: models.Location, as: 'location', required: true }],
     }) : [];
     const venues = links.map((link) => ({ id: link.id, organizationId: link.organizationId,
-      label: link.location.name || link.location.city, locationIds: [link.locationId], location: link.location.toJSON() }));
+      label: link.location.name || link.location.city, locationIds: [link.locationId], location: link.location.toJSON(),
+      managedLocationIds: [link.locationId], managedLocation: link.location.toJSON() }));
     return { event: value, organizations, venues };
   }
   async function options(actor, organizationId) {
@@ -40,7 +41,8 @@ function createAdminEventService({ models, permissions, business }) {
       include: [{ model: models.Location, as: 'location', required: true }], order: [['id', 'ASC']], limit: 100 });
     return { organizations: [{ ...organization.toJSON(), canManage: true }],
       venues: links.map((link) => ({ id: link.id, organizationId, label: link.location.name || link.location.city,
-        locationIds: [link.locationId], location: link.location.toJSON() })), defaultOrganization: organizationId };
+        locationIds: [link.locationId], location: link.location.toJSON(),
+        managedLocationIds: [link.locationId], managedLocation: link.location.toJSON() })), defaultOrganization: organizationId };
   }
   async function save(actor, id, body) {
     await authorize(actor);

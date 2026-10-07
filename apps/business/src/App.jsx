@@ -197,11 +197,13 @@ export default function App() {
   if (onboardingToken) return <><OnboardingSetup token={onboardingToken} session={session} onSignIn={() => setOnboardingSignIn(true)} onSwitchAccount={async (signIn) => { if (!await signOut()) setOnboardingSignIn(signIn); }} onContinue={() => { setOnboardingToken(null); writeWorkspaceLocation({ onboarding: null }, { replace: true }); setRevision((value) => value + 1); }} />{notice && <p role="alert">{notice}</p>}</>;
   if (inviteToken) return <TeamInviteLanding token={inviteToken} session={session} onSession={login} onAccepted={(updated, accepted) => {
     login(updated); setInviteToken(null); writeWorkspaceLocation({ invite: null }, { replace: true }); setNotice('Invitation accepted. Your access is ready.');
-    const section = accepted?.eventId ? 'events' : 'team';
+    const section = accepted?.eventId ? 'events' : ['owner', 'manager'].includes(accepted?.role) ? 'team' : 'overview';
     // A newly accepted membership may not be in the previous bootstrap yet.
     // Select it once the server confirms the refreshed organization grants.
     if (accepted?.organizationId) invitationWorkspace.current = { section, eventId: accepted.eventId || null, organizationId: accepted.organizationId };
-    navigate(section, accepted?.eventId || null, null, null, { workspaceOrganization: accepted?.organizationId });
+    // Preserve the accepted destination before bootstrap has loaded its grants;
+    // resolving against the previous scope would restore a different organization.
+    navigateRoute(section, accepted?.eventId || null, null, null, { workspaceOrganization: accepted?.organizationId });
     setRevision((value) => value + 1);
   }} />;
   if (!session || new URLSearchParams(window.location.search).has('resetPassword')) return <BusinessSignIn onSession={login} notice={loginNotice} />;

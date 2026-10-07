@@ -44,6 +44,15 @@ export function EventEditor({
 }) {
   const [initialDraft] = useState(() => { const initial = presetDraft || editorDraft(event, defaultOrganization, organizations, venues); initial.offerings = initial.offerings.map((t) => ({ ...t, clientKey: t.clientKey || t.id || crypto.randomUUID() })); return initial; });
   const { draft, setDraft, dirty, recovery, restore, discardRecovery, clear, persistNow } = useRecoverableEventDraft({ session, event, identity: duplicateSource ? `duplicate:${duplicateSource.id}` : null, initialDraft });
+  function restoreDraft() {
+    const recovered = recovery?.draft;
+    restore();
+    // Pre-fix recovery copies may label this event-only address as a saved
+    // venue. Retain their edits while correcting only the confirmed bad ID.
+    if (event?.isManagedVenue === false && recovered?.locationId && recovered.locationId === event.locationId) {
+      setDraft({ ...recovered, locationId: null, locationMode: 'address' });
+    }
+  }
   const [step, setStep] = useState(event ? initialStep : 0);
   const [addedTierKey, setAddedTierKey] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -58,10 +67,6 @@ export function EventEditor({
   const [publishChecks, setPublishChecks] = useState({ schedule: false, venue: false, inventory: false, access: false });
   const [adminReason, setAdminReason] = useState('');
   const organization = organizations.find((o) => o.id === draft.organizationId);
-  const linkedVenues = venues.filter((venue) => venue.organizationId === draft.organizationId);
-  const savedVenues = organization?.locationId && organization?.location && !linkedVenues.some((venue) => venue.locationIds.includes(organization.locationId))
-    ? [...linkedVenues, { id: `primary:${organization.locationId}`, label: organization.location.name || organization.name, locationIds: [organization.locationId], location: organization.location }]
-    : linkedVenues;
   const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
   const loc = (key, value) =>
     setDraft((d) => ({ ...d, location: { ...d.location, [key]: value } }));
@@ -163,7 +168,7 @@ export function EventEditor({
         {copyFailure && createdDraftId ? <div className="editor-recovery" role="alert"><p>The new draft was saved, but team copying failed: {error}. Retry that step, or open the saved draft without copied team access. Further edits here have not been saved.</p>
           <Button type="button" disabled={busy} onClick={() => save('draft')}>Retry team copy</Button>
           <Button type="button" variant="outline" onClick={() => { clear(); onSaved('Draft saved. Team assignments were not copied.'); }}>Open draft without team copy</Button></div> : <>
-        {recovery && <div className="editor-recovery" role="status"><p>Unsaved event changes from this tab are available{recovery.eventVersion !== (event?.version ?? null) ? '. The saved event has changed, so review before saving' : ''}.</p><Button type="button" variant="outline" onClick={restore}>Restore draft</Button><Button type="button" variant="ghost" onClick={discardRecovery}>Discard saved copy</Button></div>}
+        {recovery && <div className="editor-recovery" role="status"><p>Unsaved event changes from this tab are available{recovery.eventVersion !== (event?.version ?? null) ? '. The saved event has changed, so review before saving' : ''}.</p><Button type="button" variant="outline" onClick={restoreDraft}>Restore draft</Button><Button type="button" variant="ghost" onClick={discardRecovery}>Discard saved copy</Button></div>}
         {duplicateSource && <p className="editor-recovery" role="status">This is a new draft with fresh dates and inventory. Review its local event times, absolute sales windows, commission terms and publication checklist before publishing.</p>}
         {!event && !duplicateSource && templates.length > 0 && <div className="editor-templates"><strong>Start from a template saved on this device</strong><p>Templates contain event setup only, not attendees, messages or sales.</p>
           {templates.map((template) => <div key={template.id}><span>{template.name}</span><Button type="button" variant="outline" size="sm" onClick={() => { setDraft(reusableDraft(template.source, { copyOfferings: true }, organizations, venues)); setStep(0); }}>Use template</Button>
@@ -192,7 +197,7 @@ export function EventEditor({
               venues={venues} canCreateIndependent={canCreateIndependent} setDraft={setDraft} set={set} onUploading={setUploading}
               request={request} organizationPicker={organizationPicker}/>}
             {step === 0 && audience === 'admin' && <label className="field full" htmlFor="admin-event-reason"><span>Reason for this change</span><textarea id="admin-event-reason" name="adminReason" minLength={10} maxLength={500} required value={adminReason} onChange={(e) => setAdminReason(e.target.value)} rows={2}/></label>}
-            {step === 1 && <EventLocationStep draft={draft} organization={organization} savedVenues={savedVenues}
+            {step === 1 && <EventLocationStep draft={draft} organization={organization}
               setDraft={setDraft} set={set} loc={loc} session={session} request={request} audience={audience}/>}
             {step === 2 && <EventOfferingsStep draft={draft} event={event} duplicateSource={duplicateSource}
               addedTierKey={addedTierKey} publishChecks={publishChecks} setPublishChecks={setPublishChecks}

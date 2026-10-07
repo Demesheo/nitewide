@@ -1,12 +1,10 @@
-import { useEffect, useState } from 'react';
 import { MapPin } from 'lucide-react';
 import { Field, SelectField } from '../controls';
 import AsyncVenuePicker from '../AsyncVenuePicker';
 
 export function EventLocationStep({ draft, organization, setDraft, set, loc, session, request, audience }) {
   const venueOnly = organization?.canCreateEvents && !organization?.canManage && audience !== 'admin';
-  const [mode, setMode] = useState(draft.locationId || venueOnly || draft.locationMode === 'saved' ? 'saved' : 'address');
-  useEffect(() => setMode(draft.locationId || venueOnly || draft.locationMode === 'saved' ? 'saved' : 'address'), [draft.organizationId, venueOnly]);
+  const mode = venueOnly ? 'saved' : draft.locationMode || (draft.locationId ? 'saved' : 'address');
   const savedMode = Boolean(draft.organizationId && (mode === 'saved' || venueOnly));
   function chooseVenue(venue) {
     const location = Object.fromEntries(['name', 'addressLine1', 'addressLine2', 'city', 'region', 'postalCode', 'countryCode', 'timezone', 'privacy', 'latitude', 'longitude'].map((key) => [key, venue[key]]));
@@ -14,7 +12,7 @@ export function EventLocationStep({ draft, organization, setDraft, set, loc, ses
   }
   return <div className="form-grid">
     {draft.organizationId && !venueOnly && <div className="full"><SelectField id="event-location-mode" label="Event location"
-      value={mode} onChange={(value) => { setMode(value); setDraft((current) => ({ ...current, locationMode: value, locationId: null })); }}
+      value={mode} onChange={(value) => setDraft((current) => ({ ...current, locationMode: value, locationId: null }))}
       options={[["address", "Enter a venue name and address"], ["saved", "Use a saved business venue"]]}/></div>}
     {savedMode ? <>
       <div className="full"><AsyncVenuePicker organizationId={draft.organizationId} session={session} request={request} audience={audience}

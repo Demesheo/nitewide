@@ -73,10 +73,10 @@ test('business workflows preserve scope, navigation, delivery confirmation, and 
       data = {
         organizations: [{ id: orgA, name: 'North Hall', canManage: true }, { id: orgB, name: 'South Hall', canManage: true }],
         venues: [
-          { id: venueA, label: 'North Room', organizationId: orgA, locationIds: ['20000000-0000-4000-8000-000000000001'] },
-          { id: 'd'.repeat(64), label: 'North Annex', organizationId: orgA, locationIds: ['20000000-0000-4000-8000-000000000004'] },
-          { id: venueB, label: 'South Room', organizationId: orgB, locationIds: ['20000000-0000-4000-8000-000000000002'] },
-          { id: venueC, label: 'Studio West', organizationId: orgB, locationIds: ['20000000-0000-4000-8000-000000000003'], location: { name: 'Studio West', addressLine1: '3 Test Way', city: 'Denver', region: 'CO', postalCode: '80202', countryCode: 'US', privacy: 'public', timezone: 'America/Denver' } },
+          { id: venueA, label: 'North Room', organizationId: orgA, locationIds: ['20000000-0000-4000-8000-000000000001'], managedLocationIds: ['20000000-0000-4000-8000-000000000001'] },
+          { id: 'd'.repeat(64), label: 'North Annex', organizationId: orgA, locationIds: ['20000000-0000-4000-8000-000000000004'], managedLocationIds: ['20000000-0000-4000-8000-000000000004'] },
+          { id: venueB, label: 'South Room', organizationId: orgB, locationIds: ['20000000-0000-4000-8000-000000000002'], managedLocationIds: ['20000000-0000-4000-8000-000000000002'] },
+          { id: venueC, label: 'Studio West', organizationId: orgB, locationIds: ['20000000-0000-4000-8000-000000000003'], managedLocationIds: ['20000000-0000-4000-8000-000000000003'], location: { name: 'Studio West', addressLine1: '3 Test Way', city: 'Denver', region: 'CO', postalCode: '80202', countryCode: 'US', privacy: 'public', timezone: 'America/Denver' } },
         ],
         capabilities: { emailConfigured: true, instructions: true, deliveryTrackingConfigured: true },
         scope: { canCreateIndependent: false, isInternalAdmin: false },
@@ -495,6 +495,71 @@ test('business workflows preserve scope, navigation, delivery confirmation, and 
     await screen.findByRole('heading', { name: 'North Hall Preview' });
     assert.equal(new URL(dom.window.location.href).searchParams.get('event'), eventA);
     assert.equal(calls.some((call) => call.method === 'POST' && call.url.pathname === '/api/check-ins'), false, 'previewing the next event never checks anyone in');
+    });
+    await t.test('custom-address create and reopen retain address mode; recovery and venue-only roles keep their selection rules', async () => {
+      unmount();
+      const { EventEditor } = await vite.ssrLoadModule('/src/components/EventEditor.jsx');
+      const { EventLocationStep } = await vite.ssrLoadModule('/src/components/event-editor/EventLocationStep.jsx');
+      const { editorDraft } = await vite.ssrLoadModule('/src/lib/business.js');
+      const session = { user: { id: 'address-regression' } };
+      const organization = { id: orgA, name: 'Legacy business', canManage: true, canCreateEvents: true,
+        locationId: 'legacy-unlinked', location: { name: 'Legacy room', city: 'Orlando', timezone: 'America/New_York' } };
+      const mutations = [];
+      const request = async (path, _session, options = {}) => {
+        mutations.push({ path, method: options.method || 'GET', body: options.body && JSON.parse(options.body) });
+        return { id: eventA, items: [], total: 0, page: 1, pageSize: 25, hasMore: false };
+      };
+      let editor = render(React.createElement(EventEditor, { event: null, organizations: [organization],
+        venues: [], defaultOrganization: orgA, session, request, onClose() {}, onSaved() {} }));
+      unmount = () => editor.unmount();
+      await user.type(screen.getByRole('textbox', { name: 'Event name' }), 'Custom address draft');
+      await user.click(screen.getByRole('button', { name: 'Continue' }));
+      assert.equal(screen.queryByRole('combobox', { name: 'Saved venue' }), null, 'an unlinked primary location starts as an editable address');
+      await user.type(screen.getByRole('textbox', { name: 'Street address' }), '100 QA Way');
+      await user.click(screen.getByRole('button', { name: 'Save draft' }));
+      await waitFor(() => assert.equal(mutations.filter(call => call.method === 'POST').length, 1));
+      const payload = mutations.find(call => call.method === 'POST').body;
+      assert.equal(payload.locationId, null);
+      assert.equal(payload.location.addressLine1, '100 QA Way');
+      editor.unmount();
+
+      const savedEvent = { ...payload, id: eventA, version: 0, locationId: 'custom-address', isManagedVenue: false };
+      const analyticsVenues = [{ organizationId: orgA, locationIds: ['custom-address'], managedLocationIds: [] }];
+      const addressDraft = editorDraft(savedEvent, null, [organization], analyticsVenues);
+      const { locationMode: _mode, ...legacyDraft } = addressDraft;
+      dom.window.sessionStorage.setItem(`nitewide:business:draft:${session.user.id}:${eventA}`, JSON.stringify({
+        schema: 1, eventVersion: 0, draft: { ...legacyDraft, title: 'Recovered address edit', locationId: savedEvent.locationId },
+      }));
+      editor = render(React.createElement(EventEditor, { event: savedEvent, initialStep: 1,
+        organizations: [organization], venues: analyticsVenues, session, request, onClose() {}, onSaved() {} }));
+      assert.equal(screen.getByRole('textbox', { name: 'Street address' }).value, '100 QA Way');
+      assert.equal(screen.queryByRole('combobox', { name: 'Saved venue' }), null);
+      await user.click(screen.getByRole('button', { name: 'Restore draft' }));
+      assert.equal(screen.getByRole('textbox', { name: 'Street address' }).value, '100 QA Way', 'pre-fix recovery retains the edited custom address');
+      assert.equal(screen.queryByRole('combobox', { name: 'Saved venue' }), null);
+      await user.click(screen.getByRole('button', { name: 'Save draft' }));
+      await waitFor(() => assert.equal(mutations.filter(call => call.method === 'PUT').length, 1));
+      const restoredPayload = mutations.find(call => call.method === 'PUT').body;
+      assert.equal(restoredPayload.locationId, null, 'a pre-fix recovery copy cannot resubmit the unavailable address ID as a venue');
+      assert.equal(restoredPayload.title, 'Recovered address edit');
+      assert.equal(mutations.some(call => /\/venues\//.test(call.path)), false, 'reopening a custom address never requests it as a saved venue');
+      editor.unmount();
+
+      const linkedDraft = { ...addressDraft, locationMode: 'saved', locationId: 'linked-venue' };
+      const props = { draft: linkedDraft, organization, setDraft() {}, set() {}, loc() {}, session, request, audience: 'business' };
+      const locationStep = render(React.createElement(EventLocationStep, props));
+      unmount = () => locationStep.unmount();
+      assert.ok(screen.getByRole('combobox', { name: 'Saved venue' }));
+      locationStep.rerender(React.createElement(EventLocationStep, { ...props, draft: addressDraft }));
+      assert.ok(screen.getByRole('textbox', { name: 'Street address' }), 'restoring an address draft changes the visible mode in the same organization');
+      locationStep.rerender(React.createElement(EventLocationStep, { ...props, draft: addressDraft,
+        organization: { ...organization, canManage: false } }));
+      assert.ok(screen.getByRole('combobox', { name: 'Saved venue' }));
+      assert.equal(screen.queryByRole('textbox', { name: 'Street address' }), null, 'venue-only managers cannot restore their way into an address editor');
+      assert.equal(screen.queryByRole('combobox', { name: 'Event location' }), null);
+      locationStep.rerender(React.createElement(EventLocationStep, { ...props, draft: addressDraft,
+        organization: { ...organization, canManage: false }, audience: 'admin' }));
+      assert.ok(screen.getByRole('textbox', { name: 'Street address' }), 'administrative audience retains the address editor');
     });
   } finally {
     try { unmount?.(); } catch {}

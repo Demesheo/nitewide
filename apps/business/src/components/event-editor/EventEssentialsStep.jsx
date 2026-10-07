@@ -1,5 +1,6 @@
 import { Field, SelectField } from '../controls';
 import { ImageUpload } from '../ImageUpload';
+import { defaultEventLocation } from '../../lib/business';
 
 export function EventEssentialsStep({ draft, event, session, organizations, venues, canCreateIndependent, setDraft, set, onUploading, request, organizationPicker }) {
   return <div className="form-grid">
@@ -8,11 +9,10 @@ export function EventEssentialsStep({ draft, event, session, organizations, venu
     <div className="full">{organizationPicker || <SelectField id="event-organization" label="Organization" disabled={Boolean(event)}
       value={draft.organizationId || 'independent'} onChange={(value) => {
         const organizationId = value === 'independent' ? null : value;
-        const selectedOrganization = organizations.find((item) => item.id === organizationId);
-        const defaultVenue = venues.find((venue) => venue.organizationId === organizationId);
-        const location = selectedOrganization?.location || defaultVenue?.location;
+        const { locationId, location } = defaultEventLocation(organizationId, organizations, venues);
         setDraft((current) => ({ ...current, organizationId,
-          locationId: organizationId ? selectedOrganization?.locationId || defaultVenue?.locationIds?.[0] || null : null,
+          locationId,
+          locationMode: locationId ? 'saved' : 'address',
           location: location ? { ...location } : { name: '', addressLine1: '', city: '', region: 'FL', postalCode: '', countryCode: 'US', timezone: 'America/New_York', privacy: 'public' },
         }));
       }} options={[

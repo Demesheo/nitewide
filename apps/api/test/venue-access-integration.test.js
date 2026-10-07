@@ -63,6 +63,9 @@ test('exclusive managed venues preserve scoped staff, reporting, referrals, admi
       assert.equal(bootstrap.organizations.length,1); assert.equal(bootstrap.organizations[0].canManage,false);
       assert.equal(bootstrap.organizations[0].canCreateEvents,true); assert.equal(bootstrap.organizations[0].locationId,null);
       assert.deepEqual(bootstrap.venues.flatMap(row => row.locationIds),[venueB.id]);
+      assert.deepEqual(bootstrap.venues.flatMap(row => row.managedLocationIds),[venueB.id]);
+      assert.equal(bootstrap.venues[0].managedLocation.id,venueB.id);
+      assert.equal(bootstrap.venues[0].managedLocation.timezone,'UTC');
       const limited = (await api('get',venuePath(ids.org,false),ids.manager).expect(200)).body.data;
       assert.equal(limited.total,1); assert.equal(limited.items[0].id,venueB.id); assert.equal(limited.canCreate,false);
       await api('get',`${venuePath(ids.org,false)}/${venueA.id}`,ids.manager).expect(403);
@@ -87,6 +90,28 @@ test('exclusive managed venues preserve scoped staff, reporting, referrals, admi
       assert.equal(firstTerms.accessScope,'venue'); assert.equal(firstTerms.venueAccessId,grantEmployee.id); assert.equal(firstTerms.commissionBps,0);
       const ownLink = (await api('get',`/business/events/${eventB.id}/referral-link`,ids.employee).expect(200)).body.data;
       assert.equal(ownLink.code,firstTerms.code,'first terms precede and preserve the employee’s own referral link');
+    });
+    await t.test('custom-address drafts and publication retain address identity without becoming linked venues',async () => {
+      const input = { ...eventInput(null,'Custom address fixture'),organizationId: ids.zero,status: 'draft',offerings: [],
+        location: { name: 'Custom fixture room',addressLine1: '100 QA Way',city: 'Denver',region: 'CO',postalCode: '',countryCode: 'US',timezone: 'America/Denver',privacy: 'public' } };
+      const created = (await api('post','/business/events',ids.owner).send(input).expect(201)).body.data;
+      await m.Organization.update({ locationId: created.locationId },{ where: { id: ids.zero } });
+      const reopened = (await api('get',`/business/events/${created.id}/summary`,ids.owner).expect(200)).body.data.event;
+      assert.equal(reopened.isManagedVenue,false);
+      assert.equal(reopened.location.addressLine1,'100 QA Way');
+      const bootstrap = (await api('get','/business/bootstrap',ids.owner).expect(200)).body.data;
+      const customOption = bootstrap.venues.find(row => row.locationIds.includes(reopened.locationId));
+      assert.ok(customOption,'custom addresses remain available as analytics filters');
+      assert.deepEqual(customOption.managedLocationIds,[]);
+      assert.equal(customOption.managedLocation,null);
+      assert.equal(bootstrap.organizations.find(row => row.id===ids.zero).locationId,reopened.locationId,'legacy organization defaults do not prove a business venue link');
+      await api('post','/business/events',ids.manager).send({ ...input,organizationId: ids.org }).expect(403);
+      const published = (await api('put',`/business/events/${created.id}`,ids.owner).send({ ...input,status: 'published',version: reopened.version }).expect(200)).body.data;
+      const latest = (await api('get',`/business/events/${published.id}/summary`,ids.owner).expect(200)).body.data.event;
+      assert.equal(latest.status,'published');
+      assert.equal(latest.isManagedVenue,false);
+      assert.equal(latest.location.timezone,'America/Denver');
+      assert.equal(await m.OrganizationVenue.count({ where: { organizationId: ids.zero } }),0,'address publication does not create a business venue link');
     });
     await t.test('venue reporting, referral checkout, and customer future connections never cross venue boundaries',async () => {
       link = (await api('get',`/business/events/${eventB.id}/referral-link`,ids.promoter).expect(200)).body.data;

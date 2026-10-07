@@ -18,6 +18,20 @@ test('physical venues stay distinct within one organization; duplicate import lo
   assert.deepEqual(options.find(o => o.label === 'Room 22').locationIds, ['room', 'duplicate']);
   assert.equal(venueKey({}), null);
 });
+test('analytics groups retain custom address filters but editor defaults include only linked locations', () => {
+  const custom = { ...room, isManagedVenue: false, location: { ...room.location, timezone: 'America/Denver', privacy: 'private' } };
+  const linkedLocation = { ...duplicate.location, timezone: 'America/New_York', privacy: 'public' };
+  const linked = { ...duplicate, isManagedVenue: true, location: { ...linkedLocation, toJSON: () => linkedLocation } };
+  const options = venueOptions([custom, linked, linked, { ...proper, isManagedVenue: false }]);
+  const mixed = options.find(option => option.id === venueKey(room));
+  assert.deepEqual(mixed.locationIds, ['room', 'duplicate'], 'all physical-location IDs remain valid analytics filters');
+  assert.deepEqual(mixed.managedLocationIds, ['duplicate']);
+  assert.deepEqual(mixed.managedLocation, { ...linkedLocation, id: 'duplicate' }, 'linked defaults use the saved row metadata rather than a custom event snapshot');
+  assert.equal(mixed.location, custom.location, 'analytics location metadata is preserved');
+  const unlinked = options.find(option => option.id === venueKey(proper));
+  assert.deepEqual(unlinked.managedLocationIds, []);
+  assert.equal(unlinked.managedLocation, null);
+});
 test('venue multiselect accepts either, both, or all, and never widens authorized input', () => {
   const events = [room, duplicate, proper];
   assert.deepEqual(filterVenues(events, [venueKey(room)]).map(e => e.id), ['room', 'duplicate']);

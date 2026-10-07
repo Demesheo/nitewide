@@ -52,8 +52,13 @@ test('duplicate drafts reset history and remap offering dependencies while keepi
   assert.equal(draft.imageUrl, null);
   assert.equal(draft.organizationId, source.organizationId);
   assert.equal(draft.locationId, null, 'unlinked event addresses are copied, not silently assigned as managed venues');
-  const linked = reusableDraft(source, { copyOfferings: true }, [{ id: source.organizationId, locationId: source.locationId }]);
+  const linked = reusableDraft(source, { copyOfferings: true }, [{ id: source.organizationId, locationId: source.locationId }],
+    [{ organizationId: source.organizationId, managedLocationIds: [source.locationId] }]);
   assert.equal(linked.locationId, source.locationId, 'a confirmed managed venue remains selectable');
+  const custom = reusableDraft({ ...source, isManagedVenue: false }, {}, [],
+    [{ organizationId: source.organizationId, locationIds: [source.locationId], managedLocationIds: [] }]);
+  assert.equal(custom.locationId, null, 'analytics options cannot turn a duplicated custom address into a saved venue');
+  assert.equal(custom.locationMode, 'address');
   assert.ok(!('id' in draft) && !('version' in draft) && !('salesCents' in draft) && !('attendees' in draft));
   assert.ok(Date.parse(draft.startsAt) > Date.now(), 'a completed source becomes a future draft');
   assert.equal(draft.startsAt.slice(11), '22:00', 'the source event’s venue-local start time is preserved');

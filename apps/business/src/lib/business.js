@@ -69,19 +69,33 @@ export function releaseOptions(offerings, index) {
     name: prior.name || "earlier tier",
   }));
 }
+export function defaultEventLocation(organizationId, organizations = [], venues = []) {
+  const organization = organizations.find((item) => item.id === organizationId);
+  const linkedVenues = venues.filter((venue) => venue.organizationId === organizationId && venue.managedLocationIds?.length);
+  const primaryVenue = linkedVenues.find((venue) => venue.managedLocationIds.includes(organization?.locationId));
+  const defaultVenue = primaryVenue || linkedVenues[0];
+  const locationId = primaryVenue ? organization.locationId : defaultVenue?.managedLocationIds[0] || null;
+  const location = primaryVenue && organization.location || defaultVenue?.managedLocation || organization?.location;
+  return { locationId, location };
+}
 export function editorDraft(event, organizationId = null, organizations = [], venues = []) {
   const selectedOrganizationId = event ? event.organizationId : organizationId;
-  const organization = organizations.find((o) => o.id === selectedOrganizationId);
-  const defaultVenue = venues.find((venue) => venue.organizationId === selectedOrganizationId);
-  const venueLocation = event?.location || organization?.location || defaultVenue?.location;
+  const defaultLocation = defaultEventLocation(selectedOrganizationId, organizations, venues);
+  const venueLocation = event?.location || defaultLocation.location;
   const timezone = venueLocation?.timezone || event?.location?.timezone || "America/New_York";
-  const savedEventLocation = event?.locationId && (event.isManagedVenue || organization?.locationId === event.locationId || venues.some((venue) => venue.organizationId === selectedOrganizationId && venue.locationIds?.includes(event.locationId)));
+  // Event details are authoritative even when analytics groups contain this
+  // custom address, or the saved venue falls outside the bootstrap page.
+  const savedEventLocation = event?.locationId && (typeof event.isManagedVenue === 'boolean'
+    ? event.isManagedVenue
+    : venues.some((venue) => venue.organizationId === selectedOrganizationId && venue.managedLocationIds?.includes(event.locationId)));
+  const locationId = event ? (savedEventLocation ? event.locationId : null) : defaultLocation.locationId;
   const start = new Date();
   start.setDate(start.getDate() + 1);
   start.setHours(22, 0, 0, 0);
   return {
     organizationId: selectedOrganizationId,
-    locationId: event ? (savedEventLocation ? event.locationId : null) : organization?.locationId || defaultVenue?.locationIds?.[0] || null,
+    locationId,
+    locationMode: locationId ? 'saved' : 'address',
     imageAssetId: event?.imageAssetId || null,
     imageUrl: event?.imageUrl || null,
     title: event?.title || "",

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight, LogOut, Ticket, UserRound, RefreshCw, Pencil } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Tabs, TabsContent } from './ui/tabs';
@@ -16,6 +16,23 @@ import { ReferralEarnings } from './referral-earnings';
 export function initials(name = '') { return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase(); }
 function InlineAccount({ children }) { return children; }
 function withPassKind(pass, kind) { return { ...pass, kind: pass.kind || kind }; }
+function reconcileBookingPass(current, pass) {
+  if (!current) return current;
+  const { kind, tickets, ...booking } = pass;
+  const event = (entry) => entry.event?.id === pass.event.id ? pass.event : entry.event;
+  const admissions = new Map(tickets.map((ticket) => [ticket.id, ticket]));
+  return { ...current,
+    guestlists: current.guestlists.map((entry) => kind === 'guestlist' && entry.id === pass.id
+      ? { ...entry, ...booking, status: pass.status || tickets[0]?.status || entry.status }
+      : { ...entry, event: event(entry) }),
+    orders: current.orders.map((entry) => kind === 'purchase' && entry.id === pass.id
+      ? { ...entry, ...booking, items: entry.items.map((item) => ({ ...item, tickets: item.tickets.map((ticket) => {
+        const updated = admissions.get(ticket.id);
+        return updated ? { ...ticket, status: updated.status, checkedInAt: updated.checkedInAt } : ticket;
+      }) })) }
+      : { ...entry, event: event(entry) }),
+  };
+}
 
 export function AccountDialog({ open, onOpenChange, session, onProfile, onSessionChanged, onSignOut, embedded = false, notificationBooking, bookingRoute, onBookingRouteChange, onNotificationOpened, onResumeCheckout, onContactOrganizer, bookingsRevision = 0 }) {
   const Container = embedded ? InlineAccount : Dialog;
@@ -30,13 +47,43 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
   const [ticketIndex, setTicketIndex] = useState(0), [cachedPass, setCachedPass] = useState(false);
   const [editingSpots, setEditingSpots] = useState(false), [requestedSpots, setRequestedSpots] = useState(1);
   const guestlistEditLock = useRef(false);
+  const mounted = useRef(true), ticketOwner = useRef(null), passRequest = useRef(null), passRevision = useRef(0), bookingsRequest = useRef(null), bookingsDataQuery = useRef(null);
+  const context = useRef(null);
+  context.current = { open, userId: session?.user.id, token: session?.accessToken };
+  const requestIsCurrent = useCallback((request) => mounted.current && !request.controller.signal.aborted && context.current.open && context.current.userId === request.userId && context.current.token === request.token, []);
+  const startPassRequest = useCallback(() => {
+    passRequest.current?.controller.abort();
+    const request = { ...context.current, controller: new AbortController() };
+    passRequest.current = request;
+    return request;
+  }, []);
+  const acceptPass = useCallback((pass, resetIndex = false) => {
+    // An older list response must not replace fields learned from this pass.
+    bookingsRequest.current?.controller.abort();
+    passRevision.current += 1;
+    ticketOwner.current = context.current.userId;
+    setTicket(pass); setCachedPass(false);
+    setTicketIndex((index) => resetIndex ? 0 : Math.min(index, Math.max(0, pass.tickets.length - 1)));
+    setData((current) => reconcileBookingPass(current, pass));
+    savePassCache(context.current.userId, pass);
+  }, []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; passRequest.current?.controller.abort(); bookingsRequest.current?.controller.abort(); };
+  }, []);
+  useLayoutEffect(() => {
+    passRequest.current?.controller.abort(); bookingsRequest.current?.controller.abort();
+    bookingsDataQuery.current = null; ticketOwner.current = null; ticketReturn.current = null; restoreTicketPosition.current = false;
+    setData(null); setTicket(null); setTicketBusy(''); setCachedPass(false); setPage(1);
+  }, [session?.user.id]);
+  useEffect(() => { passRequest.current?.controller.abort(); setTicketBusy(''); }, [session?.accessToken]);
   const [name, setName] = useState(''), [email, setEmail] = useState(''), [confirmEmail, setConfirmEmail] = useState(''), [phone, setPhone] = useState(''), [confirmPhone, setConfirmPhone] = useState('');
   const [consents, setConsents] = useState({}), [message, setMessage] = useState(''), [resendCooldown, setResendCooldown] = useState(0);
   const previousBookingRoute = useRef(bookingRoute);
   useEffect(() => { setEditingSpots(false); setRequestedSpots(ticket?.partySize || 1); }, [ticket?.id]);
   useEffect(() => {
     if (!embedded) return;
-    if (previousBookingRoute.current && !bookingRoute) setTicket(null);
+    if (previousBookingRoute.current && !bookingRoute) { passRequest.current?.controller.abort(); setTicketBusy(''); setTicket(null); }
     previousBookingRoute.current = bookingRoute;
   }, [bookingRoute, embedded]);
   useLayoutEffect(() => {
@@ -54,25 +101,20 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
   }, [ticket?.id]);
   useEffect(() => {
     if (!open || !ticket?.id || tab !== 'plans') return;
-    const controller = new AbortController(); let inFlight = false;
+    const request = { ...context.current, controller: new AbortController() }; let inFlight = false;
     const refreshTickets = async () => {
-      if (document.hidden || inFlight) return;
+      if (document.hidden || inFlight || guestlistEditLock.current) return;
+      const revision = passRevision.current;
       inFlight = true;
       try {
-        const updated = withPassKind(await api(ticket.kind === 'guestlist' ? `/customer/guestlists/${ticket.id}/pass` : `/customer/purchases/${ticket.id}/tickets`, { token: session.accessToken, signal: controller.signal }), ticket.kind);
-        if (!controller.signal.aborted) {
-          setTicket(updated);
-          setTicketIndex((index) => Math.min(index, Math.max(0, updated.tickets.length - 1)));
-          setCachedPass(false);
-          if (updated.tickets.some((row) => row.qrImage)) savePassCache(session.user.id, updated);
-          else removePassCache(session.user.id, ticket.kind, updated.id);
-          setData((current) => current && ({ ...current, guestlists: current.guestlists.map((guest) => updated.kind === 'guestlist' && guest.id === updated.id ? { ...guest, status: updated.status || updated.tickets[0]?.status } : guest), orders: current.orders.map((order) => order.id !== updated.id ? order : ({ ...order, items: order.items.map((item) => ({ ...item, tickets: item.tickets.map((t) => ({ ...t, ...(updated.tickets.find((row) => row.id === t.id) || {}) })) })) })) }));
-        }
+        const updated = withPassKind(await api(ticket.kind === 'guestlist' ? `/customer/guestlists/${ticket.id}/pass` : `/customer/purchases/${ticket.id}/tickets`, { token: request.token, signal: request.controller.signal }), ticket.kind);
+        if (requestIsCurrent(request) && revision === passRevision.current) acceptPass(updated);
       } catch (error) {
-        if (controller.signal.aborted) return;
+        if (!requestIsCurrent(request) || revision !== passRevision.current) return;
         if (error.status && [401, 403, 404].includes(error.status)) {
           removePassCache(session.user.id, ticket.kind, ticket.id);
           setTicket(null);
+          onBookingRouteChange?.(null);
           setError('This pass is no longer available.');
         } else if (!error.status || error.status >= 500) {
           const cached = loadPassCache(session.user.id, ticket.kind, ticket.id);
@@ -84,42 +126,44 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
     };
     const interval = setInterval(refreshTickets, 5000);
     window.addEventListener('focus', refreshTickets);
-    return () => { controller.abort(); clearInterval(interval); window.removeEventListener('focus', refreshTickets); };
-  }, [open, ticket?.id, tab, session?.accessToken]);
-  useEffect(() => { setEditingProfile(false); setChangingPassword(false); if (open) { setTab(embedded ? 'plans' : 'profile'); setTicket(null); setTicketIndex(0); setCachedPass(false); setError(''); setMessage(''); } }, [open, embedded]);
+    document.addEventListener('visibilitychange', refreshTickets);
+    return () => { request.controller.abort(); clearInterval(interval); window.removeEventListener('focus', refreshTickets); document.removeEventListener('visibilitychange', refreshTickets); };
+  }, [open, ticket?.id, ticket?.kind, tab, session?.user.id, session?.accessToken, requestIsCurrent, acceptPass]);
+  useEffect(() => { passRequest.current?.controller.abort(); ticketOwner.current = null; setTicketBusy(''); setEditingProfile(false); setChangingPassword(false); if (open) { setTab(embedded ? 'plans' : 'profile'); setTicket(null); setTicketIndex(0); setCachedPass(false); setError(''); setMessage(''); } }, [open, embedded]);
   useEffect(() => {
-    if (!open || !notificationBooking) return;
+    if (!open || !session || !notificationBooking) return;
     const { ticket: incoming } = notificationBooking;
     const ticket = withPassKind(incoming, bookingRoute?.split(':')[0] || incoming.kind || 'purchase');
     ticketReturn.current = null; restoreTicketPosition.current = false;
     // A notification/deep link can supersede an in-flight pass request. Its
     // cleanup suppresses that request's finally handler, so clear its busy
     // state when accepting the already-loaded pass as well.
-    setTab('plans'); setTicket(ticket); setTicketBusy(''); setTicketIndex(0); setCachedPass(false); savePassCache(session.user.id, ticket); setError(''); setPage(1);
+    passRequest.current?.controller.abort();
+    setTab('plans'); acceptPass(ticket, true); setTicketBusy(''); setError(''); setPage(1);
     setPeriod(new Date(ticket.event.endsAt) <= new Date() ? 'past' : 'upcoming');
     onNotificationOpened?.();
-  }, [open, notificationBooking, onNotificationOpened]);
+  }, [open, notificationBooking, onNotificationOpened, acceptPass]);
   useEffect(() => {
     if (!embedded || !open || !session || !bookingRoute || notificationBooking) return;
     const [kind, id] = bookingRoute.split(':');
-    if (ticket?.id === id && ticket?.kind === kind) return;
-    let active = true;
+    if (ticketOwner.current === session.user.id && ticket?.id === id && ticket?.kind === kind) return;
+    const request = startPassRequest();
     setTicket(null);
     setTicketBusy(id); setError('');
-    api(kind === 'guestlist' ? `/customer/guestlists/${id}/pass` : `/customer/purchases/${id}/tickets`, { token: session.accessToken })
-      .then((response) => { if (active) { const pass = withPassKind(response, kind); setTicket(pass); setTicketIndex(0); setCachedPass(false); savePassCache(session.user.id, pass); } })
+    api(kind === 'guestlist' ? `/customer/guestlists/${id}/pass` : `/customer/purchases/${id}/tickets`, { token: request.token, signal: request.controller.signal })
+      .then((response) => { if (requestIsCurrent(request)) acceptPass(withPassKind(response, kind), true); })
       .catch((error) => {
-        if (!active) return;
+        if (!requestIsCurrent(request)) return;
         if (error.status && [401, 403, 404].includes(error.status)) removePassCache(session.user.id, kind, id);
         else if (!error.status || error.status >= 500) {
           const cached = loadPassCache(session.user.id, kind, id);
-          if (cached) { setTicket(withPassKind(cached, kind)); setTicketIndex(0); setCachedPass(true); return; }
+          if (cached) { ticketOwner.current = request.userId; setTicket(withPassKind(cached, kind)); setTicketIndex(0); setCachedPass(true); return; }
         }
         setError(`This booking could not be opened: ${error.message}`);
       })
-      .finally(() => { if (active) setTicketBusy(''); });
-    return () => { active = false; };
-  }, [embedded, open, bookingRoute, session?.accessToken, notificationBooking]);
+      .finally(() => { if (requestIsCurrent(request)) setTicketBusy(''); });
+    return () => request.controller.abort();
+  }, [embedded, open, bookingRoute, session?.user.id, session?.accessToken, notificationBooking, startPassRequest, requestIsCurrent, acceptPass]);
   useEffect(() => {
     setName(session?.user.displayName || ''); setEmail(session?.user.email || ''); setConfirmEmail(''); setPhone(session?.user.phone || ''); setConfirmPhone('');
     // The existing profile API requires SMS flags. Preserve stored choices while
@@ -129,43 +173,60 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
   useEffect(() => {
     if (!open || !session) return;
     if (tab === 'profile') { setBusy(false); return; }
-    const controller = new AbortController(); setBusy(true); setError(''); setData(null);
-    api(`/customer/bookings?period=${period}&page=${page}`, { token: session.accessToken, signal: controller.signal })
-      .then((result) => { if (!controller.signal.aborted) setData(result); })
-      .catch((error) => { if (!controller.signal.aborted) setError(error.message); })
-      .finally(() => { if (!controller.signal.aborted) setBusy(false); });
-    return () => controller.abort();
-  }, [open, tab, period, page, refresh, bookingsRevision, session?.accessToken]);
+    // Reload on return to the timeline: dates can move a booking between
+    // periods or pages. Keep the current cards mounted during revalidation.
+    if (ticket || notificationBooking) { setBusy(false); return; }
+    const request = { ...context.current, controller: new AbortController() };
+    const query = `${request.userId}:${period}:${page}`;
+    bookingsRequest.current = request;
+    if (bookingsDataQuery.current !== query) { setBusy(true); setData(null); }
+    setError('');
+    api(`/customer/bookings?period=${period}&page=${page}`, { token: request.token, signal: request.controller.signal })
+      .then((result) => {
+        if (!requestIsCurrent(request)) return;
+        const lastPage = Math.max(1, Math.ceil(result.total / (result.pageSize || 10)));
+        if (page > lastPage) { setPage(lastPage); return; }
+        bookingsDataQuery.current = query; setData(result);
+      })
+      .catch((error) => { if (requestIsCurrent(request)) setError(error.message); })
+      .finally(() => { if (requestIsCurrent(request)) setBusy(false); });
+    return () => request.controller.abort();
+  }, [open, tab, period, page, refresh, bookingsRevision, session?.user.id, session?.accessToken, Boolean(ticket), notificationBooking, requestIsCurrent]);
   async function showTicket(id, kind = 'purchase') {
+    const request = startPassRequest();
     ticketReturn.current = { id, top: embedded ? window.scrollY : scrollContainer.current?.scrollTop || 0 };
     setTicketBusy(id); setError('');
     try {
       const booking = kind === 'purchase' && data?.orders.find(order => order.id === id);
       if (booking?.canResumePayment && onResumeCheckout) { await onResumeCheckout(id); return; }
-      const pass = withPassKind(await api(kind === 'guestlist' ? `/customer/guestlists/${id}/pass` : `/customer/purchases/${id}/tickets`, { token: session.accessToken }), kind);
-      setTicket(pass); setTicketIndex(0); setCachedPass(false); setRequestedSpots(pass.partySize || 1); savePassCache(session.user.id, pass);
+      const pass = withPassKind(await api(kind === 'guestlist' ? `/customer/guestlists/${id}/pass` : `/customer/purchases/${id}/tickets`, { token: request.token, signal: request.controller.signal }), kind);
+      if (!requestIsCurrent(request)) return;
+      acceptPass(pass, true); setRequestedSpots(pass.partySize || 1);
       if (embedded) onBookingRouteChange?.(`${kind}:${id}`);
     } catch (error) {
+      if (!requestIsCurrent(request)) return;
       if (error.status && [401, 403, 404].includes(error.status)) removePassCache(session.user.id, kind, id);
       else if (!error.status || error.status >= 500) {
         const cached = loadPassCache(session.user.id, kind, id);
-        if (cached) { setTicket(withPassKind(cached, kind)); setTicketIndex(0); setCachedPass(true); if (embedded) onBookingRouteChange?.(`${kind}:${id}`); return; }
+        if (cached) { ticketOwner.current = request.userId; setTicket(withPassKind(cached, kind)); setTicketIndex(0); setCachedPass(true); if (embedded) onBookingRouteChange?.(`${kind}:${id}`); return; }
       }
       setError(error.message);
     }
-    finally { setTicketBusy(''); }
+    finally { if (requestIsCurrent(request)) setTicketBusy(''); }
   }
   async function saveRequestedSpots(event) {
     event.preventDefault();
     if (guestlistEditLock.current || ticketBusy || !ticket || ticket.kind !== 'guestlist' || ticket.tickets[0]?.status !== 'pending' || cachedPass) return;
     if (!validGuestlistPartySize(requestedSpots)) { setError(`Choose between 1 and ${customerGuestlistMaxPartySize} spots to update your request.`); return; }
+    const request = startPassRequest(), revision = ++passRevision.current;
     guestlistEditLock.current = true; setTicketBusy(ticket.id); setError('');
     try {
-      const result = await api(`/customer/guestlists/${ticket.id}`, { token: session.accessToken, method: 'PATCH', body: { partySize: requestedSpots } });
-      setTicket((current) => current?.id === ticket.id ? { ...current, partySize: result.entry.partySize } : current);
+      const result = await api(`/customer/guestlists/${ticket.id}`, { token: request.token, signal: request.controller.signal, method: 'PATCH', body: { partySize: requestedSpots } });
+      if (!requestIsCurrent(request)) return;
+      if (revision === passRevision.current) acceptPass({ ...ticket, ...result.entry });
       setEditingSpots(false); setRefresh((value) => value + 1);
-    } catch (error) { setError(error.message); }
-    finally { guestlistEditLock.current = false; setTicketBusy(''); }
+    } catch (error) { if (requestIsCurrent(request)) setError(error.message); }
+    finally { guestlistEditLock.current = false; if (requestIsCurrent(request)) setTicketBusy(''); }
   }
   async function saveProfile(event) {
     event.preventDefault(); if (busy) return; setBusy(true); setError(''); setMessage('');

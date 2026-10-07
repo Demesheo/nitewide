@@ -10,14 +10,15 @@ const response = (data, status = 200) => new Response(JSON.stringify(status < 40
 
 async function withRuntime(run, { path = '/sign-in', storedSession = null, fetcher = async () => response({}) } = {}) {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: `http://localhost${path}`, pretendToBeVisual: true });
-  const values = { window: dom.window, document: dom.window.document, navigator: dom.window.navigator, sessionStorage: dom.window.sessionStorage, localStorage: dom.window.localStorage, FormData: dom.window.FormData, HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement, HTMLButtonElement: dom.window.HTMLButtonElement, Element: dom.window.Element, Node: dom.window.Node, NodeFilter: dom.window.NodeFilter, Event: dom.window.Event, CustomEvent: dom.window.CustomEvent, MouseEvent: dom.window.MouseEvent, MutationObserver: dom.window.MutationObserver, getComputedStyle: dom.window.getComputedStyle.bind(dom.window), requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window), cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window), IS_REACT_ACT_ENVIRONMENT: true };
+  const values = { window: dom.window, document: dom.window.document, navigator: dom.window.navigator, sessionStorage: dom.window.sessionStorage, localStorage: dom.window.localStorage, FormData: dom.window.FormData, HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement, HTMLButtonElement: dom.window.HTMLButtonElement, HTMLFormElement: dom.window.HTMLFormElement, HTMLSelectElement: dom.window.HTMLSelectElement, Element: dom.window.Element, Node: dom.window.Node, NodeFilter: dom.window.NodeFilter, Event: dom.window.Event, CustomEvent: dom.window.CustomEvent, MouseEvent: dom.window.MouseEvent, MutationObserver: dom.window.MutationObserver, getComputedStyle: dom.window.getComputedStyle.bind(dom.window), requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window), cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window), IS_REACT_ACT_ENVIRONMENT: true };
+  values.DocumentFragment = dom.window.DocumentFragment;
   const original = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries(values)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   if (storedSession) dom.window.sessionStorage.setItem('nitewide.business.session', JSON.stringify(storedSession));
   const priorFetch = globalThis.fetch;
   const calls = [];
-  globalThis.fetch = (input, init = {}) => { const call = { path: new URL(String(input), dom.window.location.href).pathname, init, body: init.body ? JSON.parse(init.body) : null }; calls.push(call); return fetcher(call); };
+  globalThis.fetch = (input, init = {}) => { const url = new URL(String(input), dom.window.location.href); const call = { path: url.pathname, searchParams: url.searchParams, init, body: init.body ? JSON.parse(init.body) : null }; calls.push(call); return fetcher(call); };
   let vite;
   const views = [];
   try {
@@ -167,6 +168,86 @@ test('invitation signup recovers an account-creation race and retries acceptance
     if (path === '/api/auth/sign-in') return response(session);
     if (path.endsWith('/accept')) return ++acceptAttempts === 1 ? response({ message: 'Try again' }, 503) : response({ organizationId: 'organization', role: 'employee' });
     if (path === '/api/auth/me') return response({ user: session.user, roles: ['customer', 'employee'] });
+    throw new Error(`Unexpected request: ${path}`);
+  } });
+});
+
+const invitedOrganizationId = '00000000-0000-4000-8000-000000000621';
+const ownedOrganizationId = '00000000-0000-4000-8000-000000000622';
+const ownedOrganization = { id: ownedOrganizationId, name: 'Existing Owner Workspace', isOwner: true, canManage: true, canCreateEvents: true };
+const emptyPage = { items: [], total: 0, page: 1, pageSize: 10, hasMore: false };
+
+for (const fixture of [
+  { name: 'employee', role: 'employee', section: 'overview' },
+  { name: 'employee who owns another organization', role: 'employee', section: 'overview', otherOwner: true },
+  { name: 'promoter who owns another organization', role: 'affiliate', section: 'overview', otherOwner: true },
+  { name: 'manager who owns another organization', role: 'manager', section: 'team', otherOwner: true },
+  { name: 'owner accepting a manager invitation for their organization', role: 'manager', section: 'team', targetOwner: true },
+]) test(`accepted ${fixture.name} invitation selects the invited organization and an authorized landing page`, async () => {
+  let completeBootstrap;
+  const updatedSession = { ...session, roles: [...(fixture.otherOwner || fixture.targetOwner ? ['organization_owner'] : []), fixture.role] };
+  const invitedOrganization = { id: invitedOrganizationId, name: 'Invited Workspace', isOwner: Boolean(fixture.targetOwner), canManage: fixture.role === 'manager', canCreateEvents: fixture.role === 'manager' };
+  const organizations = fixture.otherOwner ? [ownedOrganization, invitedOrganization] : [invitedOrganization];
+  await withRuntime(async ({ mount, queries, user, calls, dom, act, waitFor }) => {
+    if (fixture.otherOwner) dom.window.localStorage.setItem(`nitewide.business.organization.${session.user.id}`, JSON.stringify({ selection: 'owned', lastOrganization: ownedOrganizationId }));
+    await mount('/src/App.jsx');
+    await user.click(await queries.findByRole('button', { name: 'Accept invitation', exact: true }));
+    await queries.findByRole('heading', { name: 'Checking your Business access.' });
+    assert.equal(queries.queryByRole('navigation'), null, 'membership grants still require successful bootstrap');
+    assert.equal(new URLSearchParams(dom.window.location.search).get('workspaceOrganization'), invitedOrganizationId, 'the destination survives before bootstrap has loaded the membership');
+    await act(async () => completeBootstrap(response({ organizations, venues: [], events: [], scope: {}, capabilities: {} })));
+    await queries.findByRole('heading', { name: fixture.section === 'team' ? 'Current team' : 'Your performance, clearly.' });
+    await waitFor(() => assert.equal(queries.getByRole('combobox', { name: 'Workspace organization' }).textContent, invitedOrganization.name));
+    const location = new URLSearchParams(dom.window.location.search);
+    assert.equal(location.get('section') || 'overview', fixture.section);
+    assert.equal(location.get('workspaceOrganization'), invitedOrganizationId);
+    assert.deepEqual(JSON.parse(dom.window.localStorage.getItem(`nitewide.business.organization.${session.user.id}`)), { selection: invitedOrganizationId, lastOrganization: invitedOrganizationId });
+    assert.equal(queries.queryByText('Team and venue management are available only where you are an owner or authorized manager.'), null);
+    assert.equal(calls.filter(call => call.path.endsWith('/accept')).length, 1);
+    if (fixture.section === 'overview') {
+      assert.equal(calls.some(call => call.path.includes('/team-page')), false, 'owner access in another organization does not grant this team workspace');
+      assert.ok(calls.some(call => call.path === '/api/business/reports/summary' && call.searchParams.get('organizationIds') === invitedOrganizationId));
+      await user.click(queries.getAllByRole('button', { name: 'Organization', exact: true })[0]);
+      assert.ok(queries.getByRole('button', { name: 'Start an organization' }), 'existing staff and promoters retain self-onboarding');
+    } else {
+      assert.ok(calls.some(call => call.path === `/api/business/organizations/${invitedOrganizationId}/team-page`));
+      assert.ok(queries.getByRole('button', { name: 'Invite team member' }));
+    }
+  }, { path: `/app?invite=landing-invitation${fixture.otherOwner ? `&workspaceOrganization=${ownedOrganizationId}` : ''}`, storedSession: session, fetcher: async ({ path }) => {
+    if (path === '/api/team/invitations/landing-invitation') return response({ email: session.user.email, role: fixture.role, organizationName: invitedOrganization.name, accountMode: 'existing' });
+    if (path.endsWith('/accept')) return response({ organizationId: invitedOrganizationId, role: fixture.role });
+    if (path === '/api/auth/me') return response({ user: session.user, roles: updatedSession.roles });
+    if (path === '/api/business/bootstrap') return new Promise(done => { completeBootstrap = done; });
+    if (path === '/api/business/reports/exports') return response([]);
+    if (path === '/api/business/reports/summary') return response({});
+    if (path === '/api/business/overview/needs-attention' || path === '/api/notifications' || path.startsWith('/api/business/organizations/')) return response({ ...emptyPage, unreadCount: 0 });
+    throw new Error(`Unexpected request: ${path}`);
+  } });
+});
+
+test('accepted event-only promoter invitation opens its assigned event and resolves its organization alongside existing ownership', async () => {
+  const event = { id: 'event-invitation-fixture', organizationId: invitedOrganizationId, title: 'Assigned Invitation Event', status: 'published', startsAt: new Date(Date.now() - 7200000).toISOString(), endsAt: new Date(Date.now() - 3600000).toISOString(), canEdit: false, canManage: false, location: { timezone: 'UTC' }, offerings: [] };
+  await withRuntime(async ({ mount, queries, user, dom, waitFor, calls }) => {
+    dom.window.localStorage.setItem(`nitewide.business.organization.${session.user.id}`, JSON.stringify({ selection: 'owned', lastOrganization: ownedOrganizationId }));
+    await mount('/src/App.jsx');
+    await user.click(await queries.findByRole('button', { name: 'Accept invitation', exact: true }));
+    await queries.findByRole('heading', { name: event.title });
+    await waitFor(() => assert.equal(queries.getByRole('combobox', { name: 'Workspace organization' }).textContent, 'Event-only Workspace'));
+    const location = new URLSearchParams(dom.window.location.search);
+    assert.equal(location.get('section'), 'events');
+    assert.equal(location.get('event'), event.id);
+    assert.equal(location.get('workspaceOrganization'), invitedOrganizationId);
+    assert.equal(queries.queryByRole('button', { name: 'Edit event' }), null);
+    assert.equal(calls.some(call => call.path.includes('/team-page')), false);
+    assert.equal(calls.filter(call => call.path.endsWith('/accept')).length, 1);
+  }, { path: '/app?invite=event-invitation', storedSession: session, fetcher: async ({ path }) => {
+    if (path === '/api/team/invitations/event-invitation') return response({ email: session.user.email, role: 'affiliate', eventId: event.id, eventTitle: event.title, accountMode: 'existing' });
+    if (path.endsWith('/accept')) return response({ eventId: event.id, role: 'affiliate' });
+    if (path === '/api/auth/me') return response({ user: session.user, roles: ['organization_owner', 'affiliate'] });
+    if (path === '/api/business/bootstrap') return response({ organizations: [ownedOrganization, { id: invitedOrganizationId, name: 'Event-only Workspace', canManage: false, canCreateEvents: false }], venues: [], events: [], scope: {}, capabilities: {} });
+    if (path === `/api/business/events/${event.id}/summary`) return response({ event, scope: 'own', summary: { salesCents: 0, commissionCents: 0, orders: 0, admissions: 0 }, tiers: [], channels: [] });
+    if (path === '/api/business/reports/exports') return response([]);
+    if (path === '/api/notifications' || path.endsWith('/attendees')) return response({ ...emptyPage, unreadCount: 0 });
     throw new Error(`Unexpected request: ${path}`);
   } });
 });

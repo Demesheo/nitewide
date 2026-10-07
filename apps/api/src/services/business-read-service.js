@@ -94,9 +94,10 @@ function createBusinessReadService({ models, email = null, stripe = null, delive
     return result;
   }
   async function venues(scope, orgs, { transaction } = {}) {
-    const locations = await select(`SELECT DISTINCT e.organization_id AS "organizationId", e.creator_user_id AS "creatorUserId", e.location_id AS "locationId"
+    const locations = await select(`SELECT DISTINCT e.organization_id AS "organizationId", e.creator_user_id AS "creatorUserId", e.location_id AS "locationId",
+      EXISTS (SELECT 1 FROM organization_venues link WHERE link.organization_id=e.organization_id AND link.location_id=e.location_id) AS "isManagedVenue"
       FROM events e WHERE ${base} AND e.location_id IS NOT NULL
-      UNION SELECT DISTINCT ov.organization_id, NULL::uuid, ov.location_id
+      UNION SELECT DISTINCT ov.organization_id, NULL::uuid, ov.location_id, true
       FROM organization_venues ov JOIN locations loc ON loc.id = ov.location_id AND loc.lifecycle_state = 'active'
       WHERE ov.organization_id IN (:organizationIds) AND (:isAdmin OR ${organizationMember.replace(/\be\.organization_id\b/g,'ov.organization_id')} OR ${venueMemberSql('ov')})
       ORDER BY "organizationId","locationId" LIMIT 101`,

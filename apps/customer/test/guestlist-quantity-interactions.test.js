@@ -22,7 +22,7 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
   const capabilities = { readOnly: false, canReviewGuestlist: true };
   const detail = { event, scope: 'event', capabilities };
   const response = (data, status = 200) => new Response(JSON.stringify(status < 400 ? { data } : { error: data }), { status, headers: { 'content-type': 'application/json' } });
-  let handler, vite, view, React, render, screen, waitFor, act, user, App, AccountDialog, MyEventGuestDetail;
+  let handler, vite, view, React, render, screen, within, waitFor, act, user, App, AccountDialog, MyEventGuestDetail;
   globalThis.fetch = async (input, options = {}) => {
     const url = new URL(String(input), dom.window.location.href);
     const call = { url, ...options, body: options.body ? JSON.parse(options.body) : undefined };
@@ -68,7 +68,7 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
     ({ AccountDialog } = await vite.ssrLoadModule('/src/components/account-dialog.jsx'));
     ({ MyEventGuestDetail } = await vite.ssrLoadModule('/src/components/my-event-guest-detail.jsx'));
     React = await import('react');
-    ({ render, screen, waitFor, act } = await import('@testing-library/react'));
+    ({ render, screen, within, waitFor, act } = await import('@testing-library/react'));
     user = (await import('@testing-library/user-event')).default.setup({ document: dom.window.document });
 
     await t.test('signed-out request control uses five and cannot be typed or stepped beyond its bounds', async () => {
@@ -157,6 +157,224 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
       await screen.findByRole('alert');
       assert.equal(quantity('Spots'), 5);
       assert.equal(screen.getByRole('button', { name: 'Save spots' }).disabled, false);
+      let releasePoll, releaseSaved;
+      handler = (call) => new Promise((resolve) => { if (call.method === 'PATCH') releaseSaved = () => resolve(response({ entry: { id: ticket.id, status: 'pending', partySize: call.body.partySize } })); else releasePoll = () => resolve(response(ticket)); });
+      await act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
+      await user.click(screen.getByRole('button', { name: 'Save spots' }));
+      await act(async () => releasePoll());
+      await act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
+      assert.equal(calls.filter((call) => call.url.pathname.endsWith('/pass')).length, 1, 'polling pauses while the quantity edit is saving');
+      await act(async () => releaseSaved());
+      await screen.findByRole('button', { name: 'Edit spots' });
+      await user.click(screen.getByRole('button', { name: 'Edit spots' }));
+      assert.equal(quantity('Spots'), 5, 'an older poll cannot undo the saved quantity');
+      assert.equal(screen.getByRole('button', { name: 'Save spots' }).disabled, true);
+      reset();
+    });
+
+    await t.test('approval notification replaces five requested spots with four distinct passes and a current Booked card without manual refresh', async () => {
+      reset();
+      const changedEvent = { ...event, startsAt: '2099-10-04T23:00:00Z', endsAt: '2099-10-05T03:00:00Z' };
+      const requested = { id: pending.id, partySize: 5, status: 'pending', event };
+      const approved = { ...requested, kind: 'guestlist', partySize: 4, status: 'confirmed', event: changedEvent, tickets: Array.from({ length: 4 }, (_, index) => ({ id: `approved-pass-${index + 1}`, spots: 1, status: 'confirmed', offering: 'Guestlist', qrImage: `data:image/png;base64,fixture-${index + 1}` })) };
+      const other = { id: 'other-booking', partySize: 1, status: 'confirmed', event: { ...event, id: 'other-event', title: 'Other Night', startsAt: '2099-10-03T23:00:00Z' } };
+      const page = (guestlists) => ({ page: 1, pageSize: 10, total: guestlists.length, orders: [], guestlists, entries: guestlists.map(({ id }) => ({ kind: 'guestlist', id })) });
+      let releaseBookings;
+      handler = () => calls.length === 1 ? response(page([requested, other])) : new Promise((resolve) => { releaseBookings = () => resolve(response(page([other, approved]))); });
+      function BookedFixture({ notification }) {
+        const [route, setRoute] = React.useState(null), [incoming, setIncoming] = React.useState(null);
+        React.useEffect(() => { if (notification) { setRoute(`guestlist:${notification.ticket.id}`); setIncoming(notification); } }, [notification]);
+        const clearNotification = React.useCallback(() => setIncoming(null), []);
+        return React.createElement(AccountDialog, { open: true, embedded: true, session, notificationBooking: incoming, bookingRoute: route, onBookingRouteChange: setRoute, onNotificationOpened: clearNotification, onOpenChange() {} });
+      }
+      view = render(React.createElement(BookedFixture), { container: container() });
+      const originalCard = await screen.findByRole('button', { name: 'View guest list entry for Fixture Night, 5 Guest list entry' });
+      assert.match(originalCard.textContent, /Awaiting approval/);
+      view.rerender(React.createElement(BookedFixture, { notification: { ticket: approved } }));
+      await screen.findByText('Pass 1 of 4');
+      const images = [], ids = [];
+      for (let index = 0; index < 4; index += 1) {
+        images.push(screen.getByRole('img', { name: /QR code for guest list pass/ }).getAttribute('src'));
+        ids.push(screen.getByText(`approved-pass-${index + 1}`).textContent);
+        if (index < 3) await user.click(screen.getByRole('button', { name: 'Next pass' }));
+      }
+      assert.equal(new Set(images).size, 4);
+      assert.equal(new Set(ids).size, 4);
+      assert.equal(calls.length, 1, 'an already-loaded notification pass does not duplicate the pass or list request');
+      await user.click(screen.getByRole('button', { name: 'Back to my nights' }));
+      await waitFor(() => assert.equal(typeof releaseBookings, 'function'));
+      const currentCard = screen.getByRole('button', { name: 'View guest list entry for Fixture Night, 4 Guest list entry' });
+      assert.ok(within(currentCard).getByText('Approved'));
+      assert.match(currentCard.textContent, /4 guests/);
+      const date = (source) => new Date(source.startsAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: source.location.timezone });
+      assert.ok(currentCard.textContent.includes(date(changedEvent)));
+      assert.equal(currentCard.textContent.includes(date(event)), false);
+      assert.equal(screen.queryByText('Finding your nights…'), null, 'background revalidation does not shift the restored list');
+      await act(async () => releaseBookings());
+      assert.deepEqual(Array.from(container().querySelectorAll('.purchase-card')).map((card) => card.dataset.ticketId), [other.id, requested.id], 'the server refresh updates timeline ordering after a date change');
+      assert.ok(screen.getByRole('button', { name: 'View guest list entry for Fixture Night, 4 Guest list entry' }) === currentCard, 'revalidation retains the current card element');
+      assert.equal(calls.length, 2);
+      assert.ok(calls.every((call) => call.url.pathname === '/api/customer/bookings' && !call.body), 'this display update issues no credentials or mutations');
+      reset();
+    });
+
+    await t.test('opening and polling a pass reconcile its quantity and date while return restores focus and scroll', async () => {
+      reset();
+      const requested = { id: pending.id, partySize: 5, status: 'pending', event };
+      const changedEvent = { ...event, startsAt: '2099-10-06T23:00:00Z', endsAt: '2099-10-07T03:00:00Z' };
+      const approved = { ...requested, kind: 'guestlist', partySize: 4, status: 'confirmed', event: changedEvent, tickets: Array.from({ length: 4 }, (_, index) => ({ id: `polled-pass-${index}`, spots: 1, status: 'confirmed', offering: 'Guestlist', qrImage: `data:image/png;base64,polled-${index}` })) };
+      const page = (entry) => ({ page: 1, total: 1, orders: [], guestlists: [entry], entries: [{ kind: 'guestlist', id: entry.id }] });
+      let currentPass = { ...approved, partySize: 5, event, status: 'pending', tickets: [{ id: 'pending-pass', status: 'pending', offering: 'Guestlist', qrImage: null }] };
+      const scrolls = [], oldScrollTo = dom.window.scrollTo;
+      Object.defineProperty(dom.window, 'scrollY', { configurable: true, value: 420 });
+      dom.window.scrollTo = (value) => scrolls.push(value.top);
+      handler = (call) => response(call.url.pathname.endsWith('/pass') ? currentPass : page(calls.filter((entry) => entry.url.pathname.endsWith('/bookings')).length === 1 ? requested : approved));
+      function BookedFixture() {
+        const [route, setRoute] = React.useState(null);
+        return React.createElement(AccountDialog, { open: true, embedded: true, session, bookingRoute: route, onBookingRouteChange: setRoute, onOpenChange() {} });
+      }
+      view = render(React.createElement(BookedFixture), { container: container() });
+      await user.click(await screen.findByRole('button', { name: /View guest list entry for Fixture Night, 5/ }));
+      await screen.findByText('Pending review');
+      currentPass = approved;
+      await act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
+      await screen.findByText('Pass 1 of 4');
+      assert.equal(calls.filter((call) => call.url.pathname.endsWith('/pass')).length, 2, 'route synchronization does not duplicate an opened pass request');
+      await user.click(screen.getByRole('button', { name: 'Back to my nights' }));
+      const card = await screen.findByRole('button', { name: /View guest list entry for Fixture Night, 4/ });
+      assert.ok(within(card).getByText('Approved'));
+      assert.match(card.textContent, /Oct 6/);
+      assert.ok(dom.window.document.activeElement === card);
+      assert.equal(scrolls.at(-1), 420);
+      assert.equal(calls.filter((call) => call.url.pathname.endsWith('/bookings')).length, 2);
+      dom.window.scrollTo = oldScrollTo;
+      reset();
+    });
+
+    await t.test('pass polling skips hidden tabs, avoids overlapping requests and clears unavailable admission caches', async () => {
+      reset();
+      const approved = { id: pending.id, kind: 'guestlist', partySize: 4, status: 'confirmed', event, tickets: Array.from({ length: 4 }, (_, index) => ({ id: `status-pass-${index}`, spots: 1, status: 'confirmed', offering: 'Guestlist', qrImage: `data:image/png;base64,status-${index}` })) };
+      const page = { page: 1, total: 1, orders: [], guestlists: [approved], entries: [{ kind: 'guestlist', id: approved.id }] };
+      let releasePass;
+      handler = (call) => call.url.pathname.endsWith('/pass') ? new Promise((resolve) => { releasePass = (pass) => resolve(response(pass)); }) : response(page);
+      view = render(React.createElement(AccountDialog, { open: true, embedded: true, session, notificationBooking: { ticket: approved }, onOpenChange() {} }), { container: container() });
+      await screen.findByText('Pass 1 of 4');
+      const cacheKey = `nitewide.passes:${session.user.id}:guestlist:${approved.id}`;
+      assert.ok(dom.window.localStorage.getItem(cacheKey));
+      Object.defineProperty(dom.window.document, 'hidden', { configurable: true, value: true });
+      await act(async () => { dom.window.dispatchEvent(new dom.window.Event('focus')); dom.window.document.dispatchEvent(new dom.window.Event('visibilitychange')); });
+      assert.equal(calls.length, 0);
+      Object.defineProperty(dom.window.document, 'hidden', { configurable: true, value: false });
+      await act(async () => { dom.window.document.dispatchEvent(new dom.window.Event('visibilitychange')); dom.window.dispatchEvent(new dom.window.Event('focus')); });
+      assert.equal(calls.length, 1, 'focus and visibility events share the in-flight refresh');
+      const revoked = { ...approved, status: 'rejected', tickets: approved.tickets.map((pass) => ({ ...pass, status: 'rejected', qrImage: null })) };
+      await act(async () => releasePass(revoked));
+      await screen.findByRole('article', { name: 'Guest list pass 1: Declined' });
+      assert.equal(dom.window.localStorage.getItem(cacheKey), null);
+      assert.equal(screen.queryByRole('img', { name: /QR code/ }), null);
+      for (const pass of [
+        { ...approved, event: { ...event, status: 'cancelled' }, tickets: approved.tickets.map((ticket) => ({ ...ticket, qrImage: null })) },
+        { ...approved, status: 'checked_in', tickets: approved.tickets.map((ticket) => ({ ...ticket, status: 'checked_in', qrImage: null })) },
+      ]) {
+        await act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
+        await act(async () => releasePass(pass));
+        assert.equal(dom.window.localStorage.getItem(cacheKey), null);
+        assert.equal(screen.queryByRole('img', { name: /QR code/ }), null);
+      }
+      assert.ok(screen.getByText('4 of 4 checked in'));
+      delete dom.window.document.hidden;
+      reset();
+    });
+
+    await t.test('return revalidation removes a moved night from its old period and repairs a now-empty page', async () => {
+      reset();
+      const requested = { id: pending.id, partySize: 5, status: 'pending', event };
+      const moved = { ...requested, kind: 'guestlist', partySize: 4, status: 'confirmed', event: { ...event, startsAt: '2000-10-02T23:00:00Z', endsAt: '2000-10-03T03:00:00Z' }, tickets: [{ id: 'expired-pass', status: 'confirmed', qrImage: null, offering: 'Guestlist' }] };
+      const other = { ...requested, id: 'remaining-night', event: { ...event, id: 'remaining-event', title: 'Remaining Night' } };
+      const page = (entries, number, total) => ({ page: number, pageSize: 10, total, orders: [], guestlists: entries, entries: entries.map(({ id }) => ({ kind: 'guestlist', id })) });
+      let updated = false;
+      handler = (call) => {
+        if (call.url.pathname.endsWith('/pass')) { updated = true; return response(moved); }
+        const number = Number(call.url.searchParams.get('page'));
+        if (call.url.searchParams.get('period') === 'past') return response(page([moved], 1, 1));
+        return response(number === 2 ? page(updated ? [] : [requested], 2, updated ? 10 : 11) : page([other], 1, updated ? 10 : 11));
+      };
+      function BookedFixture() {
+        const [route, setRoute] = React.useState(null);
+        return React.createElement(AccountDialog, { open: true, embedded: true, session, bookingRoute: route, onBookingRouteChange: setRoute, onOpenChange() {} });
+      }
+      view = render(React.createElement(BookedFixture), { container: container() });
+      await screen.findByRole('button', { name: /View guest list entry for Remaining Night/ });
+      await user.click(screen.getByRole('button', { name: 'Next' }));
+      await user.click(await screen.findByRole('button', { name: /View guest list entry for Fixture Night, 5/ }));
+      await screen.findByRole('button', { name: 'Back to my nights' });
+      await user.click(screen.getByRole('button', { name: 'Back to my nights' }));
+      await screen.findByRole('button', { name: /View guest list entry for Remaining Night/ });
+      assert.equal(screen.queryByText('Fixture Night'), null);
+      assert.equal(screen.queryByRole('button', { name: 'Next' }), null);
+      const requests = calls.filter((call) => call.url.pathname.endsWith('/bookings')).map((call) => [call.url.searchParams.get('period'), call.url.searchParams.get('page')]);
+      assert.deepEqual(requests, [['upcoming', '1'], ['upcoming', '2'], ['upcoming', '2'], ['upcoming', '1']]);
+      await user.click(screen.getByRole('button', { name: 'Past nights' }));
+      const movedCard = await screen.findByRole('button', { name: /View guest list entry for Fixture Night, 4/ });
+      assert.ok(within(movedCard).getByText('Approved'));
+      assert.equal(screen.getByRole('button', { name: 'Past nights' }).getAttribute('aria-pressed'), 'true');
+      reset();
+    });
+
+    await t.test('late booking and pass responses cannot cross account identities or survive unmount', async () => {
+      reset();
+      const requested = { id: pending.id, partySize: 5, status: 'pending', event };
+      const page = { page: 1, total: 1, orders: [], guestlists: [requested], entries: [{ kind: 'guestlist', id: requested.id }] };
+      const empty = { page: 1, total: 0, orders: [], guestlists: [], entries: [] };
+      const pass = { ...requested, kind: 'guestlist', tickets: [{ id: 'late-pass', status: 'pending', qrImage: null, offering: 'Guestlist' }] };
+      let releasePass, releaseBookings;
+      const props = { open: true, embedded: true, session, onOpenChange() {} };
+      handler = () => response(page);
+      view = render(React.createElement(AccountDialog, props), { container: container() });
+      const card = await screen.findByRole('button', { name: /View guest list entry for Fixture Night, 5/ });
+      handler = (call) => new Promise((resolve) => { if (call.url.pathname.endsWith('/pass')) releasePass = () => resolve(response(pass)); else releaseBookings = () => resolve(response(page)); });
+      await user.click(screen.getByRole('button', { name: 'Refresh bookings' }));
+      await user.click(card);
+      await waitFor(() => assert.equal(typeof releasePass, 'function'));
+      const oldRequests = calls.slice(-2);
+      handler = () => response(empty);
+      view.rerender(React.createElement(AccountDialog, { ...props, session: { accessToken: 'other-token', user: { ...session.user, id: 'other-customer' } } }));
+      await screen.findByText('Something to look forward to.');
+      assert.ok(oldRequests.every((call) => call.signal.aborted));
+      await act(async () => { releaseBookings(); releasePass(); });
+      assert.equal(screen.queryByText('Fixture Night'), null);
+      assert.equal(screen.queryByRole('button', { name: 'Back to my nights' }), null);
+      assert.equal(dom.window.localStorage.getItem(`nitewide.passes:other-customer:guestlist:${pass.id}`), null);
+      reset();
+      handler = (call) => response(call.url.pathname.endsWith('/pass') ? pass : page);
+      const linked = { ...props, bookingRoute: `guestlist:${pass.id}` };
+      view = render(React.createElement(AccountDialog, linked), { container: container() });
+      await screen.findByRole('article', { name: 'Guest list entry: Pending review' });
+      handler = (call) => response(call.url.pathname.endsWith('/pass') ? { message: 'This booking is not yours.' } : empty, call.url.pathname.endsWith('/pass') ? 403 : 200);
+      view.rerender(React.createElement(AccountDialog, { ...linked, session: { accessToken: 'other-token', user: { ...session.user, id: 'other-customer' } } }));
+      await screen.findByText(/This booking could not be opened: This booking is not yours/);
+      assert.equal(screen.queryByRole('article', { name: 'Guest list entry: Pending review' }), null);
+      assert.equal(calls.filter((call) => call.url.pathname.endsWith('/pass')).length, 2, 'a carried deep link is checked under the new identity');
+      reset();
+      handler = () => response(page);
+      view = render(React.createElement(AccountDialog, props), { container: container() });
+      await screen.findByRole('button', { name: /View guest list entry for Fixture Night, 5/ });
+      handler = (call) => call.url.pathname.endsWith('/pass') ? new Promise((resolve) => { releasePass = () => resolve(response(pass)); }) : response(page);
+      await user.click(screen.getByRole('button', { name: /View guest list entry for Fixture Night, 5/ }));
+      const pendingOpen = calls.at(-1);
+      view.rerender(React.createElement(AccountDialog, { ...props, session: { ...session, accessToken: 'renewed-token' } }));
+      await waitFor(() => assert.equal(screen.getByRole('button', { name: /View guest list entry for Fixture Night, 5/ }).disabled, false));
+      assert.equal(pendingOpen.signal.aborted, true);
+      await act(async () => releasePass());
+      assert.equal(screen.queryByRole('button', { name: 'Back to my nights' }), null);
+      reset();
+      handler = () => new Promise((resolve) => { releaseBookings = () => resolve(response(page)); });
+      view = render(React.createElement(AccountDialog, props), { container: container() });
+      const unfinished = calls[0];
+      view.unmount(); view = null;
+      assert.equal(unfinished.signal.aborted, true);
+      await act(async () => releaseBookings());
+      assert.equal(container().textContent, '');
       reset();
     });
 

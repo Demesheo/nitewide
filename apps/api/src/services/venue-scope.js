@@ -14,9 +14,15 @@ function venueOptions(events) {
     const id = venueKey(event);
     if (!id) continue;
     const locationId = event.locationId || event.location.id;
-    if (!groups.has(id)) groups.set(id, { id, label: locationId ? event.location.name || event.location.addressLine1 || 'Event location' : 'No event location', organizationId: event.organizationId || null, creatorUserId: event.organizationId ? null : event.creatorUserId, location: event.location, locationIds: [] });
+    if (!groups.has(id)) groups.set(id, { id, label: locationId ? event.location.name || event.location.addressLine1 || 'Event location' : 'No event location', organizationId: event.organizationId || null, creatorUserId: event.organizationId ? null : event.creatorUserId, location: event.location, locationIds: [], managedLocationIds: [], managedLocation: null });
     const group = groups.get(id);
     if (locationId && !group.locationIds.includes(locationId)) group.locationIds.push(locationId);
+    // Analytics also includes event-only addresses. Keep their filter IDs,
+    // while exposing only confirmed business links as editor defaults.
+    if (locationId && event.isManagedVenue === true && !group.managedLocationIds.includes(locationId)) {
+      group.managedLocationIds.push(locationId);
+      group.managedLocation ||= { ...(event.location.toJSON ? event.location.toJSON() : event.location), id: locationId };
+    }
   }
   return [...groups.values()].sort((a,b)=>a.label.localeCompare(b.label)||a.id.localeCompare(b.id));
 }

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { eventPhase, selectEvents, eventTeamRoles, filterEventTeam, eventTeamSalesSlices } from '../src/lib/events.js';
-import { editorDraft, eventPayload, releaseOptions, removeOffering } from '../src/lib/business.js';
+import { defaultEventLocation, editorDraft, eventPayload, releaseOptions, removeOffering } from '../src/lib/business.js';
 
 const ticket = { name: 'Custom ticket', kind: 'ticket', price: 10, quantityTotal: 50,
   inventoryMode: 'finite', entriesPerUnit: 1, minPerOrder: 1, maxPerOrder: 10, isActive: true };
@@ -69,6 +69,40 @@ test('saved venue lookup outside the bootstrap page retains its canonical identi
   const payload = eventPayload({ ...draft, locationMode: 'saved' });
   assert.equal(payload.locationId, 'venue-1001');
   assert.equal(Object.hasOwn(payload, 'locationMode'), false);
+});
+test('custom event addresses reopen as addresses even when their IDs appear in analytics or the legacy organization default', () => {
+  const event = { organizationId: 'org', locationId: 'custom-address', isManagedVenue: false,
+    location: { name: 'Custom room', addressLine1: '100 QA Way', city: 'Denver', timezone: 'America/Denver' }, offerings: [] };
+  const organizations = [{ id: 'org', locationId: event.locationId, location: { city: 'Orlando', timezone: 'America/New_York' } }];
+  const venues = [{ organizationId: 'org', locationIds: [event.locationId], managedLocationIds: [] }];
+  const draft = editorDraft(event, 'org', organizations, venues);
+  assert.equal(draft.locationId, null);
+  assert.equal(draft.locationMode, 'address');
+  assert.equal(draft.location.addressLine1, '100 QA Way');
+  assert.equal(draft.location.timezone, 'America/Denver');
+  assert.equal(eventPayload(draft).locationId, null, 'saving the reopened custom address never submits an unavailable saved venue');
+  assert.equal(editorDraft(event, 'org', organizations, [{ ...venues[0], managedLocationIds: [event.locationId] }]).locationId, null,
+    'an explicit unmanaged flag takes precedence over stale bootstrap metadata');
+  assert.equal(editorDraft({ ...event, isManagedVenue: undefined }, 'org', organizations, venues).locationId, null,
+    'older details cannot infer a business link from analytics IDs or an organization default');
+});
+test('new events and organization switches default only to confirmed linked venues', () => {
+  const legacyLocation = { name: 'Legacy address', city: 'Orlando', timezone: 'America/New_York' };
+  const organizations = [{ id: 'org', locationId: 'unlinked-primary', location: legacyLocation }];
+  const customOption = { organizationId: 'org', locationIds: ['unlinked-primary'], managedLocationIds: [], location: legacyLocation };
+  const unlinked = editorDraft(null, 'org', organizations, [customOption]);
+  assert.equal(unlinked.locationId, null);
+  assert.equal(unlinked.locationMode, 'address');
+  assert.equal(unlinked.location.city, 'Orlando', 'an unlinked organization address remains editable as a custom address');
+  const managedLocation = { id: 'linked', name: 'Saved room', city: 'Denver', timezone: 'America/Denver' };
+  const mixed = { ...customOption, locationIds: ['unlinked-primary', 'linked'], managedLocationIds: ['linked'], managedLocation };
+  const linked = defaultEventLocation('org', organizations, [mixed]);
+  assert.equal(linked.locationId, 'linked');
+  assert.equal(linked.location, managedLocation, 'a mixed analytics group cannot supply a custom row timezone to the saved default');
+  assert.equal(editorDraft(null, 'org', organizations, [mixed]).locationMode, 'saved');
+  assert.equal(defaultEventLocation('other-org', organizations, [mixed]).locationId, null, 'links stay in their organization');
+  const confirmedPrimary = [{ ...organizations[0], locationId: 'linked', location: managedLocation }];
+  assert.equal(defaultEventLocation('org', confirmedPrimary, [mixed]).locationId, 'linked');
 });
 test('business editor builds a three-step GA ladder, supports windows, manual close, and package ladders', () => {
   const draft = editorDraft(null, 'org', [{id:'org',location:{city:'Orlando',timezone:'America/New_York'}}]);
