@@ -193,7 +193,7 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
     if (resendCooldown) return;
     setBusy(true); setError(''); setMessage('');
     try { const result = await api('/auth/email/resend', { token: session.accessToken, method: 'POST' }); setMessage(result.message || 'If verification is needed and email delivery is available, a new link will arrive shortly.'); setResendCooldown(60); }
-    catch (error) { setError(error.status === 503 ? 'Email delivery is unavailable in this environment. Try again when it is enabled.' : error.message); }
+    catch (error) { setError(error.status === 503 ? 'We couldn’t send the verification email. Please try again later.' : error.message); }
     finally { setBusy(false); }
   }
   useEffect(() => {

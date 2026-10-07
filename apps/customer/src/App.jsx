@@ -645,7 +645,7 @@ function CustomerApp() {
     setDemoError('');
     try {
     const mode = totals.total === 0 ? 'free' : paymentConfig?.enabled && paymentConfig.mode === 'test' ? 'stripe' : demoCheckoutEnabled ? 'demo' : 'disabled';
-    if (mode === 'disabled' && !checkoutRecovering) throw new Error('Payment checkout is not ready yet. Please try again later.');
+    if (mode === 'disabled' && !checkoutRecovering) throw new Error('Checkout is unavailable right now. Please try again later.');
     let attempt = checkoutRecovering ? activeCheckoutAttempt.current || readCheckoutAttempt(session.user.id) : prepareCheckoutAttempt(session.user.id, {
       eventId: selected.id,
       expectedTotalCents: totals.total,
@@ -1153,7 +1153,7 @@ function CustomerApp() {
                     </>
                   )}
                   <p className="demo-note">
-                    {totals.total === 0 ? 'Free admission · No payment required.' : paymentConfig?.enabled ? 'Secure sandbox checkout · Test payments only.' : demoCheckoutEnabled ? 'Demo checkout · No payment will be collected.' : 'Payments are being prepared.'}
+                    {totals.total === 0 ? 'Free admission · No payment required.' : paymentConfig?.enabled ? 'Secure sandbox checkout · Test payments only.' : demoCheckoutEnabled ? 'Demo checkout · No payment will be collected.' : paymentConfig ? 'Checkout is unavailable right now. Please try again later.' : 'Checking checkout availability…'}
                   </p>
                 </TabsContent>
                 <TabsContent value="guestlist">
@@ -1183,9 +1183,9 @@ function CustomerApp() {
           )}
           {selected && stage === "checkout" && offering && (
             <div className="checkout-review">
-              <Badge variant="outline">{totals.total === 0 ? 'FREE BOOKING' : paymentConfig?.enabled ? 'SANDBOX CHECKOUT' : demoCheckoutEnabled ? 'DEMO CHECKOUT' : 'PAYMENTS UNAVAILABLE'}</Badge>
+              <Badge variant="outline">{totals.total === 0 ? 'FREE BOOKING' : paymentConfig?.enabled ? 'SANDBOX CHECKOUT' : demoCheckoutEnabled ? 'DEMO CHECKOUT' : 'CHECKOUT'}</Badge>
               <p>
-                {totals.total === 0 ? 'Confirm your free admission. No card details are required.' : paymentConfig?.enabled ? 'Pay securely with Stripe in test mode. Use test payment details only; no real charge will be made.' : demoCheckoutEnabled ? 'This creates a demo order and admission in local test data. No card details or charge; not valid for entry.' : 'Paid booking will be available once secure payment setup is complete.'}
+                {totals.total === 0 ? 'Confirm your free admission. No card details are required.' : paymentConfig?.enabled ? 'Pay securely with Stripe in test mode. Use test payment details only; no real charge will be made.' : demoCheckoutEnabled ? 'This creates a demo order and admission in local test data. No card details or charge; not valid for entry.' : paymentConfig ? 'Checkout is unavailable right now. Please try again later.' : 'Checking checkout availability…'}
               </p>
               <div className="order-summary">
                 <h3>{paymentCheckout?.booking?.items.length > 1 ? 'Your booking' : offering.name}</h3>
@@ -1210,7 +1210,7 @@ function CustomerApp() {
                 </dl>
               </div>
               <p className="fine-print">
-                Booking as {session?.user.email}.{totals.total > 0 && ' Taxes and any additional charges must be finalized before live payments launch.'}
+                Booking as {session?.user.email}.
               </p>
               {totals.floorAdjusted && <p className="fine-print">A minimum-cost adjustment is included in the service fee to cover this order. Processing is included; no additional processing charge applies.</p>}
               {demoError && <p role="alert">{demoError}</p>}
@@ -1218,7 +1218,7 @@ function CustomerApp() {
               {referralCodeForEvent(referral, selected.id) && <p className="connection-context">Booking with <strong>{referral.referrerName}</strong></p>}
               {paymentCheckout?.clientSecret && paymentCheckout.verificationStatus !== 'review' && paymentConfig?.enabled && <Suspense fallback={<LoadingIndicator>Loading secure payment form…</LoadingIndicator>}><StripeCheckout key={paymentCheckout.orderId} config={paymentConfig} checkout={paymentCheckout} amount={money(totals.total, offering.currency)} onCheck={() => checkBookingPayment()} onVerify={() => checkBookingPayment(true)} onBusyChange={busy => { checkoutLock.current = busy; setDemoBusy(busy); }} /></Suspense>}
               {paymentCheckout ? <>{!paymentCheckout.clientSecret && paymentCheckout.verificationStatus !== 'review' && <Button className="primary-action dark-glass-action" disabled={demoBusy} onClick={completeDemo}>{demoBusy ? <LoadingIndicator>Checking your booking…</LoadingIndicator> : `Pay ${money(totals.total, offering.currency)}`}</Button>}{paymentCheckout.verificationStatus !== 'review' && <Button variant="outline" disabled={demoBusy} onClick={cancelPaymentBooking}>Cancel payment attempt</Button>}<p className="fine-print">You can close this window and continue your purchase from Notifications.{paymentCheckout.verificationStatus !== 'review' && ' Cancellation is final only after the server confirms payment was not completed.'}</p></> : <Button className="primary-action dark-glass-action" onClick={completeDemo} disabled={demoBusy || (!checkoutRecovering && (!totals.eligible || (totals.total > 0 && !paymentConfig?.enabled && !demoCheckoutEnabled)))}>
-                {demoBusy ? <LoadingIndicator>{checkoutRecovering ? 'Checking your booking…' : 'Preparing your booking…'}</LoadingIndicator> : <>{checkoutRecovering ? 'Check / retry booking' : totals.total === 0 ? 'Claim admission' : paymentConfig?.enabled ? 'Continue to payment' : demoCheckoutEnabled ? 'Confirm demo booking' : 'Payments unavailable'} <ArrowRight /></>}
+                {demoBusy ? <LoadingIndicator>{checkoutRecovering ? 'Checking your booking…' : 'Preparing your booking…'}</LoadingIndicator> : <>{checkoutRecovering ? 'Check / retry booking' : totals.total === 0 ? 'Claim admission' : paymentConfig?.enabled ? 'Continue to payment' : demoCheckoutEnabled ? 'Confirm demo booking' : 'Continue to payment'} <ArrowRight /></>}
               </Button>}
               <Button variant="ghost" disabled={demoBusy || checkoutRecovering} onClick={() => setStage("details")}>
                 Back to tickets & tables

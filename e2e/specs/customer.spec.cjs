@@ -458,9 +458,9 @@ test('incomplete sandbox configuration shows unavailable payments without fallin
   await page.route('**/api/customer/payment-config', route => route.fulfill({ json: { data: { enabled: false, configured: true, mode: 'test', publishableKey: null, demoEnabled: true } } }));
   await loginViaApi(page, fixture, 'customer', 'customer', `/?event=${fixture.ids.event}`);
   const details = await selectVipCheckout(page);
-  await expect(details.getByRole('button', { name: 'Payments unavailable' })).toBeDisabled();
+  await expect(details.getByRole('button', { name: 'Continue to payment' })).toBeDisabled();
   await expect(details.getByRole('button', { name: 'Confirm demo booking' })).toHaveCount(0);
-  await expect(details).toContainText('Paid booking will be available');
+  await expect(details).toContainText('Checkout is unavailable right now. Please try again later.');
   await expectNoOverflow(page);
 });
 

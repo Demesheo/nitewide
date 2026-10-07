@@ -338,7 +338,7 @@ export default function App() {
             <strong>{visibleNavigation.find(([id]) => id === visiblePage)?.[2] || 'Overview'}</strong>
           </div>
           <div className="topbar-right">
-            <Notifications session={session} onNavigate={navigate} onMessage={setMessageThread} onSupportMessage={setSupportThread} capabilities={data?.capabilities} />
+            <Notifications session={session} onNavigate={navigate} onMessage={setMessageThread} onSupportMessage={setSupportThread} />
             <Messages session={session} initialThreadId={messageThread} initialSupportThreadId={supportThread} onSupportOpened={() => setSupportThread(null)} supportContext={selectedOrganizations.length === 1 ? { organizationId: selectedOrganizations[0], organizationName: data?.organizations?.find(org => org.id === selectedOrganizations[0])?.name } : undefined} onOpened={() => setMessageThread(null)} />
             <span className="live-label">
               <span />

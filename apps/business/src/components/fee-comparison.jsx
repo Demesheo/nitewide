@@ -22,7 +22,7 @@ export default function FeeComparison() {
         </tr>)}</tbody>
       </table>
     </div>
-    <p className="lp-fine-print">Yes does not imply exact feature parity. Pricing safeguards run in the demo using modeled US rates. Live payments, contracted costs and settlement reconciliation remain in development.</p>
+    <p className="lp-fine-print">Yes does not imply exact feature parity. Pricing safeguards use modeled US rates.</p>
     <div className="lp-comparison-note">
       <strong>Lower buyer fees. Full venue face value.</strong>
       <p>Our standard fee is 8% + $0.80 per paid ticket/package. We automatically target 2% lower total buyer fees than the lower modeled Posh or Eventbrite standard rate. A minimum-cost adjustment takes priority when necessary, so the final fee can exceed that standard rate or a competitor. This is a discount on fees, not the entire ticket price. Lower fees leave guests more room for drinks and upgrades, but additional in-venue spending is not guaranteed. Nitewide covers routine processing.</p>
@@ -70,7 +70,7 @@ export default function FeeComparison() {
         </>}
         <p>Venue net assumes buyer-paid checkout fees and excludes commissions, taxes, refunds and other obligations. Optional Premium is $249/month separately.</p>
       </div>}
-      <p className="lp-fine-print">Nitewide standard rate: 8% + $0.80 per paid ticket/package, rounded per unit. Automatic discounts use 98% of the lowest modeled total buyer fee, rounded down. Minimum-cost adjustments override the standard rate and discount target when needed. Purchases are not rejected solely for missing these targets. Demo calculations use Stripe domestic-card processing of 2.9% + $0.30 on the full charge and excludes uncontracted Connect/payout costs and reserves; production cost coverage is not established. Eventbrite: 3.7% + $1.79 per ticket plus 2.9% of face value and service fees per order. Estimates exclude taxes, refunds, disputes, special contracts and international cards. Free guestlists stay free. Live payments are not yet enabled.</p>
+      <p className="lp-fine-print">Nitewide standard rate: 8% + $0.80 per paid ticket/package, rounded per unit. Automatic discounts use 98% of the lowest modeled total buyer fee, rounded down. Minimum-cost adjustments override the standard rate and discount target when needed. Purchases are not rejected solely for missing these targets. Demo calculations use Stripe domestic-card processing of 2.9% + $0.30 on the full charge and excludes uncontracted Connect/payout costs and reserves; production cost coverage is not established. Eventbrite: 3.7% + $1.79 per ticket plus 2.9% of face value and service fees per order. Estimates exclude taxes, refunds, disputes, special contracts and international cards. Free guestlists stay free.</p>
     </div>
   </>;
 }

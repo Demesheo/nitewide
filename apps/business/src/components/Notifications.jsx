@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { api } from '@/lib/api';
 import { ServerPager } from './ServerPager';
 
-export function Notifications({ session, onNavigate, onMessage, onSupportMessage, capabilities = {} }) {
+export function Notifications({ session, onNavigate, onMessage, onSupportMessage }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [result, setResult] = useState(null);
@@ -59,7 +59,7 @@ export function Notifications({ session, onNavigate, onMessage, onSupportMessage
   return <><Button type="button" variant="ghost" size="icon" aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}
     onClick={() => setOpen(true)} className="relative"><Bell size={18}/>{unread > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-primary px-1 text-[10px] text-primary-foreground">{unread > 9 ? '9+' : unread}</span>}</Button>
     <Dialog open={open} onOpenChange={setOpen}><DialogContent className="max-h-[80vh] overflow-y-auto"><DialogHeader><DialogTitle>Notifications</DialogTitle>
-      <DialogDescription>Open an update to view its event or guestlist request. {capabilities.emailConfigured ? 'Email delivery may be queued where the feature supports it.' : 'Email delivery is not configured.'} Text delivery is not available.</DialogDescription></DialogHeader>
+      <DialogDescription>Open an update to view its event or guestlist request.</DialogDescription></DialogHeader>
       <div className="notification-actions"><span>{unread.toLocaleString()} unread</span><Button size="sm" variant="outline" disabled={busy || !result?.total} onClick={clearAll}>Clear all</Button></div>
       {error && <div className="error" role="alert">{error}<Button variant="outline" onClick={reload}>Try again</Button></div>}
       {result?.items.length ? <div className="space-y-2">{result.items.map((item) => <div key={item.id} className={`notification-row rounded-lg border border-border p-3 ${item.readAt ? 'opacity-70' : 'bg-secondary'}`}>

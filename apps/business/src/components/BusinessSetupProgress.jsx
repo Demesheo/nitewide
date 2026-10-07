@@ -8,8 +8,8 @@ const stripeDetails = {
   not_connected: 'Connect a default payment account to sell tickets and packages.',
   needs_attention: 'Complete Stripe’s requirements, then refresh your payment account.',
   needs_refresh: 'Your account needs a fresh Stripe status check before paid publishing.',
-  disabled: 'Payments are disabled or the account is disconnecting.',
-  unavailable: 'Paid checkout is not enabled in this environment yet.',
+  disabled: 'Review the payment account to resume paid publishing.',
+  unavailable: 'Paid checkout is currently unavailable. Free events and guestlists can still be published.',
 };
 
 function OrganizationChecklist({ organization, progress, onOrganization, onPayments, onEvents, onCreate }) {

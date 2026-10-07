@@ -96,7 +96,7 @@ export const pricing = {
 export const questions = [
   [
     "What does my business pay?",
-    "Core platform use is free. Standard customer fees are 8% + $0.80 per paid ticket or package. Automatic discounts target modeled Posh and Eventbrite buyer fees. Minimum-cost adjustments take priority and may exceed the standard rate or competitor price. Nitewide covers Stripe processing fees; there is no Nitewide organizer listing or transaction fee. Premium is optional at $249/month. Taxes, refunds, disputes and agreed promoter rewards remain separate obligations. Live payments and subscriptions are not yet enabled.",
+    "Core platform use is free. Standard customer fees are 8% + $0.80 per paid ticket or package. Automatic discounts target modeled Posh and Eventbrite buyer fees. Minimum-cost adjustments take priority and may exceed the standard rate or competitor price. Nitewide covers Stripe processing fees; there is no Nitewide organizer listing or transaction fee. Planned Premium is optional at $249/month. Taxes, refunds, disputes and agreed promoter rewards remain separate obligations.",
   ],
   [
     "Do I need to own a venue?",
@@ -104,7 +104,7 @@ export const questions = [
   ],
   [
     "What can I use today?",
-    "The local demo includes sign-in, event creation and editing, flyer uploads, ticket/package configuration, guestlist approvals, and sales reporting. Customer checkout is mocked; it does not collect real payments.",
+    "Sign-in, event creation and editing, flyer uploads, ticket/package configuration, guestlist approvals, and sales reporting. Payments use Stripe test mode and do not collect real money.",
   ],
   [
     "How do guestlist limits work?",
@@ -112,11 +112,11 @@ export const questions = [
   ],
   [
     "Does Premium lower transaction fees?",
-    "No. Planned transaction fees are the same on both plans. Premium is intended for advanced analytics, consent-based CRM, marketing, and business management—not a fee discount. Billing and Premium feature gates are not live.",
+    "No. Planned transaction fees are the same on both plans. Premium is on the roadmap for advanced analytics, consent-based CRM, marketing, and business management—not a fee discount.",
   ],
   [
-    "When can I take payments or receive payouts?",
-    "Live payments and payouts are upcoming. Availability and payout timing will depend on payment-provider approval, cleared funds, risk checks, and the connected account. There is no guaranteed 24-hour payout or chargeback protection.",
+    "How are payments and payouts handled?",
+    "Paid events require verified Stripe readiness. Availability and payout timing depend on payment-provider approval, cleared funds, risk checks, and the connected account. There is no guaranteed 24-hour payout or chargeback protection.",
   ],
 ];
 

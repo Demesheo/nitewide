@@ -11,8 +11,8 @@ export function EventOfferingsStep({ draft, event, duplicateSource, addedTierKey
       onChange={(value) => set('feeMode', value)} options={[
         ['buyer', 'Customer pays added fees'], ['absorbed', 'Business absorbs fees'],
       ]}/>
-    <p className="hint">Override this per offering if needed. Absorbed-fee purchases require at least $10 before taxes. Prices and commissions must leave positive business proceeds and cover the modeled $1 platform contribution; free admission is exempt. Payment processing is still simulated.</p>
-    <p className="hint">Free events and guestlists do not require Stripe. Paid publication uses your organization’s default payment account and requires verified Stripe readiness. To choose a different account, save a draft and select it in Event payments before publishing. Demo environments support simulated sales.</p>
+    <p className="hint">Override this per offering if needed. Absorbed-fee purchases require at least $10 before taxes. Prices and commissions must leave positive business proceeds and cover the modeled $1 platform contribution; free admission is exempt.</p>
+    <p className="hint">Free events and guestlists do not require Stripe. Paid publication uses your organization’s default payment account and requires verified Stripe readiness. To choose a different account, save a draft and select it in Event payments before publishing.</p>
     <div className="section-heading tier-ladder-heading"><div><h3>Build your ticket ladder</h3>
       <p>Set your prices and quantities. Sell tiers together, or link them to open one after another. Tap a tier to edit it.</p></div>
       <Button className="add-offering-button" type="button" variant="outline" size="sm"

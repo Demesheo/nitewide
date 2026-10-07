@@ -18,7 +18,7 @@ export function EventArtwork({ event, className = '', ...props }) {
           onError={() => setFailedSources(previous => previous.includes(src) ? previous : [...previous, src])}
         />
       ) : <span className="artwork-monogram" aria-hidden="true">n.</span>}
-      {kind !== 'flyer' && <span className="artwork-caption">{kind === 'placeholder' ? 'Artwork coming soon' : kind === 'photo' ? `Photo: @${venue.photoCredit}` : 'Nitewide mood artwork'}</span>}
+      {(kind === 'photo' || kind === 'illustration') && <span className="artwork-caption">{kind === 'photo' ? `Photo: @${venue.photoCredit}` : 'Nitewide mood artwork'}</span>}
     </span>
   );
 }

@@ -161,7 +161,8 @@ test('notifications support scoped read, dismiss, and confirmed clear interactio
     await user.click(q.getByRole('button', { name: 'Notifications, 22 unread' }));
     await q.findByRole('heading', { name: 'Notifications' });
     await q.findByText('Review Buyer One');
-    assert.ok(q.getByText(/Email delivery is not configured/), 'UI reports email capability honestly');
+    assert.ok(q.getByText('Open an update to view its event or guestlist request.'));
+    assert.equal(q.queryByText(/Email delivery is not configured|Text delivery is not available/), null);
     await user.click(q.getByRole('button', { name: 'Next' }));
     assert.ok((await q.findAllByText(/Page 2 of 2/)).length >= 1);
     assert.ok(calls.some((call) => call.url.pathname === '/api/notifications' && call.url.searchParams.get('page') === '2'));

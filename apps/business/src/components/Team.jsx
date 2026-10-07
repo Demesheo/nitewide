@@ -162,7 +162,7 @@ export function Team({ session, organizations, onUnauthorized }) {
           <div className="team-role-field"><span>Role</span><Choice label="Role" value={role} onChange={setRole} options={[...(canInviteManager ? [['manager', 'Manager']] : []), ['employee', 'Employee'], ['affiliate', 'Promoter']]} /></div>
           <Button disabled={busy || !organizationId}>{busy ? 'Creating…' : 'Create invitation'}</Button>
         </form>
-        <small>The invitation email is queued when email delivery is configured. The private link remains available to copy as a backup. Phone is saved for a future optional text invite.</small>
+        <small>The invitation email is queued when email delivery is configured. The private link remains available to copy as a backup.</small>
         {error && <p role="alert" className="error">{error}</p>}
         {link && <div className="team-link"><p>Private invitation link for the {roleLabel(role)}:</p><Input readOnly value={link} aria-label="Invitation link" onFocus={(event) => event.target.select()} /><CopyLinkButton component={Button} copied={copied} onClick={async () => { try { await copyText(link); setCopied(true); setError(''); } catch { setCopied(false); setError('Select and copy the invitation link above.'); } }}/><small>Only the invited email address can accept it.</small></div>}
         <DialogFooter><DialogClose asChild><Button variant="outline">Close</Button></DialogClose></DialogFooter>

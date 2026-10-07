@@ -250,8 +250,7 @@ export default function Landing() {
               </a>
             </div>
             <p className="lp-demo-disclosure">
-              <span className="lp-dot" /> Working demo available. Live payments
-              coming next.
+              <span className="lp-dot" /> Sandbox preview · test payments only.
             </p>
           </div>
           <div className="lp-hero-visual">
@@ -382,8 +381,6 @@ export default function Landing() {
           <p className="lp-fine-print">
             Based on linked official product information reviewed September 23,
             2026. Features overlap; unverified does not mean unavailable.
-            Upcoming capabilities are not live. Nitewide is a working demo, not
-            yet a live-payment alternative.
           </p>
         </section>
 
@@ -473,8 +470,7 @@ export default function Landing() {
                 Customers pay Nitewide’s service fee; Nitewide covers routine
                 Stripe processing from that fee, not your venue proceeds.
                 Free has no subscription; Premium is optional and does not
-                reduce checkout fees. Demo checkout collects no money; billing
-                is not live.
+                reduce checkout fees.
               </p>
             </div>
           </div>
