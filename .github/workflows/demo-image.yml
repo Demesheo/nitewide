@@ -253,8 +253,7 @@ jobs:
 
   deploy:
     needs: publish
-    # Staging/production publish verified immutable artifacts only. No automatic
-    # cloud deployment or production promotion is authorized by a branch push.
+    # Existing demo deployment remains main-only. Production stays manual.
     if: github.ref == 'refs/heads/main' && needs.publish.outputs.digest != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 3
@@ -297,3 +296,40 @@ jobs:
             echo "Render deploy hook failed with HTTP $status"
             exit 1
           fi
+
+  deploy-staging:
+    name: Deploy and verify staging
+    needs: publish
+    if: github.ref == 'refs/heads/staging' && needs.publish.outputs.digest != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 23
+    concurrency:
+      group: nitewide-staging-deploy
+      cancel-in-progress: false
+    environment: staging
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (Node 24)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 (Node 24)
+        with:
+          node-version: '24.21.0'
+      - name: Skip a superseded staging release
+        id: current
+        run: |
+          current_sha=$(git ls-remote --exit-code origin refs/heads/staging | cut -f1)
+          if [ "$current_sha" = "$GITHUB_SHA" ]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+            echo 'A newer staging commit exists; skipping deployment.'
+          fi
+      - name: Deploy the verified digest and require exact-release readiness
+        if: steps.current.outputs.current == 'true'
+        env:
+          IMAGE: ${{ needs.publish.outputs.image }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
+          RENDER_STAGING_API_DEPLOY_HOOK: ${{ secrets.RENDER_STAGING_API_DEPLOY_HOOK }}
+          RENDER_STAGING_WORKER_DEPLOY_HOOK: ${{ secrets.RENDER_STAGING_WORKER_DEPLOY_HOOK }}
+          STAGING_API_SERVICE_ID: ${{ vars.STAGING_API_SERVICE_ID }}
+          STAGING_WORKER_SERVICE_ID: ${{ vars.STAGING_WORKER_SERVICE_ID }}
+          STAGING_READINESS_URL: ${{ vars.STAGING_READINESS_URL }}
+        run: node deploy/staging.cjs

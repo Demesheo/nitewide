@@ -26,11 +26,22 @@ const { createPaymentServices } = require('./payments/services');
 const { stripeConfiguration } = require('./payments/stripe-client');
 const { createPaymentController } = require('./controllers/payment-controller');
 const { subdomainApps, appForHost } = require('./domain/app-routing');
+const { paymentRuntimeEvidence } = require('./diagnostics/payment-runtime');
 
 function createApp({ sequelize, models, config, healthCheck = () => sequelize.authenticate(), services = {}, staticRoot }) {
   const app = express(); app.disable('x-powered-by');
   const diagnostics = services.diagnostics || sequelize.diagnostics || createDiagnostics({ level: config.LOG_LEVEL || (config.NODE_ENV === 'test' ? 'silent' : 'info') });
   const health = createHealth({ check: healthCheck, timeoutMs: config.READINESS_TIMEOUT_MS ?? 3000 });
+  const runtime = paymentRuntimeEvidence(config);
+  const workerHealth = createHealth({ timeoutMs: config.READINESS_TIMEOUT_MS ?? 3000, check: async () => {
+    if (!runtime.revision || !runtime.configurationFingerprint) throw new Error('Release evidence unavailable');
+    const rows = await sequelize.query(`SELECT count(*)::int AS matching FROM background_workers
+      WHERE status='running' AND heartbeat_at > NOW() - INTERVAL '30 seconds' AND heartbeat_at <= NOW()
+      AND details->'paymentRuntime'->>'revision'=:revision
+      AND details->'paymentRuntime'->>'configurationFingerprint'=:fingerprint`,
+    { type: 'SELECT', replacements: { revision: runtime.revision, fingerprint: runtime.configurationFingerprint } });
+    if (!rows[0]?.matching) throw new Error('Matching worker unavailable');
+  } });
   app.locals.diagnostics = diagnostics; app.locals.health = health;
   app.use(diagnostics.middleware);
   // Hosted HTML must permit the final private-image redirect, not just /api/media.
@@ -47,10 +58,17 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   } : {};
   app.use(helmet({ contentSecurityPolicy: { directives: { imgSrc: imageSources, ...paymentSources } } }));
   app.set('trust proxy', config.trustProxy ?? (config.hostedDemo ? 1 : false));
+  app.use(['/health', '/health/live', '/health/ready'], (_req, res, next) => {
+    // Public commit/environment identity only, never settings or fingerprints.
+    if (runtime.revision) res.set('X-Nitewide-Revision', runtime.revision);
+    if (['staging', 'production'].includes(config.APP_ENVIRONMENT)) res.set('X-Nitewide-Environment', config.APP_ENVIRONMENT);
+    next();
+  });
   app.get('/health/live', (_req, res) => res.set('Cache-Control', 'no-store').json({ status: 'ok', service: 'nitewide-api' }));
   app.get(['/health', '/health/ready'], async (req, res) => {
     req.diagnosticRoute = req.path === '/health' ? '/health' : '/health/ready';
-    const ready = await health.ready();
+    let ready = await health.ready();
+    if (ready && req.query.requireWorker === 'true') ready = await workerHealth.ready() && !health.draining;
     res.set('Cache-Control', 'no-store').status(ready ? 200 : 503).json({ status: ready ? 'ok' : health.draining ? 'draining' : 'degraded', service: 'nitewide-api' });
   });
   if (config.APP_ROUTING_MODE === 'subdomains') {

@@ -35,8 +35,10 @@ const notificationJob = z.object({ id: z.uuid(), order_id: z.uuid(), status: z.e
 
 const operations = [
   { method: 'get', path: '/health/live', authenticated: false, responses: { 200: health } },
-  { method: 'get', path: '/health/ready', authenticated: false, responses: { 200: health, 503: health } },
-  { method: 'get', path: '/health', authenticated: false, responses: { 200: health, 503: health } },
+  ...['/health/ready', '/health'].map(path => ({ method: 'get', path, authenticated: false,
+    query: z.object({ requireWorker: z.literal('true').optional() }),
+    description: 'Bounded database readiness. With requireWorker=true, also require a fresh running worker matching this release and configuration. Release identity headers contain only the public revision and deployment environment; no worker details or secrets.',
+    responses: { 200: health, 503: health } })),
   { method: 'get', path: '/api/admin/diagnostics/metrics', authenticated: true, responses: { 200: envelope(metrics) } },
   { method: 'get', path: '/api/admin/diagnostics/payments', authenticated: true, query: paymentPreflightQuery,
     description: 'Internal administrators only. Read-only sandbox configuration, schema, stored merchant readiness and API/worker parity diagnostic; no provider requests. HTTP 200 includes blocked/disabled outcomes. Key-pair identity and actual webhook delivery remain unverified. Independent of general service readiness.',

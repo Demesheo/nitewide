@@ -77714,7 +77714,19 @@
           "public"
         ],
         "security": [],
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "requireWorker",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "const": "true"
+            },
+            "style": "form",
+            "explode": true
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful response",
@@ -77885,6 +77897,7 @@
             }
           }
         },
+        "description": "Bounded database readiness. With requireWorker=true, also require a fresh running worker matching this release and configuration. Release identity headers contain only the public revision and deployment environment; no worker details or secrets.",
         "servers": [
           {
             "url": "/"
@@ -77899,7 +77912,19 @@
           "public"
         ],
         "security": [],
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "requireWorker",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "const": "true"
+            },
+            "style": "form",
+            "explode": true
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful response",
@@ -78070,6 +78095,7 @@
             }
           }
         },
+        "description": "Bounded database readiness. With requireWorker=true, also require a fresh running worker matching this release and configuration. Release identity headers contain only the public revision and deployment environment; no worker details or secrets.",
         "servers": [
           {
             "url": "/"

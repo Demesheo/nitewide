@@ -60,5 +60,29 @@ test('production diagnostics use real PostgreSQL deadlines and authorized HTTP t
       await request(probe).get('/health/live').expect(200);
       await request(probe).get('/api/events').expect(503);
     });
+    await t.test('deployment readiness rejects stale, mismatched and stopped worker heartbeats', async () => {
+      const { randomUUID } = require('node:crypto');
+      const { paymentRuntimeEvidence } = require('../src/diagnostics/payment-runtime');
+      const releaseConfig = { ...config, RELEASE_REVISION: 'a'.repeat(40), APP_ENVIRONMENT: 'staging' };
+      const runtime = paymentRuntimeEvidence(releaseConfig), id = randomUUID();
+      const probe = createApp({ sequelize: db, models, config: releaseConfig, services: { email: { enabled: false } } });
+      try {
+        await request(probe).get('/health/ready?requireWorker=true').expect(503);
+        await db.query(`INSERT INTO background_workers(id,status,heartbeat_at,details) VALUES(:id,'running',NOW(),CAST(:details AS jsonb))`,
+          { replacements: { id, details: JSON.stringify({ paymentRuntime: runtime }) } });
+        await request(probe).get('/health/ready?requireWorker=true').expect(200).expect('X-Nitewide-Revision', runtime.revision);
+        for (const sql of [
+          "heartbeat_at=NOW()-INTERVAL '60 seconds'", "heartbeat_at=NOW()+INTERVAL '60 seconds'", "status='stopped'",
+          "details=jsonb_set(details,'{paymentRuntime,revision}','\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"')",
+          "details=jsonb_set(details,'{paymentRuntime,configurationFingerprint}','\"different\"')",
+        ]) {
+          await db.query(`UPDATE background_workers SET status='running',heartbeat_at=NOW(),details=CAST(:details AS jsonb) WHERE id=:id`,
+            { replacements: { id, details: JSON.stringify({ paymentRuntime: runtime }) } });
+          await db.query(`UPDATE background_workers SET ${sql} WHERE id=:id`, { replacements: { id } });
+          await request(probe).get('/health/ready?requireWorker=true').expect(503);
+          await request(probe).get('/health/ready').expect(200);
+        }
+      } finally { await db.query('DELETE FROM background_workers WHERE id=:id', { replacements: { id } }); }
+    });
   } finally { await db.close(); }
 });

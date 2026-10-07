@@ -15,9 +15,9 @@ const { spawnSync, spawn } = require('node:child_process');
 const path = require('node:path');
 const http = require('node:http');
 
-function fixture({ check = async () => {}, permissions, diagnostics, models = {} } = {}) {
-  return createApp({ sequelize: {}, models, healthCheck: check,
-    config: { NODE_ENV: 'test', corsOrigins: [], AUTH_TOKEN_SECRET: 'development-test-secret-32-characters', READINESS_TIMEOUT_MS: 20 },
+function fixture({ check = async () => {}, permissions, diagnostics, models = {}, sequelize = {}, config = {} } = {}) {
+  return createApp({ sequelize, models, healthCheck: check,
+    config: { NODE_ENV: 'test', corsOrigins: [], AUTH_TOKEN_SECRET: 'development-test-secret-32-characters', READINESS_TIMEOUT_MS: 20, ...config },
     services: { diagnostics, email: { enabled: false }, permissions: permissions || { assertInternal: async () => {} },
       auth: { authenticate: async () => ({ id: 'account' }) }, abuse: { before: async () => {}, authenticated: async () => {} } } });
 }
@@ -130,6 +130,26 @@ test('liveness ignores the DB; readiness bounds hangs, recovers and fails while 
   const hanging = createHealth({ check: () => { probes++; return new Promise(() => {}); }, timeoutMs: 10 });
   assert.deepEqual(await Promise.all([hanging.ready(), hanging.ready()]), [false, false]);
   assert.equal(await hanging.ready(), false); assert.equal(probes, 1);
+  let matching = 0, queries = 0;
+  const release = fixture({ config: { APP_ENVIRONMENT: 'staging', RELEASE_REVISION: 'a'.repeat(40) }, sequelize: {
+    query: async (sql, options) => {
+      queries++;
+      assert.match(sql, /status='running'/); assert.match(sql, /INTERVAL '30 seconds'/);
+      assert.match(sql, /heartbeat_at <= NOW\(\)/);
+      assert.equal(options.replacements.revision, 'a'.repeat(40));
+      assert.match(options.replacements.fingerprint, /^[a-f0-9]{64}$/);
+      return [{ matching }];
+    },
+  } });
+  await request(release).get('/health/ready').expect(200).expect('X-Nitewide-Revision', 'a'.repeat(40)).expect('X-Nitewide-Environment', 'staging');
+  assert.equal(queries, 0, 'ordinary readiness remains independent of worker deployment');
+  const unavailable = await request(release).get('/health/ready?requireWorker=true').expect(503);
+  assert.doesNotMatch(JSON.stringify(unavailable.body), /fingerprint|background_workers|secret/);
+  matching = 1;
+  await request(release).get('/health/ready?requireWorker=true').expect(200);
+  release.locals.health.drain();
+  await request(release).get('/health/ready?requireWorker=true').expect(503);
+  await request(fixture()).get('/health/ready?requireWorker=true').expect(503);
 });
 
 test('metrics require authenticated internal access and never return raw private data', async () => {

@@ -30,8 +30,59 @@ After a separately approved commit/push, GitHub verifies the `staging` and
 `production` branches using the existing unit/API, browser and image jobs. It
 publishes the exact checked artifact as
 `ghcr.io/demesheo/nitewide:sha-<40-character-commit>`. No additional browser lane
-is introduced. Only `main` automatically deploys the existing demo; neither
-release branch automatically deploys to Render or enables payments.
+is introduced. `main` automatically deploys the existing demo. `staging`
+automatically deploys its verified digest after the one-time setup below;
+`production` publishes artifacts only and still requires manual approval.
+Deployment does not enable payments.
+
+### Automatic staging deployment
+
+Create a GitHub Actions environment named **staging**, restricted to the
+**staging branch**. Do not require a reviewer for routine staging deployments.
+Keep the demo and production environments/secrets separate. In this environment
+configure these values (never commit hook URLs or paste them into chat):
+
+| Type | Name | Value |
+| --- | --- | --- |
+| Secret | `RENDER_STAGING_API_DEPLOY_HOOK` | Existing staging web service Settings → Deploy Hook |
+| Secret | `RENDER_STAGING_WORKER_DEPLOY_HOOK` | Existing staging worker Settings → Deploy Hook |
+| Variable | `STAGING_API_SERVICE_ID` | Staging web service's `srv-…` ID |
+| Variable | `STAGING_WORKER_SERVICE_ID` | Staging worker's distinct `srv-…` ID |
+| Variable | `STAGING_READINESS_URL` | `https://<actual-staging-host>.onrender.com/health/ready` |
+
+Use image-backed services whose image repository is `ghcr.io/demesheo/nitewide`.
+The workflow sends the exact verified digest, not a mutable tag, and refuses
+missing/mismatched hooks. It never falls back to a Git rebuild. A superseded
+branch commit does not start deployment; deployments are serialized and not
+canceled midway through migrations.
+
+The API deploy runs its pre-deploy migrations first. The workflow waits for
+`/health/ready` to report the expected public `X-Nitewide-Revision` and
+`X-Nitewide-Environment: staging` headers before requesting the worker deploy.
+It then probes `/health/ready?requireWorker=true`, which additionally requires
+a running worker heartbeat less than 30 seconds old with matching release and
+private runtime configuration evidence. Neither worker details nor the keyed
+fingerprint are exposed. An old healthy release, a queued hook response, or a
+mismatched worker cannot produce deployment success. Failure leaves a red job;
+inspect Render before retrying an uncertain hook request. There is no automatic
+rollback or reseeding.
+
+The normal Render health check stays `/health/ready`, independent of worker
+startup, to avoid deadlocking the API-first rollout. A worker must be provisioned
+before enabling this workflow; missing worker configuration fails closed.
+After custom-domain cutover, the direct Render hostname still supports these
+health probes. Hook-only image overrides do not change Render's default image
+reference: keep its configured verified digest current before manual redeploys.
+
+The manually provisioned staging services share the **nitewide-staging-runtime**
+environment group, scoped to **Nitewide / Staging**. Keep common settings there,
+not in duplicate service overrides. The API retains its `PORT` and
+`SERVE_FRONTENDS=true`; the worker overrides `SERVE_FRONTENDS=false`. The current
+Dashboard-created worker uses Render's default 30-second shutdown window, so its
+local `WORKER_SHUTDOWN_TIMEOUT_MS=20000` exits before a platform hard kill. Durable
+leases recover unfinished jobs. The Blueprint's longer 180-second Render window
+must be applied before using its 150-second application shutdown deadline; do
+not increase the application deadline alone.
 
 Use one verified image digest for both release services. Replace both image
 placeholders in the selected template before applying it:
