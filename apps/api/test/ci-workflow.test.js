@@ -6,7 +6,7 @@ const { containerPlan, projectGroups } = require('../../../e2e/ci-container.cjs'
 const root = path.resolve(__dirname, '../../..');
 const workflow = fs.readFileSync(path.join(root, '.github/workflows/demo-image.yml'), 'utf8');
 const section = name => {
-  const match = workflow.match(new RegExp(`^  ${name}:\\n([\\s\\S]*?)(?=^  [a-z]+:|$(?![\\s\\S]))`, 'm'));
+  const match = workflow.match(new RegExp(`^  ${name}:\\n([\\s\\S]*?)(?=^  [a-z][a-z0-9-]*:|$(?![\\s\\S]))`, 'm'));
   assert.ok(match, `Missing ${name} job`); return match[1];
 };
 const source = { CI: 'true', PLAYWRIGHT_CONTAINER_IMAGE: 'mcr.microsoft.com/playwright:v1.63.0-noble', TEST_DATABASE_ADMIN_URL: 'postgres://test:test@localhost:5432/postgres', RESEND_API_KEY: 'never-forward', GITHUB_TOKEN: 'never-forward', DATABASE_URL: 'postgres://live:secret@live.example/nitewide' };
@@ -156,6 +156,34 @@ test('publication and deployment do not cancel started releases or deploy stale 
   assert.match(section('publish'), /refs\/heads\/\$GITHUB_REF_NAME/);
   assert.match(section('publish'), /if \[ "\$GITHUB_REF_NAME" = main \]; then\s+docker tag nitewide-demo:test "\$IMAGE:demo"/);
   assert.match(section('deploy'), /--connect-timeout 10 --max-time 30/);
+});
+
+test('staging alias advances only after a successful serialized rollout without rebuilding the image', () => {
+  const staging = section('deploy-staging');
+  assert.match(staging, /timeout-minutes: 28/);
+  assert.match(staging, /if: github.ref == 'refs\/heads\/staging' && needs.publish.outputs.digest != ''/);
+  assert.match(staging, /group: nitewide-staging-deploy\n\s+cancel-in-progress: false/);
+  assert.match(staging, /permissions:\n\s+contents: read\n\s+packages: write/);
+  assert.match(section('publish'), /packages: write/);
+  assert.equal((workflow.match(/packages: write/g) || []).length, 2);
+  for (const name of ['unit', 'browser', 'build', 'verify', 'deploy']) assert.doesNotMatch(section(name), /packages: write/);
+  const steps = staging.split(/^      - /m).slice(1);
+  const rolloutIndex = steps.findIndex(step => /run: node deploy\/staging\.cjs/.test(step));
+  assert.ok(rolloutIndex >= 0);
+  assert.match(steps[rolloutIndex], /id: rollout/);
+  const promotionSteps = steps.slice(rolloutIndex + 1);
+  assert.equal(promotionSteps.length, 3);
+  for (const step of promotionSteps) assert.match(step, /if: steps.current.outputs.current == 'true' && steps.rollout.outcome == 'success'/);
+  assert.match(promotionSteps[0], /uses: docker\/login-action@dbcb813823bdd20940b903addbd779551569679f/);
+  assert.match(promotionSteps[1], /uses: docker\/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069/);
+  assert.match(promotionSteps[1], /driver: docker/);
+  assert.doesNotMatch(promotionSteps[1], /^\s+(?:install|version):/m);
+  assert.match(promotionSteps[2], /IMAGE: \$\{\{ needs.publish.outputs.image \}\}/);
+  assert.match(promotionSteps[2], /DIGEST: \$\{\{ needs.publish.outputs.digest \}\}/);
+  assert.match(promotionSteps[2], /STAGING_ROLLOUT_RESULT: \$\{\{ steps.rollout.outcome \}\}/);
+  assert.match(promotionSteps[2], /run: node deploy\/promote-staging\.cjs/);
+  assert.doesNotMatch(staging, /docker (?:pull|build)|build-push-action/);
+  for (const name of ['publish', 'deploy']) assert.doesNotMatch(section(name), /promote-staging\.cjs|STAGING_ROLLOUT_RESULT|\$IMAGE:staging/);
 });
 
 test('retired admin browser paths are excluded while rebuild workflows have dedicated coverage', () => {

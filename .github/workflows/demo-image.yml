@@ -302,10 +302,13 @@ jobs:
     needs: publish
     if: github.ref == 'refs/heads/staging' && needs.publish.outputs.digest != ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 23
+    timeout-minutes: 28
     concurrency:
       group: nitewide-staging-deploy
       cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
     environment: staging
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (Node 24)
@@ -323,6 +326,7 @@ jobs:
             echo 'A newer staging commit exists; skipping deployment.'
           fi
       - name: Deploy the verified digest and require exact-release readiness
+        id: rollout
         if: steps.current.outputs.current == 'true'
         env:
           IMAGE: ${{ needs.publish.outputs.image }}
@@ -333,3 +337,22 @@ jobs:
           STAGING_WORKER_SERVICE_ID: ${{ vars.STAGING_WORKER_SERVICE_ID }}
           STAGING_READINESS_URL: ${{ vars.STAGING_READINESS_URL }}
         run: node deploy/staging.cjs
+      - name: Authenticate staging default promotion
+        if: steps.current.outputs.current == 'true' && steps.rollout.outcome == 'success'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0 (Node 24)
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Reuse the runner Buildx for manifest-only promotion
+        if: steps.current.outputs.current == 'true' && steps.rollout.outcome == 'success'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1 (Node 24)
+        with:
+          driver: docker
+      - name: Promote the verified staging default without rebuilding
+        if: steps.current.outputs.current == 'true' && steps.rollout.outcome == 'success'
+        env:
+          IMAGE: ${{ needs.publish.outputs.image }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
+          STAGING_ROLLOUT_RESULT: ${{ steps.rollout.outcome }}
+        run: node deploy/promote-staging.cjs

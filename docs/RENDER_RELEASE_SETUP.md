@@ -77,8 +77,30 @@ The normal Render health check stays `/health/ready`, independent of worker
 startup, to avoid deadlocking the API-first rollout. A worker must be provisioned
 before enabling this workflow; missing worker configuration fails closed.
 After custom-domain cutover, the direct Render hostname still supports these
-health probes. Hook-only image overrides do not change Render's default image
-reference: keep its configured verified digest current before manual redeploys.
+health probes. Hook-only image overrides do not change Render's saved Source
+Image. After successful API/worker parity, the same serialized staging job
+rechecks the branch head and promotes `ghcr.io/demesheo/nitewide:staging-verified`
+to the exact published digest, then reads the registry manifest back to require
+the identical digest. Promotion copies the existing manifest, without rebuilding
+or pulling the full image. It uses the job's GitHub package permission; no broad
+Render account key is added. A superseded commit leaves the alias unchanged.
+
+After the first successful alias promotion, change both staging services' saved
+Source Images once to `ghcr.io/demesheo/nitewide:staging-verified`, keeping their
+existing registry credentials. Confirm the resulting API and worker deploys use
+the promoted digest and exact revision. Later environment-triggered/manual
+redeploys then resolve this maintained staging default, not a stale saved digest.
+Normal CI hooks still deploy immutable digests API-first; the alias is only the
+saved default. Avoid environment saves/manual deploys during an active rollout:
+those actions are outside GitHub's deployment lock, and a superseded rollout or
+failed promotion can leave the previous default. An alias failure makes CI red
+even if the release is already deployed; inspect live revisions and registry
+state before retrying. There is no automatic rollback. An intentional rollback
+uses a separately reviewed exact retained digest for both roles, with migration
+compatibility checked; move the saved default deliberately before later redeploys.
+This mutable alias policy is staging-only, not production approval. The Blueprint
+templates remain exact verified-image bootstrap templates; preserve the staging
+saved alias if later managing these manually provisioned services by Blueprint.
 
 The manually provisioned staging services share the **nitewide-staging-runtime**
 environment group, scoped to **Nitewide / Staging**. Keep common settings there,

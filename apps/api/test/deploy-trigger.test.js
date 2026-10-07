@@ -94,3 +94,74 @@ test('staging deployments validate targets, wait for the exact release, then req
     assert.equal(requests, 1, 'never retry ambiguous deploys or start a worker before API readiness');
   }
 });
+
+const promotionEnv = { GITHUB_REPOSITORY: 'Demesheo/nitewide', GITHUB_REF: 'refs/heads/staging',
+  GITHUB_EVENT_NAME: 'push', GITHUB_SHA: 'a'.repeat(40), STAGING_ROLLOUT_RESULT: 'success',
+  IMAGE: 'ghcr.io/demesheo/nitewide', DIGEST: `sha256:${'b'.repeat(64)}` };
+
+test('staging default promotion requires the fixed repository, successful rollout and immutable source', () => {
+  const { run: promote } = require('../../../deploy/promote-staging.cjs');
+  for (const invalid of [{ GITHUB_REPOSITORY: 'other/nitewide' }, { GITHUB_REF: 'refs/heads/main' },
+    { GITHUB_REF: 'refs/heads/production' }, { GITHUB_EVENT_NAME: 'pull_request' }, { GITHUB_EVENT_NAME: '' },
+    { GITHUB_SHA: 'latest' }, { STAGING_ROLLOUT_RESULT: 'failure' }, { STAGING_ROLLOUT_RESULT: 'skipped' },
+    { STAGING_ROLLOUT_RESULT: '' }, { IMAGE: 'ghcr.io/demesheo/nitewide-demo' },
+    { IMAGE: 'ghcr.io/demesheo/nitewide:other' }, { DIGEST: 'latest' }, { DIGEST: `sha256:${'c'.repeat(63)}` }]) {
+    assert.throws(() => promote({ ...promotionEnv, ...invalid }, { spawn: () => assert.fail('Invalid promotion must not execute any command') }));
+  }
+});
+
+test('staging default promotion rechecks the branch and copies only the verified registry manifest', () => {
+  const { run: promote } = require('../../../deploy/promote-staging.cjs');
+  const calls = [], messages = [];
+  const result = promote({ ...promotionEnv, GITHUB_TOKEN: 'private-token', STAGING_ALIAS: 'cannot-redirect' }, {
+    log: value => messages.push(value), spawn: (command, args, options) => {
+      calls.push([command, args]);
+      assert.equal(options.stdio, 'pipe'); assert.equal(options.encoding, 'utf8');
+      assert.ok(options.timeout > 0 && options.timeout <= 120000);
+      if (command === 'git') return { status: 0, stdout: `${promotionEnv.GITHUB_SHA}\trefs/heads/staging\n` };
+      if (args.includes('create')) return { status: 0, stdout: 'private-provider-response' };
+      return { status: 0, stdout: JSON.stringify({ digest: promotionEnv.DIGEST }) };
+    },
+  });
+  assert.deepEqual(calls, [
+    ['git', ['ls-remote', '--exit-code', 'origin', 'refs/heads/staging']],
+    ['docker', ['buildx', 'imagetools', 'create', '--prefer-index=false', '--tag', 'ghcr.io/demesheo/nitewide:staging-verified', `${promotionEnv.IMAGE}@${promotionEnv.DIGEST}`]],
+    ['docker', ['buildx', 'imagetools', 'inspect', '--format', '{{json .Manifest}}', 'ghcr.io/demesheo/nitewide:staging-verified']],
+  ]);
+  assert.deepEqual(result, { promoted: true, digest: promotionEnv.DIGEST });
+  assert.match(messages.join('\n'), /staging-verified.*verified at sha256:/);
+  assert.doesNotMatch(messages.join('\n'), /private-|cannot-redirect/);
+});
+
+test('superseded staging releases leave the saved default alias untouched', () => {
+  const { run: promote } = require('../../../deploy/promote-staging.cjs');
+  let calls = 0;
+  assert.deepEqual(promote(promotionEnv, { log() {}, spawn: (command, args) => {
+    calls++; assert.equal(command, 'git'); assert.equal(args.at(-1), 'refs/heads/staging');
+    return { status: 0, stdout: `${'c'.repeat(40)}\trefs/heads/staging\n` };
+  } }), { promoted: false });
+  assert.equal(calls, 1);
+});
+
+test('unverified branch or alias results fail closed without retry, rollback or diagnostic leaks', () => {
+  const { run: promote } = require('../../../deploy/promote-staging.cjs');
+  for (const [phase, failure] of [[0, 'throw'], [0, 'exit'], [0, 'malformed'], [1, 'throw'],
+    [1, 'timeout'], [1, 'exit'], [2, 'exit'], [2, 'malformed'], [2, 'mismatch']]) {
+    let calls = 0;
+    assert.throws(() => promote(promotionEnv, { log: () => assert.fail('Unverified promotion must not report success'), spawn: () => {
+      const current = calls++;
+      if (current === phase) {
+        if (failure === 'throw') throw new Error('private-token');
+        if (failure === 'timeout') return { error: new Error('private-token'), status: null };
+        if (failure === 'exit') return { status: 1, stderr: 'private-token', stdout: 'private-token' };
+        return { status: 0, stdout: failure === 'mismatch' ? JSON.stringify({ digest: `sha256:${'c'.repeat(64)}` }) : 'private-token' };
+      }
+      return { status: 0, stdout: current === 0 ? `${promotionEnv.GITHUB_SHA}\trefs/heads/staging\n` : '' };
+    } }), error => {
+      assert.doesNotMatch(error.message, /private-token/);
+      assert.match(error.message, phase === 0 ? /alias unchanged/ : /already deployed.*No automatic rollback/);
+      return true;
+    });
+    assert.equal(calls, phase + 1, 'never retry uncertain promotion or run any rollback command');
+  }
+});
