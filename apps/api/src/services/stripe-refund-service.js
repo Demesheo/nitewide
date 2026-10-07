@@ -14,8 +14,13 @@ function verifyRefund(order, refund, evidence, charge, applicationFee) {
     && providerId(evidence.payment_intent) === order.stripePaymentIntentId
     && providerId(evidence.charge) === order.stripeChargeId && evidence.metadata?.refundId === refund.id
     && evidence.metadata?.orderId === order.id && charge?.id === order.stripeChargeId
-    && charge.livemode === false && charge.refunded === true && charge.amount_refunded === order.totalCents
-    && (order.applicationFeeCents === 0 || (applicationFee?.amount === order.applicationFeeCents && applicationFee.livemode === false
+    && providerId(charge.payment_intent) === order.stripePaymentIntentId
+    && charge.livemode === false && charge.paid === true && charge.captured === true
+    && charge.amount === order.totalCents && charge.currency?.toUpperCase() === order.currency.toUpperCase()
+    && charge.application_fee_amount === order.applicationFeeCents
+    && charge.refunded === true && charge.amount_refunded === order.totalCents
+    && (order.applicationFeeCents === 0 || (applicationFee?.id === providerId(charge.application_fee)
+      && applicationFee?.amount === order.applicationFeeCents && applicationFee.livemode === false
       && applicationFee.currency?.toUpperCase() === order.currency.toUpperCase()
       && applicationFee.refunded === true && applicationFee.amount_refunded === order.applicationFeeCents
       && providerId(applicationFee.account) === order.stripeAccountId && providerId(applicationFee.charge) === order.stripeChargeId));
@@ -30,18 +35,38 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
     if (full && models.OrderRefundRequest) await models.OrderRefundRequest.update({ status: 'resolved' }, { where: { orderId: order.id, status: ['pending', 'approved'] }, transaction });
   }
   function enabled() { if (!stripe?.enabled || stripe.mode !== 'test') throw new DomainError('Sandbox refunds unavailable', { code: 'PAYMENTS_NOT_ENABLED', status: 503 }); }
+  async function bindRefundReference(refund, reference) {
+    return mutationTransaction(sequelize, async (transaction) => {
+      const locked = await models.Refund.findByPk(refund.id, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!locked || locked.orderId !== refund.orderId || locked.stripeAccountId !== refund.stripeAccountId
+        || locked.paymentAccountId !== refund.paymentAccountId) throw conflict('Refund binding needs review', 'REFUND_VERIFICATION_FAILED');
+      if (locked.providerReference && locked.providerReference !== reference) throw conflict('Refund reference mismatch', 'REFUND_VERIFICATION_FAILED');
+      if (!locked.providerReference) await locked.update({ providerReference: reference }, { transaction });
+      return locked;
+    });
+  }
+  async function approvedRefundForCharge(chargeId, stripeAccountId) {
+    const order = await models.Order.findOne({ where: { stripeChargeId: chargeId, stripeAccountId, providerMode: 'test' } });
+    return order && await models.Refund.findOne({ where: { orderId: order.id } });
+  }
+  function assertRefundBinding(order, refund) {
+    if (!order || !refund || refund.orderId !== order.id || order.providerMode !== 'test' || refund.stripeAccountId !== order.stripeAccountId
+      || refund.paymentAccountId !== order.paymentAccountId || refund.amountCents !== order.totalCents
+      || refund.currency.toUpperCase() !== order.currency.toUpperCase() || !refund.approvedByUserId
+      || !order.stripePaymentIntentId || !order.stripeChargeId
+      || !['paid', 'pending', 'refunded'].includes(order.status)
+      // Terminal recovery can only verify an already-bound refund. It must
+      // never create another money movement for an already-refunded order.
+      || (order.status === 'refunded' && !refund.providerReference)
+      || (order.status === 'pending' && order.providerVerificationStatus !== 'review')) {
+      throw conflict('Approved refund binding needs review', 'REFUND_STATE_CONFLICT');
+    }
+  }
   async function reconcile(refund) {
     enabled();
     if (refund.status === 'succeeded') return refundSummary(refund);
     const order = await models.Order.findByPk(refund.orderId);
-    if (!order || order.providerMode !== 'test' || refund.stripeAccountId !== order.stripeAccountId
-      || refund.paymentAccountId !== order.paymentAccountId || refund.amountCents !== order.totalCents
-      || refund.currency.toUpperCase() !== order.currency.toUpperCase() || !refund.approvedByUserId
-      || !order.stripePaymentIntentId || !order.stripeChargeId
-      || !['paid', 'pending'].includes(order.status)
-      || (order.status === 'pending' && order.providerVerificationStatus !== 'review')) {
-      throw conflict('Approved refund binding needs review', 'REFUND_STATE_CONFLICT');
-    }
+    assertRefundBinding(order, refund);
     if (!refund.providerReference) {
       // Do not replay an aged creation after the provider's idempotency
       // retention window. An unresolved approval then requires review.
@@ -59,12 +84,7 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
       } catch { return { ...refundSummary(refund), retryable: true }; }
       if (!created?.id || created.livemode === true || created.metadata?.refundId !== refund.id
         || created.metadata?.orderId !== order.id) throw conflict('Refund provider response needs review', 'REFUND_VERIFICATION_FAILED');
-      refund = await mutationTransaction(sequelize, async (transaction) => {
-        const locked = await models.Refund.findByPk(refund.id, { transaction, lock: transaction.LOCK.UPDATE });
-        if (locked.providerReference && locked.providerReference !== created.id) throw conflict('Refund reference mismatch', 'REFUND_VERIFICATION_FAILED');
-        if (!locked.providerReference) await locked.update({ providerReference: created.id }, { transaction });
-        return locked;
-      });
+      refund = await bindRefundReference(refund, created.id);
       if (refund.status === 'succeeded') return refundSummary(refund);
     }
     let evidence, charge, fee;
@@ -79,25 +99,33 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
       const event = await models.Event.findByPk(order.eventId, { transaction, lock: transaction.LOCK.UPDATE });
       const lockedOrder = await models.Order.findByPk(order.id, { transaction, lock: transaction.LOCK.UPDATE });
       const lockedRefund = await models.Refund.findByPk(refund.id, { transaction, lock: transaction.LOCK.UPDATE });
-      if (lockedRefund.status === 'succeeded') return refundSummary(lockedRefund);
-      if (!['paid', 'pending'].includes(lockedOrder.status)) throw conflict('Order refund needs review', 'REFUND_STATE_CONFLICT');
-      const items = await models.OrderItem.findAll({ where: { orderId: order.id }, order: [['offeringId', 'ASC']], transaction });
-      const offerings = await models.Offering.findAll({ where: { id: items.map((item) => item.offeringId) }, order: [['id', 'ASC']], transaction, lock: transaction.LOCK.UPDATE });
-      if (lockedOrder.status === 'pending' && !lockedOrder.reservationReleasedAt) {
-        for (const item of items) {
-          const offering = offerings.find((value) => value.id === item.offeringId);
-          if (!offering || offering.quantityReserved < item.quantity) throw conflict('Reservation refund needs review', 'RESERVATION_MISMATCH');
-          await offering.increment('quantityReserved', { by: -item.quantity, transaction });
-        }
+      assertRefundBinding(lockedOrder, lockedRefund);
+      if (lockedOrder.eventId !== order.eventId || !verifyRefund(lockedOrder, lockedRefund, evidence, charge, fee)) {
+        throw conflict('Provider refund needs review', 'REFUND_VERIFICATION_FAILED');
       }
-      // Sold counters describe historical sales; refund does not silently
-      // reopen sale inventory or authorize replacement admissions.
-      await models.Ticket.update({ status: 'void' }, { where: { orderItemId: items.map((item) => item.id) }, transaction });
-      await models.Payment.update({ status: 'refunded' }, { where: { orderId: order.id, provider: 'stripe' }, transaction });
-      await lockedOrder.update({ status: 'refunded', providerVerificationStatus: 'verified', reservationReleasedAt: lockedOrder.reservationReleasedAt || now() }, { transaction });
-      await applyAdjustments(lockedOrder, lockedOrder.totalCents, lockedRefund.id, transaction, true);
+      if (lockedRefund.status === 'succeeded') return refundSummary(lockedRefund);
+      const alreadyRefunded = lockedOrder.status === 'refunded';
+      if (!alreadyRefunded) {
+        const items = await models.OrderItem.findAll({ where: { orderId: order.id }, order: [['offeringId', 'ASC']], transaction });
+        const offerings = await models.Offering.findAll({ where: { id: items.map((item) => item.offeringId) }, order: [['id', 'ASC']], transaction, lock: transaction.LOCK.UPDATE });
+        if (lockedOrder.status === 'pending' && !lockedOrder.reservationReleasedAt) {
+          for (const item of items) {
+            const offering = offerings.find((value) => value.id === item.offeringId);
+            if (!offering || offering.quantityReserved < item.quantity) throw conflict('Reservation refund needs review', 'RESERVATION_MISMATCH');
+            await offering.increment('quantityReserved', { by: -item.quantity, transaction });
+          }
+        }
+        // Sold counters describe historical sales; refund does not silently
+        // reopen sale inventory or authorize replacement admissions.
+        await models.Ticket.update({ status: 'void' }, { where: { orderItemId: items.map((item) => item.id) }, transaction });
+        await models.Payment.update({ status: 'refunded' }, { where: { orderId: order.id, provider: 'stripe' }, transaction });
+        await lockedOrder.update({ status: 'refunded', providerVerificationStatus: 'verified', reservationReleasedAt: lockedOrder.reservationReleasedAt || now() }, { transaction });
+        await applyAdjustments(lockedOrder, lockedOrder.totalCents, lockedRefund.id, transaction, true);
+      }
+      // An older charge webhook may have settled the order first. Complete the
+      // original approval once, without replaying inventory or ledger work.
       await lockedRefund.update({ status: 'succeeded' }, { transaction });
-      await models.AuditLog.create({ actorUserId: lockedRefund.requestedByUserId, organizationId: event.organizationId, entityType: 'Order', entityId: order.id, action: 'order.refunded', after: { refundId: refund.id, amountCents: order.totalCents, reason: lockedRefund.reason, applicationFeeRefunded: true } }, { transaction });
+      await models.AuditLog.create({ actorUserId: lockedRefund.requestedByUserId, organizationId: event.organizationId, entityType: 'Order', entityId: order.id, action: 'order.refunded', after: { refundId: refund.id, amountCents: order.totalCents, reason: lockedRefund.reason, applicationFeeRefunded: true, recoveredPreviouslyRefunded: alreadyRefunded } }, { transaction });
       return refundSummary(lockedRefund);
     });
   }
@@ -118,6 +146,7 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
         if (existing.idempotencyKey !== input.idempotencyKey || existing.reason !== input.reason.trim()) throw conflict('A refund request already exists for this order', 'REFUND_IDEMPOTENCY_CONFLICT');
         return existing;
       }
+      if (order.status === 'refunded') throw conflict('This order has already been refunded', 'REFUND_NOT_AVAILABLE');
       const merchant = await models.PaymentAccount.findByPk(order.paymentAccountId,{transaction});
       if (!merchant || merchant.lifecycleState !== 'active' || merchant.disconnectStatus !== 'none') {
         throw conflict('This Stripe connection is disconnected or disconnecting. Manage any later refund in the merchant Stripe dashboard.', 'PAYMENT_ACCOUNT_DISCONNECTED');
@@ -151,13 +180,15 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
   }
   async function reconcileRefundEvent(event, account) {
     enabled();
-    let reference = event.data.object.id;
-    let externalCharge;
+    const reference = event.data.object.id;
     if (event.type === 'charge.refunded') {
-      externalCharge = await stripe.retrieveCharge(reference, { stripeAccount: account.stripeAccountId });
+      const externalCharge = await stripe.retrieveCharge(reference, { stripeAccount: account.stripeAccountId });
       if (externalCharge?.id !== reference) throw conflict('Charge reference mismatch', 'REFUND_VERIFICATION_FAILED');
-      reference = externalCharge.refunds?.data?.find((refund) => refund.metadata?.refundId)?.id;
-      if (!reference) return reconcileExternalRefund(event, account, externalCharge);
+      // Charge.refunds is optional. Select our approval using the immutable
+      // direct-account order instead of misclassifying it as a Dashboard refund.
+      const approvedRefund = await approvedRefundForCharge(reference, account.stripeAccountId);
+      if (approvedRefund) return reconcile(approvedRefund);
+      return reconcileExternalRefund(event, account, externalCharge);
     }
     if (!reference) return;
     let refund = await models.Refund.findOne({ where: { providerReference: reference } });
@@ -169,11 +200,20 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
         const charge = await stripe.retrieveCharge(providerId(evidence.charge), { stripeAccount: account.stripeAccountId });
         if (charge?.id !== providerId(evidence.charge) || evidence.livemode === true || providerId(evidence.payment_intent) !== providerId(charge.payment_intent)
           || evidence.currency?.toUpperCase() !== charge.currency?.toUpperCase()) throw conflict('External refund binding needs review', 'REFUND_VERIFICATION_FAILED');
+        const approvedRefund = await approvedRefundForCharge(charge.id, account.stripeAccountId);
+        if (approvedRefund) return reconcile(approvedRefund);
         return reconcileExternalRefund(event, account, charge);
       }
-      if (evidence.livemode === true || evidence.metadata?.orderId !== refund.orderId) throw conflict('Refund binding needs review', 'REFUND_VERIFICATION_FAILED');
-      if (refund.providerReference && refund.providerReference !== reference) throw conflict('Refund reference mismatch', 'REFUND_VERIFICATION_FAILED');
-      await refund.update({ providerReference: reference });
+      const boundOrder = await models.Order.findByPk(refund.orderId);
+      assertRefundBinding(boundOrder, refund);
+      // Provider metadata cannot attach a merchant-created lookalike refund
+      // to our approval. Check its original payment before saving the pointer.
+      if (boundOrder.stripeAccountId !== account.stripeAccountId || evidence.livemode === true
+        || evidence.metadata?.orderId !== boundOrder.id || evidence.amount !== boundOrder.totalCents
+        || evidence.currency?.toUpperCase() !== boundOrder.currency.toUpperCase()
+        || providerId(evidence.payment_intent) !== boundOrder.stripePaymentIntentId
+        || providerId(evidence.charge) !== boundOrder.stripeChargeId) throw conflict('Refund binding needs review', 'REFUND_VERIFICATION_FAILED');
+      refund = await bindRefundReference(refund, reference);
     }
     if (!refund) throw notFound('Refund');
     const order = await models.Order.findByPk(refund.orderId);

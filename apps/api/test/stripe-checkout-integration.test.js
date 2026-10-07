@@ -14,7 +14,8 @@ const {createBusinessPaymentDisconnectService}=require('../src/services/business
 
 function mockProvider(namespace = '') {
   const sessions = new Map(), keys = new Map(), refunds = new Map(), charges = new Map(), fees = new Map(), thinEvents = new Map();
-  let unavailable = false, loseCreationResponse = false, loseRefundResponse = false, creations = 0, refundCreations = 0;
+  let unavailable = false, loseCreationResponse = false, loseRefundResponse = false, creations = 0, refundCreations = 0, refundRequests = 0;
+  let refundResponseGate, executingRefundGate;
   const check = () => { if (unavailable) throw new Error('Provider transport unavailable'); };
   const scoped = (session, options) => { assert.equal(options.stripeAccount, session.account); return structuredClone(session); };
   const paymentOptions = require('../src/payments/stripe-client').createStripeClient({ STRIPE_MODE:'test', STRIPE_SECRET_KEY:'sk_test_mock', STRIPE_PUBLISHABLE_KEY:'pk_test_mock', STRIPE_WEBHOOK_SECRET:'whsec_mock', STRIPE_ACCOUNT_WEBHOOK_SECRET:'whsec_mock' }, { sdk:{} }).checkoutPaymentMethodOptions;
@@ -41,7 +42,12 @@ function mockProvider(namespace = '') {
     constructAccountNotification: (raw, signature) => { if (signature !== 'verified-thin-signature') throw new Error('Bad thin signature'); return JSON.parse(raw.toString()); },
     retrieveAccountNotification: async id => structuredClone(thinEvents.get(id)),
     createRefund: async (params, options) => {
-      check(); const key = `refund:${options.idempotencyKey}`; if (keys.has(key)) return structuredClone(refunds.get(keys.get(key)));
+      refundRequests++;
+      check(); const key = `refund:${options.idempotencyKey}`;
+      if (keys.has(key)) {
+        if (executingRefundGate?.key === key && executingRefundGate.idempotencyInUse) throw new Error('Stripe idempotency key is still in use');
+        return structuredClone(refunds.get(keys.get(key)));
+      }
       assert.equal(params.refund_application_fee, true); assert.equal('reverse_transfer' in params, false);
       const charge = [...charges.values()].find(value => value.payment_intent === params.payment_intent);
       assert.equal(options.stripeAccount, charge.account);
@@ -50,6 +56,11 @@ function mockProvider(namespace = '') {
       charge.refunded = true; charge.amount_refunded = params.amount;
       const fee = fees.get(charge.application_fee); fee.refunded = true; fee.amount_refunded = fee.amount;
       refunds.set(id, refund); keys.set(key, id);
+      if (refundResponseGate) {
+        const gate = refundResponseGate; refundResponseGate = undefined;
+        executingRefundGate = { key, idempotencyInUse: gate.idempotencyInUse };
+        gate.executed(id); await gate.resume; executingRefundGate = undefined;
+      }
       if (loseRefundResponse) { loseRefundResponse = false; throw new Error('Lost refund response'); }
       return structuredClone(refund);
     },
@@ -66,7 +77,14 @@ function mockProvider(namespace = '') {
     s.status = 'complete'; s.payment_status = 'paid'; s.payment_intent = { id: intentId, livemode: false, status: 'succeeded', amount: s.amount_total,
       amount_received: s.amount_total, currency: s.currency, metadata: s.metadata, application_fee_amount: s.fee, latest_charge: charge };
   }
-  return { stripe, sessions, refunds, charges, fees, thinEvents, pay, unavailable: value => { unavailable = value; }, loseNextRefund: () => { loseRefundResponse = true; }, loseNextCreation: () => { loseCreationResponse = true; }, creations: () => creations, refundCreations: () => refundCreations };
+  function pauseNextRefundResponse({ idempotencyInUse = false } = {}) {
+    assert.equal(refundResponseGate, undefined);
+    let executed, release;
+    const gate = { executed: new Promise(resolve => { executed = resolve; }), release: () => release() };
+    refundResponseGate = { executed, resume: new Promise(resolve => { release = resolve; }), idempotencyInUse };
+    return gate;
+  }
+  return { stripe, sessions, refunds, charges, fees, thinEvents, pay, pauseNextRefundResponse, unavailable: value => { unavailable = value; }, loseNextRefund: () => { loseRefundResponse = true; }, loseNextCreation: () => { loseCreationResponse = true; }, creations: () => creations, refundCreations: () => refundCreations, refundRequests: () => refundRequests };
 }
 
 async function checkDisabledMerchant() {
@@ -330,6 +348,175 @@ test('sandbox provider reservations, verified webhook races and full refunds use
 // The original suite checks whole-database counts against its empty fixture.
 // This additional scenario runs afterward and scopes assertions to its event;
 // its provider IDs also have a separate namespace to mirror Stripe uniqueness.
+test('charge-first refund delivery and historical pending approval recovery settle once without altering admission history', { timeout: 60000 }, async t => {
+  assertManagedTestDatabase();
+  const sequelize = createSequelize(require('../src/config').getConfig()), models = initModels(sequelize);
+  const provider = mockProvider(`refund_race_${randomUUID()}_`);
+  const ledger = require('../src/services/commission-ledger-service').createCommissionLedgerService({ sequelize, models });
+  try {
+    const [owner, buyer, recipient] = await models.User.bulkCreate(['Owner', 'Buyer', 'Recipient'].map(displayName => ({ displayName, email: `${randomUUID()}@offline.nitewide.test` })), { returning: true });
+    const organization = await models.Organization.create({ name: 'Refund race fixture', slug: randomUUID() });
+    await models.OrganizationOwner.create({ organizationId: organization.id, userId: owner.id, role: 'owner' });
+    const account = await models.PaymentAccount.create({ organizationId: organization.id, name: 'Race merchant', stripeAccountId: `acct_race${randomUUID().replaceAll('-', '')}`, mode: 'test' });
+    await organization.update({ defaultPaymentAccountId: account.id });
+    const event = await models.Event.create({ organizationId: organization.id, creatorUserId: owner.id, title: 'Refund delivery race', slug: randomUUID(), status: 'published',
+      startsAt: new Date(Date.now() + 3600000), endsAt: new Date(Date.now() + 7200000) });
+    const offering = await models.Offering.create({ eventId: event.id, name: 'Race admission', priceCents: 2000, quantityTotal: 3 });
+    const recipientAccountId = `acct_recipient${randomUUID().replaceAll('-', '')}`;
+    await models.IndividualCommissionProfile.create({ userId: recipient.id, name: 'Race recipient', creationRequestId: randomUUID(), stripeAccountId: recipientAccountId,
+      verifiedAt: new Date(), verifiedStripeAccount: { ...await provider.stripe.retrieveAccount(recipientAccountId), identity: { entity_type: 'individual' } } });
+    const affiliate = await models.EventAffiliate.create({ eventId: event.id, userId: recipient.id, code: randomUUID(), commissionBps: 2500, status: 'active', accessScope: 'event' });
+    const checkout = createCheckoutService({ sequelize, models, email: null, environment: 'test' });
+    const payments = createStripeCheckoutService({ sequelize, models, stripe: provider.stripe, checkout, email: null });
+    const refunds = createStripeRefundService({ sequelize, models, stripe: provider.stripe, permissions: createPermissionService(models) });
+    const webhook = createStripeWebhookService({ sequelize, models, stripe: provider.stripe, paymentCheckouts: payments, refunds });
+    const checkIn = require('../src/services/checkin-service').createCheckInService({ sequelize, models, environment: 'test' });
+    const raw = (type, id, reference) => Buffer.from(JSON.stringify({ id, type, livemode: false, account: account.stripeAccountId, data: { object: { id: reference } } }));
+    async function paidAdmission() {
+      const prepared = await payments.prepare({ buyerUserId: buyer.id, eventId: event.id, affiliateCode: affiliate.code, idempotencyKey: randomUUID(), items: [{ offeringId: offering.id, quantity: 1 }] });
+      const order = await models.Order.findByPk(prepared.orderId);
+      provider.pay(order.checkoutSessionId); await payments.verify(buyer.id, order.id); await order.reload();
+      assert.equal(order.affiliateCommissionCents, 500);
+      const item = await models.OrderItem.findOne({ where: { orderId: order.id } });
+      const ticket = await models.Ticket.findOne({ where: { orderItemId: item.id } });
+      await checkIn({ eventId: event.id, credentialId: ticket.id, kind: 'ticket', checkedInByUserId: owner.id });
+      await ledger.setRefundHold({ orderId: order.id, hold: true });
+      return { order, ticket };
+    }
+    async function settlementState(order, ticket) {
+      await order.reload(); await ticket.reload(); await offering.reload();
+      const earning = await models.CommissionEarning.findOne({ where: { orderId: order.id } });
+      const admitted = await models.CheckIn.findOne({ where: { ticketId: ticket.id } });
+      return { orderStatus: order.status, refundedTotalCents: order.refundedTotalCents, refundedSubtotalCents: order.refundedSubtotalCents,
+        refundedCommissionCents: order.refundedCommissionCents, reservationReleasedAt: +order.reservationReleasedAt,
+        reserved: offering.quantityReserved, sold: offering.quantitySold, ticketStatus: ticket.status, ticketCheckedInAt: +ticket.checkedInAt,
+        checkInId: admitted.id, checkInAt: +admitted.checkedInAt, checkInCount: await models.CheckIn.count({ where: { ticketId: ticket.id } }),
+        paymentStatus: (await models.Payment.findOne({ where: { orderId: order.id, provider: 'stripe' } })).status,
+        unpaidCommissionCents: earning.unpaidCommissionCents, refundedEarningCents: earning.refundedCommissionCents, businessLossCents: earning.businessLossCents,
+        refundHold: earning.refundHold, adjustmentAudits: await models.AuditLog.count({ where: { entityId: order.id, action: 'commission.refund_adjusted' } }) };
+    }
+    async function assertReplaySafe(order, ticket, result, prefix, expectedExternalAudits) {
+      const refund = await models.Refund.findByPk(result.refundId);
+      assert.equal(refund.status, 'succeeded'); assert.equal(refund.approvedByUserId, owner.id);
+      assert.equal(refund.adminOverride, false); assert.equal(refund.providerReference, result.reference);
+      const settled = await settlementState(order, ticket);
+      assert.equal(settled.orderStatus, 'refunded'); assert.equal(settled.refundedTotalCents, order.totalCents); assert.equal(settled.refundedSubtotalCents, order.subtotalCents);
+      assert.equal(settled.ticketStatus, 'void'); assert.equal(settled.checkInCount, 1); assert.ok(settled.ticketCheckedInAt);
+      assert.equal(settled.paymentStatus, 'refunded'); assert.equal(settled.reserved, 0);
+      assert.equal(settled.refundedCommissionCents, 500); assert.equal(settled.refundedEarningCents, 500);
+      assert.equal(settled.unpaidCommissionCents, 0); assert.equal(settled.businessLossCents, 0); assert.equal(settled.refundHold, false);
+      assert.equal(settled.adjustmentAudits, 1);
+      const created = raw('refund.created', `evt_${prefix}_created`, refund.providerReference);
+      const updated = raw('refund.updated', `evt_${prefix}_updated`, refund.providerReference);
+      const charged = raw('charge.refunded', `evt_${prefix}_charged_again`, order.stripeChargeId);
+      for (const body of [created, updated, charged]) {
+        assert.equal((await webhook.receive(body, 'verified-signature')).received, true);
+        assert.equal((await webhook.receive(body, 'verified-signature')).replayed, true);
+      }
+      assert.deepEqual(await refunds.sweepPendingRefunds(), []);
+      assert.deepEqual(await settlementState(order, ticket), settled, 'webhook redelivery and worker sweep cannot repeat inventory or commission adjustments or erase admission history');
+      assert.equal(await models.AuditLog.count({ where: { entityId: refund.id, action: 'refund.merchant_approved' } }), 1);
+      const audit = await models.AuditLog.findAll({ where: { entityId: order.id, action: 'order.refunded' } });
+      assert.equal(audit.length, 1); assert.equal(audit[0].actorUserId, owner.id); assert.equal(audit[0].after.refundId, refund.id);
+      assert.equal(audit[0].after.recoveredPreviouslyRefunded, Boolean(expectedExternalAudits));
+      assert.equal(await models.AuditLog.count({ where: { entityId: order.id, action: 'order.external_refund_verified' } }), expectedExternalAudits);
+    }
+    for (const idempotencyInUse of [false, true]) await t.test(idempotencyInUse
+      ? 'charge-first delivery stays retryable when the original refund key is in use, then acknowledges the retry without external fallback'
+      : 'charge.refunded without embedded refunds finishes an approved refund before its creation response returns', async () => {
+      const { order, ticket } = await paidAdmission();
+      const creations = provider.refundCreations(), prefix = idempotencyInUse ? 'refund_race_busy' : 'refund_race';
+      const gate = provider.pauseNextRefundResponse({ idempotencyInUse });
+      const input = { reason: 'Merchant approves the race fixture refund', idempotencyKey: randomUUID() };
+      const pending = refunds.requestRefund(owner.id, order.id, input);
+      const charged = raw('charge.refunded', `evt_${prefix}_charge_first`, order.stripeChargeId);
+      let result, reference;
+      try {
+        reference = await gate.executed;
+        assert.equal('refunds' in provider.charges.get(order.stripeChargeId), false, 'modern Charge retrieval need not embed a refund list');
+        assert.equal((await models.Refund.findOne({ where: { orderId: order.id } })).providerReference, null);
+        if (idempotencyInUse) {
+          await assert.rejects(webhook.receive(charged, 'verified-signature'), { code: 'STRIPE_RECONCILIATION_PENDING', status: 503 });
+          assert.equal((await models.StripeWebhookReceipt.findOne({ where: { stripeEventId: `evt_${prefix}_charge_first` } })).status, 'pending');
+          assert.equal((await order.reload()).status, 'paid'); assert.equal((await ticket.reload()).status, 'checked_in');
+          assert.equal(await models.AuditLog.count({ where: { entityId: order.id, action: 'order.external_refund_verified' } }), 0);
+          assert.equal(await models.AuditLog.count({ where: { entityId: order.id, action: 'commission.refund_adjusted' } }), 0);
+        } else assert.equal((await webhook.receive(charged, 'verified-signature')).received, true);
+      } finally { gate.release(); result = await pending; }
+      assert.equal(result.status, 'succeeded', 'the initiating business action must succeed when a verified webhook won the race');
+      assert.equal((await webhook.receive(charged, 'verified-signature')).received, true);
+      assert.equal((await webhook.receive(charged, 'verified-signature')).replayed, true);
+      assert.equal((await models.StripeWebhookReceipt.findOne({ where: { stripeEventId: `evt_${prefix}_charge_first` } })).status, 'processed');
+      assert.equal(provider.refundCreations(), creations + 1);
+      await assertReplaySafe(order, ticket, { ...result, reference }, prefix, 0);
+      assert.equal((await refunds.requestRefund(owner.id, order.id, input)).refundId, result.refundId);
+      assert.equal(provider.refundCreations(), creations + 1);
+    });
+    await t.test('worker repairs an already-refunded order with a bound pending approval without refunding or adjusting money again', async () => {
+      const { order, ticket } = await paidAdmission();
+      const input = { reason: 'Recover the historical charge-first state', idempotencyKey: randomUUID() };
+      provider.loseNextRefund();
+      const pending = await refunds.requestRefund(owner.id, order.id, input);
+      assert.equal(pending.status, 'pending'); assert.equal(pending.retryable, true);
+      const refund = await models.Refund.findByPk(pending.refundId);
+      const reference = [...provider.refunds.values()].find(value => value.metadata.refundId === refund.id).id;
+      const evidence = provider.refunds.get(reference), unadjusted = await settlementState(order, ticket);
+      const otherCharge = [...provider.charges.values()].find(value => value.id !== order.stripeChargeId);
+      for (const [field, value] of [['charge', otherCharge.id], ['payment_intent', otherCharge.payment_intent], ['amount', evidence.amount - 1], ['currency', 'eur']]) {
+        const id = `re_lookalike${randomUUID().replaceAll('-', '')}`, eventId = `evt_wrong_refund_${field}`;
+        provider.refunds.set(id, { ...evidence, id, [field]: value });
+        await assert.rejects(webhook.receive(raw('refund.created', eventId, id), 'verified-signature'), { code: 'REFUND_VERIFICATION_FAILED' });
+        assert.equal((await refund.reload()).providerReference, null, `${field} mismatch cannot bind a refund ID based only on copied metadata`);
+        assert.equal((await models.StripeWebhookReceipt.findOne({ where: { stripeEventId: eventId } })).status, 'pending');
+        assert.deepEqual(await settlementState(order, ticket), unadjusted);
+      }
+      const competingReference = `re_competing${randomUUID().replaceAll('-', '')}`;
+      provider.refunds.set(competingReference, { ...evidence, id: competingReference });
+      const findRefund = models.Refund.findOne;
+      let observedStaleApproval = false;
+      models.Refund.findOne = async function (options) {
+        const row = await findRefund.call(this, options);
+        if (options.where.id === refund.id && !observedStaleApproval) {
+          observedStaleApproval = true;
+          assert.equal(row.providerReference, null);
+          // Deterministically make the metadata lookup stale before the bind
+          // transaction acquires its UPDATE lock, as a concurrent winner would.
+          await refund.update({ providerReference: reference });
+        }
+        return row;
+      };
+      try {
+        await assert.rejects(webhook.receive(raw('refund.updated', 'evt_stale_refund_pointer', competingReference), 'verified-signature'), { code: 'REFUND_VERIFICATION_FAILED' });
+      } finally { models.Refund.findOne = findRefund; }
+      assert.equal(observedStaleApproval, true);
+      assert.equal((await refund.reload()).providerReference, reference, 'a stale metadata lookup must not overwrite the winner’s durable provider binding');
+      assert.equal((await models.StripeWebhookReceipt.findOne({ where: { stripeEventId: 'evt_stale_refund_pointer' } })).status, 'pending');
+      assert.deepEqual(await settlementState(order, ticket), unadjusted);
+      await refund.update({ providerReference: reference });
+      // Reproduce the pre-fix durable state: external charge reconciliation
+      // completed the financial changes but left the recorded approval pending.
+      await sequelize.transaction(async transaction => {
+        await order.update({ status: 'refunded', providerVerificationStatus: 'verified', reservationReleasedAt: new Date() }, { transaction });
+        await ticket.update({ status: 'void' }, { transaction });
+        await models.Payment.update({ status: 'refunded' }, { where: { orderId: order.id, provider: 'stripe' }, transaction });
+        await ledger.adjustRefund({ order, cumulativeRefundedTotalCents: order.totalCents, refundId: 'evt_historical_charge_first', transaction });
+        await ledger.setRefundHold({ orderId: order.id, hold: false, transaction });
+        await models.AuditLog.create({ organizationId: organization.id, entityType: 'Order', entityId: order.id, action: 'order.external_refund_verified',
+          after: { origin: 'stripe_provider_external', stripeEventId: 'evt_historical_charge_first', customerAmountRefundedCents: order.totalCents, applicationFeeRefunded: true, approval: 'not_recorded_by_nitewide' } }, { transaction });
+      });
+      const before = await settlementState(order, ticket), creations = provider.refundCreations(), requests = provider.refundRequests();
+      const [result] = await refunds.sweepPendingRefunds();
+      assert.equal(result.refundId, refund.id); assert.equal(result.status, 'succeeded');
+      assert.equal(provider.refundCreations(), creations, 'bound historical recovery retrieves evidence and never sends another create-refund request');
+      assert.equal(provider.refundRequests(), requests);
+      assert.deepEqual(await settlementState(order, ticket), before, 'historical financial state and check-in history remain unchanged');
+      await assertReplaySafe(order, ticket, { ...result, reference }, 'historical_refund_race', 1);
+      assert.equal(provider.refundRequests(), requests);
+      assert.equal(provider.refundCreations(), 3, 'one provider refund per approved order, including all recovery and replay paths');
+    });
+  } finally { await sequelize.close(); }
+});
+
 test('disabled merchant stops new paid sessions but preserves in-flight checkout and free bookings',{timeout:30000},checkDisabledMerchant);
 
 test('checkout refreshes only server-bound stale personal recipients outside purchase locks and revalidates before snapshot', { timeout: 60000 }, async t => {

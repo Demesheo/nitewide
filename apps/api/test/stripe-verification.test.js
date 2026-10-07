@@ -29,8 +29,8 @@ test('open/processing remains pending and only provider-confirmed expired unpaid
 test('refund verification includes full customer amount, direct-account charge and application fee refund', () => {
   const f = fixture(), refund = { id: 'local-refund', providerReference: 're_test' };
   const evidence = { id: 're_test', livemode: false, status: 'succeeded', amount: 2320, currency: 'usd', payment_intent: 'pi_test', charge: 'ch_test', metadata: { refundId: refund.id, orderId: f.order.id } };
-  const charge = { ...f.charge, refunded: true, amount_refunded: 2320 };
-  const fee = { amount: 150, livemode: false, currency: 'usd', refunded: true, amount_refunded: 150, account: 'acct_test', charge: 'ch_test' };
+  const charge = { ...f.charge, refunded: true, amount_refunded: 2320, application_fee: 'fee_test' };
+  const fee = { id: 'fee_test', amount: 150, livemode: false, currency: 'usd', refunded: true, amount_refunded: 150, account: 'acct_test', charge: 'ch_test' };
   assert.equal(verifyRefund(f.order, refund, evidence, charge, fee), true);
   const withoutLivemode = { ...evidence }; delete withoutLivemode.livemode;
   assert.equal(verifyRefund(f.order, refund, withoutLivemode, charge, fee), true, 'Stripe Refund objects infer mode from verified Charge');
