@@ -91,10 +91,10 @@ test('customer booking UI explains locked, scheduled and released ticket and pac
   const offerings = [first,second];
   assert.equal(availableQuantity(first),1);
   assert.equal(availableQuantity(second),0);
-  assert.equal(offeringAvailabilityLabel(first,offerings),'+ fees');
+  assert.equal(offeringAvailabilityLabel(first,offerings),'+$1.64 fee');
   assert.equal(offeringAvailabilityLabel(second,offerings),'Opens when GA first 50 sells out or closes');
   assert.equal(offeringAvailabilityLabel({...second,saleState:'scheduled'},offerings),'Opens later');
-  assert.equal(offeringAvailabilityLabel({...second,saleState:'on_sale'},offerings),'+ fees');
+  assert.equal(offeringAvailabilityLabel({...second,saleState:'on_sale'},offerings),'+$1.64 fee');
   assert.equal(priceLabel(first.priceCents), '$10');
   assert.equal(priceLabel(1050), '$10.50');
   assert.equal(priceLabel(1000, 'EUR'), '€10');
@@ -108,7 +108,7 @@ test('customer booking UI explains locked, scheduled and released ticket and pac
       assert.equal(offeringAvailabilityLabel({ ...free, saleState: 'sold_out' }, offerings), 'Sold out');
     }
   }
-  assert.equal(offeringAvailabilityLabel({ ...first, effectiveFeeMode: 'absorbed' }, offerings), 'Fees included');
+  assert.equal(offeringAvailabilityLabel({ ...first, effectiveFeeMode: 'absorbed' }, offerings), 'includes $1.60 fee');
   assert.equal(offeringAvailabilityLabel({...first,quantitySold:50,saleState:'sold_out'},offerings),'Sold out');
   assert.equal(offeringAvailabilityLabel({...second,saleState:'closed'},offerings),'Sales closed');
   const packageNext = {...second,kind:'package',releaseAfterOfferingId:'hidden',saleState:'waiting_for_tier'};
@@ -196,7 +196,7 @@ test('customer preview matches server discount and floor decisions without expos
     }
     assert.equal('contributionCents' in preview,false);
   }
-  assert.deepEqual(checkoutTotal(30000,1),{subtotal:30000,fee:2152,total:32152,eligible:true,discount:328,floorAdjusted:false,standardCeilingExceeded:false});
+  assert.deepEqual(checkoutTotal(30000,1),{subtotal:30000,fee:2152,total:32152,includedFee:0,eligible:true,discount:328,floorAdjusted:false,standardCeilingExceeded:false});
   assert.equal(checkoutTotal(1000,1).total,1164);
   assert.equal(checkoutTotal(2000,1,'EUR').eligible,false);
 });

@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { request: httpRequest } = require('./support/http-client.cjs');
 const crypto = require('node:crypto');
+const { TERMS_VERSION } = require('../src/domain/terms-acceptance');
+const agreement = { termsAccepted: true, termsVersion: TERMS_VERSION };
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -170,16 +172,16 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     assert.equal(emailMessages.length, sentBeforeUnavailable, 'disabled delivery does not call the mail queue');
     assert.ok(await models.OnboardingInvitation.findByPk(unavailableInvite.body.data.id), 'unavailable setup remains recoverable for resend');
 
-    const mismatch = await request('/auth/onboarding/accept', null, 'POST', { token: orgToken, password: 'FixturePassword123', confirmPassword: 'OtherPassword123' });
+    const mismatch = await request('/auth/onboarding/accept', null, 'POST', { token: orgToken, password: 'FixturePassword123', confirmPassword: 'OtherPassword123', ...agreement });
     assert.equal(mismatch.status, 422);
     for (const password of ['Short1', 'lowercase123', 'UPPERCASE123', 'NoNumbersHere']) {
-      const weak = await request('/auth/onboarding/accept', null, 'POST', { token: orgToken, password, confirmPassword: password });
+      const weak = await request('/auth/onboarding/accept', null, 'POST', { token: orgToken, password, confirmPassword: password, ...agreement });
       assert.equal(weak.status, 422, 'owner activation enforces the same password policy as regular sign-up');
     }
     assert.equal(await models.UserCredential.findByPk(orgInvite.body.data.userId), null, 'invalid passwords never create credentials');
     const concurrentAccept = await Promise.all([
-      request('/auth/onboarding/accept', null, 'POST', { token: orgToken, password: 'Accept12', confirmPassword: 'Accept12' }),
-      request('/auth/onboarding/accept', null, 'POST', { token: orgToken, password: 'Accept12', confirmPassword: 'Accept12' }),
+      request('/auth/onboarding/accept', null, 'POST', { token: orgToken, password: 'Accept12', confirmPassword: 'Accept12', ...agreement }),
+      request('/auth/onboarding/accept', null, 'POST', { token: orgToken, password: 'Accept12', confirmPassword: 'Accept12', ...agreement }),
     ]);
     assert.equal(concurrentAccept.filter((result) => result.status === 200).length, 1, JSON.stringify(concurrentAccept));
     assert.equal(concurrentAccept.filter((result) => result.status === 409).length, 1, JSON.stringify(concurrentAccept));
@@ -200,7 +202,7 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     assert.equal(creatorInvite.status, 201, JSON.stringify(creatorInvite.body));
     const creatorSetup = emailMessages.find(({ message }) => message.template === 'nitewide-account-setup' && message.to === 'independent-creator@example.test');
     const creatorToken = new URL(creatorSetup.message.variables.SETUP_URL).searchParams.get('onboarding');
-    const creatorAccept = await request('/auth/onboarding/accept', null, 'POST', { token: creatorToken, password: 'IndependentCreator123', confirmPassword: 'IndependentCreator123' });
+    const creatorAccept = await request('/auth/onboarding/accept', null, 'POST', { token: creatorToken, password: 'IndependentCreator123', confirmPassword: 'IndependentCreator123', ...agreement });
     assert.equal(creatorAccept.status, 200, JSON.stringify(creatorAccept.body));
     const independentCreator = await models.User.findByPk(creatorAccept.body.data.userId);
     assert.equal(independentCreator.independentCreator, false);

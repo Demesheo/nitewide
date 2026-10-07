@@ -187,6 +187,16 @@ authTest('registration requires matching passwords and creates a real account', 
   await page.getByLabel('Confirm password', { exact: true }).fill('DoesNotMatch!2026');
   await expect(page.getByRole('button', { name: 'Create account', exact: true })).toBeDisabled();
   await page.getByLabel('Confirm password', { exact: true }).fill(fixture.password);
+  await expect(page.getByRole('button', { name: 'Create account', exact: true })).toBeDisabled();
+  await page.getByRole('link', { name: /terms and conditions of use/ }).click();
+  const terms = page.getByRole('dialog', { name: 'Nitewide Terms and Conditions of Use' });
+  await expect(terms.getByRole('heading', { name: 'Nitewide Terms and Conditions of Use' })).toBeFocused();
+  await expect(terms.getByRole('region', { name: 'Terms and conditions document' })).toContainText('30-DAY OPT-OUT');
+  await expectNoOverflow(page);
+  await terms.getByRole('button', { name: 'Back to form' }).click();
+  await expect(page.getByRole('checkbox', { name: /I agree to the terms/ })).not.toBeChecked();
+  await expect(page.getByLabel('Your name', { exact: true })).toHaveValue('Browser New Customer');
+  await page.getByRole('checkbox', { name: /I agree to the terms/ }).check();
   await page.getByRole('button', { name: 'Create account', exact: true }).click();
   await expect(page.getByRole('button', { name: "Open Browser New Customer's profile" })).toBeVisible();
 });
@@ -201,8 +211,16 @@ test('shared event preserves saved state, maps and free-versus-paid admission la
   await expect(page.getByRole('button', { name: "Open Jordan Customer's profile", includeHidden: true })).toBeAttached();
   await expect(details.getByRole('link', { name: 'Open in Maps' })).toHaveAttribute('href', /maps/);
   const paidOffering = details.getByRole('button', { name: /General Admission/ });
-  await expect(paidOffering).toContainText('$25');
-  await expect(paidOffering).toContainText('+ fees');
+  await expect(paidOffering.locator('.upfront-total')).toContainText('$27.80');
+  await expect(paidOffering.locator('strong')).toContainText('+$2.80 fee');
+  await details.getByRole('button', { name: 'Increase quantity', exact: true }).click();
+  await expect(paidOffering.locator('.upfront-total')).toContainText('$55.60');
+  await expect(paidOffering.locator('strong')).toContainText('total for 2');
+  await expect(paidOffering.locator('strong')).toContainText('+$5.60 fee');
+  await expect(details.getByRole('button', { name: 'Continue · $55.60', exact: true })).toBeVisible();
+  await expectNoOverflow(page);
+  await testInfo.attach('upfront-customer-paid-fees', { body: await page.screenshot(), contentType: 'image/png' });
+  await details.getByRole('button', { name: 'Decrease quantity', exact: true }).click();
   const saved = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/customer/saved/${fixture.ids.event}`));
   await details.getByRole('button', { name: 'Save Playwright Friday Night', exact: true }).click();
   expect((await saved).ok()).toBeTruthy();
@@ -213,6 +231,31 @@ test('shared event preserves saved state, maps and free-versus-paid admission la
   await expect(page).not.toHaveURL(/event=/);
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Saved', exact: true }).click();
   await expect(page.locator('#saved').getByTestId('customer-event-card')).toHaveCount(1);
+  const savedPrice = page.locator('#saved').getByTestId('customer-event-card').locator('.card-price');
+  await expect(savedPrice).toContainText('From $27.80 total');
+  await expect(savedPrice).toContainText('+$2.80 fee');
+  await test.step('business-paid fees are itemized without increasing the customer total', async () => {
+    await page.route(`**/api/events/${fixture.ids.event}`, async route => {
+      const response = await route.fetch();
+      const payload = await response.json();
+      payload.data.offerings = payload.data.offerings.map(item => ({ ...item, effectiveFeeMode: 'absorbed' }));
+      await route.fulfill({ response, json: payload });
+    });
+    await page.goto(`/?event=${fixture.ids.event}`);
+    await expect(paidOffering.locator('.upfront-total')).toContainText('$25');
+    await expect(paidOffering.locator('strong')).toContainText('includes $2.80 fee');
+    await details.getByRole('button', { name: 'Increase quantity', exact: true }).click();
+    await expect(paidOffering.locator('.upfront-total')).toContainText('$50');
+    await expect(paidOffering.locator('strong')).toContainText('includes $5.60 fee');
+    await details.getByRole('button', { name: 'Continue · $50', exact: true }).click();
+    const review = details.locator('.checkout-review');
+    await expect(review.locator('.order-total')).toContainText('includes $5.60 fee');
+    await expect(review.locator('.order-total dd')).toContainText('$50');
+    await expect(review).not.toContainText('Service fee');
+    await expectNoOverflow(page);
+    await testInfo.attach('business-paid-fee-review', { body: await page.screenshot(), contentType: 'image/png' });
+    await page.unroute(`**/api/events/${fixture.ids.event}`);
+  });
   await test.step('free offerings and claim review never advertise fees or a payment form', async () => {
     // Override only the read response for display coverage. No order is submitted
     // against the paid fixture, and production/sandbox data is not touched.
@@ -228,7 +271,7 @@ test('shared event preserves saved state, maps and free-versus-paid admission la
       await expect(offering.locator('strong')).toHaveText('Free');
       await expect(offering.locator('strong small')).toHaveCount(0);
     }
-    await expect(details).not.toContainText('+ fees');
+    await expect(details).not.toContainText(/\+\$[\d.]+ fee|includes \$[\d.]+ fee|\+ fees/);
     await details.getByRole('button', { name: 'Claim free admission', exact: true }).click();
     const review = details.locator('.checkout-review');
     await expect(review.getByRole('button', { name: 'Claim admission', exact: true })).toBeEnabled();

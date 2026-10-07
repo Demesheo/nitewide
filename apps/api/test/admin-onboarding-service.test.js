@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { createAdminOnboardingService } = require('../src/services/admin-onboarding-service');
+const { TERMS_VERSION, documentSha256 } = require('../src/domain/terms-acceptance');
+const agreement = { termsAccepted: true, termsVersion: TERMS_VERSION };
 
 const ADMIN = '10000000-0000-4000-8000-000000000001';
 const OTHER = '10000000-0000-4000-8000-000000000002';
@@ -187,10 +189,14 @@ test('preview is non-consuming; new-account accept requires confirmed password a
   assert.equal(preview.email, 'owner@example.test');
   assert.equal(invitation.acceptedAt, before);
   assert.equal(recipient.onboardingPending, true);
-  await assert.rejects(() => context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Different12345' }));
-  await assert.rejects(() => context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345', token: raw }));
+  await assert.rejects(() => context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Different12345', ...agreement }));
+  await assert.rejects(() => context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345', token: raw, ...agreement }));
+  for (const invalid of [{}, { ...agreement, termsAccepted: false }, { ...agreement, termsVersion: 'stale' }]) {
+    await assert.rejects(() => context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345', ...invalid }));
+  }
   assert.equal(context.credentials.size, 0);
-  const accepted = await context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345' });
+  assert.equal(context.auditRows.some(row => row.action === 'account.terms_accepted'), false);
+  const accepted = await context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345', ...agreement });
   assert.equal(accepted.accepted, true);
   assert.equal(invitation.acceptedAt.getTime(), context.now.getTime());
   assert.equal(recipient.onboardingPending, false);
@@ -199,6 +205,9 @@ test('preview is non-consuming; new-account accept requires confirmed password a
   assert.equal(context.organizations[0].onboardingEstablished, true);
   assert.equal(recipient.emailVerifiedAt.getTime(), context.now.getTime());
   assert.notEqual(context.credentials.get(recipient.id).passwordHash, 'Password12345');
+  const acceptance = context.auditRows.find(row => row.action === 'account.terms_accepted');
+  assert.deepEqual(acceptance.after, { version: TERMS_VERSION, documentSha256, acceptedAt: context.now.toISOString(), source: 'onboarding_activation', explicitAcceptance: true });
+  assert.equal(acceptance.actorUserId, recipient.id);
   await assert.rejects(() => context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345' }), { code: 'ONBOARDING_INVALID' });
 });
 
@@ -254,7 +263,7 @@ test('a business may start with a manager, no owners, and no venue or headquarte
   assert.equal(context.locations.length, 0);
   assert.equal(context.organizations[0].locationId, null);
   const raw = new URL(context.queued[0].message.variables.SETUP_URL).searchParams.get('onboarding');
-  await context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345' });
+  await context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345', ...agreement });
   const membership = await context.models.OrganizationOwner.findOne({ where: { organizationId: created.organizationId, userId: created.userId } });
   assert.equal(membership.role, 'admin');
   assert.equal(membership.financeAuthorized, true);
@@ -267,7 +276,7 @@ test('legacy pending independent-creator invitations retain existing creator acc
   await context.service.create(ADMIN, { ...BASE, kind: 'user', organization: undefined, venues: [] });
   Object.assign(context.invitations[0].grants, { kind: 'independent_creator', independentCreator: true });
   const raw = new URL(context.queued[0].message.variables.SETUP_URL).searchParams.get('onboarding');
-  await context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345' });
+  await context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345', ...agreement });
   assert.equal(context.users.find((user) => user.id !== ADMIN).independentCreator, true);
   assert.equal(context.organizations.length, 0);
 });

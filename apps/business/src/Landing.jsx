@@ -20,6 +20,7 @@ import { publicAppLink } from '../../shared/app-links.mjs';
 import FeeComparison from "./components/fee-comparison";
 import { BrandMark, BusinessBrand } from './components/BusinessBrand';
 import { ContactNitewide } from './components/Messages';
+import { TermsLink } from '../../shared/terms-and-conditions.jsx';
 import "./landing.css";
 
 const icons = {
@@ -558,6 +559,7 @@ export default function Landing() {
       </main>
       <footer className="lp-footer lp-container">
         <ContactNitewide/>
+        <TermsLink/>
         <Brand />
         <p>Made for the people who make it happen.</p>
         <a href="#main">Back to top ↑</a>

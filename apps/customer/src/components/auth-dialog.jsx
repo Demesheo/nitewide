@@ -12,6 +12,7 @@ import {
 } from "./ui/dialog";
 import { api } from "../lib/api";
 import { passwordConfirmationError } from "../lib/password-confirmation";
+import { TermsAcceptance, termsAcceptance } from '../../../shared/terms-and-conditions.jsx';
 
 export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken }) {
   const [register, setRegister] = useState(false);
@@ -22,6 +23,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const passwordInputId = useId(), confirmInputId = useId();
   const confirmationErrorId = useId();
   const confirmationError = register ? passwordConfirmationError(password, confirmPassword) : "";
@@ -35,10 +37,12 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
       setPhone("");
       setPassword("");
       setConfirmPassword("");
+      setTermsAccepted(false);
     }
   }, [open]);
   async function submit(event) {
     event.preventDefault();
+    if (busy) return;
     setError("");
     const form = new FormData(event.currentTarget);
     if (forgot) {
@@ -55,6 +59,11 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
     }
     const body = { email: form.get("email"), password: form.get("password") };
     if (register) {
+      if (!termsAccepted) {
+        setError('Please agree to the Nitewide terms and conditions to create an account.');
+        event.currentTarget.elements.namedItem('termsAccepted')?.focus();
+        return;
+      }
       const message = passwordConfirmationError(body.password, form.get("confirmPassword"));
       if (message) {
         setError(message);
@@ -68,8 +77,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
         displayName: form.get("name"),
         phone: form.get("phone"),
         marketingConsent: form.get("marketing") === "on",
-        transactionalSmsConsent: form.get("transactionalSms") === "on",
-        marketingSmsConsent: form.get("marketingSms") === "on",
+        ...termsAcceptance,
         ...(guestlistInviteToken ? { guestlistInviteToken } : {}),
       });
     try {
@@ -183,15 +191,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
                 <input type="checkbox" name="marketing" />
                 Email me event recommendations and updates.
               </label>
-              <label className="checkbox-label">
-                <input type="checkbox" name="transactionalSms" disabled={!phone.trim()} />
-                Text me booking, guestlist and event updates when available.
-              </label>
-              <label className="checkbox-label">
-                <input type="checkbox" name="marketingSms" disabled={!phone.trim()} />
-                Text me event recommendations and offers when available.
-              </label>
-              <p className="fine-print">Text messages are not active yet. You can skip the phone number and these choices.</p>
+              <TermsAcceptance accepted={termsAccepted} onChange={setTermsAccepted} disabled={busy}/>
             </>
           )}
           {error && (
@@ -200,7 +200,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
             </p>
           )}
           {message && <p role="status" className="fine-print">{message}</p>}
-          <Button disabled={busy || (register && Boolean(confirmationError))} className={register ? "primary-action" : "primary-action dark-glass-action"}>
+          <Button disabled={busy || (register && !forgot && (!termsAccepted || Boolean(confirmationError)))} className={register ? "primary-action" : "primary-action dark-glass-action"}>
             {busy ? (
               <LoadingIndicator>{forgot ? 'Sending…' : register ? 'Creating account…' : 'Signing in…'}</LoadingIndicator>
             ) : (
@@ -219,6 +219,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
             disabled={busy}
             onClick={() => {
               setRegister(!register);
+              setTermsAccepted(false);
               setError("");
               setPassword("");
               setConfirmPassword("");

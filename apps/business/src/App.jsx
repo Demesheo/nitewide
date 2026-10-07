@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { TermsLink } from '../../shared/terms-and-conditions.jsx';
 import {
   BarChart3,
   ArrowDownToLine,
@@ -503,6 +504,7 @@ export default function App() {
           {!organizationScope.ready && <p className="hint">No active organization is available. You can request a separate organization from the Organization tab.</p>}
           <footer className="app-footer">
             <ContactNitewide session={session}/>
+            <TermsLink/>
             <span>Nitewide Business</span>
             <span>Made for the people who make it happen.</span>
           </footer>

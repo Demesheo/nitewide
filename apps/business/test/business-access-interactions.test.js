@@ -124,6 +124,17 @@ test('invitation signup recovers an account-creation race and retries acceptance
     await mount('/src/components/Team.jsx', 'TeamInviteLanding', { token: 'private-invitation', session: null, onAccepted: (...args) => { accepted = args; } });
     await queries.findByRole('button', { name: 'Create account and accept', exact: true });
     assert.equal(queries.getByLabelText('Email', { exact: true }).readOnly, true);
+    assert.equal(queries.getByLabelText('Phone (optional)').required, false);
+    assert.equal(queries.queryByRole('checkbox', { name: /text|sms/i }), null);
+    const agreement = queries.getByRole('checkbox', { name: /I agree to the terms/ });
+    assert.equal(agreement.checked, false);
+    assert.equal(queries.getByRole('button', { name: 'Create account and accept', exact: true }).disabled, true);
+    await user.click(queries.getByRole('link', { name: /terms and conditions of use/ }));
+    const terms = queries.getByRole('dialog', { name: 'Nitewide Terms and Conditions of Use' });
+    assert.match(terms.textContent, /Suspension, removal, and termination/);
+    await user.click(queries.getByRole('button', { name: 'Back to form' }));
+    assert.equal(agreement.checked, false);
+    await user.click(agreement);
     assert.ok(queries.getByLabelText('Confirm password', { exact: true }));
     assert.equal(queries.getByRole('list', { name: 'Password requirements' }).querySelectorAll('li').length, 4);
     await user.type(queries.getByLabelText('Password', { exact: true }), 'Accept12');
@@ -141,6 +152,11 @@ test('invitation signup recovers an account-creation race and retries acceptance
     await user.click(queries.getByRole('button', { name: 'Accept invitation', exact: true }));
     await waitFor(() => assert.ok(accepted));
     assert.equal(calls.filter(call => call.path === '/api/auth/register').length, 1);
+    const registration = calls.find(call => call.path === '/api/auth/register').body;
+    assert.equal(registration.phone, '', 'invitation signup does not require a phone');
+    assert.equal(registration.termsAccepted, true);
+    assert.equal(registration.termsVersion, '2026-10-07');
+    assert.equal('transactionalSmsConsent' in registration || 'marketingSmsConsent' in registration, false, 'signup leaves dormant SMS flags to the backend defaults');
     assert.equal(calls.filter(call => call.path === '/api/auth/sign-in').length, 1);
     assert.equal(acceptAttempts, 2);
     assert.ok(accepted[0].roles.includes('employee'));
@@ -159,6 +175,8 @@ test('new owner activation shows the shared password requirements and accepts an
   await withRuntime(async ({ mount, queries, user, calls }) => {
     await mount('/src/components/OnboardingSetup.jsx', 'OnboardingSetup', { token: 'private-owner-invitation', session: null });
     await queries.findByRole('button', { name: 'Confirm email and activate' });
+    assert.equal(queries.getByRole('button', { name: 'Confirm email and activate' }).disabled, true);
+    await user.click(queries.getByRole('checkbox', { name: /I agree to the terms/ }));
     assert.equal(queries.getByRole('list', { name: 'Password requirements' }).querySelectorAll('li').length, 4);
     await user.type(queries.getByLabelText('New password', { exact: true }), 'weakpass');
     await user.type(queries.getByLabelText('Confirm password', { exact: true }), 'weakpass');
@@ -171,7 +189,7 @@ test('new owner activation shows the shared password requirements and accepts an
     await user.type(queries.getByLabelText('Confirm password', { exact: true }), 'Accept12');
     await user.click(queries.getByRole('button', { name: 'Confirm email and activate' }));
     await queries.findByRole('heading', { name: "You're all set." });
-    assert.deepEqual(calls.find(call => call.path.endsWith('/accept')).body, { token: 'private-owner-invitation', password: 'Accept12', confirmPassword: 'Accept12' });
+    assert.deepEqual(calls.find(call => call.path.endsWith('/accept')).body, { token: 'private-owner-invitation', password: 'Accept12', confirmPassword: 'Accept12', termsAccepted: true, termsVersion: '2026-10-07' });
   }, { fetcher: async ({ path }) => path.endsWith('/preview') ? response({ accountMode: 'new', email: session.user.email, displayName: 'New Owner', kind: 'organization', expiresAt: '2099-01-01T00:00:00.000Z' }) : response({}) });
 });
 

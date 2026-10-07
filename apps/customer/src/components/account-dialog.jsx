@@ -122,6 +122,8 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
   }, [embedded, open, bookingRoute, session?.accessToken, notificationBooking]);
   useEffect(() => {
     setName(session?.user.displayName || ''); setEmail(session?.user.email || ''); setConfirmEmail(''); setPhone(session?.user.phone || ''); setConfirmPhone('');
+    // The existing profile API requires SMS flags. Preserve stored choices while
+    // their controls are hidden; email preference edits must not reset them.
     setConsents({ marketingConsent: Boolean(session?.user.marketingConsentAt), transactionalSmsConsent: Boolean(session?.user.transactionalSmsConsentAt), marketingSmsConsent: Boolean(session?.user.marketingSmsConsentAt) });
   }, [session?.user]);
   useEffect(() => {
@@ -253,7 +255,7 @@ export function AccountDialog({ open, onOpenChange, session, onProfile, onSessio
           </section>
           <form className="profile-form profile-preferences" onSubmit={savePreferences}>
             <h3>Settings</h3>
-            <fieldset><legend>Stay in the loop</legend>{[['transactionalSmsConsent','Event and booking reminders by text'], ['marketingSmsConsent','Offers and recommendations by text'], ['marketingConsent','Offers and recommendations by email']].map(([key,label]) => <label className="consent-choice" key={key}><input type="checkbox" checked={Boolean(consents[key])} onChange={(event) => setConsents({ ...consents, [key]: event.target.checked })} />{label}</label>)}<small>Optional. Delivery depends on the messaging services enabled for this environment.</small></fieldset>
+            <fieldset><legend>Stay in the loop</legend><label className="consent-choice"><input type="checkbox" checked={Boolean(consents.marketingConsent)} onChange={(event) => setConsents({ ...consents, marketingConsent: event.target.checked })} />Offers and recommendations by email</label><small>Optional. Booking and guestlist updates remain available in your Nitewide notifications.</small></fieldset>
             <Button disabled={busy} aria-busy={working} type="submit">Save preferences</Button>
           </form>
           {message && <p className="profile-message" role="status">{message}</p>}

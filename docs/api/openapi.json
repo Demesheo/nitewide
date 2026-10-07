@@ -3026,6 +3026,16 @@
                     "default": false,
                     "type": "boolean"
                   },
+                  "termsAccepted": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "Explicit acceptance; required for new accounts, never inferred from marketing consent."
+                  },
+                  "termsVersion": {
+                    "type": "string",
+                    "const": "2026-10-07",
+                    "description": "Version displayed to the user. Stale versions must be reviewed again."
+                  },
                   "guestlistInviteToken": {
                     "type": "string",
                     "minLength": 20,
@@ -3035,7 +3045,9 @@
                 "required": [
                   "displayName",
                   "email",
-                  "password"
+                  "password",
+                  "termsAccepted",
+                  "termsVersion"
                 ]
               }
             }
@@ -61114,6 +61126,16 @@
                   },
                   "confirmPassword": {
                     "type": "string"
+                  },
+                  "termsAccepted": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "Explicit acceptance; required for new accounts, never inferred from marketing consent."
+                  },
+                  "termsVersion": {
+                    "type": "string",
+                    "const": "2026-10-07",
+                    "description": "Version displayed to the user. Stale versions must be reviewed again."
                   }
                 },
                 "required": [

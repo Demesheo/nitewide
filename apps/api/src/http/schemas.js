@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const { optionalPhone } = require('../domain/phone');
+const { termsAcceptanceFields } = require('../domain/terms-acceptance');
 const { BUSINESS_SLUG_PATTERN } = require('../domain/business-slug');
 const { MAX_GUESTLIST_REQUEST_PARTY_SIZE, MAX_GUESTLIST_APPROVAL_PARTY_SIZE } = require('../domain/guestlist-party-size');
 const uuid = z.string().uuid();
@@ -22,7 +23,7 @@ const guestlistCapacity = z.object({ guestlistCapacity: z.number().int().nonnega
 const affiliateGuestlistAllocation = z.object({ guestlistAllocation: z.number().int().nonnegative().nullable() });
 const password = z.string().min(8).max(128).regex(/[a-z]/, 'Password must include a lowercase letter').regex(/[A-Z]/, 'Password must include an uppercase letter').regex(/[0-9]/, 'Password must include a number');
 const passwordChange = z.object({ currentPassword: z.string().min(1).max(128), password, confirmPassword: z.string().min(1).max(128) }).strict().refine((data) => data.password === data.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match' });
-const register = z.object({ displayName: z.string().trim().min(2).max(120), email: z.string().trim().email().max(320), password, phone: optionalPhone, marketingConsent: z.boolean().default(false), transactionalSmsConsent: z.boolean().default(false), marketingSmsConsent: z.boolean().default(false), guestlistInviteToken: z.string().min(20).max(200).optional() }).refine((data) => data.phone || (!data.transactionalSmsConsent && !data.marketingSmsConsent), { path: ['phone'], message: 'Add a phone number to choose SMS updates' });
+const register = z.object({ displayName: z.string().trim().min(2).max(120), email: z.string().trim().email().max(320), password, phone: optionalPhone, marketingConsent: z.boolean().default(false), transactionalSmsConsent: z.boolean().default(false), marketingSmsConsent: z.boolean().default(false), ...termsAcceptanceFields, guestlistInviteToken: z.string().min(20).max(200).optional() }).refine((data) => data.phone || (!data.transactionalSmsConsent && !data.marketingSmsConsent), { path: ['phone'], message: 'Add a phone number to choose SMS updates' });
 const guestlistInvite = z.object({ pool: z.enum(['direct', 'own']), eventAffiliateId: uuid.optional(), name: z.string().trim().min(1).max(120).optional(), inviteBy: z.enum(['email','phone','personal']).optional(), email: z.string().trim().email().max(320).optional(), phone: optionalPhone, partySize: z.number().int().min(1).max(MAX_GUESTLIST_APPROVAL_PARTY_SIZE).default(1) }).refine(data => data.inviteBy === 'personal' ? Boolean(data.name) && !data.email && !data.phone : Boolean(data.email) !== Boolean(data.phone) && (!data.inviteBy || (data.inviteBy === 'email' ? Boolean(data.email) : Boolean(data.phone))), { message: 'Personal invitations require a name; otherwise provide the selected email or phone' });
 const signIn = z.object({ email: z.string().trim().email().max(320), password: z.string().min(1).max(128) });
 const checkIn = z.union([

@@ -26,6 +26,7 @@ COPY --from=build /app/apps/pricing apps/pricing
 # Migration CLI is an explicit runtime dependency; regular releases run it in a separate pre-deploy step.
 RUN npm install --global npm@12.1.0 && npm ci --omit=dev --workspace @nitewide/api --workspace @nitewide/pricing && npm cache clean --force
 COPY --from=build /app/apps/api/src apps/api/src
+COPY --from=build /app/apps/shared/legal apps/shared/legal
 COPY --from=build /app/apps/api/.sequelizerc apps/api/.sequelizerc
 COPY --from=build /app/apps/customer/dist apps/customer/dist
 COPY --from=build /app/apps/business/dist apps/business/dist

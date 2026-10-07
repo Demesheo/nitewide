@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { TermsLink } from '../../shared/terms-and-conditions.jsx';
 import {
   ArrowUpRight,
   ArrowRight,
@@ -68,6 +69,8 @@ import { isPremiumHost } from './lib/premium-host';
 import {
   availableQuantity,
   offeringAvailabilityLabel,
+  offeringPrice,
+  feeLabel,
   checkoutTotal,
   cityName,
   upcomingWeekRange,
@@ -1001,7 +1004,7 @@ function CustomerApp() {
           <Brand />
           <p className="copyright">© {new Date().getFullYear()} Nitewide</p>
         </div>
-        <div className="footer-links"><ContactNitewide session={session}/><a className="business-nav-link footer-business" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a></div>
+        <div className="footer-links"><ContactNitewide session={session}/><TermsLink/><a className="business-nav-link footer-business" href={businessLink(import.meta.env.VITE_BUSINESS_URL, window.location)}>For business <ArrowUpRight size={14} /></a></div>
       </footer>
 
       <Dialog
@@ -1084,9 +1087,11 @@ function CustomerApp() {
                 <TabsContent value="tickets">
                   <div className="offerings">
                     {selected.offerings?.map((item) => {
-                      const availabilityLabel = offeringAvailabilityLabel(item, selected.offerings);
+                      const itemQuantity = offeringId === item.id ? quantity : item.minPerOrder || 1;
+                      const itemPrice = offeringPrice(item, itemQuantity);
+                      const availabilityLabel = offeringAvailabilityLabel(item, selected.offerings, itemQuantity);
                       return <button
-                        disabled={!availableQuantity(item)}
+                        disabled={!availableQuantity(item) || !itemPrice.eligible}
                         key={item.id}
                         className={`offering ${offeringId === item.id ? "selected" : ""}`}
                         aria-pressed={offeringId === item.id}
@@ -1103,8 +1108,8 @@ function CustomerApp() {
                           </small>
                         </span>
                         <strong>
-                          {priceLabel(item.priceCents, item.currency)}
-                          {availabilityLabel && <small>{availabilityLabel}</small>}
+                          <span className="upfront-total">{itemPrice.eligible ? priceLabel(itemPrice.total, item.currency) : 'Pricing unavailable'}{itemPrice.eligible && itemPrice.total > 0 && <> <small>total{itemQuantity > 1 ? ` for ${itemQuantity}` : ''}</small></>}</span>
+                          {availabilityLabel && (itemPrice.eligible || availabilityLabel !== 'Pricing unavailable') && <small>{availabilityLabel}</small>}
                         </strong>
                       </button>;
                     })}
@@ -1192,15 +1197,15 @@ function CustomerApp() {
                     <dt>Subtotal</dt>
                     <dd>{priceLabel(totals.subtotal, offering.currency)}</dd>
                   </div>
-                  {totals.total > 0 && <div>
+                  {totals.fee > 0 && <div>
                     <dt>
-                      Service fee <small>(standard 8% + $0.80 per paid ticket/package; discounts and minimum-cost adjustments may apply)</small>
+                      Service fee
                     </dt>
                     <dd>{money(totals.fee, offering.currency)}</dd>
                   </div>}
                   <div className="order-total">
                     <dt>{totals.total === 0 ? 'Total' : 'Total paid in full'}</dt>
-                    <dd>{priceLabel(totals.total, offering.currency)}</dd>
+                    <dd>{priceLabel(totals.total, offering.currency)}{feeLabel(totals, offering.currency) && <small>{feeLabel(totals, offering.currency)}</small>}</dd>
                   </div>
                 </dl>
               </div>

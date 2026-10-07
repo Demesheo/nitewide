@@ -20,6 +20,7 @@ import { ManagerFinancePermission } from './ManagerFinancePermission';
 import { BrandMark, BusinessBrand } from './BusinessBrand';
 import { PendingTeamInvitation } from './PendingTeamInvitation';
 import { PasswordRequirements, passwordRequirementError } from '../../../shared/password-requirements.jsx';
+import { TermsAcceptance, TermsLink, termsAcceptance } from '../../../shared/terms-and-conditions.jsx';
 import { publicAppLink } from '../../../shared/app-links.mjs';
 
 const teamColumns = [['name', 'Name'], ['role', 'Role'], ['email', 'Email'], ['status', 'Status'], ['salesCents', 'Referred sales'], ['orders', 'Orders'], ['customers', 'Customers']].map(([key, label]) => ({ key, label }));
@@ -209,6 +210,7 @@ export function Team({ session, organizations, onUnauthorized }) {
 export function TeamInviteLanding({ token, session, onAccepted }) {
   const [invite, setInvite] = useState(null);
   const [register, setRegister] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [signupPhone, setSignupPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -223,7 +225,7 @@ export function TeamInviteLanding({ token, session, onAccepted }) {
   const accepting = useRef(false);
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true); setInvite(null); setError(''); setRegister(false);
+    setLoading(true); setInvite(null); setError(''); setRegister(false); setTermsAccepted(false);
     setPassword(''); setConfirmation(''); setPasswordError(''); setConfirmationError('');
     setAuthenticatedSession(null);
     api(`/team/invitations/${encodeURIComponent(token)}`, null, { signal: controller.signal })
@@ -242,6 +244,7 @@ export function TeamInviteLanding({ token, session, onAccepted }) {
     event.preventDefault();
     if (accepting.current || !invite) return;
     if (register) {
+      if (!termsAccepted) { setError('Please agree to the Nitewide terms and conditions to create an account.'); return; }
       const invalidPassword = passwordRequirementError(password);
       const invalidConfirmation = !confirmation ? 'Please confirm your password.' : password !== confirmation ? 'Passwords do not match.' : '';
       setPasswordError(invalidPassword); setConfirmationError(invalidConfirmation);
@@ -254,7 +257,7 @@ export function TeamInviteLanding({ token, session, onAccepted }) {
     const form = new FormData(event.currentTarget);
     let authenticated = false;
     try {
-      const currentSession = await api(register ? '/auth/register' : '/auth/sign-in', null, { method: 'POST', body: JSON.stringify(register ? { displayName: form.get('name'), email: form.get('email'), password: form.get('password'), phone: form.get('phone'), marketingConsent: false, transactionalSmsConsent: form.get('transactionalSms') === 'on', marketingSmsConsent: form.get('marketingSms') === 'on' } : { email: form.get('email'), password: form.get('password') }) });
+      const currentSession = await api(register ? '/auth/register' : '/auth/sign-in', null, { method: 'POST', body: JSON.stringify(register ? { displayName: form.get('name'), email: form.get('email'), password: form.get('password'), phone: form.get('phone'), marketingConsent: false, ...termsAcceptance } : { email: form.get('email'), password: form.get('password') }) });
       authenticated = true;
       // Keep a newly created account recoverable if accepting the invitation fails.
       setAuthenticatedSession(currentSession);
@@ -287,16 +290,17 @@ export function TeamInviteLanding({ token, session, onAccepted }) {
               {register && <label className="field" htmlFor="team-invite-name"><span>Name</span><Input id="team-invite-name" name="name" autoComplete="name" defaultValue={invite.name || ''} maxLength={120} required /></label>}
               <div className="field"><label htmlFor="team-invite-password">Password</label><Input id="team-invite-password" key={register ? 'new' : 'current'} name="password" type="password" autoComplete={register ? 'new-password' : 'current-password'} required maxLength={128} value={password} onChange={event => { setPassword(event.target.value); setPasswordError(''); setConfirmationError(''); setError(''); }} aria-invalid={Boolean(passwordError)} aria-describedby={register ? `team-invite-password-help${passwordError ? ' team-invite-password-error' : ''}` : undefined} placeholder={register ? 'Create a strong password' : 'Enter your password'}/>{register && <PasswordRequirements id="team-invite-password-help" password={password}/>} {passwordError && <small id="team-invite-password-error" role="alert" className="team-invite-field-error">{passwordError}</small>}</div>
               {register && <div className="field"><label htmlFor="team-invite-confirm-password">Confirm password</label><Input id="team-invite-confirm-password" name="confirmPassword" type="password" visibilityLabel="confirmed password" autoComplete="new-password" required maxLength={128} value={confirmation} onChange={event => { setConfirmation(event.target.value); setConfirmationError(''); setError(''); }} aria-invalid={Boolean(confirmationError)} aria-describedby={confirmationError ? 'team-invite-confirm-password-error' : undefined} placeholder="Re-enter your password"/>{confirmationError && <small id="team-invite-confirm-password-error" role="alert" className="team-invite-field-error">{confirmationError}</small>}</div>}
-              {register && <><label className="field" htmlFor="team-invite-phone"><span>Phone (optional)</span><Input id="team-invite-phone" name="phone" type="tel" inputMode="tel" autoComplete="tel" maxLength={32} value={signupPhone} onChange={event => setSignupPhone(event.target.value)} placeholder="+1 407 555 0123" /></label><label className="sms-choice"><input type="checkbox" name="transactionalSms" disabled={!signupPhone.trim()} /> Text me booking, guestlist and event updates when available.</label><label className="sms-choice"><input type="checkbox" name="marketingSms" disabled={!signupPhone.trim()} /> Text me event recommendations and offers when available.</label><small>Optional. Text features are not active yet.</small></>}
+              {register && <label className="field" htmlFor="team-invite-phone"><span>Phone (optional)</span><Input id="team-invite-phone" name="phone" type="tel" inputMode="tel" autoComplete="tel" maxLength={32} value={signupPhone} onChange={event => setSignupPhone(event.target.value)} placeholder="+1 407 555 0123" /></label>}
+              {register && <TermsAcceptance accepted={termsAccepted} onChange={setTermsAccepted} disabled={busy}/>}
             </fieldset>
-            <Button type="submit" disabled={busy}>{busy ? 'Accepting…' : register ? 'Create account and accept' : 'Sign in and accept'}{!busy && <ArrowRight aria-hidden="true"/>}</Button>
+            <Button type="submit" disabled={busy || (register && !termsAccepted)}>{busy ? 'Accepting…' : register ? 'Create account and accept' : 'Sign in and accept'}{!busy && <ArrowRight aria-hidden="true"/>}</Button>
           </form>
-          <div className="signin-help"><Button type="button" variant="ghost" disabled={busy} onClick={() => { setRegister(!register); setError(''); setPassword(''); setConfirmation(''); setPasswordError(''); setConfirmationError(''); }}>{register ? 'Already have an account? Sign in' : 'New to Nitewide? Create an account'}</Button></div>
+          <div className="signin-help"><Button type="button" variant="ghost" disabled={busy} onClick={() => { setRegister(!register); setTermsAccepted(false); setError(''); setPassword(''); setConfirmation(''); setPasswordError(''); setConfirmationError(''); }}>{register ? 'Already have an account? Sign in' : 'New to Nitewide? Create an account'}</Button></div>
         </>}
         <div className="signin-note"><ShieldCheck size={16} aria-hidden="true"/><span>Your existing roles stay intact. This invitation adds access to the same Nitewide account.</span></div>
       </>}
       {error && <p role="alert" className="error">{error}</p>}
       {!loading && !invite && <Button type="button" variant="outline" onClick={() => setRetry(value => value + 1)}>Retry invitation</Button>}
-    </div><small>© {new Date().getFullYear()} Nitewide · Business, after hours.</small></section>
+    </div><footer><TermsLink/><small>© {new Date().getFullYear()} Nitewide · Business, after hours.</small></footer></section>
   </main>;
 }

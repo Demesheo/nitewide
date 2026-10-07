@@ -1,16 +1,12 @@
 import { Heart, MapPin, ArrowUpRight } from "lucide-react";
 import { Badge } from "./ui/badge";
-import { availableQuantity, cityName, money } from "../lib/discovery";
+import { cityName, eventStartingPrice, feeLabel, money } from "../lib/discovery";
 import { eventDate, eventTime } from "../lib/presentation";
 import { EventArtwork } from "./event-artwork";
 import { isPremiumHost } from '../lib/premium-host';
 import { eventVenueName } from '../lib/event-venue';
 export function EventCard({ event, saved, onSave, onOpen, children, actionLabel }) {
-  const offerings =
-    event.offerings?.filter((o) => availableQuantity(o) > 0) || [];
-  const lowest = offerings.length
-    ? Math.min(...offerings.map((o) => o.priceCents))
-    : null;
+  const lowest = eventStartingPrice(event);
   return (
     <article data-testid="customer-event-card" data-event-id={event.id} className={`event-card${isPremiumHost(event) ? ' premium-host-card' : ''}`} onClick={(click) => { if (!click.target.closest('button')) onOpen?.(); }}>
       <div className="card-image">
@@ -59,14 +55,15 @@ export function EventCard({ event, saved, onSave, onOpen, children, actionLabel 
         </p>
         {children}
         <div className="card-bottom">
-          <span>
+          <span className="card-price">
             {actionLabel || (lowest === null ? (
-              "Explore guestlist"
-            ) : lowest === 0 ? (
+              event.guestlistCapacity > 0 ? "Explore guestlist" : "View event"
+            ) : lowest.total === 0 ? (
               "Free admission"
             ) : (
               <>
-                <small>From</small> {money(lowest)} <small>+ fees</small>
+                <span className="upfront-total"><small>From</small> {money(lowest.total, lowest.currency)} <small>total{lowest.quantity > 1 ? ` for ${lowest.quantity}` : ''}</small></span>
+                <small>{feeLabel(lowest, lowest.currency)}</small>
               </>
             ))}
           </span>

@@ -1,0 +1,158 @@
+{
+  "version": "2026-10-07",
+  "title": "Nitewide Terms and Conditions of Use",
+  "updated": "October 7, 2026",
+  "reviewStatus": "Draft for staging; legal review required before production",
+  "notice": "Important: these terms contain limitations of liability and an agreement to individual arbitration with a class-action waiver. You may opt out of arbitration within 30 days as described in section 15. Some rights cannot be waived and remain protected.",
+  "sections": [
+    {
+      "id": "agreement",
+      "title": "1. Your agreement with Nitewide",
+      "paragraphs": [
+        "These Terms govern your use of the Nitewide customer, business, and administrative applications and related services (the Platform). The agreement is between you and Nitewide, Inc., a Delaware corporation (Nitewide, we, us). Customers, organizers, venue operators, owners, managers, employees, promoters, referral-service providers, and other account holders must comply with these Terms. Additional written agreements expressly signed by Nitewide control only to the extent of a conflict.",
+        "By checking the agreement box and creating or activating an account, you affirmatively accept this version of the Terms electronically. Acceptance is separate from optional marketing preferences. If you do not agree, do not create or activate an account. Keep a copy for your records. Accepting these Terms does not give you ownership of the Platform or guarantee continued access.",
+        "When acting for a business, you represent that you have authority for the actions you take and to bind that business to applicable business obligations. If you lack that authority, do not act for the business. Acceptance alone does not create a business role, expand your permissions, or authorize actions for another organization."
+      ]
+    },
+    {
+      "id": "accounts",
+      "title": "2. Eligibility, identity, and account security",
+      "paragraphs": [
+        "You must be at least 18 and legally able to enter this agreement to create an account. Individual events may impose a higher minimum age, lawful identification checks, dress codes, or other disclosed admission rules. You must not misrepresent your age or identity. Nitewide does not supply alcohol; organizers and venues are responsible for alcohol licensing and age verification.",
+        "Provide accurate information, keep your contact details current, safeguard credentials and private invitation or recovery links, and report suspected unauthorized access promptly. Do not share an account to bypass role restrictions, impersonate another person, create fraudulent accounts, or use someone else's payment information without authority. You are responsible for your authorized account activity; these Terms do not make you responsible for activity that applicable law assigns to another party.",
+        "Organization and event permissions are scoped separately. Membership in one organization does not authorize access to another. Business access may require review, invitation acceptance, and continued authorization. Administrative approval is not a certification of a business's licensing, solvency, safety, or legal compliance."
+      ]
+    },
+    {
+      "id": "platform-role",
+      "title": "3. Platform services and independent organizers",
+      "paragraphs": [
+        "Nitewide provides technology for discovery, listings, bookings, ticket and guestlist credentials, referrals, business operations, and communications. Unless an event expressly identifies Nitewide as its organizer under a separate agreement, the event's organizer or business—not Nitewide—offers and fulfills the event, admission, package, reservation, and related services.",
+        "Organizers are responsible for event descriptions, dates, locations, capacity, access conditions, performance, customer service, lawful refund decisions, and the conduct of their events and personnel. A listing, guestlist approval, rating, payment connection, or referral is not Nitewide's endorsement or guarantee of an event, person, venue, or business.",
+        "Nitewide is not your travel agent, event insurer, employer, fiduciary, escrow service, bank, or legal or tax adviser. We do not supervise physical events. Nothing here excludes a duty or responsibility that the law independently places on Nitewide."
+      ]
+    },
+    {
+      "id": "orders",
+      "title": "4. Purchases, free claims, and entry passes",
+      "paragraphs": [
+        "Review the organizer, event details, admission conditions, quantity, disclosed total price, fees, taxes, and refund policy before submitting an order. You authorize the displayed charge when you confirm payment. Organizers must disclose mandatory charges and applicable purchase conditions accurately and comply with all-in pricing requirements. Undisclosed terms cannot override rights required by law.",
+        "Free offerings use a claim rather than a paid checkout. Nitewide does not require payment information or process a Stripe payment for a wholly free claim, and free offerings do not earn referral commissions. Availability, capacity, and the organizer's lawful admission conditions still apply.",
+        "Keep QR codes and private guestlist links secure. A shared invitation may expose all passes on that invitation. Separate guestlist spots have separate single-use passes; a scanned, revoked, expired, duplicated, or otherwise invalid pass may not admit another person. Do not copy, sell, or transfer passes contrary to the organizer's disclosed rules or applicable law.",
+        "A booking or guestlist approval does not waive age, safety, capacity, identification, or other lawful entry requirements. If an organizer cannot provide the promised service or wrongfully denies admission, contact that organizer; applicable remedies are not eliminated by this paragraph."
+      ]
+    },
+    {
+      "id": "refunds",
+      "title": "5. Cancellations, refunds, and organizer contact",
+      "paragraphs": [
+        "Purchases are generally non-refundable unless the organizer's disclosed policy, a specific written agreement, or applicable law provides otherwise. Under the Platform's standard voluntary-request policy, a customer must submit a cancellation or refund request to the organizer before the event's scheduled start. The customer is responsible for making that contact, including through organizer messages where available. Submitting a request does not guarantee approval.",
+        "The organizer decides discretionary refunds and is responsible for resolving timely requests. An organizer may resolve a timely request after the event, without a Platform-imposed resolution deadline; legally required deadlines and remedies still apply. A request to Nitewide support is not automatically a request to the organizer. Keep organizer conversations and refund requests separate from Nitewide support cases.",
+        "Cancelled, materially changed, or unfulfilled events and legally required refunds remain subject to applicable law and payment-provider rules. Nothing in these Terms waives legitimate chargeback rights, statutory cancellation rights, fraud remedies, or any refund Nitewide is legally required to provide. Nitewide does not guarantee an organizer's performance, refund approval, or ability to repay, and is not responsible for an organizer's obligations merely because it supplies the Platform."
+      ]
+    },
+    {
+      "id": "payments",
+      "title": "6. Stripe, payment providers, and commissions",
+      "paragraphs": [
+        "Paid event transactions use third-party payment services. With Stripe Connect Standard and direct charges, the event business receives the direct charge in its connected Stripe account, subject to its Stripe agreement and the configured fees. Stripe and other providers control their own eligibility, payment methods, verification, holds, disputes, and settlement. These Terms do not change a provider's allocation of loss or remove responsibilities the provider or law assigns to Nitewide.",
+        "Each business must maintain its authorized payment connection and accurate merchant details. Do not use another business's account without authorization. Payment-provider agreements apply separately. Nitewide does not promise that a payment method, connected account, balance, or payout will always be available.",
+        "Referral commissions are obligations of the relevant business to the recipient under their applicable referral terms, not wages or commissions owed by Nitewide. Eligibility is determined from the configured eligible paid order subtotal and recorded referral terms. A business may set a commission-eligible minimum of at least US $10; combined eligible paid offerings may meet that minimum. Free claims are excluded. Refunds and other applicable adjustments reduce unpaid commissions proportionally and affect sales reporting.",
+        "Commission review ordinarily becomes available after the event ends plus a 48-hour hold; this is not a payment deadline or guarantee. Authorized business approval and separate payment authorization are required. Businesses bear applicable payment costs under their commission arrangement. Nitewide does not automatically debit, top up, advance, insure, or guarantee commissions. Previously paid adjustments and shortfalls must be resolved by the responsible business and recipient, subject to law and provider rules.",
+        "Businesses and recipients are responsible for lawful compensation classification, tax reporting, withholding, and any required employment treatment. Describing a payment as a referral commission or independent service does not determine worker status or override wage, employment, or tax law."
+      ]
+    },
+    {
+      "id": "business-duties",
+      "title": "7. Additional organizer and business obligations",
+      "paragraphs": [
+        "Businesses and organizers must hold all required authority, licenses, permits, insurance, and rights for their listings and events; accurately describe offerings; honor lawful purchase commitments; maintain safe capacity and operations; and comply with consumer, accessibility, anti-discrimination, alcohol, employment, privacy, tax, and public-safety requirements. Providing an address without a saved venue does not reduce these duties.",
+        "You are responsible for your personnel, approved managers, promoters, subcontractors, event communications, and authorized financial actions. Grant the minimum necessary permissions and promptly remove access when authority ends. Collect or export customer information only for authorized purposes, protect it, and do not use order or guestlist details as permission for marketing, texting, or unrelated outreach.",
+        "Do not publish deceptive events, oversell knowingly, conceal material conditions, discriminate unlawfully, misrepresent commission terms, manipulate referrals, or evade taxes or provider restrictions. Cooperate with reasonable compliance, fraud, support, and safety investigations, while respecting privacy and other legal obligations."
+      ]
+    },
+    {
+      "id": "content",
+      "title": "8. Content, intellectual property, and communications",
+      "paragraphs": [
+        "You retain ownership of content you submit. You grant Nitewide a non-exclusive, worldwide, royalty-free license to store, reproduce, format, display, and distribute that content as reasonably necessary to operate, secure, and promote your listings and the Platform. We may use service providers for those purposes. Private messages are not licensed for public advertising. This license does not transfer ownership of consumer reviews or permit use inconsistent with applicable privacy law.",
+        "You represent that you have the necessary rights and permissions for uploaded artwork, trademarks, personal information, messages, and other content. Do not upload infringing, unlawful, threatening, exploitative, or deceptive content. Report rights or safety concerns through Contact Nitewide and include enough information to identify the content and your concern.",
+        "Nitewide owns or licenses its software, brand, design, and other Platform materials. You receive a limited, revocable right to use them through the Platform for their intended purposes, not to reproduce, resell, reverse engineer unlawfully, or create a misleading affiliation.",
+        "Essential account and service notices may be provided by email or in-app messages and notifications. Optional marketing requires the applicable separate choice or other lawful basis; accepting these Terms is not marketing or SMS consent. The Platform is not an emergency service. Contact appropriate emergency authorities for immediate threats."
+      ]
+    },
+    {
+      "id": "conduct",
+      "title": "9. Prohibited use and protected reporting",
+      "paragraphs": [
+        "Do not commit fraud, misuse payment credentials, circumvent security or permission controls, disrupt service, introduce malicious code, harvest private data, spam, harass, impersonate, unlawfully discriminate, manipulate bookings or commissions, or facilitate illegal activity. Automated access, scraping, or resale of non-public Platform data requires our written permission unless law expressly permits it.",
+        "Nothing in these Terms prohibits truthful consumer reviews, lawful criticism, protected whistleblowing, reports to regulators or law enforcement, consultation with counsel, or exercising non-waivable rights. We do not impose penalties for those activities or require you to surrender ownership of a consumer review."
+      ]
+    },
+    {
+      "id": "suspension",
+      "title": "10. Suspension, removal, and termination",
+      "paragraphs": [
+        "To the fullest extent permitted by law, Nitewide reserves sole discretion to restrict, suspend, remove, or permanently ban any person, account, organization, business, venue, location, event, listing, or content for any lawful reason or no stated reason, with or without prior notice. Reasons may include suspected misuse, fraud, safety concerns, unauthorized activity, non-compliance, provider restrictions, or operational decisions. We may decline or withdraw business access approval and preserve evidence when lawfully appropriate.",
+        "We will not exercise this discretion contrary to applicable anti-discrimination law, protected-review rights, or other non-waivable protections. Termination does not erase accrued lawful payment, refund, commission, record-retention, or customer-service obligations and is not permission to confiscate funds. We may retain records where reasonably needed for legal compliance, security, transaction history, or disputes, subject to applicable law.",
+        "You may stop using the Platform and request account closure through account settings or Contact Nitewide. Obligations intended to survive, including accrued amounts, content rights needed for existing records, liability provisions, and dispute terms, survive to the extent enforceable."
+      ]
+    },
+    {
+      "id": "warranties",
+      "title": "11. Disclaimers and event risks",
+      "paragraphs": [
+        "TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE PLATFORM IS PROVIDED AS IS AND AS AVAILABLE, WITHOUT WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, OR UNINTERRUPTED, ERROR-FREE, OR COMPLETELY SECURE OPERATION. WE DO NOT GUARANTEE EVENT QUALITY, ATTENDANCE, SALES, REFERRAL RESULTS, THIRD-PARTY CONTENT, OR PROVIDER AVAILABILITY. EXPRESS COMMITMENTS AND NON-WAIVABLE WARRANTIES REMAIN EFFECTIVE.",
+        "Physical events and interactions with third parties may involve crowd, travel, property, health, or safety risks. Make your own informed decisions and follow lawful safety directions. Organizers are responsible for their operations. This acknowledgment is not a release of Nitewide's own liability for gross negligence, willful misconduct, fraud, or harm that cannot legally be waived."
+      ]
+    },
+    {
+      "id": "liability",
+      "title": "12. Limited release and limitations of liability",
+      "paragraphs": [
+        "To the maximum extent permitted by law, you release Nitewide and its officers, directors, employees, and service agents from claims arising solely from independent organizers', venues', promoters', other users', or third-party providers' acts or omissions for which Nitewide has no independent legal responsibility. This is not a blanket release of every present or future claim, a waiver of unknown claims where such a waiver is prohibited, or a promise never to sue for conduct the law makes actionable against Nitewide.",
+        "TO THE MAXIMUM EXTENT PERMITTED BY LAW, NITEWIDE WILL NOT BE LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY, OR PUNITIVE DAMAGES, OR LOST PROFITS, REVENUE, BUSINESS OPPORTUNITIES, GOODWILL, OR DATA ARISING FROM THE PLATFORM. SUBJECT TO THE EXCLUSIONS BELOW, NITEWIDE'S AGGREGATE LIABILITY FOR CLAIMS ARISING FROM THESE TERMS OR THE PLATFORM WILL NOT EXCEED THE GREATER OF US $100 OR PLATFORM FEES YOU PAID TO AND RETAINED BY NITEWIDE DURING THE 12 MONTHS BEFORE THE EVENT GIVING RISE TO THE CLAIM. EVENT PURCHASE AMOUNTS RETAINED BY AN ORGANIZER ARE NOT NITEWIDE PLATFORM FEES.",
+        "The release, exclusions, and cap do not apply to Nitewide's fraud, willful misconduct, gross negligence, or liability for death or personal injury caused by Nitewide where limitation is prohibited, nor to any liability, statutory remedy, required refund, or other right that cannot lawfully be released, excluded, or limited. Some jurisdictions do not permit some limitations; in those jurisdictions the provisions apply only to the extent allowed."
+      ]
+    },
+    {
+      "id": "indemnity",
+      "title": "13. Responsibility for third-party claims",
+      "paragraphs": [
+        "To the extent permitted by law, a business or organizer will defend, indemnify, and hold Nitewide and its officers, directors, employees, and service agents harmless from third-party claims and reasonable resulting losses, judgments, and legal costs arising from that business's events, unlawful or infringing content, authorized personnel's misconduct, breach of these Terms, or violation of law or third-party rights. This obligation does not cover the portion caused by Nitewide's own negligence, willful misconduct, fraud, or independent legal obligations.",
+        "For individual customers, any indemnity is limited to third-party claims directly caused by that customer's fraud, knowing unlawful conduct, or knowing infringement, and applies only where legally enforceable. It does not require a customer to indemnify Nitewide for Nitewide's own conduct or for asserting a good-faith claim against Nitewide.",
+        "Nitewide will provide reasonable notice and cooperation, may participate with its own counsel, and may assume control of a defense at its own expense. No settlement may admit fault for or impose obligations on Nitewide without its written consent, not to be unreasonably withheld."
+      ]
+    },
+    {
+      "id": "notices",
+      "title": "14. Legal notices and informal resolution",
+      "paragraphs": [
+        "Until Nitewide publishes a dedicated legal email and mailing address, use Contact Nitewide in the customer or business footer for electronic legal notices. Signed-in users can send a private Nitewide support message. If you cannot sign in, use the signed-out account-access form and identify your notice in the message. Save the support case or private recovery link and submission time. Do not send legal notices to an event organizer when the intended recipient is Nitewide.",
+        "For a dispute, identify the message as Legal notice, give your name, account email, relevant transaction or event, a concise explanation, and the relief requested. Nitewide will use your private support conversation to respond. Either party may request a good-faith discussion for up to 30 days, but this process is not a prerequisite to a timely legal filing, does not shorten a limitation period, and does not prevent urgent relief or reports to authorities."
+      ]
+    },
+    {
+      "id": "disputes",
+      "title": "15. Individual arbitration, class-action waiver, and opt-out",
+      "paragraphs": [
+        "PLEASE READ THIS SECTION CAREFULLY. Except for the exceptions and opt-out below, you and Nitewide mutually agree to resolve disputes between you and Nitewide arising from the Platform or these Terms by binding individual arbitration rather than a court trial. This agreement does not govern disputes solely between a customer and an organizer. The Federal Arbitration Act governs this arbitration agreement. Either party may elect arbitration of a covered dispute.",
+        "The American Arbitration Association (AAA) will administer arbitration under its applicable Consumer Arbitration Rules and Consumer Due Process Protocol for consumer disputes, and applicable Commercial Arbitration Rules for genuine business-to-business disputes, available at https://www.adr.org. Consumer protections do not disappear merely because a person also has a business role. One neutral arbitrator may award the same individual relief available in court, including statutory remedies and attorneys' fees where authorized. Nitewide will pay the fees and costs the applicable rules or law require it to pay; a consumer will not pay more than the lesser of the applicable AAA consumer filing fee or the fee for filing a comparable court case. Other fee allocation follows applicable law and rules, not an automatic loser-pays penalty.",
+        "Consumer hearings may occur by telephone or video, or in the consumer's home county if an in-person hearing is reasonably needed, unless the parties agree otherwise after the dispute. Business hearing locations will be determined under the applicable rules with reasonable regard to convenience. If AAA declines administration because Nitewide has not complied with its requirements, a party may bring the dispute in a court with jurisdiction; Nitewide may not insist on arbitration while refusing required fees or compliance.",
+        "Exceptions: either party may bring an eligible individual claim in small claims court. You may report matters to regulators or law enforcement. Claims, public injunctive relief, and other remedies that cannot lawfully be compelled to arbitration remain available in court. A claimant may choose court for covered sexual-assault or sexual-harassment disputes as federal law permits. Nothing waives other mandatory statutory exceptions. Either party may seek necessary temporary court relief to preserve rights pending arbitration without waiving arbitration of the underlying covered claim.",
+        "For disputes subject to enforceable arbitration, YOU AND NITEWIDE WAIVE A JURY TRIAL AND AGREE TO PROCEED IN AN INDIVIDUAL CAPACITY, NOT AS A CLASS REPRESENTATIVE OR CLASS MEMBER. The arbitrator may not combine different persons' claims or conduct a class arbitration without all parties' post-dispute consent. This does not prevent coordinated individual filings, application of AAA mass-arbitration rules, or legally protected representative or public-relief claims. If the class-arbitration waiver is unenforceable for a particular claim, that claim proceeds in court, not class arbitration, while any severable covered individual claims may be arbitrated.",
+        "30-DAY OPT-OUT: Within 30 calendar days after you first accept these Terms, send Contact Nitewide a message headed Arbitration opt-out with your full name, account email, and a clear statement that you opt out of section 15's arbitration and class-action waiver. Use the signed-out account-access form if sign-in is unavailable. A timely submitted notice is effective when received; it does not depend on Nitewide's later approval or reply. Keep your submission record. Opting out does not affect your account, prices, permissions, or other Terms. If you opt out, neither you nor Nitewide is bound by this section's arbitration or class-action waiver.",
+        "A court, not an arbitrator, decides whether this agreement was formed, whether a valid opt-out applies, and enforceability of the class-action waiver or statutory arbitration exceptions. Other covered procedural questions may be decided by the arbitrator as allowed by law. New dispute terms do not retroactively apply to an already pending dispute without an express agreement."
+      ]
+    },
+    {
+      "id": "general",
+      "title": "16. Governing law, changes, and general provisions",
+      "paragraphs": [
+        "Except for the Federal Arbitration Act's application to arbitration and mandatory protections of another jurisdiction, Delaware law governs these Terms without using conflicts rules to deprive a consumer of non-waivable protections of their home jurisdiction. Claims not required to be arbitrated may be brought in state or federal courts with jurisdiction in Delaware; consumers retain any mandatory right to a court in their home jurisdiction and the small-claims option above.",
+        "We may change features or these Terms prospectively. Material changes will be communicated by a reasonably conspicuous notice, with renewed affirmative agreement when legally required. The version you accepted governs until a later version becomes applicable through a legally valid agreement. We will not impose retroactive dispute changes on an existing dispute by silently editing this document.",
+        "If a provision is unenforceable, the remaining provisions remain effective to the extent lawful, subject to the arbitration severability rule above. Failure to enforce a provision is not a waiver. You may not assign an account or agreement without consent; Nitewide may assign this agreement in a lawful reorganization or business transfer without diminishing non-waivable rights. These Terms and applicable express written agreements are the entire agreement about Platform use. No term creates a partnership, employment relationship, or agency authority. Privacy disclosures and any separate required consent must accurately describe actual practices; these Terms do not substitute for those disclosures."
+      ]
+    }
+  ]
+}

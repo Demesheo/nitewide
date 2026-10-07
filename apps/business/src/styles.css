@@ -1767,8 +1767,6 @@ textarea:focus-visible {
 .team-role-field [data-slot="select-trigger"]:hover { background: rgba(34, 35, 46, .9); }
 .team-invite-form label:first-child { grid-column: 1 / -1; }
 .team-invite-form .team-invite-identity { grid-column: 1 / -1; }
-.signin-form .sms-choice { display: flex; align-items: flex-start; gap: 10px; font-size: 12px; line-height: 1.5; }
-.signin-form .sms-choice input { width: 16px; height: 16px; flex: none; margin-top: 2px; accent-color: var(--primary); }
 .team-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .team-link p, .team-link small { flex-basis: 100%; }
 .team-link input { flex: 1; min-width: 240px; }

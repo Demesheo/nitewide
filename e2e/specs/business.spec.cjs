@@ -587,6 +587,13 @@ test('organization invitation links and resend links open the team acceptance sc
     await expect(recipient.getByLabel('Email', { exact: true })).toHaveValue(newEmail);
     await expect(recipient.getByLabel('Password', { exact: true })).toHaveAttribute('autocomplete', 'new-password');
     await expect(recipient.getByLabel('Confirm password', { exact: true })).toBeVisible();
+    await expect(recipient.getByRole('button', { name: 'Create account and accept', exact: true })).toBeDisabled();
+    await recipient.getByRole('link', { name: /terms and conditions of use/ }).click();
+    await expect(recipient.getByRole('dialog', { name: 'Nitewide Terms and Conditions of Use' })).toBeVisible();
+    await expectNoOverflow(recipient);
+    await recipient.getByRole('button', { name: 'Close terms and conditions', exact: true }).click();
+    await expect(recipient.getByRole('checkbox', { name: /I agree to the terms/ })).not.toBeChecked();
+    await recipient.getByRole('checkbox', { name: /I agree to the terms/ }).check();
     const requirements = recipient.getByRole('list', { name: 'Password requirements', exact: true });
     await expect(requirements).toContainText('8–128 characters');
     await expect(requirements).toContainText('One uppercase letter');

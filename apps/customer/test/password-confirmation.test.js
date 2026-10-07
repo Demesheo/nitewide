@@ -17,7 +17,7 @@ test("confirmation is registration-only, accessible, and checked before the API 
   assert.match(source, /name="confirmPassword"[\s\S]*?type="password"[\s\S]*?visibilityLabel="confirmed password"[\s\S]*?autoComplete="new-password"/);
   assert.match(source, /aria-invalid=\{showMismatch/);
   assert.match(source, /aria-describedby=\{showMismatch \? confirmationErrorId/);
-  assert.match(source, /disabled=\{busy \|\| \(register && Boolean\(confirmationError\)\)\}/);
+  assert.match(source, /disabled=\{busy \|\| \(register && !forgot && \(!termsAccepted \|\| Boolean\(confirmationError\)\)\)\}/);
   assert.ok(source.indexOf('passwordConfirmationError(body.password, form.get("confirmPassword"))') < source.indexOf('await api(`/auth/${register ? "register" : "sign-in"}`'));
   assert.match(source, /const body = \{ email: form.get\("email"\), password: form.get\("password"\) \}/);
   assert.doesNotMatch(source, /confirmPassword:\s*form.get/);

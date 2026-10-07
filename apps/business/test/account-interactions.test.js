@@ -242,6 +242,7 @@ test('profile saves role-relevant in-app preferences without invoking email deli
     const profilePanel = q.getByRole('region', { name: 'Your profile' });
     const profileSection = within(profilePanel).getByRole('region', { name: 'Profile' });
     const settingsSection = within(profilePanel).getByRole('region', { name: 'Settings' });
+    assert.equal(within(settingsSection).queryByRole('checkbox', { name: /text|sms/i }), null);
     const orderedParts = [...profilePanel.children].map((part) => part.getAttribute('aria-label') || part.tagName.toLowerCase());
     assert.deepEqual(orderedParts, ['Profile', 'Settings', 'footer'], 'profile, settings, and logout are separate stacked sections in order');
     assert.ok(within(profileSection).getByLabelText('Name'));

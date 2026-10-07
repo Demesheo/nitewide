@@ -1,0 +1,29 @@
+.nw-terms-link { color: #c4b2ff; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.nw-terms-link:focus-visible, .nw-terms-dialog :focus-visible { outline: 2px solid #c4b2ff; outline-offset: 4px; }
+.nw-terms-link[aria-disabled="true"] { opacity: .6; cursor: default; }
+.nw-terms-consent { margin-block: 8px; }
+.nw-terms-consent .nw-terms-choice { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 1.6; }
+.nw-terms-consent .nw-terms-choice input { width: 18px; height: 18px; flex: 0 0 18px; margin: 3px 0 0; padding: 0; accent-color: #bba5ff; }
+.nw-terms-consent .nw-terms-choice label { display: inline; margin: 0; font-size: inherit; line-height: inherit; font-weight: inherit; color: inherit; }
+.nw-terms-consent > p { margin: 8px 0 0 28px; color: #b6b0c3; font-size: 12px; line-height: 1.6; }
+.nw-terms-overlay { position: fixed; inset: 0; z-index: 100; background: rgb(0 0 0 / .72); }
+.nw-terms-dialog { position: fixed; z-index: 101; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; width: min(760px, calc(100vw - 32px)); max-height: min(880px, calc(100dvh - 32px)); border: 1px solid #393343; border-radius: 24px; background: #121117; color: #f2eff7; box-shadow: 0 24px 90px rgb(0 0 0 / .55); overflow: hidden; font-family: inherit; }
+.nw-terms-header { position: relative; padding: 28px 64px 20px 28px; border-bottom: 1px solid #302a3a; flex-shrink: 0; }
+.nw-terms-header .nw-terms-eyebrow { color: #b9aaca; font-size: 11px; letter-spacing: .16em; font-weight: 600; margin: 0 0 12px; }
+.nw-terms-header h2 { font-size: clamp(20px, 4vw, 26px); line-height: 1.3; font-weight: 600; margin: 0 0 10px; }
+.nw-terms-header > p:last-of-type { margin: 0; color: #b6b0c3; font-size: 12px; line-height: 1.6; }
+.nw-terms-close { position: absolute; top: 20px; right: 20px; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: #211d29; border: 1px solid #3b3349; color: #e4dbee; cursor: pointer; }
+.nw-terms-scroll { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 24px 28px; font-size: 14px; line-height: 1.75; overflow-wrap: anywhere; }
+.nw-terms-scroll h3 { font-size: 17px; font-weight: 600; line-height: 1.5; margin: 28px 0 12px; }
+.nw-terms-scroll p { margin: 0 0 14px; color: #cdc7d6; }
+.nw-terms-scroll .nw-terms-draft { color: #f5ce86; font-size: 12px; }
+.nw-terms-scroll .nw-terms-notice { border: 1px solid #54426e; border-radius: 14px; padding: 16px; background: #271e37; color: #e6d9ff; }
+.nw-terms-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 16px 28px; border-top: 1px solid #302a3a; flex-shrink: 0; }
+.nw-terms-footer button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 14px; border: 1px solid #45394f; border-radius: 10px; color: #e5d9f3; background: #241e2c; font-size: 13px; cursor: pointer; }
+@media (max-width: 480px) {
+  .nw-terms-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); border-radius: 18px; }
+  .nw-terms-header { padding: 22px 56px 16px 20px; }
+  .nw-terms-close { top: 16px; right: 14px; }
+  .nw-terms-scroll { padding: 20px; }
+  .nw-terms-footer { padding: 14px 20px; }
+}

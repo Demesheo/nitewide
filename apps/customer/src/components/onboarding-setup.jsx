@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, Check, Eye, EyeOff, LoaderCircle, ShieldCheck } from 'lucide-react';
 import { api } from '../lib/api';
 import { PasswordRequirements, passwordRequirementError } from '../../../shared/password-requirements.jsx';
+import { TermsAcceptance, TermsLink, termsAcceptance } from '../../../shared/terms-and-conditions.jsx';
 import './onboarding-setup.css';
 
 const kinds = {
@@ -29,11 +30,13 @@ export function OnboardingSetup({ token, session, onSignIn, onSwitchAccount, onC
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError('');
     setPreview(null);
+    setTermsAccepted(false);
     api(`/auth/onboarding/preview?token=${encodeURIComponent(token)}`)
       .then((data) => { if (active) setPreview(data); })
       .catch((failure) => { if (active) setError(invitationError(failure)); })
@@ -48,6 +51,7 @@ export function OnboardingSetup({ token, session, onSignIn, onSwitchAccount, onC
   async function accept(event) {
     event.preventDefault();
     if (!preview || mismatch || (existing && !session) || busy) return;
+    if (!existing && !termsAccepted) { setError('Please agree to the Nitewide terms and conditions to activate your account.'); return; }
     const invalidPassword = !existing ? passwordRequirementError(password) : '';
     if (!existing && (invalidPassword || password !== confirmPassword)) {
       setError(invalidPassword || 'Passwords do not match.');
@@ -57,7 +61,7 @@ export function OnboardingSetup({ token, session, onSignIn, onSwitchAccount, onC
     try {
       await api('/auth/onboarding/accept', {
         ...(existing ? { token: session.accessToken } : {}),
-        body: existing ? { token } : { token, password, confirmPassword },
+        body: existing ? { token } : { token, password, confirmPassword, ...termsAcceptance },
       });
       const url = new URL(window.location.href);
       url.searchParams.delete('onboarding');
@@ -90,13 +94,15 @@ export function OnboardingSetup({ token, session, onSignIn, onSwitchAccount, onC
                       <label>New password<div className="onboarding-password"><input name="password" autoComplete="new-password" type={showPassword ? 'text' : 'password'} maxLength={128} required aria-describedby="onboarding-password-help" value={password} onChange={(event) => { setPassword(event.target.value); setError(''); }} /><button type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>
                       <PasswordRequirements id="onboarding-password-help" password={password}/>
                       <label>Confirm password<div className="onboarding-password"><input name="confirmPassword" autoComplete="new-password" type={showConfirmation ? 'text' : 'password'} maxLength={128} required value={confirmPassword} onChange={(event) => { setConfirmPassword(event.target.value); setError(''); }} /><button type="button" aria-label={showConfirmation ? 'Hide confirmed password' : 'Show confirmed password'} aria-pressed={showConfirmation} onClick={() => setShowConfirmation(!showConfirmation)}>{showConfirmation ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}</button></div></label>
+                      <TermsAcceptance accepted={termsAccepted} onChange={setTermsAccepted} disabled={busy}/>
                     </>}
                     {validation && <p role="status" className="onboarding-error">{validation}</p>}
                     {error && <p role="alert" className="onboarding-error">{error}</p>}
-                    <button className="onboarding-primary" disabled={busy || Boolean(validation)} type="submit">{busy ? <><LoaderCircle className="onboarding-spin" size={18} /> Activating…</> : <>{existing ? 'Accept access' : 'Confirm email and activate'} <ArrowRight size={18} /></>}</button>
+                    <button className="onboarding-primary" disabled={busy || Boolean(validation) || (!existing && !termsAccepted)} type="submit">{busy ? <><LoaderCircle className="onboarding-spin" size={18} /> Activating…</> : <>{existing ? 'Accept access' : 'Confirm email and activate'} <ArrowRight size={18} /></>}</button>
                   </form>}
             </>}
       <p className="onboarding-footer">Need help? Contact the Nitewide team that invited you.</p>
+      <TermsLink/>
     </section>
   </main>;
 }

@@ -9,12 +9,13 @@ const { hasInternalPermission } = require('./internal-admin-permissions');
 const { unscoped, setBusinessRole, bumpBusiness, bumpAccount } = require('./business-membership-policy');
 const { BUSINESS_SLUG_PATTERN, createBusinessSlug } = require('../domain/business-slug');
 const { password: passwordSchema } = require('../http/schemas');
+const { termsAcceptanceFields, recordTermsAcceptance } = require('../domain/terms-acceptance');
 
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 const text = (max) => z.string().trim().min(1).max(max);
 const reason = text(500).min(3);
 const onboardingChangeSchema = z.object({ reason, version: z.number().int().min(0) }).strict();
-const onboardingAcceptSchema = z.object({ token: z.string().min(20).max(200), password: z.string().optional(), confirmPassword: z.string().optional() }).strict();
+const onboardingAcceptSchema = z.object({ token: z.string().min(20).max(200), password: z.string().optional(), confirmPassword: z.string().optional(), termsAccepted: termsAcceptanceFields.termsAccepted.optional(), termsVersion: termsAcceptanceFields.termsVersion.optional() }).strict();
 const recipientSchema = z.object({ email: z.string().trim().toLowerCase().email().max(320), displayName: text(120), phone: z.string().trim().max(32).optional(), role: z.enum(['owner', 'manager']).default('owner'), financeAuthorized: z.boolean().default(false) }).strict();
 const secureLink = z.string().trim().url().max(2048).refine((value) => new URL(value).protocol === 'https:', 'Use an HTTPS link');
 const venueSchema = z.object({ name: text(180), addressLine1: text(180), addressLine2: z.string().trim().max(180).optional(), city: text(100), region: z.string().trim().max(100).optional(), postalCode: z.string().trim().max(24).optional(), countryCode: z.string().length(2).toUpperCase(), timezone: text(64).refine((value) => { try { new Intl.DateTimeFormat('en', { timeZone: value }); return true; } catch { return false; } }, 'Choose a valid IANA timezone'), privacy: z.enum(['public', 'attendees_only', 'private']).default('public') }).strict();
@@ -148,9 +149,10 @@ function createAdminOnboardingService({ models, permissions, email = null, custo
     return transaction(async (tx) => {
       const { row, user } = await lookup(raw, tx);
       if (row.accountMode === 'new') {
-        const values = z.object({ password: passwordSchema, confirmPassword: z.string().min(1).max(128) }).strict().refine((value) => value.password === value.confirmPassword, { path: ['confirmPassword'], message: 'Passwords must match' }).parse(input);
+        const values = z.object({ password: passwordSchema, confirmPassword: z.string().min(1).max(128), ...termsAcceptanceFields }).strict().refine((value) => value.password === value.confirmPassword, { path: ['confirmPassword'], message: 'Passwords must match' }).parse(input);
         if (!user.onboardingPending || await models.UserCredential.findByPk(user.id, { transaction: tx })) throw conflict('Sign in with this account instead; credentials will not be overwritten', 'ONBOARDING_CREDENTIAL_EXISTS');
         await models.UserCredential.create({ userId: user.id, ...await createPasswordRecord(values.password), passwordChangedAt: now() }, { transaction: tx });
+        await recordTermsAcceptance(models, user.id, values, 'onboarding_activation', now(), tx);
       } else {
         z.object({}).strict().parse(input);
         if (authenticatedUserId !== user.id || !activeUser(user)) throw forbidden('Sign in with the invited account to accept access');

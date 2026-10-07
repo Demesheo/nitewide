@@ -655,6 +655,17 @@ h3 {
   font-size: 10px;
   color: var(--text-muted);
 }
+.card-price > small {
+  display: block;
+  margin-top: 3px;
+}
+.upfront-total {
+  display: block;
+}
+.upfront-total > small {
+  display: inline;
+  margin: 0 0 0 4px;
+}
 .card-bottom button {
   display: grid;
   place-items: center;
@@ -1161,6 +1172,7 @@ h3 {
 }
 .offering > span:nth-child(2) {
   flex: 1;
+  min-width: 0;
 }
 .offering b {
   font-size: 12px;
@@ -1178,6 +1190,16 @@ h3 {
   font-size: 15px;
   font-weight: 550;
   text-align: right;
+  max-width: 48%;
+}
+.offering .upfront-total > small {
+  display: inline;
+  margin: 0 0 0 4px;
+}
+.offering .upfront-total,
+.offering strong > small {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .radio-indicator {
   border: 1px solid var(--border-strong);

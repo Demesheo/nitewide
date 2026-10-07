@@ -1,5 +1,6 @@
 const test = require('node:test'); const assert = require('node:assert/strict'); const { createApp } = require('../src/app');
 const { Op } = require('sequelize');
+const { TERMS_VERSION } = require('../src/domain/terms-acceptance');
 const { request: httpRequest } = require('./support/http-client.cjs');
 async function request(app, path, options = {}) { const server = app.listen(0, '127.0.0.1'); await new Promise((resolve) => server.once('listening', resolve)); try { return await httpRequest(server, path, options); } finally { await new Promise((resolve) => server.close(resolve)); } }
 function setup(onGuestlistQuery, guestlistScope = { canReviewAny: true, eventAffiliateIds: [] }, onPublicEventQuery) {
@@ -26,7 +27,16 @@ test('public discovery filters finished events before applying its limit', async
   assert.deepEqual(query.order, [['startsAt', 'ASC']]);
   assert.equal(query.limit, 100);
 });
-test('anyone can register a customer identity', async () => { const response = await request(setup(), '/api/auth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ displayName: 'Test Customer', email: 'customer@example.com', password: 'Customer123' }) }); assert.equal(response.status, 201); assert.deepEqual(response.body.data.roles, ['customer']); assert.equal(response.body.data.accessToken, 'test-token'); });
+test('customer registration requires explicit current terms acceptance', async () => {
+  const body = { displayName: 'Test Customer', email: 'customer@example.com', password: 'Customer123' };
+  const app = setup();
+  for (const acceptance of [{}, { termsAccepted: false, termsVersion: TERMS_VERSION }, { termsAccepted: true, termsVersion: 'outdated' }]) {
+    const rejected = await request(app, '/api/auth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, ...acceptance }) });
+    assert.equal(rejected.status, 422);
+  }
+  const response = await request(app, '/api/auth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, termsAccepted: true, termsVersion: TERMS_VERSION }) });
+  assert.equal(response.status, 201); assert.deepEqual(response.body.data.roles, ['customer']); assert.equal(response.body.data.accessToken, 'test-token');
+});
 test('a customer can sign in and receive a session', async () => { const response = await request(setup(), '/api/auth/sign-in', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'customer@example.com', password: 'Customer123' }) }); assert.equal(response.status, 200); assert.equal(response.body.data.user.email, 'customer@example.com'); });
 test('a bearer session resolves the signed-in user', async () => { const response = await request(setup(), '/api/auth/me', { headers: { authorization: 'Bearer test-token' } }); assert.equal(response.status, 200); assert.deepEqual(response.body.data.roles, ['customer']); });
 test('checkout requires a user identity', async () => { const response = await request(setup(), '/api/orders', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); assert.equal(response.status, 401); assert.equal(response.body.error.code, 'UNAUTHENTICATED'); });

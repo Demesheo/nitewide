@@ -134,6 +134,9 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
   }
 
   async function register(input) {
+    // Enforce explicit, current-version assent even for non-HTTP callers.
+    const { termsAcceptanceSchema, recordTermsAcceptance } = require('../domain/terms-acceptance');
+    termsAcceptanceSchema.parse(input);
     const normalizedEmail = input.email.trim().toLowerCase();
     const password = await createPasswordRecord(input.password);
     const { user, guestlistInvite, verificationEmailQueued } = await mutationTransaction(sequelize, async (transaction) => {
@@ -143,6 +146,7 @@ function createAuthService({ sequelize, models, tokenSecret, invitations = null,
       // number or invitation contact alone never authorizes SMS delivery.
       await models.UserCredential.create({ userId: created.id, ...password }, { transaction });
       await models.AuditLog.create({ actorUserId: created.id, entityType: 'User', entityId: created.id, action: 'user.registered', after: { role: 'customer' } }, { transaction });
+      await recordTermsAcceptance(models, created.id, input, 'registration', now(), transaction);
       const verificationEmailQueued = Boolean(await issueAction(created, 'verify_email', transaction));
       let guestlistInvite = null;
       if (input.guestlistInviteToken && invitations) {

@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const request = require('supertest');
 const crypto = require('node:crypto');
+const { TERMS_VERSION } = require('../src/domain/terms-acceptance');
+const agreement = { termsAccepted: true, termsVersion: TERMS_VERSION };
 const sharp = require('sharp');
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 const { createAuthService, createPasswordRecord } = require('../src/services/auth-service');
@@ -186,13 +188,13 @@ test('Business entry and manually reviewed access requests preserve authority, i
       assert.equal(await m.UserCredential.findByPk(invited.id), null); assert.equal(await m.OrganizationOwner.count({ where: { userId: invited.id } }), 0);
       await signIn(invited).expect(401);
       const token = await invitationToken(reviewed.invitation);
-      await api('post', '/auth/onboarding/accept', null, { token, password: PASSWORD, confirmPassword: 'DifferentPassword12345' }).expect(422);
+      await api('post', '/auth/onboarding/accept', null, { token, password: PASSWORD, confirmPassword: 'DifferentPassword12345', ...agreement }).expect(422);
       assert.equal((await invited.reload()).onboardingPending, true);
-      await api('post', '/auth/onboarding/accept', null, { token, password: PASSWORD, confirmPassword: PASSWORD }).expect(200);
+      await api('post', '/auth/onboarding/accept', null, { token, password: PASSWORD, confirmPassword: PASSWORD, ...agreement }).expect(200);
       assert.equal((await invited.reload()).onboardingPending, false);
       assert.equal((await m.OrganizationOwner.findOne({ where: { userId: invited.id } })).role, 'owner');
       await signIn(invited).expect(200);
-      await api('post', '/auth/onboarding/accept', null, { token, password: PASSWORD, confirmPassword: PASSWORD }).expect(409);
+      await api('post', '/auth/onboarding/accept', null, { token, password: PASSWORD, confirmPassword: PASSWORD, ...agreement }).expect(409);
     });
 
     await t.test('unavailable or failing email queues roll back approval, provisioning, invitations, outbox and audit together', async () => {

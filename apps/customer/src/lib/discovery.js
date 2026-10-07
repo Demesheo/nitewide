@@ -133,10 +133,11 @@ export function availableQuantity(offering, now = new Date()) {
   const maximum = Math.min(offering.maxPerOrder || 10, remaining);
   return maximum < (offering.minPerOrder || 1) ? 0 : maximum;
 }
-export function offeringAvailabilityLabel(offering, offerings = []) {
+export function offeringAvailabilityLabel(offering, offerings = [], quantity = offering.minPerOrder || 1) {
   if (availableQuantity(offering)) {
     if (offering.priceCents === 0) return '';
-    return offering.effectiveFeeMode === 'absorbed' ? 'Fees included' : '+ fees';
+    const quote = offeringPrice(offering, quantity);
+    return quote.eligible ? feeLabel(quote, offering.currency) : 'Pricing unavailable';
   }
   if (offering.saleState === 'waiting_for_tier') {
     const previous = offerings.find((item) => item.id === offering.releaseAfterOfferingId);
@@ -150,8 +151,24 @@ export function offeringAvailabilityLabel(offering, offerings = []) {
 export function checkoutTotal(priceCents, quantity, currency = 'USD', feeMode = 'buyer') {
   const quote = checkoutQuote(priceCents, quantity, currency, feeMode);
   return { subtotal: quote.subtotalCents, fee: quote.feeCents, total: quote.totalCents,
+    includedFee: quote.includedFeeCents,
     eligible: quote.eligible, discount: quote.discountCents || 0, floorAdjusted: Boolean(quote.floorAdjusted),
     standardCeilingExceeded: Boolean(quote.standardCeilingExceeded) };
+}
+export function feeLabel(quote, currency = 'USD') {
+  if (!quote.eligible || !quote.total) return '';
+  if (quote.fee > 0) return `+${money(quote.fee, currency)} fee`;
+  return quote.includedFee > 0 ? `includes ${money(quote.includedFee, currency)} fee` : '';
+}
+export function offeringPrice(offering, quantity = offering.minPerOrder || 1) {
+  return { ...checkoutTotal(offering.priceCents, quantity, offering.currency || 'USD', offering.effectiveFeeMode || 'buyer'), quantity, currency: offering.currency || 'USD' };
+}
+export function eventStartingPrice(event) {
+  // Advertise an obtainable order total, not a sold-out tier, face value, or
+  // single unit that cannot be bought because the offering requires a minimum.
+  return (event.offerings || []).filter(offering => availableQuantity(offering) > 0)
+    .map(offering => offeringPrice(offering)).filter(quote => quote.eligible)
+    .sort((a, b) => a.total - b.total)[0] || null;
 }
 export function readStorage(key, fallback) {
   try {

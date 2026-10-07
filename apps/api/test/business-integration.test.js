@@ -3,6 +3,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { request: httpRequest } = require('./support/http-client.cjs');
 const { randomUUID } = require("node:crypto");
+const { TERMS_VERSION } = require('../src/domain/terms-acceptance');
+const agreement = { termsAccepted: true, termsVersion: TERMS_VERSION };
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 const { createDemoStaticFixture } = require('./support/demo-static-fixture.cjs');
 test(
@@ -306,7 +308,7 @@ test(
       assert.equal(anonymousPass.body.data.tickets.length, 1);
       assert.ok(anonymousPass.body.data.tickets[0].qrImage);
       assert.equal((await req(guestInvitePath, ids.owner, 'POST', { pool: 'direct', email: pending.body.data.invitation.email, partySize: 1 })).status, 409);
-      const registered = await req('/auth/register', null, 'POST', { displayName: 'New guest', email: pending.body.data.invitation.email, password: 'NitewideDemo!2026', guestlistInviteToken: pending.body.data.token });
+      const registered = await req('/auth/register', null, 'POST', { displayName: 'New guest', email: pending.body.data.invitation.email, password: 'NitewideDemo!2026', guestlistInviteToken: pending.body.data.token, ...agreement });
       assert.equal(registered.status, 201, JSON.stringify(registered.body));
       assert.equal(registered.body.data.guestlistInvite.status, 'confirmed');
       users.push(registered.body.data.user.id);
@@ -315,7 +317,7 @@ test(
       assert.equal(repeatedClaim.body.data.status, 'confirmed');
       const phonePending = await req(guestInvitePath, ids.owner, 'POST', { pool: 'direct', phone: '+14075550199', partySize: 1 });
       assert.equal(phonePending.status, 201, JSON.stringify(phonePending.body));
-      const phoneRegistered = await req('/auth/register', null, 'POST', { displayName: 'Phone guest', email: `phone-${randomUUID()}@integration.nitewide.test`, phone: '+14075550199', password: 'NitewideDemo!2026', guestlistInviteToken: phonePending.body.data.token });
+      const phoneRegistered = await req('/auth/register', null, 'POST', { displayName: 'Phone guest', email: `phone-${randomUUID()}@integration.nitewide.test`, phone: '+14075550199', password: 'NitewideDemo!2026', guestlistInviteToken: phonePending.body.data.token, ...agreement });
       assert.equal(phoneRegistered.status, 201, JSON.stringify(phoneRegistered.body));
       assert.equal(phoneRegistered.body.data.guestlistInvite.status, 'confirmed');
       users.push(phoneRegistered.body.data.user.id);
