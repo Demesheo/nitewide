@@ -63,7 +63,7 @@ test('production diagnostics use real PostgreSQL deadlines and authorized HTTP t
     await t.test('deployment readiness rejects stale, mismatched and stopped worker heartbeats', async () => {
       const { randomUUID } = require('node:crypto');
       const { paymentRuntimeEvidence } = require('../src/diagnostics/payment-runtime');
-      const releaseConfig = { ...config, RELEASE_REVISION: 'a'.repeat(40), APP_ENVIRONMENT: 'staging' };
+      const releaseConfig = { ...config, RELEASE_REVISION: 'a'.repeat(40), APP_ENVIRONMENT: 'staging', EMAIL_DELIVERY_POLICY: 'essential' };
       const runtime = paymentRuntimeEvidence(releaseConfig), id = randomUUID();
       const probe = createApp({ sequelize: db, models, config: releaseConfig, services: { email: { enabled: false } } });
       try {
