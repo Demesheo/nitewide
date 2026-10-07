@@ -14,6 +14,17 @@ projects:
                 value: "production"
               - key: APP_ENVIRONMENT
                 value: "staging"
+              # TLS-verified staging domains. Keep the API and worker in sync.
+              - key: APP_ROUTING_MODE
+                value: "subdomains"
+              - key: CUSTOMER_APP_URL
+                value: "https://staging.nitewide.com"
+              - key: BUSINESS_APP_URL
+                value: "https://business-staging.nitewide.com/app"
+              - key: ADMIN_APP_URL
+                value: "https://admin-staging.nitewide.com"
+              - key: CORS_ORIGINS
+                value: "https://staging.nitewide.com,https://business-staging.nitewide.com,https://admin-staging.nitewide.com"
               - key: HOSTED_DEMO
                 value: "false"
               - key: DATABASE_SSL
@@ -66,17 +77,6 @@ projects:
                 value: "10000"
               - key: DATABASE_URL
                 sync: false
-              - key: CUSTOMER_APP_URL
-                sync: false
-              # Bootstrap with paths. Switch both runtimes only after TLS is ready.
-              - key: APP_ROUTING_MODE
-                value: "paths"
-              - key: ADMIN_APP_URL
-                value: ""
-              - key: BUSINESS_APP_URL
-                sync: false
-              - key: CORS_ORIGINS
-                sync: false
               - key: R2_ACCOUNT_ID
                 sync: false
               - key: R2_ACCESS_KEY_ID
@@ -101,31 +101,6 @@ projects:
                   name: nitewide-staging-web
                   type: web
                   envVarKey: DATABASE_URL
-              - key: CUSTOMER_APP_URL
-                fromService:
-                  name: nitewide-staging-web
-                  type: web
-                  envVarKey: CUSTOMER_APP_URL
-              - key: APP_ROUTING_MODE
-                fromService:
-                  name: nitewide-staging-web
-                  type: web
-                  envVarKey: APP_ROUTING_MODE
-              - key: ADMIN_APP_URL
-                fromService:
-                  name: nitewide-staging-web
-                  type: web
-                  envVarKey: ADMIN_APP_URL
-              - key: BUSINESS_APP_URL
-                fromService:
-                  name: nitewide-staging-web
-                  type: web
-                  envVarKey: BUSINESS_APP_URL
-              - key: CORS_ORIGINS
-                fromService:
-                  name: nitewide-staging-web
-                  type: web
-                  envVarKey: CORS_ORIGINS
               - key: R2_ACCOUNT_ID
                 fromService:
                   name: nitewide-staging-web

@@ -164,10 +164,14 @@ list. Do not open `0.0.0.0/0` as a convenience workaround. Remove a copied
 `DATABASE_SSL=true`. A trusted private endpoint can be considered only after its
 CA and hostname verification are proven. See [database security](ENVIRONMENT_SECURITY.md).
 
-The web service's initial secret prompts include the connection URL, app URLs,
-CORS origin and R2 S3 credentials. The worker references the web service's values;
-both use the same environment-scoped generated signing/encryption keys. There
-are no shared secret groups between staging and production. `sync: false` prompts
+The web service's initial secret prompts include the connection URL and R2 S3
+credentials. The worker references these web-service values. Both use the same
+environment-scoped generated signing/encryption keys. The staging template now
+keeps the five public app-routing settings in the shared runtime group, matching
+the TLS-verified custom-domain cutover. For a new deployment without verified
+custom domains, override those settings for the bootstrap below before starting
+either runtime. There are no shared secret groups between staging and production.
+`sync: false` prompts
 apply only on initial creation; later secret changes require an explicit runtime
 update and verification of both services.
 
@@ -266,10 +270,12 @@ ADMIN_APP_URL=https://admin-staging.nitewide.com
 CORS_ORIGINS=https://staging.nitewide.com,https://business-staging.nitewide.com,https://admin-staging.nitewide.com
 ```
 
-Update these values in the intended Blueprint too before a future sync, so its
-bootstrap `paths` setting cannot undo the cutover. Worker `fromService` bindings
-copy the routing settings from the web service; verify both runtimes restarted
-with matching configuration evidence. Startup refuses missing admin URLs,
+Update these values in the intended Blueprint too before a future sync, so
+bootstrap settings cannot undo the cutover. The staging Blueprint and the
+manually created services share them through `nitewide-staging-runtime`; the
+production template uses worker `fromService` bindings to copy the web-service
+settings. Verify both runtimes restarted with matching configuration evidence.
+Startup refuses missing admin URLs,
 overlapping hosts, unexpected URL paths and incomplete/wildcard CORS lists.
 Staging also refuses production app hostnames. Stripe remains disabled or
 sandbox-only; subdomains do not enable live payments.
