@@ -1,7 +1,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
-const { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, HeadBucketCommand, HeadObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 const defaultUploadDir = path.resolve(__dirname, '../../uploads/events');
@@ -30,6 +30,10 @@ function createR2Storage({ config, client, sign = getSignedUrl }) {
   const send = command => client.send(command, { abortSignal: AbortSignal.timeout(30000) });
   return {
     provider: 'r2', bucket: config.R2_BUCKET,
+    // One bounded, read-only request at release startup; never create a probe object.
+    async checkAccess() {
+      await client.send(new HeadBucketCommand({ Bucket: config.R2_BUCKET }), { abortSignal: AbortSignal.timeout(10000) });
+    },
     async put(asset, buffer) {
       await send(new PutObjectCommand({ ...input(asset), Body: buffer, ContentType: 'image/webp',
         ContentMD5: createHash('md5').update(buffer).digest('base64'),

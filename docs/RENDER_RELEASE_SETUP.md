@@ -17,6 +17,7 @@ apply that Blueprint to staging or production. Regular releases use:
 | API and all three frontends | `node deploy/run.cjs api` |
 | Independent worker | `node deploy/run.cjs worker` |
 | Configuration check without provider calls | `node deploy/run.cjs check` |
+| Read-only access check against this environment's R2 bucket | `node deploy/run.cjs check-media` |
 | Reviewed migrations without seeding | `node deploy/run.cjs migrate` |
 
 Regular startup requires an explicit environment, verified database TLS, matching
@@ -25,6 +26,11 @@ revision. It rejects demo mode, reseeding and shared sandbox merchant routing.
 The API uses `SERVE_FRONTENDS=true`; the worker uses `false`. Each retains its
 existing bounded shutdown handlers. Migration execution holds a database advisory
 lock, applies the migration chain through the CLI and never seeds records.
+Before migrations or API/worker startup, a bounded R2 `HeadBucket` request must
+succeed using that runtime's effective credentials. Failure stops the release
+before migrations or serving traffic. Diagnostics contain only a safe category,
+never provider messages or credentials. `check` remains offline and does not
+make provider calls; normal unit/browser tests mock storage and stay offline.
 
 After a separately approved commit/push, GitHub verifies the `staging` and
 `production` branches using the existing unit/API, browser and image jobs. It
@@ -123,6 +129,27 @@ dev/demo or the other release environment. Keep public access and `r2.dev`
 disabled. Standard automatic jurisdiction uses the normal account endpoint;
 jurisdiction-specific buckets require a matching `R2_ENDPOINT` on both runtimes.
 See [Cloudflare R2 credential instructions](https://developers.cloudflare.com/r2/api/tokens/).
+
+Verify the credential pair actually belongs to the intended bucket token, not
+just that the variables are present. During the initial staging smoke test,
+the bucket/endpoint settings were correct but production's bucket-scoped
+credentials had been saved in staging, producing R2 `403 AccessDenied` and an
+artwork-upload `503`. Replacing them with the saved staging **S3 pair** in the
+shared runtime group and redeploying both services restored successful read-only
+bucket access. The user then confirmed the artwork upload worked in the business
+app. For the same failure, restore the environment's correct pair in its runtime
+group, check for API/worker overrides, restart both runtimes, and run the read-only
+media check. Never substitute the Cloudflare account ID or API token value for
+S3 credentials, copy dev/production keys into staging, or grant all-bucket access.
+Worker-required readiness also compares the effective media configuration using
+the existing private keyed fingerprint, detecting API/worker credential drift
+without exposing any key or fingerprint in a public response.
+
+For production, use its own production-only pair and run `check-media` before
+onboarding users. This read-only probe proves bucket access, not write permission:
+also complete a separately authorized real artwork upload and private read
+through the business app before declaring storage ready. Keep the bucket private;
+bucket CORS/public access is not a fix for this authenticated server-side flow.
 
 Keep `MEDIA_CLEANUP_ENABLED=false` initially. After an authorized upload/read
 and orphan-cleanup verification against the isolated bucket, enable cleanup on

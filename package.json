@@ -19,6 +19,7 @@
     "start:release": "node deploy/run.cjs api",
     "start:release:worker": "node deploy/run.cjs worker",
     "deploy:check": "node deploy/run.cjs check",
+    "deploy:check:media": "node deploy/run.cjs check-media",
     "db:migrate:release": "node deploy/run.cjs migrate",
     "admin:bootstrap": "node deploy/bootstrap-admin.cjs",
     "payments:preflight": "node deploy/payment-preflight.cjs",

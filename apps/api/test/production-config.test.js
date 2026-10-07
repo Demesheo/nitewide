@@ -28,6 +28,22 @@ test('regular release configuration isolates staging/production, bounds pools an
     assert.equal(config.serveFrontends, true);
     assert.equal(config.hostedDemo, false);
     assert.equal(config.EMAIL_DELIVERY_POLICY, APP_ENVIRONMENT === 'staging' ? 'essential' : 'all');
+    const lifecycle = [], dependencies = {
+      log: () => {}, verifyMediaAccess: async () => { lifecycle.push('storage'); },
+      migrate: async () => { lifecycle.push('migrate'); }, startRuntime: async role => { lifecycle.push(role); },
+    };
+    await main(['check'], environment, dependencies);
+    assert.deepEqual(lifecycle, [], 'offline configuration check makes no provider calls');
+    await main(['check-media'], environment, dependencies);
+    assert.deepEqual(lifecycle.splice(0), ['storage']);
+    for (const role of ['migrate', 'api', 'worker']) {
+      const roleEnvironment = { ...environment, SERVE_FRONTENDS: role === 'worker' ? 'false' : 'true' };
+      await main([role], roleEnvironment, dependencies);
+      assert.deepEqual(lifecycle.splice(0), ['storage', role], 'storage is checked before any database write or runtime starts');
+      await assert.rejects(main([role], roleEnvironment, { ...dependencies,
+        verifyMediaAccess: async () => { throw new Error('storage blocked'); } }), /storage blocked/);
+      assert.deepEqual(lifecycle, [], 'a failed probe prevents migrations, API and worker startup');
+    }
     assert.equal(releaseConfig({ ...environment, EMAIL_DELIVERY_POLICY: 'disabled' }).EMAIL_DELIVERY_POLICY, 'disabled');
     assert.equal(releaseConfig({ ...environment, EMAIL_DELIVERY_POLICY: 'essential' }).EMAIL_DELIVERY_POLICY, 'essential');
     if (APP_ENVIRONMENT === 'staging') assert.throws(() => releaseConfig({ ...environment, EMAIL_DELIVERY_POLICY: 'all' }), /Staging email delivery/);
@@ -87,6 +103,28 @@ test('regular release configuration isolates staging/production, bounds pools an
   assert.equal(offline.EMAIL_DELIVERY_POLICY, 'all');
   assert.equal(getConfig({ EMAIL_DELIVERY_POLICY: '' }).EMAIL_DELIVERY_POLICY, 'all');
   assert.throws(() => getConfig({ EMAIL_DELIVERY_POLICY: 'unknown' }));
+});
+
+test('release media preflight closes its client and emits only safe diagnostics', async () => {
+  const { verifyMediaAccess } = require('../../../deploy/run.cjs');
+  const messages = [];
+  const config = { APP_ENVIRONMENT: 'staging', RELEASE_REVISION: 'a'.repeat(40) };
+  for (const failure of [null, { name: 'AccessDenied', $metadata: { httpStatusCode: 403 } },
+    { name: 'NotFound', $metadata: { httpStatusCode: 404 } }, { name: 'TimeoutError' }, { name: 'UnexpectedError' }]) {
+    let closed = 0, checked = 0;
+    const options = { log: message => messages.push(JSON.parse(message)), errorLog: message => messages.push(JSON.parse(message)),
+      createStorage: ({ config: actual }) => {
+        assert.equal(actual, config);
+        return { checkAccess: async () => { checked++; if (failure) throw { ...failure, message: 'private-secret signed-url' }; }, close: () => { closed++; } };
+      } };
+    if (failure) await assert.rejects(verifyMediaAccess(config, options), error => {
+      assert.ok(!error.message.includes('private-secret')); assert.equal(error.cause, undefined); return true;
+    });
+    else await verifyMediaAccess(config, options);
+    assert.equal(checked, 1); assert.equal(closed, 1);
+  }
+  assert.deepEqual(messages.map(message => message.reason), [undefined, 'access_denied', 'bucket_not_found', 'timeout', 'storage_unavailable']);
+  assert.ok(!JSON.stringify(messages).includes('private-secret'));
 });
 
 test('release migrations hold the lock, never seed, and close it on CLI failure or interruption', async () => {

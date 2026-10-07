@@ -21,6 +21,8 @@ test('R2 writes include integrity metadata; private read URLs are generated on d
   const r2 = createR2Storage({ config: credentials, client, sign: async (_client, command, options) => {
     signatures.push({ command, options }); return `https://example.invalid/object?signature=${signatures.length}`;
   } });
+  await r2.checkAccess();
+  assert.equal(commands.pop().constructor.name, 'HeadBucketCommand', 'release check is read-only');
   await r2.put(item, data);
   assert.equal(commands[0].constructor.name, 'PutObjectCommand');
   assert.equal(commands[0].input.Bucket, credentials.R2_BUCKET);

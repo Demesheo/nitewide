@@ -18,12 +18,17 @@ test('payment runtime evidence detects configuration drift without returning set
   assert.deepEqual(paymentRuntimeEvidence({ ...config, corsOrigins: [...config.corsOrigins].reverse() }), evidence);
   for (const key of ['AUTH_TOKEN_SECRET', 'STRIPE_SECRET_KEY', 'STRIPE_PUBLISHABLE_KEY', 'STRIPE_WEBHOOK_SECRET',
     'STRIPE_ACCOUNT_WEBHOOK_SECRET', 'STRIPE_CONNECT_CLIENT_ID', 'CUSTOMER_APP_URL', 'businessAppUrl', 'APP_ROUTING_MODE', 'ADMIN_APP_URL', 'TRUST_PROXY_MODE', 'TRUST_PROXY_HOPS', 'STRIPE_MODE', 'NODE_ENV',
-    'RESEND_API_KEY', 'RESEND_FROM_EMAIL', 'EMAIL_ENCRYPTION_KEY', 'RESEND_WEBHOOK_SECRET']) {
+    'RESEND_API_KEY', 'RESEND_FROM_EMAIL', 'EMAIL_ENCRYPTION_KEY', 'RESEND_WEBHOOK_SECRET',
+    'MEDIA_STORAGE_DRIVER', 'R2_ACCOUNT_ID', 'R2_BUCKET', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_ENDPOINT']) {
     assert.notEqual(paymentRuntimeEvidence({ ...config, [key]: 'different' }).configurationFingerprint, evidence.configurationFingerprint, key);
   }
   assert.notEqual(paymentRuntimeEvidence({ ...config, EMAIL_DELIVERY_POLICY: 'essential' }).configurationFingerprint, evidence.configurationFingerprint);
   assert.notEqual(paymentRuntimeEvidence({ ...config, resendTestMode: true }).configurationFingerprint, evidence.configurationFingerprint);
   assert.notEqual(paymentRuntimeEvidence({ ...config, STRIPE_SANDBOX_SHARED_ACCOUNT_ID: 'acct_private' }).configurationFingerprint, evidence.configurationFingerprint);
+  const media = { ...config, MEDIA_STORAGE_DRIVER: 'r2', R2_ACCOUNT_ID: 'a'.repeat(32), R2_BUCKET: 'nitewide-staging-media',
+    R2_ACCESS_KEY_ID: 'private-access-key', R2_SECRET_ACCESS_KEY: 'private-storage-secret' };
+  assert.deepEqual(paymentRuntimeEvidence({ ...media, R2_ENDPOINT: `https://${media.R2_ACCOUNT_ID}.r2.cloudflarestorage.com` }), paymentRuntimeEvidence(media));
+  assert.doesNotMatch(JSON.stringify(paymentRuntimeEvidence(media)), /private|nitewide-staging-media/);
   assert.deepEqual(paymentRuntimeEvidence({ ...config, AUTH_TOKEN_SECRET: '' }), { revision, configurationFingerprint: null });
   assert.doesNotMatch(JSON.stringify(evidence), /private|example|sk_test|whsec|pk_test/);
 });

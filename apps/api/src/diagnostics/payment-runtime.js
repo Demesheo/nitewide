@@ -24,7 +24,7 @@ function paymentRuntimeEvidence(config = {}) {
   }
   const origins = [...new Set(config.corsOrigins || (config.CORS_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean))].sort();
   const settings = {
-    version: 4, apiVersion: STRIPE_API_VERSION,
+    version: 5, apiVersion: STRIPE_API_VERSION,
     environment: config.NODE_ENV || null, hostedDemo: config.hostedDemo === true || config.HOSTED_DEMO === 'true',
     mode: config.STRIPE_MODE || 'disabled',
     secretKey: config.STRIPE_SECRET_KEY || null, publishableKey: config.STRIPE_PUBLISHABLE_KEY || null,
@@ -39,6 +39,12 @@ function paymentRuntimeEvidence(config = {}) {
     emailPolicy: emailDeliveryPolicy(config), resendKey: config.RESEND_API_KEY || null,
     emailFrom: config.RESEND_FROM_EMAIL || null, emailEncryptionKey: config.EMAIL_ENCRYPTION_KEY || null,
     resendWebhookSecret: config.RESEND_WEBHOOK_SECRET || null, resendTestMode: config.resendTestMode === true || config.RESEND_TEST_MODE === 'true',
+    // Media credentials also need to match across API/worker service overrides.
+    // Like payment/mail secrets, they remain private HMAC input only.
+    mediaDriver: config.MEDIA_STORAGE_DRIVER || 'local', mediaAccount: config.R2_ACCOUNT_ID || null,
+    mediaBucket: config.R2_BUCKET || null, mediaAccessKeyId: config.R2_ACCESS_KEY_ID || null,
+    mediaSecretAccessKey: config.R2_SECRET_ACCESS_KEY || null,
+    mediaEndpoint: config.R2_ENDPOINT || (config.R2_ACCOUNT_ID ? `https://${config.R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : null),
   };
   // A keyed comparison token, never the raw settings or a plain secret hash.
   // It is stored only in the existing private worker heartbeat. Do not log it.
