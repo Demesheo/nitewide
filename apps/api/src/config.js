@@ -3,6 +3,7 @@ const { assertPublicAppUrl: assertPublicStripeReturnUrl, subdomainApps } = requi
 const { databaseConnectionConfig } = require('./db/connection-config');
 const { sharedSandboxAccountId } = require('./domain/shared-sandbox-merchant');
 const { releaseRevision } = require('./diagnostics/payment-runtime');
+const { emailDeliveryPolicy } = require('./services/email-delivery-policy');
 
 const DEVELOPMENT_SECRETS = {
   AUTH_TOKEN_SECRET: 'nitewide-development-secret-change-me',
@@ -59,6 +60,7 @@ const schema = z.object({
   RESEND_FROM_EMAIL: z.string().optional(),
   RESEND_WEBHOOK_SECRET: z.string().optional(),
   RESEND_TEST_MODE: z.enum(['true', 'false']).default('false'),
+  EMAIL_DELIVERY_POLICY: optionalR2(z.enum(['disabled', 'essential', 'all'])),
   CUSTOMER_APP_URL: z.string().url().default('http://localhost:5173'),
   BUSINESS_APP_URL: z.string().url().optional(),
   ADMIN_APP_URL: optionalR2(z.string().url()),
@@ -81,6 +83,7 @@ function getConfig(environment = process.env) {
     for (const name of ['CUSTOMER_APP_URL', 'BUSINESS_APP_URL']) assertPublicStripeReturnUrl(environment[name], name);
   }
   const values = schema.parse(environment);
+  values.EMAIL_DELIVERY_POLICY = emailDeliveryPolicy(values);
   if (values.TRUST_PROXY_MODE) {
     if (values.TRUST_PROXY_HOPS !== undefined) throw new Error('Use TRUST_PROXY_MODE or TRUST_PROXY_HOPS, not both');
     if (values.NODE_ENV !== 'production' || !values.APP_ENVIRONMENT || values.HOSTED_DEMO !== 'false') {

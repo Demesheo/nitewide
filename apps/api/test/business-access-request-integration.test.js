@@ -32,7 +32,7 @@ test('Business entry and manually reviewed access requests preserve authority, i
   const encryptionKey = 'offline-encrypted-onboarding-test-secret';
   let providerCalls = 0, queueMode = 'normal';
   const durableEmail = createEmailService({ sequelize: db, models: m, apiKey: 'offline-do-not-send', from: 'Test <test@resend.dev>',
-    encryptionKey, testMode: true, fetchImpl: async () => { providerCalls++; throw new Error('This suite must never send email'); } });
+    encryptionKey, testMode: true, deliveryPolicy: 'essential', fetchImpl: async () => { providerCalls++; throw new Error('This suite must never send email'); } });
   const email = { enabled: true, async queue(message, transaction) {
     if (queueMode === 'null') return null;
     const id = await durableEmail.queue(message, transaction);

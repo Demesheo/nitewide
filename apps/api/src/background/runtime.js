@@ -1,5 +1,6 @@
 const { randomUUID } = require('node:crypto');
 const { createEmailService } = require('../services/email-service');
+const { emailDeliveryPolicy } = require('../services/email-delivery-policy');
 const { createNotificationJobService } = require('../services/notification-job-service');
 const { createPermissionService } = require('../services/permission-service');
 const { createBusinessReadService } = require('../services/business-read-service');
@@ -23,6 +24,7 @@ function backgroundServices({ sequelize, models, config }) {
     paymentRuntime: paymentRuntimeEvidence(config),
     email: createEmailService({ sequelize, models, apiKey: config.RESEND_API_KEY, from: config.RESEND_FROM_EMAIL,
       encryptionKey: config.EMAIL_ENCRYPTION_KEY, testMode: config.resendTestMode,
+      deliveryPolicy: emailDeliveryPolicy(config),
       concurrency: config.EMAIL_WORKER_CONCURRENCY, batchSize: config.EMAIL_WORKER_BATCH_SIZE,
       requestIntervalMs: config.EMAIL_REQUEST_INTERVAL_MS }),
     notifications,
@@ -47,7 +49,7 @@ function createWorkerRuntime({ sequelize, services, pollIntervalMs = 2000, log =
   async function heartbeat(status = 'running') {
     await sequelize.query(`INSERT INTO background_workers(id,status,heartbeat_at,details) VALUES(:id,:status,NOW(),CAST(:details AS jsonb))
       ON CONFLICT(id) DO UPDATE SET status=EXCLUDED.status,heartbeat_at=EXCLUDED.heartbeat_at,details=EXCLUDED.details`,
-    { replacements: { id, status, details: JSON.stringify({ emailEnabled: services.email.enabled, exportConcurrency: services.exports.length, mediaCleanupEnabled: Boolean(services.media?.enabled), paymentReconciliationEnabled: Boolean(services.payments?.enabled), paymentRuntime: services.paymentRuntime || null }) } });
+    { replacements: { id, status, details: JSON.stringify({ emailEnabled: services.email.enabled, emailDeliveryPolicy: services.email.deliveryPolicy, exportConcurrency: services.exports.length, mediaCleanupEnabled: Boolean(services.media?.enabled), paymentReconciliationEnabled: Boolean(services.payments?.enabled), paymentRuntime: services.paymentRuntime || null }) } });
   }
   async function loop(name, fn, intervalMs) {
     while (!stopping) {

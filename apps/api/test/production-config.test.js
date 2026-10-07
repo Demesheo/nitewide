@@ -27,6 +27,10 @@ test('regular release configuration isolates staging/production, bounds pools an
     const config = releaseConfig(environment);
     assert.equal(config.serveFrontends, true);
     assert.equal(config.hostedDemo, false);
+    assert.equal(config.EMAIL_DELIVERY_POLICY, APP_ENVIRONMENT === 'staging' ? 'essential' : 'all');
+    assert.equal(releaseConfig({ ...environment, EMAIL_DELIVERY_POLICY: 'disabled' }).EMAIL_DELIVERY_POLICY, 'disabled');
+    assert.equal(releaseConfig({ ...environment, EMAIL_DELIVERY_POLICY: 'essential' }).EMAIL_DELIVERY_POLICY, 'essential');
+    if (APP_ENVIRONMENT === 'staging') assert.throws(() => releaseConfig({ ...environment, EMAIL_DELIVERY_POLICY: 'all' }), /Staging email delivery/);
     assert.equal(config.databaseTls.rejectUnauthorized, true);
     assert.equal(releaseConfig({ ...environment, TRUST_PROXY_MODE: 'cloudflare-render' }).TRUST_PROXY_MODE, 'cloudflare-render');
     assert.throws(() => releaseConfig({ ...environment, TRUST_PROXY_MODE: 'cloudflare-render', TRUST_PROXY_HOPS: '2' }), /not both/);
@@ -80,6 +84,9 @@ test('regular release configuration isolates staging/production, bounds pools an
   assert.equal(offline.ADMIN_APP_URL, '');
   assert.equal(offline.TRUST_PROXY_MODE, '');
   assert.equal(offline.TRUST_PROXY_HOPS, '');
+  assert.equal(offline.EMAIL_DELIVERY_POLICY, 'all');
+  assert.equal(getConfig({ EMAIL_DELIVERY_POLICY: '' }).EMAIL_DELIVERY_POLICY, 'all');
+  assert.throws(() => getConfig({ EMAIL_DELIVERY_POLICY: 'unknown' }));
 });
 
 test('release migrations hold the lock, never seed, and close it on CLI failure or interruption', async () => {

@@ -2,6 +2,7 @@ const { createHmac } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { STRIPE_API_VERSION } = require('../payments/stripe-client');
+const { emailDeliveryPolicy } = require('../services/email-delivery-policy');
 
 const REVISION = /^[a-f0-9]{40}$/;
 function releaseRevision(environment = process.env, read = fs.readFileSync) {
@@ -23,7 +24,7 @@ function paymentRuntimeEvidence(config = {}) {
   }
   const origins = [...new Set(config.corsOrigins || (config.CORS_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean))].sort();
   const settings = {
-    version: 3, apiVersion: STRIPE_API_VERSION,
+    version: 4, apiVersion: STRIPE_API_VERSION,
     environment: config.NODE_ENV || null, hostedDemo: config.hostedDemo === true || config.HOSTED_DEMO === 'true',
     mode: config.STRIPE_MODE || 'disabled',
     secretKey: config.STRIPE_SECRET_KEY || null, publishableKey: config.STRIPE_PUBLISHABLE_KEY || null,
@@ -33,6 +34,11 @@ function paymentRuntimeEvidence(config = {}) {
     routingMode: config.APP_ROUTING_MODE || 'paths', adminUrl: config.ADMIN_APP_URL || null,
     proxyMode: config.TRUST_PROXY_MODE || null, proxyHops: config.trustProxy ?? config.TRUST_PROXY_HOPS ?? null,
     corsOrigins: origins,
+    // Shared readiness also detects API/worker mail configuration drift. These
+    // settings are only HMAC input; no credentials appear in the heartbeat.
+    emailPolicy: emailDeliveryPolicy(config), resendKey: config.RESEND_API_KEY || null,
+    emailFrom: config.RESEND_FROM_EMAIL || null, emailEncryptionKey: config.EMAIL_ENCRYPTION_KEY || null,
+    resendWebhookSecret: config.RESEND_WEBHOOK_SECRET || null, resendTestMode: config.resendTestMode === true || config.RESEND_TEST_MODE === 'true',
   };
   // A keyed comparison token, never the raw settings or a plain secret hash.
   // It is stored only in the existing private worker heartbeat. Do not log it.

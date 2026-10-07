@@ -50,6 +50,26 @@ test('queue deduplicates a purchase and suppresses reserved demo addresses befor
   assert.equal(rows.get('purchase/order-1').encryptedVariables.includes('Guest'), false);
 });
 
+test('essential policy admits only account actions, and disabled policy performs no queue or provider work', async () => {
+  const { ESSENTIAL_TEMPLATES } = require('../src/services/email-delivery-policy');
+  let queued = 0;
+  const options = { sequelize: {}, models: { EmailOutbox: { findOrCreate: async () => [{ id: ++queued }] } },
+    apiKey: 'mock-only', from: 'Nitewide Staging <accounts@example.org>', encryptionKey: 'offline-only-key' };
+  const essential = createEmailService({ ...options, deliveryPolicy: 'essential' });
+  const message = { key: 'test-action', to: 'user@example.org', variables: { NAME: 'User' } };
+  for (const template of [...Object.values(TEMPLATES), 'nitewide-account-setup', 'future-unknown-template']) {
+    const id = await essential.queue({ ...message, template });
+    assert.equal(Boolean(id), ESSENTIAL_TEMPLATES.includes(template), template);
+  }
+  assert.equal(queued, 3);
+  const disabled = createEmailService({ ...options, deliveryPolicy: 'disabled' });
+  assert.equal(disabled.enabled, false);
+  assert.equal(await disabled.queue({ ...message, template: TEMPLATES.verifyEmail }), null);
+  assert.equal(await disabled.drain(), 0);
+  assert.equal(queued, 3);
+  assert.throws(() => createEmailService({ ...options, deliveryPolicy: 'unknown' }), /Invalid email delivery policy/);
+});
+
 test('transient delivery errors remain retryable while invalid requests do not', async () => {
   const clock = new Date('2026-09-26T12:00:00Z');
   const rows = [

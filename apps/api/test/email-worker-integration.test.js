@@ -69,6 +69,34 @@ test('durable email workers with mocked provider, leases, safe replay and intern
       assert.equal(await models.AuditLog.count({ where: { entityId: id, action: 'background.email.replay' } }), 1);
       assert.equal((await models.EmailOutbox.findByPk(id)).status, 'pending');
     });
+    await t.test('essential staging delivery blocks old nonessential jobs and manual replay, but sends all three account actions', async () => {
+      await models.EmailOutbox.destroy({ where: {} });
+      const { TEMPLATES } = require('../src/services/email-templates');
+      const { ESSENTIAL_TEMPLATES } = require('../src/services/email-delivery-policy');
+      const essential = createEmailService({ ...base, deliveryPolicy: 'essential', batchSize: 25 });
+      const blocked = [];
+      for (const template of [TEMPLATES.welcome, TEMPLATES.purchaseReceipt, TEMPLATES.teamInvitation, 'unknown-template']) {
+        assert.equal(await essential.queue({ ...message, key: `suppressed/${template}`, template }), null);
+        blocked.push(await one.queue({ ...message, key: `old/${template}`, template }));
+      }
+      await models.EmailOutbox.update({ status: 'failed' }, { where: { id: blocked[2] } });
+      await db.transaction(transaction => assert.rejects(essential.replay(blocked[2], transaction), { status: 409 }));
+      await models.EmailOutbox.update({ status: 'pending' }, { where: { id: blocked[2] } });
+      const allowed = [];
+      for (const template of ESSENTIAL_TEMPLATES) allowed.push(await essential.queue({ ...message, key: `essential/${template}`, template,
+        variables: { NAME: 'Staging User', VERIFY_URL: 'https://staging.example.test/?verifyEmail=private', RESET_URL: 'https://staging.example.test/?resetPassword=private',
+          SETUP_URL: 'https://business-staging.example.test/app?onboarding=private', EXPIRES_AT: new Date(clock.getTime() + 86400000).toISOString(), ACCOUNT_MODE: 'existing' } }));
+      const before = sends;
+      assert.equal(await essential.drain(), 7);
+      assert.equal(sends - before, 3);
+      for (const id of blocked) {
+        const row = await models.EmailOutbox.findByPk(id);
+        assert.equal(row.status, 'failed'); assert.equal(row.lastError, 'EMAIL_POLICY_BLOCKED');
+        assert.equal(row.encryptedVariables, null); assert.equal(row.providerMessageId, null);
+        await db.transaction(transaction => assert.rejects(essential.replay(id, transaction), { status: 409 }));
+      }
+      for (const id of allowed) assert.equal((await models.EmailOutbox.findByPk(id)).status, 'sent');
+    });
     await t.test('stop waits for current send and does not claim another wave', async () => {
       await models.EmailOutbox.destroy({ where: {} });
       let entered, release; const begun = new Promise(resolve => { entered = resolve; }), gate = new Promise(resolve => { release = resolve; });

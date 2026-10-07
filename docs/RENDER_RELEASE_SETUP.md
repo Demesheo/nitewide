@@ -192,7 +192,32 @@ headers; those headers are not access control. Use synthetic data only and
 verify account/role access before adding any sensitive information.
 
 Leave Stripe disabled and email sending unconfigured for initial infrastructure
-checks. Sandbox payments require a later explicit configuration step: install
+checks. Staging email defaults to `EMAIL_DELIVERY_POLICY=essential`: only
+`nitewide-verify-email`, `nitewide-password-reset`, and `nitewide-account-setup`
+may be queued or sent, including manually replayed/previously queued jobs.
+Welcome, purchase, guestlist, event, team/promoter invitation, and other email
+types remain disabled; in-app notifications and messages are unaffected.
+Staging refuses `all`; `disabled` is the off switch. Dev/demo/production defaults
+remain unchanged. Real staging users may receive these essential emails; this
+is not `RESEND_TEST_MODE`, which is reserved for local provider simulations.
+
+For the separately authorized essential-mail setup, verify the dedicated
+`staging-mail.nitewide.com` sending domain (sending only, tracking disabled) and
+use a dedicated sending-only Resend key restricted to that domain. Configure
+`RESEND_API_KEY`, `RESEND_FROM_EMAIL=Nitewide Staging <accounts@staging-mail.nitewide.com>`,
+`RESEND_TEST_MODE=false`, and `EMAIL_DELIVERY_POLICY=essential` identically on
+API and worker, preserving the existing shared staging `EMAIL_ENCRYPTION_KEY`.
+Never paste keys into chat or commit them. Use the shared staging runtime group
+and check for service-level overrides. Deploy the policy to both runtimes before
+adding credentials; readiness checks detect revision and mail-configuration
+drift. Verify the existing essential templates are published. Keep Google
+Workspace/apex DNS records untouched; add only the exact provider-supplied
+subdomain authentication records. Configure a separate signed staging Resend
+webhook for delivery/bounce/complaint reconciliation; queued/sent is not proof
+of delivery. Then retry pending approval normally—never grant business roles
+or expose secure onboarding links to administrators as a workaround.
+
+Sandbox payments require a later explicit configuration step: install
 the same sandbox keys and separate webhook secrets on API/worker, configure the
 two staging webhook destinations, connect normally routed test merchants and
 run payment preflight/provider verification. Never copy the demo's temporary

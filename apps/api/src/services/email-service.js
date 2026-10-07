@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const { Op, QueryTypes } = require('sequelize');
 const { conflict, notFound } = require('../domain/errors');
 const { renderOnboardingEmail } = require('./onboarding-email');
+const { allowsEmailTemplate } = require('./email-delivery-policy');
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 const MAX_ATTEMPTS = 5;
@@ -52,15 +53,16 @@ async function sendTemplate({ apiKey, from, to, templateAlias, variables, dedupe
   return result.id;
 }
 
-function createEmailService({ sequelize, models, apiKey, from, encryptionKey, testMode = false, fetchImpl = fetch,
+function createEmailService({ sequelize, models, apiKey, from, encryptionKey, testMode = false, deliveryPolicy = 'all', fetchImpl = fetch,
   now = () => new Date(), concurrency = 2, batchSize = 25, requestIntervalMs = 0 }) {
-  const enabled = Boolean(apiKey && from && encryptionKey && models.EmailOutbox);
+  if (!['disabled', 'essential', 'all'].includes(deliveryPolicy)) throw new Error('Invalid email delivery policy');
+  const enabled = deliveryPolicy !== 'disabled' && Boolean(apiKey && from && encryptionKey && models.EmailOutbox);
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8 || !Number.isInteger(batchSize) || batchSize < 1 || batchSize > 100) throw new Error('Invalid email worker bounds');
   if (!Number.isInteger(requestIntervalMs) || requestIntervalMs < 0 || requestIntervalMs > 5000) throw new Error('Invalid email request interval');
   let active = null, stopping = false;
 
   async function queue({ key, to, template, variables, expiresAt }, transaction) {
-    if (!enabled || !to || !template) return null;
+    if (!enabled || !to || !template || !allowsEmailTemplate(deliveryPolicy, template)) return null;
     if (!/^[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}$/.test(to) || /@(.*\.)?(test|example|invalid|localhost)$/i.test(to)) return null;
     if (testMode && !isResendTestRecipient(to)) return null;
     const cleaned = Object.fromEntries(Object.entries(variables).map(([name, value]) => [name, sanitize(value)]));
@@ -84,6 +86,8 @@ function createEmailService({ sequelize, models, apiKey, from, encryptionKey, te
       { where: { id: row.id, status: 'processing', leaseToken: row.leaseToken } });
   }
   async function deliver(row) {
+    // Recheck at delivery so older queued jobs cannot bypass a narrower policy.
+    if (!allowsEmailTemplate(deliveryPolicy, row.templateAlias)) return finish(row, { status: 'failed', encryptedVariables: null, lastError: 'EMAIL_POLICY_BLOCKED' });
     if (testMode && !isResendTestRecipient(row.recipientEmail)) return finish(row, { status: 'failed', encryptedVariables: null, lastError: 'TEST_MODE_RECIPIENT_BLOCKED' });
     if (row.expiresAt && new Date(row.expiresAt) <= now()) return finish(row, { status: 'expired', encryptedVariables: null, lastError: 'EXPIRED' });
     if (outsideWindow(row)) return finish(row, { status: 'failed', lastError: 'IDEMPOTENCY_WINDOW_EXPIRED' });
@@ -155,14 +159,14 @@ function createEmailService({ sequelize, models, apiKey, from, encryptionKey, te
   async function replay(id, transaction) {
     const row = await models.EmailOutbox.findByPk(id, { transaction, lock: transaction?.LOCK.UPDATE });
     if (!row) throw notFound('Email job not found');
-    if (!enabled || row.status !== 'failed' || !row.encryptedVariables || outsideWindow(row) || (row.expiresAt && row.expiresAt <= now())) {
+    if (!enabled || !allowsEmailTemplate(deliveryPolicy, row.templateAlias) || row.status !== 'failed' || !row.encryptedVariables || outsideWindow(row) || (row.expiresAt && row.expiresAt <= now())) {
       throw conflict('Email cannot be safely replayed; inspect its status, expiry and provider idempotency window');
     }
     await row.update({ status: 'pending', cycleAttemptCount: 0, replayCount: row.replayCount + 1,
       leaseToken: null, leaseUntil: null, nextAttemptAt: now(), lastError: null }, { transaction });
     return { id: row.id, status: row.status, replayCount: row.replayCount };
   }
-  return { enabled, queue, drain, stop, list, replay };
+  return { enabled, deliveryPolicy, queue, drain, stop, list, replay };
 }
 
 module.exports = { createEmailService, sendTemplate, encryptVariables, decryptVariables };

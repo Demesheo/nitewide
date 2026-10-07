@@ -13,6 +13,7 @@ const { createNotificationService } = require('./services/notification-service')
 const { createRouter } = require('./routes'); const { createRequireUser, errorHandler } = require('./http/middleware');
 const { createMediaRouter } = require('./routes/media');
 const { createEmailService } = require('./services/email-service');
+const { emailDeliveryPolicy } = require('./services/email-delivery-policy');
 const { createNotificationJobService } = require('./services/notification-job-service');
 const { createResendWebhookService } = require('./services/resend-webhook-service');
 const { createAbuseService } = require('./services/abuse-service');
@@ -92,7 +93,7 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   app.use(cors({ origin: (origin, callback) => callback(null, !origin || config.corsOrigins.includes(origin)), exposedHeaders: ['X-Request-Id', 'Retry-After'] }));
   const permissions = services.permissions || createPermissionService(models);
   const notificationJobs = services.notificationJobs || createNotificationJobService({ sequelize, models });
-  const email = services.email || createEmailService({ sequelize, models, apiKey: config.RESEND_API_KEY, from: config.RESEND_FROM_EMAIL, encryptionKey: config.EMAIL_ENCRYPTION_KEY, testMode: config.resendTestMode });
+  const email = services.email || createEmailService({ sequelize, models, apiKey: config.RESEND_API_KEY, from: config.RESEND_FROM_EMAIL, encryptionKey: config.EMAIL_ENCRYPTION_KEY, testMode: config.resendTestMode, deliveryPolicy: emailDeliveryPolicy(config) });
   const checkout = services.checkout || createCheckoutService({ sequelize, models, notificationJobs, environment: config.NODE_ENV, hostedDemo: config.hostedDemo, email, customerAppUrl: config.CUSTOMER_APP_URL });
   const payments = createPaymentServices({ sequelize, models, config, permissions, notificationJobs, checkout, services });
   app.locals.payments = payments;

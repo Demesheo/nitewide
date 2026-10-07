@@ -17,9 +17,12 @@ test('payment runtime evidence detects configuration drift without returning set
   assert.match(evidence.configurationFingerprint, /^[a-f0-9]{64}$/);
   assert.deepEqual(paymentRuntimeEvidence({ ...config, corsOrigins: [...config.corsOrigins].reverse() }), evidence);
   for (const key of ['AUTH_TOKEN_SECRET', 'STRIPE_SECRET_KEY', 'STRIPE_PUBLISHABLE_KEY', 'STRIPE_WEBHOOK_SECRET',
-    'STRIPE_ACCOUNT_WEBHOOK_SECRET', 'STRIPE_CONNECT_CLIENT_ID', 'CUSTOMER_APP_URL', 'businessAppUrl', 'APP_ROUTING_MODE', 'ADMIN_APP_URL', 'TRUST_PROXY_MODE', 'TRUST_PROXY_HOPS', 'STRIPE_MODE', 'NODE_ENV']) {
+    'STRIPE_ACCOUNT_WEBHOOK_SECRET', 'STRIPE_CONNECT_CLIENT_ID', 'CUSTOMER_APP_URL', 'businessAppUrl', 'APP_ROUTING_MODE', 'ADMIN_APP_URL', 'TRUST_PROXY_MODE', 'TRUST_PROXY_HOPS', 'STRIPE_MODE', 'NODE_ENV',
+    'RESEND_API_KEY', 'RESEND_FROM_EMAIL', 'EMAIL_ENCRYPTION_KEY', 'RESEND_WEBHOOK_SECRET']) {
     assert.notEqual(paymentRuntimeEvidence({ ...config, [key]: 'different' }).configurationFingerprint, evidence.configurationFingerprint, key);
   }
+  assert.notEqual(paymentRuntimeEvidence({ ...config, EMAIL_DELIVERY_POLICY: 'essential' }).configurationFingerprint, evidence.configurationFingerprint);
+  assert.notEqual(paymentRuntimeEvidence({ ...config, resendTestMode: true }).configurationFingerprint, evidence.configurationFingerprint);
   assert.notEqual(paymentRuntimeEvidence({ ...config, STRIPE_SANDBOX_SHARED_ACCOUNT_ID: 'acct_private' }).configurationFingerprint, evidence.configurationFingerprint);
   assert.deepEqual(paymentRuntimeEvidence({ ...config, AUTH_TOKEN_SECRET: '' }), { revision, configurationFingerprint: null });
   assert.doesNotMatch(JSON.stringify(evidence), /private|example|sk_test|whsec|pk_test/);
