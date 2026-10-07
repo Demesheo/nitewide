@@ -5,7 +5,7 @@ const { assertEditorPricing } = require('../domain/editor-pricing-policy');
 const { assertEventEditable } = require('../domain/event-policy');
 const { activeUser, assertActiveEvent, assertActiveOrganization, assertOrganizationVenue } = require('./lifecycle-service');
 const { authorizeEventWrite, assertDirectCapacity, persistOffering, recordEventMutation } = require('./event-mutation-policy');
-const { assertPaidPublication } = require('./payment-readiness-service');
+const { assertPaidPublication, shouldRefreshPaidPublication, selectedPublicationAccount, refreshPublicationAccount } = require('./payment-readiness-service');
 const {
   forbidden,
   conflict,
@@ -157,33 +157,56 @@ function createBusinessService({
       details: { replacements: ['/business/bootstrap', '/business/events', '/business/reports/summary', '/business/reports/:table'] },
     });
   }
+  async function prepareEventSave(userId, eventId, input, creatorUserId, transaction) {
+    // Lock every involved event in UUID order, including image reuse, before
+    // permission reads or child rows. Two events can reuse each other's art.
+    for (const id of [...new Set([eventId, input.reusedImageFromEventId].filter(Boolean))].sort())
+      await models.Event.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
+    const event = eventId
+      ? await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE })
+      : null;
+    if (eventId && !event) throw notFound("Event");
+    const actor = await authorizeEventWrite({ models, permissions, userId, event, organizationId: input.organizationId, locationId: input.locationId, transaction, now: now() });
+    if (!event && creatorUserId) {
+      const creator = await models.User.findByPk(creatorUserId, { transaction, lock: transaction.LOCK.SHARE || 'SHARE' });
+      const membership = await models.OrganizationOwner.findOne({ where: { organizationId: input.organizationId, userId: creatorUserId, lifecycleState: 'active' }, transaction, lock: transaction.LOCK.SHARE || 'SHARE' });
+      if (!activeUser(creator) || !membership) throw conflict('The business contact changed. Refresh before creating the event.', 'BUSINESS_CONTACT_CHANGED');
+    }
+    if (input.endsAt <= now() || input.status === 'completed') throw conflict('Create or edit events with a future end time. Past events are read-only.');
+    if (event && event.organizationId !== input.organizationId) throw forbidden("Event organization cannot be changed");
+    if (event && (input.version == null || input.version !== event.version))
+      throw conflict("This event changed. Close and reopen the editor to load the latest version.");
+    // Check destination authority in both preflight and final mutation. An
+    // existing event grant does not permit moving it to an unrelated venue.
+    let venueLocation;
+    if (input.organizationId) {
+      const organization = await models.Organization.findByPk(input.organizationId, { transaction });
+      // Omitted venue preserves older clients; explicit null selects an address.
+      const selectedId = input.locationId === undefined ? event?.locationId || organization?.locationId : input.locationId;
+      if (!actor.isInternalAdmin && permissions.assertCreateEvent) await permissions.assertCreateEvent(userId, input.organizationId, selectedId, transaction);
+      if (selectedId) {
+        const linked = models.OrganizationVenue ? await models.OrganizationVenue.findOne({ where: { organizationId: input.organizationId, locationId: selectedId }, transaction }) : organization?.locationId === selectedId;
+        if (linked) venueLocation = await assertOrganizationVenue(models, organization, selectedId, transaction);
+        else if (selectedId !== event?.locationId) throw conflict('Select a saved venue belonging to this business, or enter an event address.', 'VENUE_PARENT_MISMATCH');
+      }
+    }
+    if (!venueLocation && !input.location?.city?.trim()) throw conflict('Enter the event city or select a saved venue.', 'EVENT_LOCATION_REQUIRED');
+    return { event, venueLocation };
+  }
   async function saveEvent(userId, eventId, input, { adminReason = null, creatorUserId = null } = {}) {
+    let checkedAccount;
+    if (shouldRefreshPaidPublication({ event: input, offerings: input.offerings, stripe })) {
+      checkedAccount = await mutationTransaction(models.Event.sequelize, async transaction => {
+        const { event } = await prepareEventSave(userId, eventId, input, creatorUserId, transaction);
+        return selectedPublicationAccount({ models, event: { ...input, paymentAccountId: event?.paymentAccountId }, stripe, transaction });
+      });
+      // Stripe runs after authorization locks are released. The final mutation
+      // rechecks authority, version, lifecycle, routing and cached readiness.
+      await refreshPublicationAccount({ models, account: checkedAccount, stripe, now });
+    }
     return mutationTransaction(models.Event.sequelize,
       async (transaction) => {
-        // Lock every involved event in UUID order, including image reuse, before
-        // permission reads or child rows. Two events can reuse each other's art.
-        for (const id of [...new Set([eventId, input.reusedImageFromEventId].filter(Boolean))].sort())
-          await models.Event.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
-        const event = eventId
-          ? await models.Event.findByPk(eventId, {
-              transaction,
-              lock: transaction.LOCK.UPDATE,
-            })
-          : null;
-        if (eventId && !event) throw notFound("Event");
-        const actor = await authorizeEventWrite({ models, permissions, userId, event, organizationId: input.organizationId, locationId: input.locationId, transaction, now: now() });
-        if (!event && creatorUserId) {
-          const creator = await models.User.findByPk(creatorUserId, { transaction, lock: transaction.LOCK.SHARE || 'SHARE' });
-          const membership = await models.OrganizationOwner.findOne({ where: { organizationId: input.organizationId, userId: creatorUserId, lifecycleState: 'active' }, transaction, lock: transaction.LOCK.SHARE || 'SHARE' });
-          if (!activeUser(creator) || !membership) throw conflict('The business contact changed. Refresh before creating the event.', 'BUSINESS_CONTACT_CHANGED');
-        }
-        if (input.endsAt <= now() || input.status === 'completed') throw conflict('Create or edit events with a future end time. Past events are read-only.');
-        if (event && event.organizationId !== input.organizationId)
-          throw forbidden("Event organization cannot be changed");
-        if (event && (input.version == null || input.version !== event.version))
-          throw conflict(
-            "This event changed. Close and reopen the editor to load the latest version.",
-          );
+        const { event, venueLocation } = await prepareEventSave(userId, eventId, input, creatorUserId, transaction);
         const existing = event
           ? await models.Offering.findAll({
               where: { eventId },
@@ -193,7 +216,7 @@ function createBusinessService({
             })
           : [];
         const byId = new Map(existing.map((o) => [o.id, o]));
-        await assertPaidPublication({ models, event: { ...input, paymentAccountId: event?.paymentAccountId }, offerings: input.offerings, environment, hostedDemo, stripe, transaction });
+        await assertPaidPublication({ models, event: { ...input, paymentAccountId: event?.paymentAccountId }, offerings: input.offerings, environment, hostedDemo, stripe, transaction, now, expectedAccount: checkedAccount });
         await assertEditorPricing({ models, eventId, organizationId: input.organizationId, eventFeeMode: input.feeMode || 'buyer', offerings: input.offerings, transaction, now: now() });
         for (const tier of input.offerings) {
           if (tier.id && !byId.has(tier.id))
@@ -264,28 +287,10 @@ function createBusinessService({
         const before = event
           ? { ...event.toJSON(), offerings: existing.map((o) => o.toJSON()) }
           : null;
-        // A saved venue remains controlled by its workspace. An event-only
-        // address is copied on write and never grants venue ownership/access.
-        let venueLocation;
-        if (input.organizationId) {
-          const organization = await models.Organization.findByPk(input.organizationId, { transaction });
-          // Omitted selection preserves older clients' default venue; explicit
-          // null means an event-only address in the new editor.
-          const selectedId = input.locationId === undefined ? event?.locationId || organization?.locationId : input.locationId;
-          // Managing the current event does not grant permission to move it to
-          // another venue, or create an unlinked address outside a venue scope.
-          if (!actor.isInternalAdmin && permissions.assertCreateEvent) await permissions.assertCreateEvent(userId, input.organizationId, selectedId, transaction);
-          if (selectedId) {
-            const linked = models.OrganizationVenue ? await models.OrganizationVenue.findOne({ where: { organizationId: input.organizationId, locationId: selectedId }, transaction }) : organization?.locationId === selectedId;
-            if (linked) venueLocation = await assertOrganizationVenue(models, organization, selectedId, transaction);
-            else if (selectedId !== event?.locationId) throw conflict('Select a saved venue belonging to this business, or enter an event address.', 'VENUE_PARENT_MISMATCH');
-          }
-        }
         // Independent locations are copied on write to preserve other events.
         const previousLocation = event?.locationId ? await models.Location.findByPk(event.locationId, { transaction }) : null;
         const sameAddress = previousLocation && input.location && ['addressLine1', 'city', 'region', 'postalCode', 'countryCode'].every((key) => (previousLocation[key] || '') === (input.location[key] || ''));
         const coordinates = sameAddress ? { addressLine2: previousLocation.addressLine2, latitude: previousLocation.latitude, longitude: previousLocation.longitude, geo: previousLocation.geo } : {};
-        if (!venueLocation && !input.location?.city?.trim()) throw conflict('Enter the event city or select a saved venue.', 'EVENT_LOCATION_REQUIRED');
         const location = venueLocation || await models.Location.create({ ...input.location, ...coordinates }, {
           transaction,
         });

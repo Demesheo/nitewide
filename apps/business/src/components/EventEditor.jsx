@@ -47,6 +47,7 @@ export function EventEditor({
   const [step, setStep] = useState(event ? initialStep : 0);
   const [addedTierKey, setAddedTierKey] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [checkingStripeReadiness, setCheckingStripeReadiness] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [conflictError, setConflictError] = useState(false);
@@ -91,12 +92,14 @@ export function EventEditor({
     else onClose();
   }
   async function save(status = draft.status) {
-    if (uploading) return;
+    if (busy || uploading) return;
     setError("");
     setConflictError(false);
     if ((draft.locationMode === 'saved' || organization?.canCreateEvents && !organization?.canManage && audience !== 'admin') && !draft.locationId) { setError('Choose a saved business venue before saving.'); setStep(1); return; }
     if (!draft.locationId && !draft.location.city.trim()) { setError('Add the event city before saving a draft.'); setStep(1); return; }
     if (audience === 'admin' && adminReason.trim().length < 10) { setError('Explain this administrative change in at least 10 characters.'); setStep(0); return; }
+    setCheckingStripeReadiness(!duplicateSource && status === 'published' &&
+      draft.offerings.some((offering) => offering.isActive !== false && Math.round(Number(offering.price) * 100) > 0));
     setBusy(true);
     let savedIdThisAttempt = null;
     try {
@@ -127,10 +130,11 @@ export function EventEditor({
       );
     } catch (err) {
       setError(err.message);
-      if (err.status === 409) setConflictError(true);
+      if (err.status === 409 && (!err.code || err.code === 'CONFLICT')) setConflictError(true);
       if (createdDraftId || (duplicateSource && copyChoices?.copyTeam && savedIdThisAttempt)) setCopyFailure(true);
     } finally {
       setBusy(false);
+      setCheckingStripeReadiness(false);
     }
   }
   async function submit(e) {
@@ -200,6 +204,7 @@ export function EventEditor({
               {conflictError && <Button type="button" variant="outline" onClick={() => { persistNow(); onReloadLatest(); }}>Reload latest; keep my draft</Button>}
             </p>
           )}
+          {busy && checkingStripeReadiness && <p className="hint" role="status">Checking Stripe readiness and saving your event…</p>}
           <footer className="editor-footer">
             <Button
               type="button"

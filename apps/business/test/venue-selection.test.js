@@ -59,6 +59,7 @@ test('business workflows preserve scope, navigation, delivery confirmation, and 
   const requests = [];
   const calls = [];
   let rejectEventUpdate = false;
+  let eventUpdateResult = null;
   let teamInvitation = null;
   const teamMemberId = '30000000-0000-4000-8000-000000000009';
   const priorFetch = globalThis.fetch;
@@ -143,7 +144,7 @@ test('business workflows preserve scope, navigation, delivery confirmation, and 
           title: isSouth ? 'South Hall After Dark' : 'North Hall Preview', summary: 'A fixture event', description: '', status: 'published', version: 1,
           startsAt: new Date(Date.now() + 86_400_000).toISOString(), endsAt: new Date(Date.now() + 100_800_000).toISOString(), canManage: true, canEdit: true,
           location: { name: isSouth ? 'South Room' : 'North Room', addressLine1: '1 Test Way', city: 'Orlando', region: 'FL', timezone: isSouth ? 'America/Chicago' : 'America/New_York' },
-          offerings: [{ id: '70000000-0000-4000-8000-000000000001', name: 'General Admission', kind: 'ticket', priceCents: 2500, entriesPerUnit: 1, isActive: true, quantityTotal: 100, quantitySold: 1, saleState: 'on_sale' }],
+          offerings: [{ id: '70000000-0000-4000-8000-000000000001', name: 'General Admission', kind: 'ticket', priceCents: 2500, entriesPerUnit: 1, isActive: true, inventoryMode: 'finite', quantityTotal: 100, quantitySold: 1, minPerOrder: 1, maxPerOrder: 10, visibility: 'public', saleState: 'on_sale' }],
         },
         scope: 'event',
         summary: { salesCents: 2500, commissionCents: 0, orders: 1, customers: 1, admissions: 1, checkedIn: 0, guestlistPlaces: 0 },
@@ -171,9 +172,12 @@ test('business workflows preserve scope, navigation, delivery confirmation, and 
     } else if (url.pathname.endsWith('/instructions')) {
       data = { queued: 1 };
     }
-    const conflict = rejectEventUpdate && calls.at(-1)?.method === 'PUT' && url.pathname.startsWith('/api/business/events/');
-    const status = conflict ? 409 : url.pathname.endsWith('/invitations') && init.method === 'POST' ? 201 : 200;
-    return new Response(JSON.stringify(conflict ? { error: { message: 'This event changed elsewhere.' } } : { data }), { status, headers: { 'content-type': 'application/json' } });
+    const eventUpdate = init.method === 'PUT' && url.pathname.startsWith('/api/business/events/');
+    const eventMutation = eventUpdate || (init.method === 'POST' && url.pathname === '/api/business/events');
+    if (eventMutation && eventUpdateResult?.wait) await eventUpdateResult.wait;
+    const failure = eventUpdate && (eventUpdateResult?.error || (rejectEventUpdate ? { status: 409, message: 'This event changed elsewhere.' } : null));
+    const status = failure?.status || (url.pathname.endsWith('/invitations') && init.method === 'POST' ? 201 : 200);
+    return new Response(JSON.stringify(failure ? { error: failure } : { data }), { status, headers: { 'content-type': 'application/json' } });
   };
 
   let vite;
@@ -293,7 +297,115 @@ test('business workflows preserve scope, navigation, delivery confirmation, and 
     await screen.findByRole('heading', { name: 'Every event. The whole picture.' });
     assert.equal(new URL(dom.window.location.href).searchParams.has('event'), false);
     });
+    await t.test('paid publication checks readiness inline, retains edits for retry, and distinguishes version conflicts', async () => {
+      const firstCall = calls.length;
+      let finishSave;
+      const deferSave = (error = null) => {
+        eventUpdateResult = { error, wait: new Promise((resolve) => { finishSave = resolve; }) };
+      };
+      const progress = 'Checking Stripe readiness and saving your event…';
+      await user.click(await screen.findByRole('button', { name: 'Open South Hall After Dark' }));
+      await user.click(await screen.findByRole('button', { name: 'Edit event' }));
+      await user.clear(screen.getByRole('textbox', { name: 'Event name' }));
+      await user.type(screen.getByRole('textbox', { name: 'Event name' }), 'Ready after Stripe verification');
+      await user.click(screen.getByRole('button', { name: 'Continue' }));
+      await user.click(screen.getByRole('button', { name: 'Continue' }));
+      assert.match(screen.getByText(/Stripe readiness is checked automatically/).textContent, /stay in this form/);
+      deferSave({ status: 409, code: 'PAYMENTS_NOT_READY', message: 'Complete Stripe onboarding before publishing.' });
+      await user.click(screen.getByRole('button', { name: 'Save changes' }));
+      await screen.findByText(progress);
+      assert.equal(screen.getByRole('button', { name: 'Saving…' }).disabled, true);
+      await user.click(screen.getByRole('combobox', { name: 'Event status' }));
+      await user.click(screen.getByRole('option', { name: 'Draft · only visible to your team' }));
+      assert.ok(screen.getByText(progress), 'progress describes the submitted attempt even if the editable status changes');
+      await act(async () => finishSave());
+      await screen.findByText('Complete Stripe onboarding before publishing.');
+      assert.equal(screen.queryByText(progress), null);
+      assert.equal(screen.queryByRole('button', { name: 'Reload latest; keep my draft' }), null);
+      await user.click(screen.getByRole('button', { name: 'Back' }));
+      await user.click(screen.getByRole('button', { name: 'Back' }));
+      assert.equal(screen.getByRole('textbox', { name: 'Event name' }).value, 'Ready after Stripe verification');
+      await user.click(screen.getByRole('button', { name: 'Continue' }));
+      await user.click(screen.getByRole('button', { name: 'Continue' }));
+      assert.equal(screen.getByLabelText('Price per unit ($)').value, '25', 'payment failure retains the entered offerings');
+      await user.click(screen.getByRole('combobox', { name: 'Event status' }));
+      await user.click(screen.getByRole('option', { name: 'Published · available to customers' }));
+      for (const error of [
+        { status: 503, code: 'PAYMENTS_REFRESH_FAILED', message: 'Stripe readiness could not be checked. Try saving again.' },
+        { status: 409, code: 'PAYMENT_ACCOUNT_CHANGED', message: 'The payment account changed. Try saving again.' },
+      ]) {
+        deferSave(error);
+        await user.click(screen.getByRole('button', { name: 'Save changes' }));
+        await screen.findByText(progress);
+        await act(async () => finishSave());
+        await screen.findByText(error.message);
+        assert.equal(screen.queryByRole('button', { name: 'Reload latest; keep my draft' }), null);
+        assert.equal(screen.getByRole('button', { name: 'Save changes' }).disabled, false);
+      }
+      deferSave();
+      await user.click(screen.getByRole('button', { name: 'Save changes' }));
+      await screen.findByText(progress);
+      await act(async () => finishSave());
+      await waitFor(() => assert.equal(screen.queryByRole('dialog'), null));
+      const attempts = calls.slice(firstCall).filter((call) => call.method === 'PUT');
+      assert.equal(attempts.length, 4);
+      assert.equal(attempts[0].body.title, 'Ready after Stripe verification');
+      assert.equal(attempts[0].body.status, 'published');
+      for (const attempt of attempts.slice(1)) assert.deepEqual(attempt.body, attempts[0].body, 'retry saves the same entered event through the existing mutation endpoint');
+      assert.equal(calls.slice(firstCall).some((call) => /payment-account|payment-profile/.test(call.url.pathname)), false, 'publication makes no separate payment account request');
+
+      await user.click(await screen.findByRole('button', { name: 'Open South Hall After Dark' }));
+      await user.click(await screen.findByRole('button', { name: 'Edit event' }));
+      await user.click(screen.getByRole('button', { name: 'Continue' }));
+      await user.click(screen.getByRole('button', { name: 'Continue' }));
+      await user.click(screen.getByText('General Admission', { selector: 'strong' }));
+      await user.clear(screen.getByLabelText('Price per unit ($)'));
+      await user.type(screen.getByLabelText('Price per unit ($)'), '0');
+      deferSave();
+      await user.click(screen.getByRole('button', { name: 'Save changes' }));
+      await screen.findByRole('button', { name: 'Saving…' });
+      assert.equal(screen.queryByText(progress), null, 'free published admission does not claim to check Stripe');
+      await act(async () => finishSave());
+      await waitFor(() => assert.equal(screen.queryByRole('dialog'), null));
+      assert.equal(calls.filter((call) => call.method === 'PUT').at(-1).body.offerings[0].priceCents, 0);
+
+      await user.click(await screen.findByRole('button', { name: 'Open South Hall After Dark' }));
+      await user.click(screen.getByText('More event actions'));
+      await user.click(screen.getByRole('button', { name: 'Duplicate' }));
+      await user.click(screen.getByRole('button', { name: 'Continue to draft editor' }));
+      deferSave();
+      await user.click(screen.getByRole('button', { name: 'Save draft' }));
+      await screen.findByRole('button', { name: 'Saving…' });
+      assert.equal(screen.queryByText(progress), null, 'duplicated paid events remain ordinary draft saves');
+      await act(async () => finishSave());
+      await waitFor(() => assert.equal(screen.queryByRole('dialog'), null));
+      const duplicate = calls.find((call) => call.method === 'POST' && call.url.pathname === '/api/business/events');
+      assert.equal(duplicate.body.status, 'draft');
+      assert.equal(duplicate.body.offerings[0].priceCents, 2500);
+
+      await user.click(await screen.findByRole('button', { name: 'Open South Hall After Dark' }));
+      await user.click(await screen.findByRole('button', { name: 'Edit event' }));
+      await user.clear(screen.getByRole('textbox', { name: 'Event name' }));
+      await user.type(screen.getByRole('textbox', { name: 'Event name' }), 'Keep my version-conflict draft');
+      deferSave({ status: 409, code: 'CONFLICT', message: 'This event changed elsewhere.' });
+      await user.click(screen.getByRole('button', { name: 'Save draft' }));
+      await screen.findByRole('button', { name: 'Saving…' });
+      assert.equal(screen.queryByText(progress), null, 'saving a draft does not claim to check Stripe');
+      await act(async () => finishSave());
+      await user.click(await screen.findByRole('button', { name: 'Reload latest; keep my draft' }));
+      const draftKey = `nitewide:business:draft:30000000-0000-4000-8000-000000000001:${eventB}`;
+      assert.equal(JSON.parse(dom.window.sessionStorage.getItem(draftKey)).draft.title, 'Keep my version-conflict draft');
+      eventUpdateResult = null;
+      await user.click(await screen.findByRole('button', { name: 'Edit event' }));
+      await user.click(await screen.findByRole('button', { name: 'Restore draft' }));
+      assert.equal(screen.getByRole('textbox', { name: 'Event name' }).value, 'Keep my version-conflict draft');
+      await user.click(screen.getByRole('button', { name: 'Save draft' }));
+      await waitFor(() => assert.equal(screen.queryByRole('dialog'), null));
+      assert.equal(dom.window.sessionStorage.getItem(draftKey), null, 'a successful retry clears the recovery copy');
+      await screen.findByRole('heading', { name: 'Every event. The whole picture.' });
+    });
     await t.test('linked venue timezone and explicit draft recovery after close and 409', async () => {
+    const firstCall = calls.length;
     await user.click(await screen.findByRole('button', { name: 'Open South Hall After Dark' }));
     await screen.findByRole('heading', { name: 'South Hall After Dark' });
     await user.click(screen.getByRole('button', { name: 'Edit event' }));
@@ -311,8 +423,8 @@ test('business workflows preserve scope, navigation, delivery confirmation, and 
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     rejectEventUpdate = true;
     await user.click(screen.getByRole('button', { name: 'Save draft' }));
-    await waitFor(() => assert.ok(calls.some((call) => call.method === 'PUT' && call.url.pathname === `/api/business/events/${eventB}`)));
-    const failedUpdate = calls.find((call) => call.method === 'PUT' && call.url.pathname === `/api/business/events/${eventB}`);
+    await waitFor(() => assert.ok(calls.slice(firstCall).some((call) => call.method === 'PUT' && call.url.pathname === `/api/business/events/${eventB}`)));
+    const failedUpdate = calls.slice(firstCall).find((call) => call.method === 'PUT' && call.url.pathname === `/api/business/events/${eventB}`);
     assert.equal(failedUpdate.body.locationId, '20000000-0000-4000-8000-000000000003');
     assert.equal(failedUpdate.body.location.timezone, 'America/Denver');
     const draftKey = `nitewide:business:draft:30000000-0000-4000-8000-000000000001:${eventB}`;

@@ -10,6 +10,175 @@ const request=require('supertest');
 const paymentSchemas=require('../src/http/payment-schemas');
 const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve};};
 const {mutationTransaction}=require('../src/services/mutation-transaction');
+const {request:httpRequest}=require('./support/http-client.cjs');
+const {createBusinessService}=require('../src/services/business-service');
+const {createPermissionService}=require('../src/services/permission-service');
+const {eventEditor}=require('../src/http/business-schemas');
+
+test('paid event editor refreshes only its authorized merchant outside locks and rechecks the final mutation',{timeout:60000},async t=>{
+  assertManagedTestDatabase();
+  const config=require('../src/config').getConfig(),db=require('../src/db/sequelize').createSequelize(config);
+  const m=require('../src/db/models').initModels(db);
+  const remote=id=>({id,object:'v2.core.account',livemode:false,applied_configurations:['merchant'],dashboard:'full',
+    defaults:{responsibilities:{...RESPONSIBILITIES,requirements_collector:'stripe'}},
+    configuration:{merchant:{applied:true,capabilities:{card_payments:{status:'active'},stripe_balance:{payouts:{status:'active'}}}}},requirements:{entries:[]}});
+  const calls=[];
+  let provider=id=>remote(id),transactions=0;
+  const originalTransaction=db.transaction.bind(db);
+  db.transaction=(options,work)=>originalTransaction(options,async transaction=>{
+    transactions++;
+    try{return await work(transaction);}finally{transactions--;}
+  });
+  const stripe={enabled:true,mode:'test',retrieveAccount:async id=>{
+    assert.equal(transactions,0,'provider retrieval runs without event transactions or authorization fences');
+    calls.push(id);return provider(id);
+  }};
+  try {
+    const users=await m.User.bulkCreate(['Owner','Manager','Venue Manager','Employee','Promoter','Stranger'].map(displayName=>({displayName,email:`${randomUUID()}@offline.nitewide.test`})),{returning:true});
+    const [owner,manager,venueManager,employee,promoter,stranger]=users;
+    const org=await m.Organization.create({name:'Readiness editor business',slug:randomUUID(),onboardingEstablished:true});
+    const foreignOrg=await m.Organization.create({name:'Other readiness business',slug:randomUUID(),onboardingEstablished:true});
+    await m.OrganizationOwner.bulkCreate([{organizationId:org.id,userId:owner.id,role:'owner'},
+      {organizationId:org.id,userId:manager.id,role:'admin',financeAuthorized:false},
+      {organizationId:foreignOrg.id,userId:stranger.id,role:'owner'}]);
+    await m.OrganizationEmployee.create({organizationId:org.id,userId:employee.id,status:'active'});
+    await m.OrgAffiliate.create({organizationId:org.id,userId:promoter.id,code:`readiness-${randomUUID()}`,status:'active'});
+    const location=await m.Location.create({name:'Editor venue',city:'Orlando',countryCode:'US',timezone:'America/New_York',privacy:'public'});
+    await m.OrganizationVenue.create({organizationId:org.id,locationId:location.id});
+    const venueAccess=await m.VenueAccess.create({organizationId:org.id,locationId:location.id,userId:venueManager.id,role:'manager',status:'active'});
+    const account=async(organizationId=org.id)=>m.PaymentAccount.create({organizationId,name:'Editor merchant',stripeAccountId:`acct_${randomUUID().replaceAll('-','')}`,
+      detailsSubmitted:true,chargesEnabled:true,cardPaymentsActive:true,controllerMatches:true,synchronizedAt:new Date(Date.now()-600000)});
+    const defaultAccount=await account(),overrideAccount=await account(),foreignAccount=await account(foreignOrg.id);
+    await org.update({defaultPaymentAccountId:defaultAccount.id});
+    const app=createApp({sequelize:db,models:m,config,services:{stripe,email:{enabled:false}}});
+    const permissions=createPermissionService(m);
+    const accounts=createBusinessPaymentAccountService({models:m,stripe});
+    const makeEvent=async(values={})=>m.Event.create({organizationId:org.id,creatorUserId:owner.id,locationId:location.id,
+      title:'Unsaved readiness event',slug:`readiness-${randomUUID()}`,status:'draft',startsAt:new Date(Date.now()+86400000),endsAt:new Date(Date.now()+172800000),...values});
+    const payload=(event,values={})=>({organizationId:org.id,locationId:location.id,version:event?.version,title:'Saved readiness event',summary:'Editor test',description:'',
+      startsAt:new Date(Date.now()+86400000).toISOString(),endsAt:new Date(Date.now()+172800000).toISOString(),status:'published',isDiscoverable:false,
+      capacity:100,guestlistCapacity:10,offerings:[{name:'Paid ticket',kind:'ticket',priceCents:2000,inventoryMode:'finite',quantityTotal:20,entriesPerUnit:1,minPerOrder:1,maxPerOrder:5,isActive:true}],...values});
+    const save=(event,body=payload(event),user=manager.id)=>httpRequest(app,event ? `/api/business/events/${event.id}` : '/api/business/events',{
+      method:event?'PUT':'POST',headers:{'x-user-id':user},body,
+    });
+    const snapshot=async event=>({event:(await event.reload()).toJSON(),offerings:(await m.Offering.findAll({where:{eventId:event.id},order:[['id','ASC']]})).map(row=>row.toJSON()),
+      audits:await m.AuditLog.count({where:{entityId:event.id}}),locations:await m.Location.count()});
+    await t.test('expired default readiness refreshes on publication and managers gain no finance powers',async()=>{
+      const event=await makeEvent();
+      await assert.rejects(resolvePaymentAccount({models:m,event,stripe,refresh:false}),{code:'PAYMENTS_NOT_READY'});
+      const before=calls.length,response=await save(event).expect(200);
+      assert.equal(response.body.data.status,'published');assert.deepEqual(calls.slice(before),[defaultAccount.stripeAccountId]);
+      assert.equal((await event.reload()).paymentAccountId,null);assert.equal(await m.Offering.count({where:{eventId:event.id}}),1);
+      await assert.rejects(accounts.list(manager.id,org.id),{code:'FORBIDDEN'});
+      await assert.rejects(accounts.selectDefault(manager.id,org.id,overrideAccount.id),{code:'FORBIDDEN'});
+      assert.equal((await m.OrganizationOwner.findOne({where:{organizationId:org.id,userId:manager.id}})).financeAuthorized,false);
+      const tier=await m.Offering.findOne({where:{eventId:event.id}}),next=payload(event);next.offerings[0].id=tier.id;
+      await defaultAccount.update({synchronizedAt:new Date(Date.now()-600000)});
+      const updated=await save(event,next).expect(200);assert.equal(updated.body.data.status,'published');
+    });
+    await t.test('new event and event override preserve selected merchant routing',async()=>{
+      let before=calls.length;
+      const created=await save(null).expect(201);assert.equal(created.body.data.paymentAccountId,null);
+      assert.deepEqual(calls.slice(before),[defaultAccount.stripeAccountId]);
+      const event=await makeEvent({paymentAccountId:overrideAccount.id});before=calls.length;
+      await save(event).expect(200);assert.deepEqual(calls.slice(before),[overrideAccount.stripeAccountId]);
+      assert.equal((await event.reload()).paymentAccountId,overrideAccount.id);
+    });
+    await t.test('exact venue managers can publish without organization or finance permissions',async()=>{
+      const event=await makeEvent();await save(event,payload(event),venueManager.id).expect(200);
+      await assert.rejects(accounts.list(venueManager.id,org.id),{code:'FORBIDDEN'});
+      assert.equal(await m.OrganizationOwner.count({where:{organizationId:org.id,userId:venueManager.id}}),0);
+    });
+    await t.test('shared sandbox routing refreshes only the canonical merchant',async()=>{
+      const sharedStripe={...stripe,sandboxSharedAccountId:foreignAccount.stripeAccountId};
+      const service=createBusinessService({models:m,permissions,stripe:sharedStripe,environment:'production'});
+      const event=await makeEvent({paymentAccountId:overrideAccount.id}),before=calls.length;
+      await service.saveEvent(manager.id,event.id,eventEditor.parse(payload(event)));
+      assert.deepEqual(calls.slice(before),[foreignAccount.stripeAccountId]);assert.equal((await event.reload()).paymentAccountId,overrideAccount.id);
+      assert.equal((await org.reload()).defaultPaymentAccountId,defaultAccount.id);
+    });
+    await t.test('drafts, free replacement tiers and inactive paid tiers make no provider request',async()=>{
+      for(const values of [{status:'draft'},{offerings:[]},{offerings:[{...payload().offerings[0],priceCents:0}]},
+        {offerings:[{...payload().offerings[0],isActive:false}]}]) {
+        const event=await makeEvent(),before=calls.length;await save(event,payload(event,values)).expect(200);assert.equal(calls.length,before);
+      }
+    });
+    await t.test('authorization, stale versions, lifecycle, scope and unavailable merchant fail before provider requests',async()=>{
+      const event=await makeEvent(),before=await snapshot(event),count=calls.length;
+      for(const user of [employee.id,promoter.id,stranger.id])await save(event,payload(event),user).expect(403);
+      await save(event,payload(event,{version:event.version+1})).expect(409);
+      await event.update({lifecycleState:'suspended'});await save(event,payload(event)).expect(403);await event.update({lifecycleState:'active'});
+      await event.update({paymentAccountId:foreignAccount.id});await save(event,payload(event)).expect(409);await event.update({paymentAccountId:null});
+      await org.update({defaultPaymentAccountId:null});await save(event,payload(event)).expect(409);await org.update({defaultPaymentAccountId:defaultAccount.id});
+      assert.equal(calls.length,count);assert.equal((await snapshot(event)).audits,before.audits);assert.equal(await m.Offering.count({where:{eventId:event.id}}),0);
+      for(const state of [{paymentsDisabledAt:new Date()},{disconnectStatus:'pending',paymentsDisabledAt:new Date()},
+        {disconnectStatus:'disconnected',paymentsDisabledAt:new Date()},{lifecycleState:'archived'}]) {
+        const original={paymentsDisabledAt:null,disconnectStatus:'none',lifecycleState:'active'};
+        await defaultAccount.update(state);await save(event,payload(event)).expect(409);await defaultAccount.update(original);
+      }
+      assert.equal(calls.length,count);
+    });
+    await t.test('restricted provider readiness and provider failures retain the complete unsaved event',async()=>{
+      const event=await makeEvent(),before=await snapshot(event);
+      provider=id=>{const value=remote(id);value.configuration.merchant.capabilities.card_payments.status='restricted';return value;};
+      let response=await save(event).expect(409);assert.equal(response.body.error.code,'PAYMENTS_NOT_READY');
+      assert.match(response.body.error.message,/check your email.*try saving again here/);assert.deepEqual(await snapshot(event),before);
+      provider=()=>{throw new Error('sk_test_private_provider_error acct_private_api_response');};
+      response=await save(event).expect(503);assert.equal(response.body.error.code,'PAYMENTS_REFRESH_FAILED');
+      assert.match(response.body.error.message,/Try saving again from this editor/);assert.equal(JSON.stringify(response.body).includes('private'),false);
+      assert.deepEqual(await snapshot(event),before);
+      provider=id=>remote(id);await save(event).expect(200);
+    });
+    async function pausedSave(event,change,{expectedCode='PAYMENTS_NOT_READY',user=manager.id,body=payload(event)}={}) {
+      const started=deferred(),release=deferred();provider=async id=>{started.resolve();await release.promise;return remote(id);};
+      const attempt=save(event,body,user).then(response=>response);
+      await started.promise;
+      try{await change();}finally{release.resolve();}
+      const response=await attempt;assert.equal(response.body.error.code,expectedCode);provider=id=>remote(id);return response;
+    }
+    await t.test('revoked actor and exact venue permissions are rechecked after the provider wait',async()=>{
+      const event=await makeEvent(),before=await snapshot(event);
+      const membership=await m.OrganizationOwner.findOne({where:{organizationId:org.id,userId:manager.id}});
+      await pausedSave(event,()=>mutationTransaction(db,transaction=>membership.update({lifecycleState:'suspended'},{transaction}),{accessChange:true}),{expectedCode:'BUSINESS_ACCESS_REQUIRED'});
+      assert.deepEqual(await snapshot(event),before);await membership.update({lifecycleState:'active'});
+      await pausedSave(event,()=>mutationTransaction(db,transaction=>venueAccess.update({status:'inactive'},{transaction}),{accessChange:true}),{expectedCode:'BUSINESS_ACCESS_REQUIRED',user:venueManager.id});
+      assert.deepEqual(await snapshot(event),before);await venueAccess.update({status:'active'});
+    });
+    await t.test('event version and lifecycle changes during provider retrieval cannot be overwritten',async()=>{
+      const event=await makeEvent();
+      await pausedSave(event,()=>mutationTransaction(db,transaction=>event.update({title:'Concurrent event edit'},{transaction})),{expectedCode:'CONFLICT'});
+      assert.equal((await event.reload()).title,'Concurrent event edit');assert.equal(event.status,'draft');assert.equal(await m.AuditLog.count({where:{entityId:event.id}}),0);
+      await pausedSave(event,()=>mutationTransaction(db,transaction=>event.update({lifecycleState:'suspended'},{transaction}),{accessChange:true}),{expectedCode:'FORBIDDEN'});
+      assert.equal(await m.Offering.count({where:{eventId:event.id}}),0);
+    });
+    await t.test('local disable and disconnection during refresh remain enforced without restoring flags',async()=>{
+      for(const state of [{paymentsDisabledAt:new Date()},{disconnectStatus:'pending',paymentsDisabledAt:new Date()}]) {
+        const event=await makeEvent(),before=await snapshot(event);
+        await pausedSave(event,()=>mutationTransaction(db,transaction=>defaultAccount.update(state,{transaction}),{accessChange:true}));
+        assert.deepEqual(await snapshot(event),before);await defaultAccount.reload();assert.ok(defaultAccount.paymentsDisabledAt);
+        if(state.disconnectStatus)assert.equal(defaultAccount.disconnectStatus,state.disconnectStatus);
+        await defaultAccount.update({paymentsDisabledAt:null,disconnectStatus:'none'});
+      }
+    });
+    await t.test('default and override merchant changes fail closed even if the replacement was already ready',async()=>{
+      await overrideAccount.update({synchronizedAt:new Date()});
+      let event=await makeEvent(),before=await snapshot(event);
+      await pausedSave(event,()=>accounts.selectDefault(owner.id,org.id,overrideAccount.id),{expectedCode:'PAYMENT_ACCOUNT_CHANGED'});
+      assert.deepEqual(await snapshot(event),before);await org.reload();await org.update({defaultPaymentAccountId:defaultAccount.id});
+      event=await makeEvent({paymentAccountId:defaultAccount.id});
+      await pausedSave(event,()=>accounts.selectEvent(owner.id,event.id,overrideAccount.id),{expectedCode:'CONFLICT'});
+      assert.equal((await event.reload()).paymentAccountId,overrideAccount.id);assert.equal(event.status,'draft');assert.equal(await m.Offering.count({where:{eventId:event.id}}),0);
+    });
+    await t.test('refresh observation stays bounded by five minutes and cannot extend stale readiness',async()=>{
+      const event=await makeEvent();let clock=new Date(),observed=+clock;
+      provider=id=>{clock=new Date(observed+300001);return remote(id);};
+      const service=createBusinessService({models:m,permissions,stripe,environment:'production',now:()=>clock});
+      await assert.rejects(service.saveEvent(manager.id,event.id,eventEditor.parse(payload(event))),{code:'PAYMENTS_NOT_READY'});
+      assert.equal(+(await defaultAccount.reload()).synchronizedAt,observed);assert.equal((await event.reload()).status,'draft');
+      assert.equal(await m.Offering.count({where:{eventId:event.id}}),0);
+    });
+  } finally {await db.close();}
+});
 test('sandbox profiles persist scoped provider readiness and lock event merchant while checkout is unresolved',{timeout:30000},async()=>{
   assertManagedTestDatabase();
   const db=require('../src/db/sequelize').createSequelize(require('../src/config').getConfig());

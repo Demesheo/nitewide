@@ -43,12 +43,11 @@ function safeProfile(account, observedAt = new Date()) {
     disconnectedAt:a.disconnectedAt || null, disconnectErrorCode:a.disconnectErrorCode || null,
     requirements: { currentlyDue: a.requirements?.currently_due || [], disabledReason: a.requirements?.disabled_reason || null }, paymentsReady: paymentsReady(a, observedAt) };
 }
-async function synchronizeAccount(account, stripe, { models, now } = {}) {
+async function synchronizeAccount(account, stripe, { models, now, providerFailure } = {}) {
   if (!models) throw new Error('Payment account synchronization requires scoped models.');
-  return createBusinessPaymentAccountService({models,stripe,...(now ? {now} : {})}).synchronizeTrusted(account.stripeAccountId);
+  return createBusinessPaymentAccountService({models,stripe,...(now ? {now} : {})}).synchronizeTrusted(account.stripeAccountId, { providerFailure });
 }
-async function resolvePaymentAccount({ models, event, transaction, stripe, refresh = true, now = () => new Date() }) {
-  if (refresh && transaction) throw new Error('Synchronize Stripe outside the payment mutation transaction.');
+async function resolveSelectedPaymentAccount({ models, event, transaction, stripe, expectedAccount }) {
   if (!event.organizationId || !models.PaymentAccount) throw conflict('Select a business payment account before paid publication.', 'PAYMENTS_NOT_READY');
   const org = await assertActiveOrganization(models, event.organizationId, transaction);
   const shared = stripe?.mode === 'test' && stripe.sandboxSharedAccountId;
@@ -58,8 +57,16 @@ async function resolvePaymentAccount({ models, event, transaction, stripe, refre
     : { id, organizationId: event.organizationId, lifecycleState: 'active' }, transaction, ...(transaction ? { lock: transaction.LOCK.UPDATE } : {}) });
   if (!account) throw conflict('Select a business payment account before paid publication.', 'PAYMENTS_NOT_READY');
   if (shared && account.organizationId !== event.organizationId) await assertActiveOrganization(models, account.organizationId, transaction);
+  if (expectedAccount && (account.id !== expectedAccount.id || account.stripeAccountId !== expectedAccount.stripeAccountId)) {
+    throw conflict('The event payment account changed while readiness was checked. Try saving again to verify the current account.', 'PAYMENT_ACCOUNT_CHANGED');
+  }
+  return account;
+}
+async function resolvePaymentAccount({ models, event, transaction, stripe, refresh = true, now = () => new Date(), expectedAccount, notReadyMessage }) {
+  if (refresh && transaction) throw new Error('Synchronize Stripe outside the payment mutation transaction.');
+  let account = await resolveSelectedPaymentAccount({ models, event, transaction, stripe, expectedAccount });
   if (refresh) account = await synchronizeAccount(account, stripe, {models,now});
-  if (!paymentsReady(account,now())) throw conflict('Complete Stripe onboarding, then refresh the payment profile to verify charge readiness.', 'PAYMENTS_NOT_READY');
+  if (!paymentsReady(account,now())) throw conflict(notReadyMessage || 'Complete Stripe onboarding, then refresh the payment profile to verify charge readiness.', 'PAYMENTS_NOT_READY');
   return account;
 }
 async function assertFinanceAccess(models, userId, organizationId, transaction) {
@@ -166,14 +173,17 @@ function createBusinessPaymentAccountService({ models, stripe = null, businessAp
     if (event.paymentAccountId !== id && await models.Order.count({ where: unsettledMerchantWhere(eventId), transaction })) throw conflict('Resolve pending Stripe checkouts, payments needing review, and outstanding refunds before changing this event’s payment account.', 'PAYMENT_ACCOUNT_LOCKED');
     await event.update({ paymentAccountId: id },{ transaction });await validatePublishedMerchant(event,transaction);
     await audit(userId,event.organizationId,id || eventId,'business.payment_account.event_selected',{eventId,paymentAccountId:id},transaction); return { paymentAccountId: id }; }); }
-  async function synchronizeTrusted(stripeAccountId) {
+  async function synchronizeTrusted(stripeAccountId, { providerFailure } = {}) {
     const profile = await models.PaymentAccount.findOne({ where:{stripeAccountId,mode:'test',lifecycleState:'active'} });
     if (!profile || !stripe || stripe.mode !== 'test') throw notFound('Payment account');
     const observedAt = now();
-    const remote = await stripe.retrieveAccount(stripeAccountId);
+    let remote;
+    try { remote = await stripe.retrieveAccount(stripeAccountId); }
+    catch (error) { if (providerFailure) throw providerFailure(); throw error; }
     return transact(async transaction => {
       await assertActiveOrganization(models,profile.organizationId,transaction);
       const current = await get(profile.organizationId,profile.id,transaction);
+      if (current.stripeAccountId !== stripeAccountId) throw conflict('Payment account changed; refresh again.', 'PAYMENT_ACCOUNT_CHANGED');
       const values = providerState(remote,current.stripeAccountId,observedAt);
       if (observationCanApply(current,values)) await current.update(values,{transaction});
       return current;
@@ -181,4 +191,4 @@ function createBusinessPaymentAccountService({ models, stripe = null, businessAp
   }
   return { list,create,onboarding,synchronize,selectDefault,selectEvent,synchronizeTrusted, resolveForEvent: (event, options = {}) => resolvePaymentAccount({ models,event,stripe,now,...options }) };
 }
-module.exports = { createBusinessPaymentAccountService, resolvePaymentAccount, synchronizeAccount, assertFinanceAccess, paymentsReady, controllerMatches, providerState, observationCanApply, safeProfile, RESPONSIBILITIES };
+module.exports = { createBusinessPaymentAccountService, resolvePaymentAccount, resolveSelectedPaymentAccount, synchronizeAccount, assertFinanceAccess, paymentsReady, controllerMatches, providerState, observationCanApply, safeProfile, RESPONSIBILITIES };
