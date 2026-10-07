@@ -41,11 +41,15 @@ test('finance account controls use hosted onboarding and server readiness; event
     assert.equal(calls.length, 0); assert.equal(screen.queryByText('Payment accounts'), null);
     view.rerender(React.createElement(PaymentAccounts, props));
     await screen.findByText('Downtown');
+    const verificationHint = /If you’ve already completed Stripe onboarding, check your email for further verification instructions from Stripe\. Then select Check readiness\./;
+    assert.ok(screen.getByText(verificationHint));
     await user.click(screen.getByRole('button', { name: 'Complete Stripe setup' }));
     assert.deepEqual(destinations, ['https://connect.stripe.com/setup/fixture']);
     assert.equal(screen.queryByText('Ready for sandbox payments'), null);
+    assert.ok(screen.getByText(verificationHint));
     await user.click(screen.getByRole('button', { name: 'Check readiness' }));
     await screen.findByText('Ready for sandbox payments');
+    assert.equal(screen.queryByText(verificationHint), null);
     await user.selectOptions(screen.getByLabelText('Default payment account'), 'account');
     await waitFor(() => assert.equal(defaultPaymentAccountId, 'account'));
     await user.type(screen.getByLabelText('New account name'), 'Uptown');
