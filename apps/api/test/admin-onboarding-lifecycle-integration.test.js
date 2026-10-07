@@ -9,6 +9,7 @@ const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 const { signToken, createPasswordRecord } = require('../src/services/auth-service');
 const { aggregateAdminSales } = require('../src/services/admin-service');
 const { createDemoStaticFixture } = require('./support/demo-static-fixture.cjs');
+const { previewFirstAdmin, applyFirstAdmin, ACTION: BOOTSTRAP_ACTION } = require('../../../deploy/bootstrap-admin.cjs');
 
 test('admin onboarding, scoped edits, and lifecycle transitions preserve authorization and history', async (t) => {
   assertManagedTestDatabase();
@@ -41,7 +42,7 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     const changedAt = new Date('2026-09-01T12:00:00.000Z');
     const sharedCredential = await createPasswordRecord('ExistingPassword123');
     await models.User.bulkCreate([
-      { id: ids.admin, email: `${ids.admin}@integration.nitewide.test`, displayName: 'Fixture Internal Admin', isActive: true, isInternalAdmin: true, lifecycleState: 'active', onboardingPending: false },
+      { id: ids.admin, email: `${ids.admin}@integration.nitewide.test`, displayName: 'Fixture Internal Admin', isActive: true, lifecycleState: 'active', onboardingPending: false },
       { id: ids.manager, email: `${ids.manager}@integration.nitewide.test`, displayName: 'Fixture Venue Manager', isActive: true, lifecycleState: 'active', onboardingPending: false },
       { id: ids.buyer, email: `${ids.buyer}@integration.nitewide.test`, displayName: 'Fixture Buyer', isActive: true, lifecycleState: 'active', onboardingPending: false },
       { id: ids.existing, email: `${ids.existing}@integration.nitewide.test`, displayName: 'Fixture Existing Account', isActive: true, lifecycleState: 'active', onboardingPending: false, emailVerifiedAt: changedAt },
@@ -69,6 +70,59 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
       const token = userId ? await tokenFor(userId) : null;
       return httpRequest(server, `/api${route}`, { method, token, body });
     }
+
+    await t.test('one-time first-admin grant serializes, audits atomically and revokes old sessions without changing credentials or memberships', async () => {
+      const options = { environment: 'staging', expectedRevision: 'a'.repeat(40), email: `${ids.admin}@integration.nitewide.test`,
+        userId: ids.admin, operator: 'Isolated Test Operator', reason: 'Verify controlled first admin setup', apply: true };
+      const originalCredential = (await models.UserCredential.findByPk(ids.admin)).toJSON();
+      const priorToken = await tokenFor(ids.admin);
+      const membershipOrg = await models.Organization.create({ name: 'Existing Admin Membership', slug: `bootstrap-${crypto.randomUUID()}` });
+      const membership = await models.OrganizationOwner.create({ userId: ids.admin, organizationId: membershipOrg.id, role: 'admin' });
+      const preview = await previewFirstAdmin(models, options);
+      assert.equal(preview.emailVerified, false);
+      const activeSessions = () => models.AuthSession.count({ where: { userId: ids.admin, revokedAt: null } });
+      await assert.rejects(applyFirstAdmin(models, options, preview, 'WrongPassword123'), { code: 'PASSWORD_REJECTED' });
+      await assert.rejects(applyFirstAdmin(models, { ...options, environment: 'production' }, preview, 'InternalAdmin123'), { code: 'EMAIL_UNVERIFIED' });
+      await assert.rejects(applyFirstAdmin(models, options, { ...preview, version: preview.version + 1 }, 'InternalAdmin123'), { code: 'ACCOUNT_CHANGED' });
+      assert.equal((await models.User.findByPk(ids.admin)).isInternalAdmin, false);
+      assert.equal(await activeSessions(), 1);
+      const failAudit = () => { throw new Error('Isolated audit-write failure'); };
+      models.AuditLog.addHook('beforeCreate', 'bootstrap-rollback-proof', failAudit);
+      try { await assert.rejects(applyFirstAdmin(models, options, preview, 'InternalAdmin123'), /audit-write failure/); }
+      finally { models.AuditLog.removeHook('beforeCreate', 'bootstrap-rollback-proof'); }
+      assert.equal((await models.User.findByPk(ids.admin)).isInternalAdmin, false, 'failed audit rolls back privilege');
+      assert.equal((await models.User.findByPk(ids.admin)).version, preview.version);
+      assert.equal(await activeSessions(), 1, 'failed audit also rolls back session revocation');
+      assert.equal(await models.AuditLog.count({ where: { action: BOOTSTRAP_ACTION } }), 0);
+      const outcomes = await Promise.allSettled([
+        applyFirstAdmin(models, options, preview, 'InternalAdmin123'),
+        applyFirstAdmin(models, options, preview, 'InternalAdmin123'),
+      ]);
+      assert.equal(outcomes.filter(result => result.status === 'fulfilled').length, 1);
+      assert.equal(outcomes.find(result => result.status === 'rejected').reason.code, 'ALREADY_BOOTSTRAPPED');
+      const granted = await models.User.findByPk(ids.admin);
+      assert.equal(granted.internalAdminRole, 'platform_owner');
+      assert.equal(granted.version, preview.version + 1);
+      assert.equal(granted.emailVerifiedAt, null, 'bootstrap is not email ownership verification');
+      assert.deepEqual((await models.UserCredential.findByPk(ids.admin)).toJSON(), originalCredential);
+      assert.deepEqual((await models.OrganizationOwner.findByPk(membership.id)).toJSON(), membership.toJSON());
+      assert.equal(await activeSessions(), 0);
+      assert.equal((await httpRequest(server, '/api/admin/management/users', { token: priorToken })).status, 401);
+      const audit = await models.AuditLog.findOne({ where: { action: BOOTSTRAP_ACTION } });
+      assert.equal(audit.actorUserId, null);
+      assert.equal(audit.entityId, ids.admin);
+      assert.equal(audit.after.bootstrap.accountPasswordVerified, true);
+      assert.equal(audit.after.bootstrap.emailOwnershipVerified, false);
+      assert.equal(audit.after.bootstrap.operatorLabel, options.operator);
+      assert.equal(audit.after.bootstrap.revision, options.expectedRevision);
+      for (const privateValue of ['InternalAdmin123', originalCredential.passwordHash, originalCredential.passwordSalt]) {
+        assert.equal(JSON.stringify(audit.toJSON()).includes(privateValue), false);
+      }
+      await granted.update({ isInternalAdmin: false, internalAdminRole: null });
+      await assert.rejects(previewFirstAdmin(models, options), { code: 'ALREADY_BOOTSTRAPPED' });
+      await granted.update({ isInternalAdmin: true, internalAdminRole: 'platform_owner' });
+      assert.equal((await request('/admin/management/users', ids.admin)).status, 200, 'fresh sessions can access administration');
+    });
 
     assert.equal((await request('/admin/onboarding', null, 'POST', {})).status, 401);
     assert.equal((await request('/admin/onboarding', ids.manager, 'POST', {})).status, 403);

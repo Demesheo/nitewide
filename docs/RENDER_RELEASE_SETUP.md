@@ -210,8 +210,9 @@ set storage/billing alerts and respond before capacity is exhausted.
 Before calling staging ready, verify the actual revision, migration state,
 `/health/live`, `/health/ready`, entry HTML and referenced assets, all deep links,
 worker heartbeat, private media access and cross-organization authorization.
-Ordinary readiness is not payment readiness. Plan a controlled first-admin
-bootstrap and synthetic organization/event setup; there is no automatic demo
+Ordinary readiness is not payment readiness. Follow the separately approved,
+operator-only [first-admin setup](FIRST_ADMIN_SETUP.md), then create synthetic
+organizations/events through normal app flows. There is no automatic demo
 account or fixture creation in this deployment.
 
 ## Rehearse separate app domains on staging

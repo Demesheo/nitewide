@@ -20,6 +20,7 @@
     "start:release:worker": "node deploy/run.cjs worker",
     "deploy:check": "node deploy/run.cjs check",
     "db:migrate:release": "node deploy/run.cjs migrate",
+    "admin:bootstrap": "node deploy/bootstrap-admin.cjs",
     "payments:preflight": "node deploy/payment-preflight.cjs",
     "secrets:generate": "node scripts/generate-secrets.cjs",
     "test": "node scripts/run-default-tests.cjs",
