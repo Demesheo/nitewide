@@ -168,7 +168,7 @@ teamPaginationTest('business entry and workspace journey keeps branding, clean n
     await expect(setup.locator('ol')).not.toBeVisible();
     await expectNoOverflow(page);
   });
-  await test.step('The empty artwork area opens the file picker without submitting a new event', async () => {
+  await test.step('New events open the artwork picker and start with no tickets or packages', async () => {
     await page.getByRole('button', { name: 'Create event', exact: true }).click();
     const editor = page.getByRole('dialog', { name: 'Create an event', exact: true });
     const [chooser] = await Promise.all([
@@ -180,7 +180,19 @@ teamPaginationTest('business entry and workspace journey keeps branding, clean n
     await expect(editor.getByLabel('Event image or flyer', { exact: true })).toBeVisible();
     await expectNoOverflow(page);
     await test.info().attach('business-empty-artwork-upload', { body: await editor.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
-    await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await editor.getByLabel('Event name', { exact: true }).fill('Explicit inventory test');
+    await editor.getByRole('button', { name: 'Continue', exact: true }).click();
+    await editor.getByRole('button', { name: 'Continue', exact: true }).click();
+    const tiers = editor.getByTestId('offering-editor');
+    await expect(tiers).toHaveCount(0);
+    await expect(editor.getByText('No tickets or packages.', { exact: false })).toBeVisible();
+    await editor.getByRole('button', { name: 'Add offering', exact: true }).click();
+    await expect(tiers).toHaveCount(1);
+    await tiers.getByLabel('Tier name', { exact: true }).fill('Custom admission');
+    await expectNoOverflow(page);
+    await test.info().attach('business-explicit-offering', { body: await editor.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+    await editor.getByRole('button', { name: 'Close', exact: true }).click();
+    await editor.getByRole('button', { name: 'Close and keep draft', exact: true }).click();
     await expect(editor).toHaveCount(0);
   });
   await test.step('Overview charts switch categories and team pagination uses the backend', async () => {

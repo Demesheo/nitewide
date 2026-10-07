@@ -53,26 +53,6 @@ export function zonedISO(value, timezone) {
     );
   return new Date(guess).toISOString();
 }
-export const defaultTiers = () =>
-  [
-    ["General Admission", "ticket", 10, 200, 1],
-    ["2 regular bottles", "package", 300, 20, 4],
-    ["2 premium bottles", "package", 400, 20, 4],
-    ["2 clase/1942", "package", 1000, 10, 4],
-  ].map(([name, kind, price, quantityTotal, entriesPerUnit]) => ({
-    name,
-    kind,
-    feeMode: 'inherit',
-    price,
-    quantityTotal,
-    entriesPerUnit,
-    inventoryMode: "finite",
-    minPerOrder: 1,
-    maxPerOrder: 10,
-    isActive: true,
-    visibility: "public",
-    description: "",
-  }));
 export function removeOffering(offerings, key) {
   return offerings
     .filter((tier) => (tier.clientKey || tier.id) !== key)
@@ -140,7 +120,7 @@ export function editorDraft(event, organizationId = null, organizations = [], ve
         price: t.priceCents / 100,
         salesStartAt: t.salesStartAt ? dateInput(t.salesStartAt, timezone) : "",
         salesEndAt: t.salesEndAt ? dateInput(t.salesEndAt, timezone) : "",
-      })) || defaultTiers(),
+      })) || [],
   };
 }
 export function eventPayload(draft, version) {

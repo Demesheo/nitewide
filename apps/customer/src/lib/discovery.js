@@ -7,6 +7,8 @@ export const money = (cents, currency = "USD") =>
     currency,
     maximumFractionDigits: cents % 100 ? 2 : 0,
   }).format(cents / 100);
+export const priceLabel = (cents, currency = 'USD') =>
+  cents === 0 ? 'Free' : money(cents, currency);
 export const cityName = (event) => event.location?.city || "Private location";
 export function eventDateKey(event) {
   if (!event.location?.timezone)
@@ -132,7 +134,10 @@ export function availableQuantity(offering, now = new Date()) {
   return maximum < (offering.minPerOrder || 1) ? 0 : maximum;
 }
 export function offeringAvailabilityLabel(offering, offerings = []) {
-  if (availableQuantity(offering)) return offering.effectiveFeeMode === 'absorbed' ? 'Fees included' : '+ fees';
+  if (availableQuantity(offering)) {
+    if (offering.priceCents === 0) return '';
+    return offering.effectiveFeeMode === 'absorbed' ? 'Fees included' : '+ fees';
+  }
   if (offering.saleState === 'waiting_for_tier') {
     const previous = offerings.find((item) => item.id === offering.releaseAfterOfferingId);
     return previous ? `Opens when ${previous.name} sells out or closes` : 'Opens when the earlier tier sells out or closes';

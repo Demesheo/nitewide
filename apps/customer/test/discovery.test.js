@@ -8,6 +8,8 @@ import {
   checkoutTotal,
   filterUpcomingWeek,
   upcomingWeekRange,
+  priceLabel,
+  money,
 } from "../src/lib/discovery.js";
 import pricing from "../../api/src/domain/pricing.js";
 
@@ -84,7 +86,7 @@ test("week ranges cross months, years, leap days and DST as calendar dates", () 
   });
 });
 test('customer booking UI explains locked, scheduled and released ticket and package tiers', () => {
-  const first = {id:'first',name:'GA first 50',isActive:true,inventoryMode:'finite',quantityTotal:50,quantitySold:49,maxPerOrder:10,minPerOrder:1,saleState:'on_sale'};
+  const first = {id:'first',name:'GA first 50',priceCents:1000,isActive:true,inventoryMode:'finite',quantityTotal:50,quantitySold:49,maxPerOrder:10,minPerOrder:1,saleState:'on_sale'};
   const second = {...first,id:'second',name:'GA next 50',quantitySold:0,releaseAfterOfferingId:'first',saleState:'waiting_for_tier'};
   const offerings = [first,second];
   assert.equal(availableQuantity(first),1);
@@ -93,6 +95,20 @@ test('customer booking UI explains locked, scheduled and released ticket and pac
   assert.equal(offeringAvailabilityLabel(second,offerings),'Opens when GA first 50 sells out or closes');
   assert.equal(offeringAvailabilityLabel({...second,saleState:'scheduled'},offerings),'Opens later');
   assert.equal(offeringAvailabilityLabel({...second,saleState:'on_sale'},offerings),'+ fees');
+  assert.equal(priceLabel(first.priceCents), '$10');
+  assert.equal(priceLabel(1050), '$10.50');
+  assert.equal(priceLabel(1000, 'EUR'), '€10');
+  assert.equal(money(0), '$0', 'financial amounts retain currency formatting');
+  for (const kind of ['ticket', 'package', 'reservation']) {
+    for (const effectiveFeeMode of ['buyer', 'absorbed']) {
+      const free = { ...first, kind, priceCents: 0, effectiveFeeMode };
+      assert.equal(priceLabel(free.priceCents, 'EUR'), 'Free');
+      assert.equal(offeringAvailabilityLabel(free, offerings), '');
+      assert.equal(offeringAvailabilityLabel({ ...free, saleState: 'scheduled' }, offerings), 'Opens later');
+      assert.equal(offeringAvailabilityLabel({ ...free, saleState: 'sold_out' }, offerings), 'Sold out');
+    }
+  }
+  assert.equal(offeringAvailabilityLabel({ ...first, effectiveFeeMode: 'absorbed' }, offerings), 'Fees included');
   assert.equal(offeringAvailabilityLabel({...first,quantitySold:50,saleState:'sold_out'},offerings),'Sold out');
   assert.equal(offeringAvailabilityLabel({...second,saleState:'closed'},offerings),'Sales closed');
   const packageNext = {...second,kind:'package',releaseAfterOfferingId:'hidden',saleState:'waiting_for_tier'};

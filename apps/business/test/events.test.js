@@ -4,6 +4,9 @@ import { readFileSync } from 'node:fs';
 import { eventPhase, selectEvents, eventTeamRoles, filterEventTeam, eventTeamSalesSlices } from '../src/lib/events.js';
 import { editorDraft, eventPayload, releaseOptions, removeOffering } from '../src/lib/business.js';
 
+const ticket = { name: 'Custom ticket', kind: 'ticket', price: 10, quantityTotal: 50,
+  inventoryMode: 'finite', entriesPerUnit: 1, minPerOrder: 1, maxPerOrder: 10, isActive: true };
+
 test('removing an offering unlinks only its dependents and preserves the original draft', () => {
   const offerings = [{id:'a'}, {clientKey:'b',releaseAfterKey:'a'}, {clientKey:'c',releaseAfterKey:'b'}, {clientKey:'d',releaseAfterKey:'a'}];
   const remaining = removeOffering(offerings,'b');
@@ -49,7 +52,7 @@ test('event timelines distinguish live, future, drafts and past in venue time', 
 test('venue editor uses saved venue location and maps chained tiers to request indexes', () => {
   const draft = editorDraft(null,'org',[{id:'org',location:{city:'Tampa',addressLine1:'10 Main St',timezone:'America/New_York'}}]);
   assert.equal(draft.location.city,'Tampa');
-  draft.offerings = [{...draft.offerings[0],clientKey:'early'},{...draft.offerings[0],clientKey:'late',price:20,releaseAfterKey:'early'}];
+  draft.offerings = [{...ticket,clientKey:'early'},{...ticket,clientKey:'late',price:20,releaseAfterKey:'early'}];
   const payload = eventPayload(draft);
   assert.equal(payload.offerings[1].releaseAfterIndex,0);
   assert.equal(payload.offerings[1].priceCents,2000);
@@ -69,7 +72,7 @@ test('saved venue lookup outside the bootstrap page retains its canonical identi
 });
 test('business editor builds a three-step GA ladder, supports windows, manual close, and package ladders', () => {
   const draft = editorDraft(null, 'org', [{id:'org',location:{city:'Orlando',timezone:'America/New_York'}}]);
-  const base = {...draft.offerings[0], clientKey:'ga-10', name:'GA first 50',price:10,quantityTotal:50};
+  const base = {...ticket, clientKey:'ga-10', name:'GA first 50'};
   const middle = {...base,clientKey:'ga-20',name:'GA next 50',price:20,releaseAfterKey:'ga-10',salesStartAt:'2030-10-01T18:00'};
   const final = {...base,clientKey:'ga-40',name:'GA final 100',price:40,quantityTotal:100,releaseAfterKey:'ga-20'};
   const packageFirst = {...base,clientKey:'vip-300',kind:'package',name:'VIP early',price:300,isActive:false};

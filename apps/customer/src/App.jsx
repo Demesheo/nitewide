@@ -72,6 +72,7 @@ import {
   cityName,
   upcomingWeekRange,
   money,
+  priceLabel,
   readStorage,
   writeStorage,
 } from "./lib/discovery";
@@ -1082,8 +1083,9 @@ function CustomerApp() {
                 </TabsList>
                 <TabsContent value="tickets">
                   <div className="offerings">
-                    {selected.offerings?.map((item) => (
-                      <button
+                    {selected.offerings?.map((item) => {
+                      const availabilityLabel = offeringAvailabilityLabel(item, selected.offerings);
+                      return <button
                         disabled={!availableQuantity(item)}
                         key={item.id}
                         className={`offering ${offeringId === item.id ? "selected" : ""}`}
@@ -1101,13 +1103,11 @@ function CustomerApp() {
                           </small>
                         </span>
                         <strong>
-                          {money(item.priceCents, item.currency)}
-                          <small>
-                            {offeringAvailabilityLabel(item, selected.offerings)}
-                          </small>
+                          {priceLabel(item.priceCents, item.currency)}
+                          {availabilityLabel && <small>{availabilityLabel}</small>}
                         </strong>
-                      </button>
-                    ))}
+                      </button>;
+                    })}
                   </div>
                   {offering && (
                     <>
@@ -1185,28 +1185,27 @@ function CustomerApp() {
               <div className="order-summary">
                 <h3>{paymentCheckout?.booking?.items.length > 1 ? 'Your booking' : offering.name}</h3>
                 <p>
-                  {paymentCheckout?.booking ? paymentCheckout.booking.items.map(item => `${item.quantity} × ${item.name} · ${money(item.unitPriceCents, paymentCheckout.booking.currency)}`).join(' / ') : <>{quantity} × {money(offering.priceCents, offering.currency)}</>}
+                  {paymentCheckout?.booking ? paymentCheckout.booking.items.map(item => `${item.quantity} × ${item.name} · ${priceLabel(item.unitPriceCents, paymentCheckout.booking.currency)}`).join(' / ') : <>{quantity} × {priceLabel(offering.priceCents, offering.currency)}</>}
                 </p>
                 <dl>
                   <div>
                     <dt>Subtotal</dt>
-                    <dd>{money(totals.subtotal, offering.currency)}</dd>
+                    <dd>{priceLabel(totals.subtotal, offering.currency)}</dd>
                   </div>
-                  <div>
+                  {totals.total > 0 && <div>
                     <dt>
                       Service fee <small>(standard 8% + $0.80 per paid ticket/package; discounts and minimum-cost adjustments may apply)</small>
                     </dt>
                     <dd>{money(totals.fee, offering.currency)}</dd>
-                  </div>
+                  </div>}
                   <div className="order-total">
-                    <dt>Total paid in full</dt>
-                    <dd>{money(totals.total, offering.currency)}</dd>
+                    <dt>{totals.total === 0 ? 'Total' : 'Total paid in full'}</dt>
+                    <dd>{priceLabel(totals.total, offering.currency)}</dd>
                   </div>
                 </dl>
               </div>
               <p className="fine-print">
-                Booking as {session?.user.email}. Taxes and any additional
-                charges must be finalized before live payments launch.
+                Booking as {session?.user.email}.{totals.total > 0 && ' Taxes and any additional charges must be finalized before live payments launch.'}
               </p>
               {totals.floorAdjusted && <p className="fine-print">A minimum-cost adjustment is included in the service fee to cover this order. Processing is included; no additional processing charge applies.</p>}
               {demoError && <p role="alert">{demoError}</p>}

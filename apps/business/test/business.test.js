@@ -9,17 +9,31 @@ import {
   dateInput,
   eventDateLabel,
   zonedISO,
-  defaultTiers,
   editorDraft,
   eventPayload,
   filterEvents,
   slugify,
 } from "../src/lib/business.js";
-test("default offering prices follow the product policy", () =>
-  assert.deepEqual(
-    defaultTiers().map((t) => t.price),
-    [10, 300, 400, 1000],
-  ));
+const savedOffering = { id: 'tier1', name: 'Custom admission', kind: 'ticket', priceCents: 1000,
+  quantityTotal: 200, entriesPerUnit: 1, inventoryMode: 'finite', minPerOrder: 1, maxPerOrder: 10 };
+test("new events start without offerings while saved event inventory is preserved", () => {
+  const draft = editorDraft(null);
+  assert.deepEqual(draft.offerings, []);
+  assert.deepEqual(eventPayload(draft).offerings, []);
+  draft.offerings.push({ ...savedOffering });
+  assert.deepEqual(editorDraft(null).offerings, [], 'new drafts do not share inventory');
+  for (const priceCents of [0, 1235]) {
+    const event = { offerings: [{ ...savedOffering, priceCents }] };
+    const edited = editorDraft(event);
+    assert.equal(edited.offerings.length, 1);
+    assert.equal(edited.offerings[0].name, savedOffering.name);
+    assert.equal(edited.offerings[0].price, priceCents / 100);
+    assert.equal(eventPayload(edited).offerings[0].priceCents, priceCents);
+    assert.equal(event.offerings[0].price, undefined, 'editing does not mutate stored offerings');
+  }
+  assert.deepEqual(editorDraft({ offerings: [] }).offerings, []);
+  assert.deepEqual(editorDraft({}).offerings, []);
+});
 test("venue-local time is converted independently of browser timezone", () => {
   assert.equal(
     zonedISO("2026-09-25T22:00", "America/New_York"),
@@ -48,8 +62,7 @@ test("nonexistent daylight saving times are rejected", () =>
     /does not exist/,
   ));
 test("edit payload preserves IDs, converts dollars to cents, and includes version", () => {
-  const draft = editorDraft(null);
-  draft.offerings[0].id = "tier1";
+  const draft = editorDraft({ offerings: [{ ...savedOffering }] });
   draft.offerings[0].price = "12.35";
   const p = eventPayload(draft, 4);
   assert.equal(p.offerings[0].priceCents, 1235);
@@ -58,7 +71,7 @@ test("edit payload preserves IDs, converts dollars to cents, and includes versio
   assert.equal(p.capacity, null);
 });
 test("unlimited inventory explicitly sends null", () => {
-  const d = editorDraft(null);
+  const d = editorDraft({ offerings: [{ ...savedOffering }] });
   d.offerings[0].inventoryMode = "unlimited";
   assert.equal(eventPayload(d).offerings[0].quantityTotal, null);
 });
