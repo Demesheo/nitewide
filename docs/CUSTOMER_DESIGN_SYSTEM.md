@@ -17,8 +17,12 @@ behavior; style via `data-variant`, never replace buttons with decorative divs.
 
 - Discover: concise single-column intro and location/date/search panel, followed by
   event cards with inset portrait artwork, legible details and clear purchase pricing.
-  No radar feature card, experience-type pills, or extra price/sort filters.
-  Empty dates lead directly from the result count into “Upcoming this week.”
+  No radar feature card or experience-type pills. Compact nearby/city-only
+  controls sit below the search panel, and Sort is right-aligned beside
+  “The night is yours.” Where to includes a right-aligned
+  LocateFixed action for user-requested current-city detection.
+  Undated discovery browses all upcoming events; an empty explicit date shows
+  a separate “Upcoming this week” preview, without a verbose result-count row.
   Use the main search controls to change dates; no “All upcoming” link or redundant empty-state CTA.
 - Booked / Saved: focused main-page collections without discovery/search chrome.
 - Connections: conditional fourth header segment for referral/invitation history,
@@ -27,6 +31,10 @@ behavior; style via `data-variant`, never replace buttons with decorative divs.
   It uses the same main-page spacing, glass surfaces and Premium treatment.
   See `CUSTOMER_ACCOUNT.md` for eligibility, attribution and privacy boundaries.
 - Branding uses a plain Nitewide wordmark without a star in the header or footer.
+- The compact two-row footer aligns a larger “For business” link with the
+  logo/wordmark. Copyright, Contact Nitewide and Terms and conditions occupy
+  the second row; support/legal use equal-sized plain text, not button surfaces.
+  All links retain 44px touch targets and wrap safely on narrow screens.
   The bottom “Find your vibe” section uses concise, unnumbered Discover / Book / Enter steps.
 - `NightCard`: one consistent purchase/guest-pass component in both Booked and My nights.
 - Account: stable-height dialog with Profile, My nights and Connections. Loading
@@ -80,11 +88,16 @@ not yet have a subscription field and remain undecorated. Future creator billing
 must extend the server entitlement resolver, not infer status from owned venues
 or add browser-only Premium flags. No billing or subscription changes are made here.
 
-Default Discover, upcoming-week and Saved ordering groups events
-by venue-local calendar day (earliest day first), then Premium hosts first within
-that day. Within each host tier, title and ID provide a stable order; start time
-is deliberately not a ranking criterion. Purchased-booking history is not a promotional listing
-and retains its existing timeline order.
+Discover defaults to Popular (`recommended` in the API): venue-local calendar day first, then Premium
+hosts within the same day, capped first-party popularity, verified distance,
+and actual start time/ID as stable tie-breakers. A later Premium event can lead
+its day, but never move above an earlier day. Soonest sorts by actual start time
+and Distance by verified public-location
+distance; neither sort gives Premium hosts priority. Unknown/private distances
+follow known ones rather than using a fabricated city-based venue distance.
+Filtering and sorting are server-side before cursor pagination. Saved retains
+its venue-local day, Premium, title and ID ordering. Purchased-booking history
+is not a promotional listing and retains its existing timeline order.
 
 ## Mobile, motion and accessibility
 

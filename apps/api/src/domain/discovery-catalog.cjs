@@ -66,7 +66,9 @@ function resolvePlace(place) {
   const label = placeLabel(place);
   const common = { key: placeScopeKey(place), version: catalogVersion, label, city: label.slice(0, label.lastIndexOf(',')), region: place.region,
     countryCode: 'US', placeKey: `place:${place.geoid}`, center: Object.freeze({ latitude: place.latitude, longitude: place.longitude }),
-    centerLabel: label, centerCountyFips: place.centerCountyFips };
+    centerLabel: label, centerCountyFips: place.centerCountyFips,
+    cityAliases: Object.freeze(place.names.filter(name => aliases.get(identity(name, place.region))?.length === 1)),
+    cityCounties: Object.freeze([...place.counties]) };
   if (!place.centerCountyFips) return Object.freeze({ ...common, kind: 'city', resolutionStatus: 'unresolved', localities: [common.city], members: [], counties: [] });
   if (group) {
     const members = groupMembers.get(group.key) || [];

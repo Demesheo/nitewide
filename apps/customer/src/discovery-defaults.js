@@ -27,6 +27,7 @@ export function formatCity(location) {
 }
 
 async function reverseGeocode(fetchImpl, coordinates, signal) {
+  signal?.throwIfAborted();
   const params = new URLSearchParams({ localityLanguage: "en" });
   if (coordinates) {
     params.set("latitude", String(coordinates.latitude));
@@ -57,6 +58,7 @@ export async function detectCurrentCity({
   requestPrecise = false,
   signal,
 } = {}) {
+  signal?.throwIfAborted();
   const approximateCity = reverseGeocode(fetchImpl, null, signal).catch(() => "");
   // Automatic discovery never opens the browser's precise-location prompt.
   if (!requestPrecise) return approximateCity;

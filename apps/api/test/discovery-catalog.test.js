@@ -89,6 +89,11 @@ test('nationwide metros preserve divisions, cross-state counties, current Connec
   assert.equal(altoona.centerCountyFips, '01055');
   assert.ok(!altoona.members.some((member) => member.city === 'Altoona'), 'cross-group event city needs verified address');
   assert.ok(resolve('St. Petersburg, FL').members.some((member) => member.city === 'Saint Petersburg'));
+  assert.ok(resolve('St. Petersburg, FL').cityAliases.includes('Saint Petersburg'));
+  assert.ok(resolve('Orlando, FL').cityCounties.includes('12095'));
+  assert.ok(Object.isFrozen(resolve('Orlando, FL').cityCounties));
+  assert.ok(!resolve('St. Petersburg, FL').cityAliases.includes('Tampa'), 'city-only aliases never include other places in the metro');
+  assert.ok(!resolve('Burbank city, CA').cityAliases.includes('Burbank'), 'ambiguous bare names do not identify one canonical city');
 });
 
 test('radius fallback is exactly thirty statute miles from a known city point, never from customer input', () => {

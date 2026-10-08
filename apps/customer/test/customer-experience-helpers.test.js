@@ -8,11 +8,17 @@ import { uniqueSavedIds, savedIdBatches } from '../src/lib/saved-id-batch.js';
 
 test('customer routes restore tab, event, and submitted discovery filters', () => {
   assert.deepEqual(parseCustomerRoute('?tab=saved&event=61daf017-d30c-4030-9b89-dd29d875ddaf&city=Orlando&date=2026-09-29&q=house&when=tonight'), {
-    tab: 'saved', eventId: '61daf017-d30c-4030-9b89-dd29d875ddaf', booking: null, city: 'Orlando', date: '2026-09-29', query: 'house', shortcut: 'tonight',
+    tab: 'saved', eventId: '61daf017-d30c-4030-9b89-dd29d875ddaf', booking: null, city: 'Orlando', date: '2026-09-29', query: 'house', shortcut: '',
+    scope: 'nearby', sort: 'recommended',
     myEventId: null, myStatus: 'upcoming', myPage: 1, mySearch: '',
   });
-  assert.deepEqual(parseCustomerRoute('?tab=not-a-tab&when=not-a-shortcut'), {
+  assert.deepEqual(parseCustomerRoute('?city=Winter+Park%2C+FL&scope=city&sort=date'), {
+    tab: 'discover', eventId: null, booking: null, city: 'Winter Park, FL', date: '', query: '', shortcut: '',
+    scope: 'city', sort: 'date', myEventId: null, myStatus: 'upcoming', myPage: 1, mySearch: '',
+  });
+  assert.deepEqual(parseCustomerRoute('?tab=not-a-tab&when=tonight'), {
     tab: 'discover', eventId: null, booking: null, city: '', date: '', query: '', shortcut: '',
+    scope: 'nearby', sort: 'recommended',
     myEventId: null, myStatus: 'upcoming', myPage: 1, mySearch: '',
   });
   const invalid = parseCustomerRoute(`?event=not-a-uuid&date=2026-02-30&city=${'c'.repeat(121)}&q=${'q'.repeat(121)}`);
@@ -20,6 +26,29 @@ test('customer routes restore tab, event, and submitted discovery filters', () =
   assert.equal(invalid.date, '', 'an impossible calendar date cannot trigger an invalid discovery request');
   assert.equal(invalid.city.length, 120);
   assert.equal(invalid.query.length, 120);
+});
+
+test('customer discovery route omits defaults, clears legacy shortcuts and restores explicit scope/sort', () => {
+  const priorWindow = globalThis.window;
+  const calls = [];
+  globalThis.window = {
+    location: { href: 'https://nitewide.test/?when=tonight' },
+    history: { state: {}, pushState(_state, _title, url) { calls.push(url); } },
+  };
+  try {
+    updateCustomerRoute({ city: 'Winter Park, FL', scope: 'nearby', sort: 'recommended', shortcut: '' });
+    updateCustomerRoute({ city: 'Winter Park, FL', scope: 'city', sort: 'date' });
+  } finally {
+    if (priorWindow === undefined) delete globalThis.window;
+    else globalThis.window = priorWindow;
+  }
+  const defaults = new URL(calls[0]);
+  assert.equal(defaults.searchParams.has('scope'), false);
+  assert.equal(defaults.searchParams.has('sort'), false);
+  assert.equal(defaults.searchParams.has('when'), false);
+  const explicit = new URL(calls[1]);
+  assert.equal(parseCustomerRoute(explicit.search).scope, 'city');
+  assert.equal(parseCustomerRoute(explicit.search).sort, 'date');
 });
 
 test('route updates preserve unrelated referral and booking query params', () => {

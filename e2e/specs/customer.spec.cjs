@@ -39,6 +39,7 @@ discoveryTest('customer discovery keeps its chosen area, branding and private si
   });
   const cards = page.locator('#discover').getByTestId('customer-event-card');
   const cityInput = page.getByRole('combobox', { name: 'City', exact: true });
+  const areaControls = page.getByRole('group', { name: 'Discovery area' });
   const otherMarkets = ['Miami', 'Miami Beach', 'Tampa', 'St. Petersburg', 'Fort Lauderdale'];
   await test.step('unresolved location never loads a global feed; a manual nearby area wins over late IP detection', async () => {
     await page.goto('/');
@@ -53,18 +54,66 @@ discoveryTest('customer discovery keeps its chosen area, branding and private si
     expect(discoveryRequests).toHaveLength(0);
     await page.getByRole('button', { name: 'Find my night', exact: true }).click();
     await expect(cards).toHaveCount(9);
-    await expect(page.locator('#discovery-area-hint')).toContainText(/Orlando.*metro area and surrounding communities/);
+    await expect(page.locator('#discovery-area-hint')).toHaveCount(0);
+    await expect(page.locator('#discover .results-summary')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^City:/ })).toHaveCount(0);
+    for (const quickDate of ['Tonight', 'Tomorrow', 'This weekend']) {
+      await expect(page.getByRole('button', { name: quickDate, exact: true })).toHaveCount(0);
+    }
+    await expect(areaControls.getByRole('button', { name: 'Include nearby cities', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    const discoveryHeading = page.locator('#discover .section-heading h2');
+    const sortSelect = page.locator('#discover .section-heading').getByLabel('Sort', { exact: true });
+    await expect(sortSelect).toBeVisible();
+    const [headingBounds, sortBounds] = await Promise.all([discoveryHeading.boundingBox(), sortSelect.boundingBox()]);
+    expect(headingBounds).not.toBeNull();
+    expect(sortBounds).not.toBeNull();
+    expect(Math.abs((headingBounds.y + headingBounds.height / 2) - (sortBounds.y + sortBounds.height / 2))).toBeLessThanOrEqual(2);
+    await expect(sortSelect).toHaveValue('recommended');
+    await expect(sortSelect.locator('option:checked')).toHaveText('Popular');
     await expect(cards.filter({ hasText: 'Playwright Winter Park Night' }).locator('.card-location')).toHaveText('Winter Park, FL');
     await expect(cards.filter({ hasText: 'Playwright Kissimmee Night' }).locator('.card-location')).toHaveText('Kissimmee, FL');
     expect(await cards.locator('.card-location').allTextContents()).toEqual(expect.arrayContaining(['Orlando, FL', 'Winter Park, FL', 'Kissimmee, FL']));
     for (const city of otherMarkets) await expect(cards.filter({ hasText: `Playwright ${city} Night` })).toHaveCount(0);
-    await expect(cards.locator('.premium-host-badge')).toHaveCount(9);
+    await expect(cards.locator('.premium-host-badge')).toHaveCount(8);
+    await test.step('exact-city scope excludes Orlando and Kissimmee, and nearby scope restores the metro', async () => {
+      await areaControls.getByRole('button', { name: /^Winter Park.* only$/ }).click();
+      await expect(areaControls.getByRole('button', { name: /^Winter Park.* only$/ })).toHaveAttribute('aria-pressed', 'true');
+      await expect(cards).toHaveCount(1);
+      await expect(cards.locator('.card-location')).toHaveText(['Winter Park, FL']);
+      await areaControls.getByRole('button', { name: 'Include nearby cities', exact: true }).click();
+      await expect(cards).toHaveCount(9);
+      expect(await cards.locator('.card-location').allTextContents()).toEqual(expect.arrayContaining(['Orlando, FL', 'Winter Park, FL', 'Kissimmee, FL']));
+    });
+    const dateSortResponse = page.waitForResponse(response => {
+      const url = new URL(response.url()); return url.pathname === '/api/events' && url.searchParams.get('sort') === 'date';
+    });
+    await page.getByLabel('Sort', { exact: true }).selectOption('date');
+    await dateSortResponse;
+    await expect.poll(async () => {
+      const titles = await cards.locator('.card-title-text').allTextContents();
+      return titles.indexOf('Playwright Night 04') < titles.indexOf('Playwright Night 05');
+    }).toBe(true);
+    await expect(cards.locator('.premium-host-badge')).toHaveCount(8);
+    const dateOrdered = await cards.allTextContents();
+    expect(dateOrdered.findIndex(text => text.includes('Playwright Night 04'))).toBeLessThan(dateOrdered.findIndex(text => text.includes('Playwright Night 05')));
+    await expect(cards.filter({ hasText: 'Playwright Night 04' }).locator('.premium-host-badge')).toHaveCount(0);
+    await expect(cards.filter({ hasText: 'Playwright Night 05' }).locator('.premium-host-badge')).toHaveCount(1);
+    const datePair = await Promise.all(['Playwright Night 04', 'Playwright Night 05'].map(title => cards.filter({ hasText: title }).locator('time').getAttribute('datetime')));
+    const datePairDetails = await page.evaluate(([earlier, later]) => ({ earlierDay: new Date(earlier).toLocaleDateString(), laterDay: new Date(later).toLocaleDateString(), ascending: Date.parse(earlier) < Date.parse(later) }), datePair);
+    expect(datePairDetails.earlierDay).toBe(datePairDetails.laterDay);
+    expect(datePairDetails.ascending).toBe(true);
     releaseGeo.resolve();
     await geoDelivered.promise;
     await expect(cityInput).toHaveValue('Winter Park, FL');
     await expect(cards).toHaveCount(9);
     await page.getByRole('button', { name: 'More nights, more possibilities' }).click();
     await expect(cards).toHaveCount(10);
+    expect(discoveryRequests.at(-1).get('sort')).toBe('date');
+    expect(discoveryRequests.at(-1).get('scope')).toBe('nearby');
+    expect(discoveryRequests.at(-1).get('mode')).toBe('upcoming');
+    await expect(cards.filter({ hasText: 'Playwright Night 10' }).locator('.premium-host-badge')).toHaveCount(1);
+    const laterNight = await cards.filter({ hasText: 'Playwright Night 10' }).locator('time').getAttribute('datetime');
+    expect(Date.parse(laterNight) - Date.now()).toBeGreaterThan(14 * 24 * 3600000);
     for (const city of otherMarkets) await expect(cards.filter({ hasText: `Playwright ${city} Night` })).toHaveCount(0);
   });
   await test.step('a return visit uses the remembered area', async () => {
@@ -118,6 +167,11 @@ discoveryTest('customer discovery keeps its chosen area, branding and private si
     });
     await page.getByLabel('Event date', { exact: true }).fill(yesterday);
     await page.getByRole('button', { name: 'Find my night', exact: true }).click();
+    expect(discoveryRequests.at(-1).get('mode')).toBe('range');
+    expect(discoveryRequests.at(-1).get('startDate')).toBe(yesterday);
+    expect(discoveryRequests.at(-1).get('endDate')).toBe(yesterday);
+    expect(new URL(page.url()).searchParams.get('date')).toBe(yesterday);
+    expect(new URL(page.url()).searchParams.has('when')).toBe(false);
     await expect(cards).toHaveCount(0);
     const preview = page.locator('.upcoming-preview').getByTestId('customer-event-card');
     await expect(preview).toHaveCount(9);
@@ -128,6 +182,10 @@ discoveryTest('customer discovery keeps its chosen area, branding and private si
     await page.getByLabel('Event date', { exact: true }).fill('');
     await page.getByRole('button', { name: 'Find my night', exact: true }).click();
     await expect(cards).toHaveCount(9);
+    expect(discoveryRequests.at(-1).get('mode')).toBe('upcoming');
+    expect(discoveryRequests.at(-1).has('endDate')).toBe(false);
+    expect(new URL(page.url()).searchParams.has('date')).toBe(false);
+    expect(new URL(page.url()).searchParams.has('when')).toBe(false);
   });
   await test.step('switching to a failed city clears cards and rejects an older pagination response', async () => {
     const pageStarted = deferred(), releasePage = deferred(), pageDelivered = deferred();
@@ -175,15 +233,15 @@ discoveryTest('customer discovery keeps its chosen area, branding and private si
     await page.getByRole('button', { name: 'Find my night', exact: true }).click();
     await expect(cards).toHaveCount(2);
     await expect(cityInput).toHaveValue('Miami Beach, FL');
-    await expect(page.locator('#discovery-area-hint')).toContainText(/Miami.*metro division and surrounding communities/);
-    await expect(cards.locator('.card-location')).toHaveText(['Miami, FL', 'Miami Beach, FL']);
+    await expect(areaControls.getByRole('button', { name: 'Include nearby cities', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    expect(await cards.locator('.card-location').allTextContents()).toEqual(expect.arrayContaining(['Miami, FL', 'Miami Beach, FL']));
     await expect(cards.filter({ hasText: 'Playwright Fort Lauderdale Night' })).toHaveCount(0);
     await cityInput.fill('St. Petersburg, FL');
     await page.getByRole('button', { name: 'Find my night', exact: true }).click();
     await expect(cards).toHaveCount(2);
     await expect(cityInput).toHaveValue('St. Petersburg, FL');
-    await expect(page.locator('#discovery-area-hint')).toContainText(/Tampa.*metro area and surrounding communities/);
-    await expect(cards.locator('.card-location')).toHaveText(['Tampa, FL', 'St. Petersburg, FL']);
+    await expect(areaControls.getByRole('button', { name: 'Include nearby cities', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    expect(await cards.locator('.card-location').allTextContents()).toEqual(expect.arrayContaining(['Tampa, FL', 'St. Petersburg, FL']));
     for (const city of ['Miami', 'Miami Beach', 'Fort Lauderdale', 'Orlando']) await expect(cards.filter({ hasText: `Playwright ${city} Night` })).toHaveCount(0);
   });
   await test.step('a locality without upcoming events invites businesses through the configured app', async () => {
@@ -199,7 +257,10 @@ discoveryTest('customer discovery keeps its chosen area, branding and private si
   });
   await test.step('clearing the selected city returns to area selection without widening discovery', async () => {
     const before = discoveryRequests.length;
-    await page.getByRole('button', { name: /^City: Gainesville,/ }).click();
+    await cityInput.fill('');
+    await page.getByRole('button', { name: 'Find my night', exact: true }).click();
+    await expect(cityInput).toHaveValue('');
+    expect(new URL(page.url()).searchParams.get('city')).toBe('');
     await expect(page.getByText('Choose an area to find your night.', { exact: true })).toBeVisible();
     await expect(cards).toHaveCount(0);
     expect(discoveryRequests).toHaveLength(before);

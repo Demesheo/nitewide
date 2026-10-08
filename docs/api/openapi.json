@@ -322,6 +322,52 @@
             }
           },
           {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": "range",
+              "type": "string",
+              "enum": [
+                "range",
+                "upcoming"
+              ]
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": "nearby",
+              "type": "string",
+              "enum": [
+                "nearby",
+                "city"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": "recommended",
+              "type": "string",
+              "enum": [
+                "recommended",
+                "distance",
+                "date"
+              ]
+            }
+          },
+          {
             "name": "startDate",
             "in": "query",
             "required": false,
@@ -435,6 +481,17 @@
                                   "cancelled",
                                   "completed"
                                 ]
+                              },
+                              "distanceMiles": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               }
                             },
                             "required": [
@@ -482,6 +539,17 @@
                                       "published",
                                       "cancelled",
                                       "completed"
+                                    ]
+                                  },
+                                  "distanceMiles": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "minimum": 0
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
                                     ]
                                   }
                                 },
@@ -579,6 +647,69 @@
                                 "resolved",
                                 "unresolved"
                               ]
+                            },
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "range",
+                                "upcoming"
+                              ]
+                            },
+                            "scope": {
+                              "type": "string",
+                              "enum": [
+                                "nearby",
+                                "city"
+                              ]
+                            },
+                            "sort": {
+                              "type": "string",
+                              "enum": [
+                                "recommended",
+                                "distance",
+                                "date"
+                              ]
+                            },
+                            "rankedAsOf": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            "rankingVersion": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "const": "recommended-v2"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Recommended orders venue-local day, Premium, capped popularity, distance, then start time and ID; Date and Distance remain independent."
+                            },
+                            "distanceOrigin": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "label": {
+                                      "type": "string"
+                                    },
+                                    "kind": {
+                                      "type": "string",
+                                      "const": "city-center"
+                                    }
+                                  },
+                                  "required": [
+                                    "label",
+                                    "kind"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -587,7 +718,13 @@
                             "nextCursor",
                             "area",
                             "hasUpcomingAreaEvents",
-                            "resolutionStatus"
+                            "resolutionStatus",
+                            "mode",
+                            "scope",
+                            "sort",
+                            "rankedAsOf",
+                            "rankingVersion",
+                            "distanceOrigin"
                           ],
                           "additionalProperties": false
                         }
@@ -792,6 +929,17 @@
                             "published",
                             "cancelled",
                             "completed"
+                          ]
+                        },
+                        "distanceMiles": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         }
                       },
@@ -1372,6 +1520,17 @@
                                   "cancelled",
                                   "completed"
                                 ]
+                              },
+                              "distanceMiles": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               }
                             },
                             "required": [
@@ -1600,6 +1759,17 @@
                             "published",
                             "cancelled",
                             "completed"
+                          ]
+                        },
+                        "distanceMiles": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         }
                       },
@@ -8778,6 +8948,17 @@
                                   "completed"
                                 ]
                               },
+                              "distanceMiles": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "canManage": {
                                 "type": "boolean"
                               },
@@ -9100,6 +9281,17 @@
                                 "published",
                                 "cancelled",
                                 "completed"
+                              ]
+                            },
+                            "distanceMiles": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
                               ]
                             }
                           },
@@ -12048,6 +12240,17 @@
                                   "published",
                                   "cancelled",
                                   "completed"
+                                ]
+                              },
+                              "distanceMiles": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
                                 ]
                               }
                             },
@@ -15669,6 +15872,17 @@
                               "type": "string",
                               "format": "date-time",
                               "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            "distanceMiles": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -39712,6 +39926,17 @@
                                 "type": "string",
                                 "format": "date-time",
                                 "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              "distanceMiles": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               }
                             },
                             "required": [
@@ -39770,6 +39995,17 @@
                                   "type": "string",
                                   "format": "date-time",
                                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                },
+                                "distanceMiles": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "minimum": 0
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
                                 }
                               },
                               "required": [
@@ -54979,6 +55215,17 @@
                                   "cancelled",
                                   "completed"
                                 ]
+                              },
+                              "distanceMiles": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               }
                             },
                             "required": [
@@ -55222,6 +55469,17 @@
                             "published",
                             "cancelled",
                             "completed"
+                          ]
+                        },
+                        "distanceMiles": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         }
                       },
@@ -56015,6 +56273,17 @@
                             "published",
                             "cancelled",
                             "completed"
+                          ]
+                        },
+                        "distanceMiles": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         }
                       },
@@ -58354,6 +58623,17 @@
                             "published",
                             "cancelled",
                             "completed"
+                          ]
+                        },
+                        "distanceMiles": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         }
                       },
@@ -81586,6 +81866,17 @@
               "published",
               "cancelled",
               "completed"
+            ]
+          },
+          "distanceMiles": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
             ]
           }
         },

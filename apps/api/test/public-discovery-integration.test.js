@@ -12,9 +12,7 @@ function localDay(event) {
   return `${value('year')}-${value('month')}-${value('day')}`;
 }
 function compareListings(a, b) {
-  return localDay(a).localeCompare(localDay(b))
-    || Number(Boolean(b.isPremiumHost)) - Number(Boolean(a.isPremiumHost))
-    || (a.title || '').localeCompare(b.title || '', 'en', { sensitivity: 'base', numeric: true })
+  return new Date(a.startsAt) - new Date(b.startsAt)
     || String(a.id).localeCompare(String(b.id));
 }
 
@@ -35,6 +33,23 @@ test('public discovery cursor pages preserve global listing order, filters, and 
   let premiumOrganizationId;
   try {
     await sequelize.authenticate();
+    if (process.env.DISCOVERY_EXPLAIN === '1') {
+      const query = sequelize.query.bind(sequelize); const explained = new Set();
+      sequelize.query = async (sql, options) => {
+        if (typeof sql === 'string' && /^\s*SELECT e\.id,to_char\(e\.starts_at/.test(sql)) {
+          const sort = sql.includes('ORDER BY event_day."day"') ? 'recommended' : sql.includes('ORDER BY geo.distance_meters') ? 'distance' : 'date';
+          if (!explained.has(sort)) {
+            explained.add(sort);
+            const [result] = await query(`EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) ${sql}`, options);
+            const plan = result['QUERY PLAN'][0]; const indexes = new Set();
+            const collect = node => { if (node['Index Name']) indexes.add(node['Index Name']); (node.Plans || []).forEach(collect); };
+            collect(plan.Plan);
+            console.log(`[discovery-plan] ${JSON.stringify({ sort, executionMs: plan['Execution Time'], planningMs: plan['Planning Time'], indexes: [...indexes] })}`);
+          }
+        }
+        return query(sql, options);
+      };
+    }
     fixture = await createFixture(models, config);
     const { ids } = fixture;
     const locations = Array.from({ length: 220 }, (_, index) => ({
@@ -79,7 +94,7 @@ test('public discovery cursor pages preserve global listing order, filters, and 
       return { status: response.status, ...response.body };
     }
 
-    const filters = new URLSearchParams({ pageSize: '9', allCities: 'true', startDate: '2031-11-02', endDate: '2031-11-09', timezone: 'America/New_York' });
+    const filters = new URLSearchParams({ pageSize: '9', allCities: 'true', sort: 'date', startDate: '2031-11-02', endDate: '2031-11-09', timezone: 'America/New_York' });
     const first = await request(`/events?${filters}`);
     assert.equal(first.status, 200, JSON.stringify(first));
     assert.equal(first.data.items.length, 9);
@@ -97,10 +112,25 @@ test('public discovery cursor pages preserve global listing order, filters, and 
     const all = pages.flatMap((page) => page.items);
     assert.equal(all.length, 150);
     assert.equal(new Set(all.map((item) => item.id)).size, 150, 'no duplicate or skipped IDs across cursor pages');
-    assert.deepEqual(all.map((item) => item.id), [...all].sort(compareListings).map((item) => item.id), 'ordering remains global across boundaries: venue-local day, Premium, numeric/base title, ID');
+    assert.deepEqual(all.map((item) => item.id), [...all].sort(compareListings).map((item) => item.id), 'Date orders actual start time then ID, never Premium or venue-local day');
+    assert.ok(all.every(item => item.distanceMiles === null), 'intentional all-city scans never fabricate a distance origin');
     assert.ok(all.some((item) => item.title.startsWith('Night 2')) && all.some((item) => item.title.startsWith('Night 10')));
     assert.ok(all.some((item) => item.title.startsWith('Nïght')), 'base-strength title collation matches customer listing order');
     assert.ok(all.some((item) => item.isPremiumHost) && all.some((item) => !item.isPremiumHost));
+    const recommendedFilters = new URLSearchParams(filters); recommendedFilters.set('sort', 'recommended');
+    const recommendedItems = []; let recommendedCursor;
+    do {
+      const query = new URLSearchParams(recommendedFilters);
+      if (recommendedCursor) query.set('cursor', recommendedCursor);
+      const response = await request(`/events?${query}`);
+      assert.equal(response.status, 200, JSON.stringify(response));
+      recommendedItems.push(...response.data.items); recommendedCursor = response.data.nextCursor;
+      assert.ok(recommendedItems.length <= 150, 'recommended keyset walk terminates at the bounded fixture count');
+    } while (recommendedCursor);
+    assert.deepEqual(recommendedItems.map(item => item.id), [...all].sort((a, b) => localDay(a).localeCompare(localDay(b))
+      || Number(Boolean(b.isPremiumHost)) - Number(Boolean(a.isPremiumHost)) || compareListings(a, b)).map(item => item.id),
+    'nine-card Recommended pages preserve venue-local days before Premium, then actual time/ID when popularity and distance tie');
+    assert.equal(new Set(recommendedItems.map(item => item.id)).size, 150, 'recommended pages have no skipped or duplicated records across all day/Premium boundaries');
 
     const target = savedEvents[117];
     const targetDay = localDay({ startsAt: target.startsAt, location: { timezone: locations[117].timezone } });
@@ -205,10 +235,25 @@ test('public discovery cursor pages preserve global listing order, filters, and 
     assert.equal(winterPark.location.city, 'Winter Park');
     assert.equal(winterPark.location.addressLine1, undefined);
     assert.equal(winterPark.location.postalCode, undefined);
+    const samePlaceCursor = await request(`/events?${new URLSearchParams({ ...selection, city: 'Orlando, Florida, US', cursor: orlandoFirst.data.nextCursor })}`);
+    assert.equal(samePlaceCursor.status, 200, 'equivalent requested-place aliases share cursor identity');
     const sameAreaCursor = await request(`/events?${new URLSearchParams({ ...selection, city: 'Winter Park, Florida, US', cursor: orlandoFirst.data.nextCursor })}`);
-    assert.equal(sameAreaCursor.status, 200, 'equivalent area aliases share cursor identity');
+    assert.equal(sameAreaCursor.status, 422, 'the requested place and distance origin bind a cursor even within one metro');
     const wrongAreaCursor = await request(`/events?${new URLSearchParams({ ...selection, city: 'Miami, FL', cursor: orlandoFirst.data.nextCursor })}`);
     assert.equal(wrongAreaCursor.status, 422, 'cursors cannot cross markets');
+    for (const change of [{ scope: 'city' }, { sort: 'date' }, { sort: 'distance' }, { mode: 'upcoming', endDate: undefined }]) {
+      const query = new URLSearchParams({ ...selection, ...change, cursor: orlandoFirst.data.nextCursor });
+      if (change.mode === 'upcoming') query.delete('endDate');
+      assert.equal((await request(`/events?${query}`)).status, 422, 'mode, scope and sort cannot change under a cursor');
+    }
+    const exactWinterPark = await request(`/events?${new URLSearchParams({ ...selection, city: 'Winter Park, FL', scope: 'city', sort: 'distance' })}`);
+    assert.equal(exactWinterPark.status, 200, JSON.stringify(exactWinterPark));
+    assert.deepEqual(exactWinterPark.data.items.map(item => item.id), [marketEvents[10].id], 'city-only excludes every neighboring metro locality');
+    assert.equal(exactWinterPark.data.area.kind, 'city'); assert.equal(exactWinterPark.data.scope, 'city');
+    assert.deepEqual(exactWinterPark.data.distanceOrigin, { label: 'Winter Park, FL', kind: 'city-center' });
+    assert.equal(exactWinterPark.data.items[0].distanceMiles, null, 'private coordinates never provide a distance');
+    const saintPetersburg = await request(`/events?${new URLSearchParams({ ...selection, city: 'Saint Petersburg, FL', scope: 'city' })}`);
+    assert.deepEqual(saintPetersburg.data.items.map(item => item.id), [marketEvents[15].id], 'city-only permits verified St./Saint aliases without Tampa');
 
     for (const [city, expected] of [
       ['Miami Beach, FL', [12, 13]], ['St. Petersburg, FL', resolveNationalDiscoveryArea('Tampa, FL').key === resolveNationalDiscoveryArea('St. Petersburg, FL').key ? [14, 15] : [15]], ['Fort Lauderdale, Florida', [16, 17]],
@@ -265,8 +310,10 @@ test('public discovery cursor pages preserve global listing order, filters, and 
     eventIds.push(...borderEvents.map(event => event.id));
     const borderFirst = await request(`/events?${new URLSearchParams({ ...selection, city: 'Kansas City, MO', query: 'border fixture', pageSize: '1' })}`);
     assert.equal(borderFirst.status, 200, JSON.stringify(borderFirst)); assert.equal(borderFirst.data.hasMore, true);
-    const borderSecond = await request(`/events?${new URLSearchParams({ ...selection, city: 'Kansas City, KS', query: 'border fixture', pageSize: '1', cursor: borderFirst.data.nextCursor })}`);
-    assert.equal(borderSecond.status, 200, 'same official cross-state group shares a cursor');
+    const changedBorderOrigin = await request(`/events?${new URLSearchParams({ ...selection, city: 'Kansas City, KS', query: 'border fixture', pageSize: '1', cursor: borderFirst.data.nextCursor })}`);
+    assert.equal(changedBorderOrigin.status, 422, 'same-named places in two states have distinct distance origins');
+    const borderSecond = await request(`/events?${new URLSearchParams({ ...selection, city: 'Kansas City, MO', query: 'border fixture', pageSize: '1', cursor: borderFirst.data.nextCursor })}`);
+    assert.equal(borderSecond.status, 200);
     assert.deepEqual(new Set([...borderFirst.data.items, ...borderSecond.data.items].map(item => item.id)), new Set(borderEvents.slice(0, 2).map(event => event.id)), 'membership binds city AND its own state, not selected state or city alone');
 
     const namedBoundaryPlaces = [
@@ -288,7 +335,7 @@ test('public discovery cursor pages preserve global listing order, filters, and 
     ]) {
       const items = []; let marketCursor; let pageIndex = 0;
       do {
-        const city = market.cities[pageIndex % market.cities.length];
+        const city = market.cities[0];
         const response = await request(`/events?${new URLSearchParams({ ...selection, city, query: 'named boundary fixture', pageSize: '2', ...(marketCursor ? { cursor: marketCursor } : {}) })}`);
         assert.equal(response.status, 200, JSON.stringify(response)); assert.equal(response.data.area.key, market.key);
         assert.equal(response.data.hasUpcomingAreaEvents, true); items.push(...response.data.items);
@@ -302,6 +349,82 @@ test('public discovery cursor pages preserve global listing order, filters, and 
     }
     assert.equal((await request(`/events/${namedBoundaryEvents[9].id}`)).status, 200, 'an excluded West Virginia listing still supports direct links');
     assert.equal((await request(`/events/${namedBoundaryEvents[14].id}`)).status, 200, 'a New Hampshire listing stays accessible outside Boston discovery');
+
+    // No-date browsing removes the upper window, while explicit range mode
+    // never silently widens. All sorts still filter before each keyset page.
+    const upcomingStarts = ['2031-11-03T18:00:00Z', '2031-11-14T18:00:00Z', '2032-02-01T18:00:00Z'];
+    const upcomingEvents = await models.Event.bulkCreate(upcomingStarts.map((start, index) => ({ ...rows[0], id: randomUUID(),
+      locationId: marketVenues[10].id, organizationId: index === 2 ? premiumOrganization.id : ids.org,
+      title: `Long upcoming fixture ${index}`, slug: `long-upcoming-${randomUUID()}`, startsAt: new Date(start),
+      endsAt: new Date(Date.parse(start) + 14400000) })), { returning: true });
+    eventIds.push(...upcomingEvents.map(event => event.id));
+    const upcomingQuery = { pageSize: '1', city: 'Winter Park, FL', mode: 'upcoming', scope: 'city', sort: 'date',
+      startDate: '2031-11-03', query: 'long upcoming fixture', timezone: 'America/New_York' };
+    const upcomingItems = []; let upcomingCursor;
+    do {
+      const response = await request(`/events?${new URLSearchParams({ ...upcomingQuery, ...(upcomingCursor ? { cursor: upcomingCursor } : {}) })}`);
+      assert.equal(response.status, 200, JSON.stringify(response)); assert.equal(response.data.mode, 'upcoming');
+      assert.equal(response.data.rankingVersion, null); upcomingItems.push(...response.data.items); upcomingCursor = response.data.nextCursor;
+      assert.ok(upcomingItems.length <= 3);
+    } while (upcomingCursor);
+    assert.deepEqual(upcomingItems.map(item => item.id), upcomingEvents.map(event => event.id), 'upcoming reaches events beyond seven and 31 days without Premium-first reordering');
+    const explicitWeek = await request(`/events?${new URLSearchParams({ ...upcomingQuery, mode: 'range', endDate: '2031-11-09', pageSize: '9' })}`);
+    assert.deepEqual(explicitWeek.data.items.map(item => item.id), [upcomingEvents[0].id], 'an explicit date range remains an explicit range');
+    const relevanceEvents = await models.Event.bulkCreate([1, 40].map((days, index) => ({ ...rows[0], id: randomUUID(),
+      locationId: marketVenues[10].id, organizationId: index ? premiumOrganization.id : ids.org,
+      title: `Relevance fixture ${index}`, slug: `relevance-${randomUUID()}`, startsAt: new Date(Date.now() + days * 86400000),
+      endsAt: new Date(Date.now() + days * 86400000 + 14400000) })), { returning: true });
+    eventIds.push(...relevanceEvents.map(event => event.id));
+    const relevance = await request(`/events?${new URLSearchParams({ ...upcomingQuery, pageSize: '9', sort: 'recommended', query: 'relevance fixture',
+      startDate: new Date(Date.now() - 86400000).toISOString().slice(0, 10) })}`);
+    assert.deepEqual(relevance.data.items.map(item => item.id), relevanceEvents.map(event => event.id), 'an earlier day always precedes a later Premium day');
+
+    const rankingEvents = await models.Event.bulkCreate(Array.from({ length: 8 }, (_, index) => ({ ...rows[0], id: randomUUID(),
+      locationId: marketVenues[10].id, organizationId: [3, 7].includes(index) ? premiumOrganization.id : ids.org,
+      title: `Rank fixture ${index}`, slug: `rank-${randomUUID()}`,
+      startsAt: new Date(+marketStart + (index === 3 ? 2 : index === 7 ? 3 : 0) * 3600000),
+      endsAt: new Date(+marketStart + 28800000) })), { returning: true });
+    eventIds.push(...rankingEvents.map(event => event.id));
+    const recentTime = new Date(Date.now() - 60000);
+    const attribution = (index, action, extras = {}) => ({ eventId: rankingEvents[index].id, action, occurredAt: recentTime, ...extras });
+    const selfReferrer = await models.EventAffiliate.create({ eventId: rankingEvents[6].id, userId: ids.promoter, code: `SELF-${randomUUID()}`, status: 'active' });
+    await models.AffiliateAttribution.bulkCreate([
+      ...Array.from({ length: 20 }, () => attribution(0, 'visit', { userId: ids.guest })),
+      attribution(1, 'purchase', { userId: ids.guest }),
+      ...Array.from({ length: 20 }, () => attribution(2, 'purchase', { userId: ids.guest })),
+      ...Array.from({ length: 20 }, () => attribution(3, 'checkout', { userId: ids.guest })),
+      ...Array.from({ length: 10 }, (_, index) => attribution(4, 'visit', { sessionKey: `visitor-a-${index}` })),
+      ...Array.from({ length: 20 }, (_, index) => attribution(5, 'visit', { sessionKey: `visitor-b-${index}` })),
+      attribution(6, 'purchase', { userId: ids.owner }),
+      attribution(6, 'purchase', { userId: ids.promoter, eventAffiliateId: selfReferrer.id }),
+    ]);
+    const rankedQuery = { ...selection, city: 'Winter Park, FL', scope: 'city', query: 'rank fixture', pageSize: '2', sort: 'recommended' };
+    const rankedFirst = await request(`/events?${new URLSearchParams(rankedQuery)}`);
+    assert.equal(rankedFirst.status, 200, JSON.stringify(rankedFirst));
+    assert.equal(rankedFirst.data.rankingVersion, 'recommended-v2');
+    assert.deepEqual(rankedFirst.data.items.map(item => item.id), [rankingEvents[3].id, rankingEvents[7].id], 'same-day later Premium precedes earlier non-Premium regardless of engagement');
+    async function rankedTail(cursor) {
+      const items = [];
+      while (cursor) {
+        const response = await request(`/events?${new URLSearchParams({ ...rankedQuery, cursor })}`);
+        assert.equal(response.status, 200, JSON.stringify(response));
+        assert.equal(response.data.rankedAsOf, rankedFirst.data.rankedAsOf);
+        items.push(...response.data.items); cursor = response.data.nextCursor; assert.ok(items.length <= 6);
+      }
+      return items;
+    }
+    const baselineTail = await rankedTail(rankedFirst.data.nextCursor);
+    const tiedIds = indexes => indexes.map(index => rankingEvents[index].id).sort();
+    assert.deepEqual(baselineTail.map(item => item.id), [...tiedIds([1, 2]), ...tiedIds([4, 5]), rankingEvents[0].id, rankingEvents[6].id],
+      'within the same day and host tier, popularity deduplicates actors, caps visits, excludes checkout and creator/referrer self-signals');
+    await models.AffiliateAttribution.bulkCreate([
+      attribution(6, 'purchase', { userId: ids.guest, createdAt: new Date(Date.parse(rankedFirst.data.rankedAsOf) + 1000) }),
+      attribution(6, 'visit', { sessionKey: 'new-post-anchor-visitor', occurredAt: new Date(Date.parse(rankedFirst.data.rankedAsOf) + 1000) }),
+    ]);
+    assert.deepEqual((await rankedTail(rankedFirst.data.nextCursor)).map(item => item.id), baselineTail.map(item => item.id),
+      'post-anchor visits and purchases, including backdated occurredAt, cannot reshuffle an established ranking cursor');
+    const freshRank = await request(`/events?${new URLSearchParams({ ...rankedQuery, pageSize: '9' })}`);
+    assert.ok(freshRank.data.items.some(item => item.id === rankingEvents[6].id), 'live eligibility stays available without claiming an immutable event snapshot');
 
     // Current provider county wins over a misleading stored city; unverified
     // legacy coordinates never stand in for a verified physical venue point.
@@ -348,6 +471,28 @@ test('public discovery cursor pages preserve global listing order, filters, and 
     assert.equal(radiusPage.status, 200, JSON.stringify(radiusPage));
     assert.deepEqual(radiusPage.data.items.map(item => item.id), [geographyEvents[2].id], 'the 30-mile boundary uses complete current provider geography before pagination');
     assert.equal(radiusPage.data.area.radiusMiles, 30); assert.equal(radiusPage.data.hasUpcomingAreaEvents, true);
+    const distanceQuery = { ...geographySelection, city: 'Orlando, FL', scope: 'city', sort: 'distance', pageSize: '1' };
+    // Exact city text is necessary, but must not override current provider
+    // evidence proving that a venue is outside all of that place's counties.
+    const physicalDistance = await request(`/events?${new URLSearchParams(distanceQuery)}`);
+    assert.equal(physicalDistance.status, 200, JSON.stringify(physicalDistance));
+    assert.deepEqual(physicalDistance.data.items, [], 'a verified Miami address cannot reenter Orlando through misleading city text');
+    assert.equal((await request(`/events/${geographyEvents[1].id}`)).status, 200, 'excluded physical geography remains available by direct link');
+    const marfaCityDistance = await request(`/events?${new URLSearchParams({ ...radiusQuery, scope: 'city', sort: 'distance', pageSize: '1' })}`);
+    assert.deepEqual(marfaCityDistance.data.items.map(item => item.id), [geographyEvents[2].id]);
+    assert.ok(marfaCityDistance.data.items[0].distanceMiles > 29 && marfaCityDistance.data.items[0].distanceMiles <= 30);
+    assert.equal(marfaCityDistance.data.hasMore, true);
+    const unknownDistanceTail = await request(`/events?${new URLSearchParams({ ...radiusQuery, scope: 'city', sort: 'distance', pageSize: '1', cursor: marfaCityDistance.data.nextCursor })}`);
+    assert.deepEqual(unknownDistanceTail.data.items.map(item => item.id), [geographyEvents[4].id]);
+    assert.equal(unknownDistanceTail.data.items[0].distanceMiles, null, 'unverified venues remain after known distances rather than acquiring fake zero distance');
+    const recommendedProximity = await request(`/events?${new URLSearchParams({ ...radiusQuery, scope: 'city', pageSize: '9' })}`);
+    assert.deepEqual(recommendedProximity.data.items.map(item => item.id), [geographyEvents[2].id, geographyEvents[4].id], 'known distance precedes unavailable distance only when day, Premium and popularity tie');
+    await models.AffiliateAttribution.create({ eventId: geographyEvents[4].id, action: 'purchase', userId: ids.guest, occurredAt: recentTime });
+    const popularityFirst = await request(`/events?${new URLSearchParams({ ...radiusQuery, scope: 'city', pageSize: '1' })}`);
+    assert.deepEqual(popularityFirst.data.items.map(item => item.id), [geographyEvents[4].id], 'popularity takes priority over known city-center proximity');
+    assert.equal(popularityFirst.data.items[0].distanceMiles, null);
+    const popularityTail = await request(`/events?${new URLSearchParams({ ...radiusQuery, scope: 'city', pageSize: '1', cursor: popularityFirst.data.nextCursor })}`);
+    assert.deepEqual(popularityTail.data.items.map(item => item.id), [geographyEvents[2].id], 'cursor crosses popularity then nullable-distance boundaries without losing known locations');
     const legacyRadius = await request('/events?city=Marfa%2C%20TX&limit=1');
     assert.equal(legacyRadius.status, 200, JSON.stringify(legacyRadius)); assert.deepEqual(legacyRadius.data.map(item => item.id), [geographyEvents[2].id]);
     await models.Location.update({ addressLine1: 'Changed Fixture Street' }, { where: { id: geographyLocations[2].id } });

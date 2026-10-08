@@ -19,7 +19,10 @@ export function parseCustomerRoute(search) {
     city: operatorView ? '' : (params.get('city') || '').slice(0, 120),
     date: operatorView ? '' : validDate(params.get('date')),
     query: operatorView ? '' : (params.get('q') || '').slice(0, 120),
-    shortcut: !operatorView && ['tonight', 'tomorrow', 'weekend'].includes(params.get('when')) ? params.get('when') : '',
+    // Legacy quick-date links no longer apply an invisible date restriction.
+    shortcut: '',
+    scope: !operatorView && params.get('scope') === 'city' ? 'city' : 'nearby',
+    sort: !operatorView && ['distance', 'date'].includes(params.get('sort')) ? params.get('sort') : 'recommended',
     myEventId: operatorView && uuid.test(params.get('myEvent') || '') ? params.get('myEvent') : null,
     myStatus: operatorView && params.get('myStatus') === 'past' ? 'past' : 'upcoming',
     myPage: operatorView && Number.isSafeInteger(page) && page > 0 ? Math.min(page, 100000) : 1,
@@ -28,16 +31,16 @@ export function parseCustomerRoute(search) {
 }
 export function updateCustomerRoute(changes, { replace = false, eventEntry = false } = {}) {
   const url = new URL(window.location.href);
-  const fields = { tab: 'tab', eventId: 'event', booking: 'booking', city: 'city', date: 'date', query: 'q', shortcut: 'when', myEventId: 'myEvent', myStatus: 'myStatus', myPage: 'myPage', mySearch: 'mySearch' };
+  const fields = { tab: 'tab', eventId: 'event', booking: 'booking', city: 'city', date: 'date', query: 'q', shortcut: 'when', scope: 'scope', sort: 'sort', myEventId: 'myEvent', myStatus: 'myStatus', myPage: 'myPage', mySearch: 'mySearch' };
   for (const [field, param] of Object.entries(fields)) {
     if (!(field in changes)) continue;
     const value = changes[field];
     if (field === 'city' && value === '') url.searchParams.set(param, '');
-    else if (value && !(field === 'tab' && value === 'discover') && !(field === 'myStatus' && value === 'upcoming') && !(field === 'myPage' && value === 1)) url.searchParams.set(param, value);
+    else if (value && !(field === 'tab' && value === 'discover') && !(field === 'scope' && value === 'nearby') && !(field === 'sort' && value === 'recommended') && !(field === 'myStatus' && value === 'upcoming') && !(field === 'myPage' && value === 1)) url.searchParams.set(param, value);
     else url.searchParams.delete(param);
   }
   const operatorView = url.searchParams.get('tab') === 'my-events';
-  for (const param of operatorView ? ['event', 'booking', 'city', 'date', 'q', 'when', 'ref'] : ['myEvent', 'myStatus', 'myPage', 'mySearch']) url.searchParams.delete(param);
+  for (const param of operatorView ? ['event', 'booking', 'city', 'date', 'q', 'when', 'scope', 'sort', 'ref'] : ['myEvent', 'myStatus', 'myPage', 'mySearch']) url.searchParams.delete(param);
   const state = { ...window.history.state, nitewideEventEntry: operatorView ? false : eventEntry, nitewideScrollY: eventEntry ? window.scrollY : 0 };
   window.history[replace ? 'replaceState' : 'pushState'](state, '', url);
 }

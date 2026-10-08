@@ -7,11 +7,16 @@ const { discoveryQuery } = require('../http/public-schemas');
 const { effectiveFeeMode } = require('@nitewide/pricing');
 const { discoveryRegionAliases, normalizeDiscoveryText } = require('../../../shared/discovery-areas.mjs');
 const { trustedLocationSql } = require('../domain/location-geography');
-const cursorSchema = z.object({ day: z.iso.date(), premium: z.boolean(), title: z.string(), id: z.uuid(), filter: z.string().length(64) }).strict();
-const discoveryFilterKey = (input, area) => createHash('sha256').update(JSON.stringify([
+const rankingVersion = 'recommended-v2';
+const cursorSchema = z.object({ version: z.literal(3), startsAt: z.iso.datetime({ offset: true }),
+  day: z.iso.date(), premium: z.boolean(), popularity: z.number().finite().min(0).max(30).nullable(),
+  distanceMeters: z.number().finite().nonnegative().nullable(),
+  rankedAsOf: z.iso.datetime({ offset: true }), id: z.uuid(), filter: z.string().length(64) }).strict();
+const discoveryFilterKey = (input, area, rankedAsOf) => createHash('sha256').update(JSON.stringify([
   input.allCities ? 'all-cities' : [area?.key || `unresolved:${normalizeDiscoveryText(input.city)}`, area?.kind, area?.version,
-    area?.kind === 'radius' ? area.center : null, area?.kind === 'radius' ? area.radiusMeters : null],
-  input.startDate, input.endDate, input.query, input.category, input.timezone])).digest('hex');
+    area?.placeKey || area?.label, area?.center || null, area?.kind === 'radius' ? area.radiusMeters : null],
+  input.mode, input.scope, input.sort, input.startDate, input.endDate || null, input.query, input.category, input.timezone,
+  rankingVersion, rankedAsOf])).digest('hex');
 const normalizedTextSql = (column) => `regexp_replace(regexp_replace(lower(btrim(${column})), '[.''’]', '', 'g'), '[[:space:]_-]+', ' ', 'g')`;
 function areaPredicate(input, area, alias = 'loc') {
   if (input.allCities) return 'TRUE';
@@ -22,6 +27,8 @@ function areaPredicate(input, area, alias = 'loc') {
   if (area.kind === 'metro' || area.kind === 'division') return `upper(btrim(${alias}.country_code))='US' AND (
     ((${trustedLocationSql(alias)}) AND ${alias}.county_fips IN (:areaCounties)) OR
     (NOT COALESCE((${trustedLocationSql(alias)}),false) AND ${memberPredicate}))`;
+  if (area.kind === 'city' && area.counties?.length) return `${memberPredicate}
+    AND (NOT COALESCE((${trustedLocationSql(alias)}),false) OR ${alias}.county_fips IN (:areaCounties))`;
   return memberPredicate;
 }
 const eligibilityPredicate = `e.status='published' AND e.lifecycle_state='active' AND e.is_discoverable=true
@@ -35,39 +42,64 @@ function areaReplacements(area) {
   const members = area.members?.length || area.kind !== 'city' && area.members ? area.members
     : (area.localities || [area.city]).map(city => ({ city, region: area.region, countryCode: area.countryCode }));
   return { areaMembers: JSON.stringify(members.flatMap(member => discoveryRegionAliases(member).map(region => ({ city: normalizeDiscoveryText(member.city), region, country: member.countryCode })))),
-    ...(['metro', 'division'].includes(area.kind) ? { areaCounties: area.counties?.length ? area.counties : ['00000'] } : {}) };
+    ...(['metro', 'division'].includes(area.kind) || area.kind === 'city' && area.counties?.length ? { areaCounties: area.counties?.length ? area.counties : ['00000'] } : {}) };
 }
 function areaMetadata(area) {
   if (!area) return null;
   return { key: area.key, label: area.label, city: area.city, region: area.region, countryCode: area.countryCode, kind: area.kind || 'city',
     ...(area.groupLabel ? { groupLabel: area.groupLabel } : {}), ...(area.kind === 'radius' ? { radiusMiles: 30, centerLabel: area.label, geographyCoverage: 'verified-addresses-only' } : {}) };
 }
-function decodeCursor(value, filter) {
+function cityScope(area) {
+  if (!area) return null;
+  const cityAliases = area.cityAliases?.length ? area.cityAliases : [area.city];
+  return { ...area, key: area.placeKey ? `${area.countryCode.toLowerCase()}:city:${area.placeKey.slice(6)}` : `city:${area.key}`,
+    kind: 'city', groupLabel: undefined, radiusMeters: undefined, radiusMiles: undefined,
+    localities: cityAliases, counties: area.cityCounties || [], members: cityAliases.map(city => ({ city, region: area.region, countryCode: area.countryCode })) };
+}
+function decodeCursor(value) {
   if (!value) return null;
+  const { DomainError } = require('../domain/errors');
   try {
     const cursor = cursorSchema.parse(JSON.parse(Buffer.from(value, 'base64url').toString('utf8')));
-    if (cursor.filter !== filter) throw new Error('Cursor does not match filters');
+    const referenceTime = Date.parse(cursor.rankedAsOf);
+    if (referenceTime > Date.now()) throw new Error('Invalid ranking reference');
+    if (referenceTime < Date.now() - 86400000) throw new DomainError('Discovery page expired; refresh results to continue', { code: 'DISCOVERY_CURSOR_EXPIRED', status: 422 });
     return cursor;
-  } catch { throw new (require('../domain/errors').DomainError)('Invalid discovery cursor', { code: 'VALIDATION_ERROR', status: 422 }); }
+  } catch (error) {
+    if (error.code === 'DISCOVERY_CURSOR_EXPIRED') throw error;
+    throw new DomainError('Invalid discovery cursor', { code: 'VALIDATION_ERROR', status: 422 });
+  }
 }
 async function pagedEvents(models, input, catalog) {
   try { new Intl.DateTimeFormat('en-US', { timeZone: input.timezone }); }
   catch { throw new (require('../domain/errors').DomainError)('Invalid discovery timezone', { code: 'VALIDATION_ERROR', status: 422 }); }
-  const area = catalog.resolveNationalDiscoveryArea(input.city);
+  const selectedArea = catalog.resolveNationalDiscoveryArea(input.city);
+  const area = input.scope === 'city' ? cityScope(selectedArea) : selectedArea;
+  const origin = !input.allCities && selectedArea?.center && Number.isFinite(selectedArea.center.latitude) && Number.isFinite(selectedArea.center.longitude)
+    ? selectedArea.center : null;
+  const cursor = decodeCursor(input.cursor);
+  const rankedAsOf = cursor?.rankedAsOf || new Date().toISOString();
+  const filter = discoveryFilterKey(input, area, rankedAsOf);
+  if (cursor && (cursor.filter !== filter || (input.sort === 'recommended') !== (cursor.popularity !== null))) throw new (require('../domain/errors').DomainError)('Invalid discovery cursor', { code: 'VALIDATION_ERROR', status: 422 });
   const resolved = Boolean(input.allCities || area?.resolutionStatus === 'resolved');
-  const metadata = { area: areaMetadata(area), hasUpcomingAreaEvents: resolved ? false : null, resolutionStatus: resolved ? 'resolved' : 'unresolved' };
-  const filter = discoveryFilterKey(input, area);
-  const cursor = decodeCursor(input.cursor, filter);
+  const metadata = { area: areaMetadata(area), hasUpcomingAreaEvents: resolved ? false : null, resolutionStatus: resolved ? 'resolved' : 'unresolved',
+    mode: input.mode, scope: input.scope, sort: input.sort, rankedAsOf, rankingVersion: input.sort === 'recommended' ? rankingVersion : null,
+    distanceOrigin: origin ? { label: selectedArea.label, kind: 'city-center' } : null };
   if (!area && !input.allCities) return { items: [], hasMore: false, nextCursor: null, ...metadata };
   const replacements = {
     pageSize: input.pageSize + 1,
     ...areaReplacements(area),
     startDate: input.startDate,
-    endDate: input.endDate,
+    endDate: input.endDate || null,
     timezone: input.timezone,
+    rankedAsOf,
+    originLatitude: origin?.latitude ?? null,
+    originLongitude: origin?.longitude ?? null,
+    cursorStart: cursor?.startsAt || null,
+    cursorDistance: cursor?.distanceMeters ?? null,
     cursorDay: cursor?.day || null,
-    cursorPremium: cursor?.premium ?? null,
-    cursorTitle: cursor?.title || null,
+    cursorPremium: cursor?.premium ?? false,
+    cursorPopularity: cursor?.popularity ?? null,
     cursorId: cursor?.id || null,
   };
   const words = input.query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -81,8 +113,41 @@ async function pagedEvents(models, input, catalog) {
       : input.category === 'music' ? "AND searchable.text ~* 'music|concert|dj|live'"
         : 'AND e.category=:category';
   if (categoryPredicate === 'AND e.category=:category') replacements.category = input.category;
+  const afterStart = `(e.starts_at > CAST(:cursorStart AS timestamptz) OR (e.starts_at = CAST(:cursorStart AS timestamptz) AND e.id > CAST(:cursorId AS uuid)))`;
+  const afterDistance = `((:cursorDistance IS NOT NULL AND (geo.distance_meters IS NULL OR geo.distance_meters > CAST(:cursorDistance AS double precision)))
+    OR (geo.distance_meters IS NOT DISTINCT FROM CAST(:cursorDistance AS double precision) AND ${afterStart}))`;
+  const premiumSql = "COALESCE(org.plan_tier='premium',false)";
+  const keyset = input.sort === 'date' ? afterStart : input.sort === 'distance'
+    ? afterDistance
+    : `(event_day."day" > :cursorDay OR (event_day."day" = :cursorDay AND (
+      ${premiumSql} < CAST(:cursorPremium AS boolean) OR (${premiumSql} = CAST(:cursorPremium AS boolean) AND (
+        rank.popularity < CAST(:cursorPopularity AS double precision) OR (rank.popularity = CAST(:cursorPopularity AS double precision) AND ${afterDistance}))))))`;
+  const order = input.sort === 'date' ? 'e.starts_at ASC,e.id ASC' : input.sort === 'distance'
+    ? 'geo.distance_meters ASC NULLS LAST,e.starts_at ASC,e.id ASC'
+    : `event_day."day" ASC,${premiumSql} DESC,rank.popularity DESC,geo.distance_meters ASC NULLS LAST,e.starts_at ASC,e.id ASC`;
+  // Indexed, bounded historical engagement only: no orders/bookings aggregate
+  // per page. One actor's strongest signal wins, anonymous visits are capped,
+  // checkout starts do not count, and known creator/referrer self-signals do not count.
+  const engagement = input.sort === 'recommended' ? `CROSS JOIN LATERAL (SELECT
+    COALESCE(SUM(actor.weight) FILTER (WHERE actor.weight >= 1),0) + LEAST(1,COALESCE(SUM(actor.weight) FILTER (WHERE actor.weight < 1),0)) AS weighted_actors
+    FROM (SELECT COALESCE('user:' || recent.user_id::text,'session:' || NULLIF(recent.session_key,'')) AS actor_id,
+      MAX(CASE WHEN recent.action='purchase' AND recent.user_id IS NOT NULL THEN 3
+        WHEN recent.action='guestlist' AND recent.user_id IS NOT NULL THEN 1 WHEN recent.action='visit' THEN 0.125 ELSE 0 END) AS weight
+      FROM (SELECT aa.user_id,aa.session_key,aa.action,aa.event_affiliate_id FROM affiliate_attributions aa
+        WHERE aa.event_id=e.id AND aa.action IN ('visit','guestlist','purchase')
+          AND aa.occurred_at >= CAST(:rankedAsOf AS timestamptz)-INTERVAL '30 days' AND aa.occurred_at <= CAST(:rankedAsOf AS timestamptz)
+          AND aa.created_at <= CAST(:rankedAsOf AS timestamptz)
+        ORDER BY aa.occurred_at DESC,aa.id DESC LIMIT 256) recent
+      LEFT JOIN event_affiliates referrer ON referrer.id=recent.event_affiliate_id
+      WHERE (recent.user_id IS NOT NULL OR NULLIF(recent.session_key,'') IS NOT NULL)
+        AND recent.user_id IS DISTINCT FROM e.creator_user_id
+        AND (recent.user_id IS NULL OR recent.user_id IS DISTINCT FROM referrer.user_id)
+      GROUP BY actor_id) actor) engagement
+    CROSS JOIN LATERAL (SELECT ROUND(LEAST(30,10*LN(1+engagement.weighted_actors))::numeric,6)::double precision AS popularity) rank`
+    : 'CROSS JOIN LATERAL (SELECT NULL::double precision AS popularity) rank';
   const ids = await models.Event.sequelize.query(`
-    SELECT e.id, sort."day", sort."premium", e.title
+    SELECT e.id,to_char(e.starts_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "startsAt",
+      event_day."day",${premiumSql} AS premium,geo.distance_meters AS "distanceMeters",rank.popularity
     FROM events e
     LEFT JOIN organizations org ON org.id=e.organization_id
     LEFT JOIN locations loc ON loc.id=e.location_id
@@ -91,21 +156,20 @@ async function pagedEvents(models, input, catalog) {
       loc.name, loc.city, loc.region, e.category,
       (SELECT string_agg(concat_ws(' ', offer.name, offer.description), ' ') FROM offerings offer
         WHERE offer.event_id=e.id AND offer.is_active=true AND offer.visibility='public')) AS text) searchable
-    CROSS JOIN LATERAL (SELECT
-      to_char(e.starts_at AT TIME ZONE COALESCE(NULLIF(loc.timezone,''),:timezone), 'YYYY-MM-DD') AS "day",
-      (org.plan_tier='premium') IS TRUE AS "premium") sort
+    CROSS JOIN LATERAL (SELECT to_char(e.starts_at AT TIME ZONE COALESCE(NULLIF(loc.timezone,''),:timezone), 'YYYY-MM-DD') AS "day") event_day
+    CROSS JOIN LATERAL (SELECT CASE WHEN :originLatitude IS NOT NULL AND :originLongitude IS NOT NULL AND (${trustedLocationSql('loc')})
+      THEN ROUND(ST_Distance(loc.geo,ST_SetSRID(ST_MakePoint(CAST(:originLongitude AS double precision),CAST(:originLatitude AS double precision)),4326)::geography)::numeric,3)::double precision
+      ELSE NULL::double precision END AS distance_meters) geo
+    ${engagement}
     WHERE ${eligibilityPredicate}
       AND e.starts_at >= (CAST(:startDate AS date) - INTERVAL '14 hours')
-      AND e.starts_at < (CAST(:endDate AS date) + INTERVAL '36 hours')
-      AND sort."day" BETWEEN :startDate AND :endDate
+      ${input.mode === 'range' ? `AND e.starts_at < (CAST(:endDate AS date) + INTERVAL '36 hours') AND event_day."day" <= :endDate` : ''}
+      AND event_day."day" >= :startDate
       AND (${areaPredicate(input, area)})
       ${wordPredicates.length ? `AND ${wordPredicates.join(' AND ')}` : ''}
       ${categoryPredicate}
-      AND (:cursorDay IS NULL OR sort."day" > :cursorDay
-        OR (sort."day" = :cursorDay AND sort."premium" < CAST(:cursorPremium AS boolean))
-        OR (sort."day" = :cursorDay AND sort."premium" = CAST(:cursorPremium AS boolean) AND e.title COLLATE discovery_en_numeric > CAST(:cursorTitle AS text) COLLATE discovery_en_numeric)
-        OR (sort."day" = :cursorDay AND sort."premium" = CAST(:cursorPremium AS boolean) AND e.title COLLATE discovery_en_numeric = CAST(:cursorTitle AS text) COLLATE discovery_en_numeric AND e.id > CAST(:cursorId AS uuid)))
-    ORDER BY sort."day" ASC,sort."premium" DESC,e.title COLLATE discovery_en_numeric ASC,e.id ASC LIMIT :pageSize
+      AND (:cursorStart IS NULL OR ${keyset})
+    ORDER BY ${order} LIMIT :pageSize
   `, { replacements, type: QueryTypes.SELECT });
   const page = ids.slice(0, input.pageSize);
   const events = page.length ? await models.Event.findAll({ where: { id: page.map((row) => row.id) }, include: [
@@ -142,9 +206,12 @@ async function pagedEvents(models, input, catalog) {
     if (coverage?.incomplete) metadata.hasUpcomingAreaEvents = null;
   }
   return {
-    items: page.map((row) => byId.get(row.id)).filter(Boolean).map(publicEvent),
+    items: page.filter(row => byId.has(row.id)).map(row => ({ ...publicEvent(byId.get(row.id)),
+      distanceMiles: row.distanceMeters == null ? null : Math.round(row.distanceMeters / 1609.344 * 10) / 10 })),
     hasMore: ids.length > input.pageSize,
-    nextCursor: ids.length > input.pageSize && last ? Buffer.from(JSON.stringify({ day: last.day, premium: last.premium, title: last.title, id: last.id, filter })).toString('base64url') : null,
+    nextCursor: ids.length > input.pageSize && last ? Buffer.from(JSON.stringify({ version: 3, startsAt: last.startsAt,
+      day: last.day, premium: last.premium, popularity: last.popularity, distanceMeters: last.distanceMeters,
+      rankedAsOf, id: last.id, filter })).toString('base64url') : null,
     ...metadata,
   };
 }

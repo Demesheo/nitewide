@@ -83,20 +83,18 @@ export function filterEvents(
     );
   });
 }
-// Calendar arithmetic avoids shifting the seven-day window at DST boundaries.
+// An undated discovery window is all upcoming events; a chosen date is exact.
 export function discoveryDateRange(date = '', now = new Date()) {
   const start = date || localDateInputValue(now);
-  const lastDay = new Date(`${start}T12:00:00Z`);
-  lastDay.setUTCDate(lastDay.getUTCDate() + (date ? 0 : 6));
-  return { start, end: lastDay.toISOString().slice(0, 10) };
+  return { start, end: date ? start : null };
 }
-// Discover alone defaults to a week. Saved, Booked, and fallback searches retain
-// their own date policies rather than inheriting this listing-page default.
+// Saved and Booked retain their own date policies. This helper preserves legacy
+// fallback ordering; the paged API is authoritative for the selected sort.
 export function filterDiscoveryEvents(events, filters = {}, now = new Date()) {
   const { start, end } = discoveryDateRange(filters.date, now);
   return filterEvents(events, filters, now).filter(event => {
     const day = eventDateKey(event);
-    return day >= start && day <= end;
+    return day >= start && (!end || day <= end);
   }).sort(compareEventListings);
 }
 export function upcomingWeekRange(date) {

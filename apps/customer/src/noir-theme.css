@@ -306,7 +306,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, [role="tab"]:focus-v
   .site-header .header-inner nav[data-connections="true"] button { padding-inline: 3px; font-size: 11px; }
   .connections-heading > span { font-size: 12px; }
   .site-header .header-inner nav button { border-radius: 12px; }
-  .hero { padding-top: 18px; padding-bottom: 14px; gap: 20px; }
+  .hero { padding-top: 18px; padding-bottom: 22px; gap: 20px; }
   .hero-copy { padding-top: 0; }
   .hero h1 { font-size: clamp(25px, 7.6vw, 40px); line-height: 1.06; letter-spacing: -1.8px; margin-top: 4px; }
   .hero-description { font-size: 14px; line-height: 1.65; margin-top: 14px; }
@@ -317,6 +317,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, [role="tab"]:focus-v
   .search-bar { border-radius: 18px; }
   .search-field { width: 100%; padding: 12px 10px; }
   .discovery-city-search { width: 100%; }
+  .discovery-date-search { width: 100%; border-left: 0; border-top: 1px solid var(--search-border); }
   .search-field:not(:first-child) { border-left: 0; border-top: 1px solid var(--search-border); }
   .keyword-field { margin-top: 0; }
   .date-field button { min-width: 44px; min-height: 44px; display: grid; place-items: center; }
@@ -370,7 +371,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, [role="tab"]:focus-v
 .connection-city input { width: 100%; min-height: 44px; background: var(--noir-glass); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 10px 14px; color: var(--text-primary); font-size: 16px; }
 .connection-filter-help { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 @media (max-width: 760px) {
-  .return-visitor-discovery .hero { padding-top: 8px; padding-bottom: 4px; }
+  .return-visitor-discovery .hero { padding-top: 8px; padding-bottom: 12px; }
   .return-visitor-discovery .hero h1 { font-size: 25px; letter-spacing: -1px; }
   .discovery-shortcuts, .active-discovery-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
   .discovery-shortcuts button, .active-discovery-filters button { flex: 0 0 auto; }

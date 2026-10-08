@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { MapPin } from 'lucide-react';
+import { LocateFixed, MapPin } from 'lucide-react';
 import { api } from '../lib/api';
 
 function sameFormSubmit(target, form) {
@@ -7,7 +7,7 @@ function sameFormSubmit(target, form) {
   return Boolean(form && control?.form === form && ['submit', 'image'].includes(control.type) && !control.disabled);
 }
 
-export function DiscoveryCitySearch({ value, onChange, placeholder, describedBy }) {
+export function DiscoveryCitySearch({ value, onChange, placeholder, describedBy, onLocate, locating = false, holdMenuOnBlur, dismissRevision = 0 }) {
   const id = useId();
   const listId = `${id}-areas`;
   const [open, setOpen] = useState(false);
@@ -26,8 +26,10 @@ export function DiscoveryCitySearch({ value, onChange, placeholder, describedBy 
   const expanded = open && term.length >= 2;
   const active = expanded && visible.items[activeIndex];
   function handleBlur(event) {
+    if (holdMenuOnBlur?.current && (!event.relatedTarget || event.relatedTarget.closest?.('[data-discovery-control]'))) return;
     if (!pickerRef.current?.contains(event.relatedTarget) && !sameFormSubmit(event.relatedTarget, inputRef.current?.form)) setOpen(false);
   }
+  useEffect(() => { setOpen(false); setActiveIndex(-1); }, [dismissRevision]);
   useEffect(() => {
     const form = inputRef.current?.form;
     if (!form) return;
@@ -74,15 +76,16 @@ export function DiscoveryCitySearch({ value, onChange, placeholder, describedBy 
           setSuggestions({ key: term, status: 'ready', items, hasMore: Boolean(page.hasMore) });
         })
         .catch(() => { if (!controller.signal.aborted && currentTerm.current === term) setSuggestions({ key: term, status: 'error', items: [] }); });
-    }, 200);
+    }, 350);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [term, open, retry]);
   function choose(item) { onChange(item.label); setOpen(false); setActiveIndex(-1); }
   function retrySuggestions() { inputRef.current?.focus(); setRetry((revision) => revision + 1); }
   return <div ref={pickerRef} className="discovery-city-search" onBlur={handleBlur}>
+    <div className="discovery-city-input">
     <label className="search-field">
       <MapPin aria-hidden="true"/>
-      <span><b>WHERE TO?</b><input ref={inputRef} aria-label="City" name="city" role="combobox" autoComplete="off" maxLength={120}
+      <span><b>WHERE TO?</b><input ref={inputRef} aria-label="City" name="discovery-place-query" type="search" role="combobox" autoComplete="off" spellCheck={false} autoCorrect="off" maxLength={120}
         aria-autocomplete="list" aria-controls={listId} aria-expanded={expanded}
         aria-activedescendant={active ? `${listId}-${activeIndex}` : undefined} aria-describedby={describedBy}
         value={value} placeholder={placeholder} onFocus={() => setOpen(true)}
@@ -95,6 +98,9 @@ export function DiscoveryCitySearch({ value, onChange, placeholder, describedBy 
           } else if (event.key === 'Enter' && active) { event.preventDefault(); choose(active); }
         }}/></span>
     </label>
+    {onLocate && <button className="discovery-field-action discovery-locate-button" type="button" aria-label="Use current location" title={locating ? 'Finding your city…' : 'Use current location'} aria-busy={locating} disabled={locating}
+      onPointerDown={(event) => event.preventDefault()} onMouseDown={(event) => event.preventDefault()} onClick={() => { setOpen(false); onLocate(); }}><LocateFixed size={18} aria-hidden="true"/></button>}
+    </div>
     {expanded && <div className="discovery-city-options">
       <div id={listId} role="listbox" aria-label="City suggestions">
         {visible.items.map((item, index) => <button type="button" role="option" tabIndex={-1}

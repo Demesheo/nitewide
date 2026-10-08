@@ -25,11 +25,14 @@ const record = z.record(z.string(), z.json());
 const entity = z.object({ id: uuid }).catchall(z.json());
 const named = z.object({ id: z.string(), name: z.string() }).catchall(z.json());
 const event = z.object({ id: uuid, title: z.string(), startsAt: dateTime, endsAt: dateTime,
-  status: z.enum(['draft', 'published', 'cancelled', 'completed']) }).catchall(z.json());
+  status: z.enum(['draft', 'published', 'cancelled', 'completed']), distanceMiles: z.number().nonnegative().nullable().optional() }).catchall(z.json());
 const admissionEvent = event.omit({ status: true });
 const discoveryArea = z.object({ key: z.string(), label: z.string(), city: z.string(), region: z.string(), countryCode: z.string().length(2),
   kind: z.enum(['metro', 'division', 'radius', 'city']), groupLabel: z.string().optional(), radiusMiles: z.literal(30).optional(),
   centerLabel: z.string().optional(), geographyCoverage: z.literal('verified-addresses-only').optional() });
+const discoveryMetadata = { mode: z.enum(['range', 'upcoming']), scope: z.enum(['nearby', 'city']), sort: z.enum(['recommended', 'distance', 'date']),
+  rankedAsOf: dateTime, rankingVersion: z.literal('recommended-v2').nullable().describe('Recommended orders venue-local day, Premium, capped popularity, distance, then start time and ID; Date and Distance remain independent.'),
+  distanceOrigin: z.object({ label: z.string(), kind: z.literal('city-center') }).nullable() };
 const offering = z.object({ id: uuid, eventId: uuid, name: z.string(), priceCents: count,
   currency: z.string().length(3), kind: z.enum(['ticket', 'package', 'reservation']),
   entriesPerUnit: count, quantitySold: count }).catchall(z.json());
@@ -207,7 +210,7 @@ function responseFor(method, path) {
   if (path === '/auth/notification-preferences') return z.object({ reviewRequests: z.boolean(), salesActivity: z.boolean(), inventoryAlerts: z.boolean() });
   if (path === '/auth/profile' || path === '/customer/profile') return user;
   if (path === '/discovery/areas') return z.object({ items: z.array(discoveryArea), hasMore: z.boolean() });
-  if (path === '/events' && method === 'get') return z.union([z.array(event), z.object({ items: z.array(event), hasMore: z.boolean(), nextCursor: z.string().nullable(), area: discoveryArea.nullable(), hasUpcomingAreaEvents: z.boolean().nullable(), resolutionStatus: z.enum(['resolved', 'unresolved']) })]);
+  if (path === '/events' && method === 'get') return z.union([z.array(event), z.object({ items: z.array(event), hasMore: z.boolean(), nextCursor: z.string().nullable(), area: discoveryArea.nullable(), hasUpcomingAreaEvents: z.boolean().nullable(), resolutionStatus: z.enum(['resolved', 'unresolved']), ...discoveryMetadata })]);
   if (path === '/events/batch') return z.object({ items: z.array(event) });
   if (path === '/events/:eventId' || path === '/events' || path === '/business/events/:eventId' && method === 'put' || path === '/business/events' && method === 'post') return event;
   if (path === '/business/events' && method === 'get') return page(event);

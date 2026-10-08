@@ -22,9 +22,38 @@ test('unselected discovery fails closed without consulting the event catalog', a
   const res = { json: (payload) => { result = payload.data; } };
   for (const city of [undefined, '', 'Orlando', 'Toronto, ON']) {
     await controller.listEvents({ query: { pageSize: '9', startDate: '2031-11-02', endDate: '2031-11-09', ...(city === undefined ? {} : { city }) } }, res);
-    assert.deepEqual(result, { items: [], hasMore: false, nextCursor: null, area: null, hasUpcomingAreaEvents: null, resolutionStatus: 'unresolved' });
+    const { rankedAsOf, ...page } = result;
+    assert.ok(Number.isFinite(Date.parse(rankedAsOf)));
+    assert.deepEqual(page, { items: [], hasMore: false, nextCursor: null, area: null, hasUpcomingAreaEvents: null, resolutionStatus: 'unresolved',
+      mode: 'range', scope: 'nearby', sort: 'recommended', distanceOrigin: null, rankingVersion: 'recommended-v2' });
     await controller.listEvents({ query: city === undefined ? {} : { city } }, res);
     assert.deepEqual(result, []);
+  }
+});
+
+test('paged discovery keeps explicit ranges bounded and upcoming mode unbounded with validated scope and sort', () => {
+  const base = { pageSize: '9', city: 'Winter Park, FL', startDate: '2031-11-02' };
+  assert.equal(discoveryQuery.safeParse(base).success, false);
+  const upcoming = discoveryQuery.parse({ ...base, mode: 'upcoming' });
+  assert.equal(upcoming.endDate, undefined);
+  assert.equal(upcoming.scope, 'nearby'); assert.equal(upcoming.sort, 'recommended');
+  for (const scope of ['nearby', 'city']) for (const sort of ['recommended', 'distance', 'date']) {
+    assert.equal(discoveryQuery.parse({ ...base, mode: 'upcoming', scope, sort }).sort, sort);
+  }
+  for (const invalid of [{ mode: 'upcoming', endDate: '2031-11-03' }, { endDate: '2031-12-10' }, { endDate: '2031-11-01' },
+    { mode: 'all' }, { mode: 'upcoming', sort: 'premium' }, { mode: 'upcoming', scope: 'global' }, { mode: 'upcoming', startDate: undefined },
+    { mode: 'upcoming', city: '', allCities: 'true', scope: 'city' }]) assert.equal(discoveryQuery.safeParse({ ...base, ...invalid }).success, false);
+  assert.equal(discoveryQuery.parse({ ...base, endDate: '2031-11-03' }).mode, 'range');
+});
+
+test('discovery cursors reject future cutoffs and expire with a refreshable error before querying events', async () => {
+  const controller = createPublicController({ models: { Event: { sequelize: { query: () => assert.fail('invalid cursor queried events') } } } });
+  const base = { version: 3, startsAt: '2031-11-03T18:00:00.000Z', day: '2031-11-03', premium: false, distanceMeters: null, popularity: 1,
+    id: 'a6019486-fcfb-4d3a-8053-2df046c04541', filter: 'a'.repeat(64) };
+  for (const [offset, code] of [[3600000, 'VALIDATION_ERROR'], [-86401000, 'DISCOVERY_CURSOR_EXPIRED']]) {
+    const cursor = Buffer.from(JSON.stringify({ ...base, rankedAsOf: new Date(Date.now() + offset).toISOString() })).toString('base64url');
+    await assert.rejects(controller.listEvents({ query: { pageSize: '9', mode: 'upcoming', startDate: '2031-11-03', cursor } }, { json() {} }),
+      error => error.status === 422 && error.code === code);
   }
 });
 

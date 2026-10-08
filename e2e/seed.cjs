@@ -97,8 +97,18 @@ async function seed(models, config, { credited = false, recipe: recipeName = 'le
     }
     for (let index = 0; index < recipe.events; index++) {
       const eventId = uuid(100 + index);
-      const startsAt = new Date(Date.now() + (2 + index * 6) * 3600000);
-      await models.Event.create({ id: eventId, organizationId: ids.org, creatorUserId: accounts.business.id, locationId: discoveryPlaces.has(index) ? uuid(3000 + index) : ids.location,
+      // Keep the first nine discovery events inside the default seven-day
+      // window, then make the remaining discovery-recipe rows genuinely later
+      // nights so upcoming pagination is tested beyond the old fixed window.
+      const now = new Date();
+      const startsAt = recipeName === 'customer-discovery' && index >= 9
+        ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + 15, 18 + (index % 4), 0, 0)
+        : recipeName === 'customer-discovery' && (index === 3 || index === 4)
+          ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, index === 3 ? 18 : 20, 0, 0)
+          : recipeName === 'customer-discovery' && index >= 5
+            ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2, 18 + (index - 5), 0, 0)
+          : new Date(Date.now() + (2 + index * 6) * 3600000);
+      await models.Event.create({ id: eventId, organizationId: recipeName === 'customer-discovery' && index === 3 ? null : ids.org, creatorUserId: accounts.business.id, locationId: discoveryPlaces.has(index) ? uuid(3000 + index) : ids.location,
         title: discoveryPlaces.get(index)?.[1] || (index === 0 ? 'Playwright Friday Night' : `Playwright Night ${String(index + 1).padStart(2, '0')}`),
         slug: `playwright-night-${index}`, category: 'nightlife', description: 'Deterministic browser test event.', startsAt, endsAt: new Date(+startsAt + 4 * 3600000), status: 'published', capacity: 100, guestlistCapacity: 60 }, options);
       await models.Offering.create({ id: uuid(200 + index), eventId, name: 'General Admission', kind: 'ticket', priceCents: 2500, quantityTotal: 100, quantitySold: index < recipe.orders ? 1 : 0 }, options);

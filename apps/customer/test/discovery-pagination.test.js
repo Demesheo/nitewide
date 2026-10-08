@@ -10,29 +10,6 @@ const share = await readFile(new URL('../src/lib/event-share.js', import.meta.ur
 const card = await readFile(new URL('../src/components/event-card.jsx', import.meta.url), 'utf8');
 const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
 
-test('Discover loads bounded server pages and requests the next page only after an explicit More action', () => {
-  assert.match(hook, /new URLSearchParams\(\{ pageSize: '9', city: selectedCity, startDate: start, endDate: end, query: submitted\.query, timezone \}\)/);
-  assert.match(hook, /nextCursor: null/);
-  assert.match(hook, /async function loadMore\(preview = false\)/);
-  assert.match(hook, /api\(url\(preview \? upcomingWeekRange\(submitted\.date\) : range, cursor\), \{ signal: controller\.signal \}\)/);
-  assert.match(results, /onClick=\{\(\) => loadMore\(\)\}/);
-  assert.doesNotMatch(`${app}\n${hook}`, /\/events\?limit=100/);
-  assert.doesNotMatch(hook, /while\s*\([^)]*nextCursor[^)]*\)\s*\{[^}]*api\(/);
-});
-
-test('filter changes and refreshes abort stale pages while preserving city, date, and search state', () => {
-  assert.match(hook, /const key = JSON\.stringify\(\[selectedCity\.toLowerCase\(\), submitted\.date, submitted\.query, submitted\.shortcut, timezone\]\)/);
-  assert.match(hook, /Object\.values\(requests\.current\)\) request\?\.abort\(\)/);
-  assert.match(hook, /!controller\.signal\.aborted && currentKey\.current === key && generation\.current === requestGeneration/);
-  assert.match(hook, /state\.key === key \? state : emptyResults\(key, selectedCity\)/);
-  assert.match(hook, /startDate: start, endDate: end, query: submitted\.query, timezone/);
-  assert.match(hook, /function reload\(\) \{ setReloadRevision/);
-});
-
-test('date picker synchronizes native input edits into React state before applying filters', () => {
-  assert.match(app, /name="date"[\s\S]*?onInput=\{\(event\) => \{ setDate\(event\.currentTarget\.value\); setShortcut\(''\); \}\}[\s\S]*?onChange=\{\(event\) => \{ setDate\(event\.target\.value\); setShortcut\(''\); \}\}[\s\S]*?onBlur=\{\(event\) => setDate\(event\.currentTarget\.value\)\}/);
-});
-
 test('event card Save remains independent of Open and exposes its pressed state', () => {
   assert.match(card, /<button\s+type="button"\s+className=\{`save-button/);
   assert.match(card, /aria-pressed=\{saved\}[\s\S]*?onClick=\{\(click\) => \{ click\.stopPropagation\(\); onSave\?\.\(\); \}\}/);
