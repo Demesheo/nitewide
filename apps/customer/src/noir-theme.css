@@ -316,6 +316,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, [role="tab"]:focus-v
   .hero-stamp { font-size: 8px; }
   .search-bar { border-radius: 18px; }
   .search-field { width: 100%; padding: 12px 10px; }
+  .discovery-city-search { width: 100%; }
   .search-field:not(:first-child) { border-left: 0; border-top: 1px solid var(--search-border); }
   .keyword-field { margin-top: 0; }
   .date-field button { min-width: 44px; min-height: 44px; display: grid; place-items: center; }

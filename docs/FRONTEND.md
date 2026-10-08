@@ -97,7 +97,44 @@ Props: `open`, `onOpenChange`, `onSuccess(session)`. Uses shadcn Dialog for focu
 
 ### Discovery/search
 
-The form has three fields: **Where to?**, **When?**, and **Search**. Search is a generic, case-insensitive, all-words match over public title, summary, description, venue/organization, city/region, category, and offering name/description. The form submission reads named fields explicitly. Submitted filters stay in the URL and appear as removable chips; previous results remain visible during refresh. Tonight, Tomorrow, and This Weekend are one-tap date ranges.
+The form has three fields: **Where to?**, **When?**, and **Search**. Search is a generic, case-insensitive, all-words match over public title, summary, description, venue/organization, city/region, category, and offering name/description. The form submission reads named fields explicitly. Submitted filters stay in the URL and appear as removable chips. Same-filter refresh can retain results; switching areas clears old cards immediately, before request effects run. Tonight, Tomorrow, and This Weekend are one-tap date ranges.
+
+#### Nationwide area selection
+
+`GET /discovery/areas?q=` serves at most eight qualified city suggestions. The browser never downloads the nationwide catalog. Keyboard, mouse and touch selection change the draft location; submitting Find my night applies it. Manual/URL selection wins over a remembered location and late approximate IP detection. Clearing the city stays unresolved, never a global feed. No automatic precise-GPS prompt occurs.
+
+The API ships a pinned catalog of 32,350 Census places in the 50 states, DC and Puerto Rico. Official July 2023 OMB metropolitan divisions take precedence over metros, with these product-approved full-metro exceptions:
+
+| Combined discovery area | Official full CBSA boundary |
+| --- | --- |
+| Atlanta, including Marietta | 12060 |
+| Chicago, including northwest Indiana | 16980 |
+| Dallas–Fort Worth–Arlington | 19100 |
+| Detroit–Warren–Dearborn | 19820 |
+| Philadelphia–Camden–Wilmington | 37980 |
+| San Francisco–Oakland, including San Rafael, excluding San Jose | 41860 |
+| Seattle–Tacoma–Bellevue, including Everett | 42660 |
+| Tampa–St. Petersburg–Clearwater | 45300 |
+
+Each exception uses its full official county boundary; selecting either side produces the same discovery scope, without an added radius union. These boundaries can extend beyond 30 miles. Boston's two Massachusetts divisions (14454 and 15764) form the explicitly product-defined `market:boston-ma`; the New Hampshire division (40484) stays separate.
+
+The close-in DC market (`market:dc-core`) combines DC (11001), Montgomery and Prince George's counties in Maryland (24031, 24033), and Arlington County, Fairfax County, Alexandria city, Fairfax city and Falls Church city in Virginia (51013, 51059, 51510, 51600, 51610). Reston, Bethesda and Silver Spring are included through those county boundaries. Outer Virginia and Jefferson County, WV remain in `market:dc-outer-va-wv`; Frederick County, MD and Charles County, MD remain separate markets. These residuals use accurate product labels, not the original official division titles/codes, and no county belongs to two markets. Boston and DC's partial combinations are explicit product markets, not official CBSAs.
+
+New York/Newark/Long Island/Lakewood–New Brunswick, Los Angeles/Orange County, and Miami/Fort Lauderdale/West Palm Beach retain their separate official divisions. Micropolitan and nonmetropolitan places use a 30-statute-mile radius (48,280.32 meters) centered on the selected place's Census representative internal point. This is the product's city center, not a visitor location, a mathematical centroid, or a venue coordinate. A metro with no events does not switch to radius. Actual venue cities remain on cards; Saved, Booked, direct-event and referral links remain cross-city.
+
+County membership governs verified venue addresses. Text-only city/state membership is accepted only when all county portions of that place belong to the same scope. Multi-county city selection uses its full Gazetteer internal point intersected with unreduced TIGER county polygons; it does not union unrelated metros. Unknown or ambiguous city names retain exact qualified-city matching but cannot claim a verified metro/radius or coming-soon coverage. The catalog is not a business onboarding or publishing allowlist: businesses may request access and author an address anywhere, without a saved venue.
+
+Confirmed zero upcoming events shows “Nitewide coming soon to {city}” with a configured Nitewide Business anchor. Search/date misses in an established area use normal no-match states. Radius results include only public locations with confirmed coordinates. Missing, private or unresolved geography keeps coverage unconfirmed instead of claiming there are no local events. The scope identity and dataset version bind pagination; stale main, More, next-week and suggestion responses cannot replace a newer selection.
+
+#### Public-address geocoding and catalog maintenance
+
+The backend worker automatically enables Census geocoding in staging and production using the existing `APP_ENVIRONMENT` setting; no new environment variable is required. Local development, tests and demo stay disabled, even with an inherited provider setting. The optional `LOCATION_GEOCODING_PROVIDER=disabled` override pauses geocoding in a release environment and should be shared by API and worker; omit it for normal automatic behavior. It sends only public US street addresses, cities, states and ZIPs to the [Census Geocoder](https://geocoding.geo.census.gov/geocoder/Geocoding_Services_API.html), never private addresses, customer GPS, emails or account details. Census coordinates are interpolated address-range matches, not authentication of a venue or exact rooftop coordinates. Successful results are cached with address fingerprints and provenance. Database and model invalidation clear old trust when the address or privacy changes. Timeouts, bounded retries and fenced worker claims handle outages and concurrent edits. Historical addresses require the explicit bounded public-address queue; provider activation is not an implicit backfill. Internal fingerprints/provenance are not exposed through public event or booking payloads.
+
+The geocoding service's `enqueueHistorical({ limit: 100, dryRun: true })` previews a bounded batch of eligible existing addresses (maximum 500), limited to active public US locations for future draft/published events. Only an explicitly reviewed call with `dryRun: false` queues those addresses. Test-runner environments force the provider off even if an ambient setting enables it. A rollback locks geography writes and refuses to discard verified evidence.
+
+Source URLs, raw SHA-256 digests and vintages are embedded in `apps/api/src/data/discovery-catalog.json`: [OMB delineations](https://www.census.gov/geographies/reference-files/time-series/demo/metro-micro/delineation-files.html), [2025 Gazetteer](https://www.census.gov/geographies/reference-files/time-series/geo/gazetteer-files.2025.html), [2025 GeoInfo bulk table](https://www2.census.gov/programs-surveys/geoinfo/2025/) and [2025 TIGER counties](https://www2.census.gov/geo/tiger/TIGER2025/COUNTY/). Routine CI uses only the checked-in catalog and mocked geocoder; it never downloads source datasets or calls a provider.
+
+To refresh boundaries, use a mutually consistent Census vintage, download those public sources into a temporary directory, and run `scripts/census-source-rows.py` for the workbook and GeoInfo table, `scripts/census-place-centers.py` for the offline county intersection, then `scripts/build-discovery-catalog.cjs`. Review changed county/metro membership and update the catalog version before committing. This is a versioned data refresh, not a growing manual list of city names. The integrity regression checks complete country/state coverage, disjoint county scopes, valid city points and source digests.
 
 Discover opens with **Next 7 days**: today in the browser's local calendar through today + 6, inclusive. For September 22, that is September 22–28. The date input starts empty to represent this default range; selecting a date switches to that exact day, including dates outside the default week. Clearing the date restores the seven-day range without clearing the city or search. `discoveryDateRange()` and `filterDiscoveryEvents()` keep this policy limited to Discover; Saved, Booked, Connections, Business, and Admin are unchanged. Pagination still exposes every matching result.
 

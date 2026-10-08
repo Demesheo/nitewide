@@ -27,6 +27,9 @@ const named = z.object({ id: z.string(), name: z.string() }).catchall(z.json());
 const event = z.object({ id: uuid, title: z.string(), startsAt: dateTime, endsAt: dateTime,
   status: z.enum(['draft', 'published', 'cancelled', 'completed']) }).catchall(z.json());
 const admissionEvent = event.omit({ status: true });
+const discoveryArea = z.object({ key: z.string(), label: z.string(), city: z.string(), region: z.string(), countryCode: z.string().length(2),
+  kind: z.enum(['metro', 'division', 'radius', 'city']), groupLabel: z.string().optional(), radiusMiles: z.literal(30).optional(),
+  centerLabel: z.string().optional(), geographyCoverage: z.literal('verified-addresses-only').optional() });
 const offering = z.object({ id: uuid, eventId: uuid, name: z.string(), priceCents: count,
   currency: z.string().length(3), kind: z.enum(['ticket', 'package', 'reservation']),
   entriesPerUnit: count, quantitySold: count }).catchall(z.json());
@@ -72,6 +75,7 @@ const guestlistRow = guest.extend({ eventId: uuid, userId: uuid.nullable(), even
 // Dynamic management resources retain JSON extension fields by design.
 const responses = { entity, event, offering, user, session, guest, sales, reportRow, exportJob, accessRequest, onboardingInvitation, error, page, envelope };
 const queries = {
+  '/discovery/areas': publicQuery.discoveryAreaQuery,
   '/account/organization-requests': businessAccess.query,
   '/support/messages': supportMessages.pageQuery,
   '/support/messages/:id': supportMessages.pageQuery,
@@ -202,7 +206,8 @@ function responseFor(method, path) {
   if (path === '/auth/email/resend') return z.object({ verificationEmailQueued: z.boolean(), message: z.string() }).catchall(z.json());
   if (path === '/auth/notification-preferences') return z.object({ reviewRequests: z.boolean(), salesActivity: z.boolean(), inventoryAlerts: z.boolean() });
   if (path === '/auth/profile' || path === '/customer/profile') return user;
-  if (path === '/events' && method === 'get') return z.union([z.array(event), z.object({ items: z.array(event), hasMore: z.boolean(), nextCursor: z.string().nullable() })]);
+  if (path === '/discovery/areas') return z.object({ items: z.array(discoveryArea), hasMore: z.boolean() });
+  if (path === '/events' && method === 'get') return z.union([z.array(event), z.object({ items: z.array(event), hasMore: z.boolean(), nextCursor: z.string().nullable(), area: discoveryArea.nullable(), hasUpcomingAreaEvents: z.boolean().nullable(), resolutionStatus: z.enum(['resolved', 'unresolved']) })]);
   if (path === '/events/batch') return z.object({ items: z.array(event) });
   if (path === '/events/:eventId' || path === '/events' || path === '/business/events/:eventId' && method === 'put' || path === '/business/events' && method === 'post') return event;
   if (path === '/business/events' && method === 'get') return page(event);

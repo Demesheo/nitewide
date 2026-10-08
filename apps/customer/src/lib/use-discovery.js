@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { confirmedDiscoveryScope, qualifiedDiscoveryCity } from './discovery-selection';
 import { api } from './api';
 import { discoveryDateRange, upcomingWeekRange } from './discovery';
 import { discoveryShortcutRange } from './discovery-shortcuts';
@@ -8,61 +9,88 @@ const prepareEvents = (items) => items.map((event) => ({
   offerings: [...(event.offerings || [])].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)),
 }));
 
+const emptyResults = (key, selected) => ({ key, events: [], nextCursor: null, moreState: 'idle',
+  previewEvents: [], previewCursor: null, previewState: 'idle',
+  area: null, resolutionStatus: null, hasUpcomingAreaEvents: null, loadState: selected ? 'loading' : 'unselected' });
+
 export function useDiscovery(submitted) {
-  const [events, setEvents] = useState([]);
-  const [loadState, setLoadState] = useState('loading');
-  const [nextCursor, setNextCursor] = useState(null);
-  const [moreState, setMoreState] = useState('idle');
-  const [previewEvents, setPreviewEvents] = useState([]);
-  const [previewCursor, setPreviewCursor] = useState(null);
-  const [previewState, setPreviewState] = useState('idle');
+  const selectedCity = qualifiedDiscoveryCity(submitted.city);
   const [reloadRevision, setReloadRevision] = useState(0);
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   const range = submitted.shortcut ? discoveryShortcutRange(submitted.shortcut) : discoveryDateRange(submitted.date);
-  const key = JSON.stringify([submitted, timezone]);
+  const key = JSON.stringify([selectedCity.toLowerCase(), submitted.date, submitted.query, submitted.shortcut, timezone]);
+  const [state, setState] = useState(() => emptyResults(key, selectedCity));
   const currentKey = useRef(key);
   currentKey.current = key;
-  const moreRequest = useRef(null);
+  const generation = useRef(0);
+  const requests = useRef({ main: null, more: null, preview: null, previewMore: null });
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  // Effects run after render: guard here so a switch can never paint old cards.
+  const visible = state.key === key ? state : emptyResults(key, selectedCity);
+  const { events, loadState, hasUpcomingAreaEvents, resolutionStatus } = visible;
   function url({ start, end }, cursor = null) {
-    const params = new URLSearchParams({ pageSize: '9', city: submitted.city, startDate: start, endDate: end, query: submitted.query, timezone });
+    const params = new URLSearchParams({ pageSize: '9', city: selectedCity, startDate: start, endDate: end, query: submitted.query, timezone });
     if (cursor) params.set('cursor', cursor);
     return `/events?${params}`;
   }
   function reload() { setReloadRevision((value) => value + 1); }
   useEffect(() => {
+    for (const request of Object.values(requests.current)) request?.abort();
+    const requestGeneration = ++generation.current;
+    const previous = stateRef.current;
+    const retained = previous.key === key && previous.events.length > 0;
+    if (!selectedCity) { setState(emptyResults(key, false)); return; }
     const controller = new AbortController();
-    moreRequest.current?.abort();
-    setNextCursor(null); setMoreState('idle'); setLoadState(events.length ? 'refreshing' : 'loading');
+    requests.current.main = controller;
+    setState(retained ? { ...previous, nextCursor: null, moreState: 'idle', previewEvents: [], previewCursor: null, previewState: 'idle', loadState: 'refreshing' } : emptyResults(key, true));
+    const active = () => !controller.signal.aborted && currentKey.current === key && generation.current === requestGeneration;
     api(url(range), { signal: controller.signal })
-      .then((page) => { if (!controller.signal.aborted) { setEvents(prepareEvents(page.items)); setNextCursor(page.nextCursor); setLoadState('ready'); } })
-      .catch(() => { if (!controller.signal.aborted) setLoadState(events.length ? 'error-refresh' : 'error'); });
+      .then((page) => { if (active()) setState({ ...emptyResults(key, true), events: prepareEvents(page.items), nextCursor: page.nextCursor,
+        area: page.area || null, resolutionStatus: page.resolutionStatus || 'unresolved',
+        hasUpcomingAreaEvents: typeof page.hasUpcomingAreaEvents === 'boolean' ? page.hasUpcomingAreaEvents : null, loadState: 'ready' }); })
+      .catch(() => { if (active()) setState((previous) => ({ ...previous, loadState: retained ? 'error-refresh' : 'error' })); });
     return () => controller.abort();
   }, [key, reloadRevision]);
   async function loadMore(preview = false) {
-    const cursor = preview ? previewCursor : nextCursor;
-    if (!cursor || (preview ? previewState === 'loading-more' : moreState === 'loading')) return;
-    const requestKey = currentKey.current;
+    const snapshot = stateRef.current;
+    if (!selectedCity || snapshot.key !== key || currentKey.current !== key) return;
+    const cursor = preview ? snapshot.previewCursor : snapshot.nextCursor;
+    const lane = preview ? 'previewMore' : 'more';
+    if (!cursor || requests.current[lane] && !requests.current[lane].signal.aborted) return;
+    const requestGeneration = generation.current;
     const controller = new AbortController();
-    if (!preview) moreRequest.current = controller;
-    if (preview) setPreviewState('loading-more'); else setMoreState('loading');
+    requests.current[lane] = controller;
+    setState((previous) => ({ ...previous, ...(preview ? { previewState: 'loading-more' } : { moreState: 'loading' }) }));
+    const active = () => !controller.signal.aborted && currentKey.current === key && generation.current === requestGeneration;
     try {
       const page = await api(url(preview ? upcomingWeekRange(submitted.date) : range, cursor), { signal: controller.signal });
-      if (controller.signal.aborted || requestKey !== currentKey.current) return;
-      if (preview) { setPreviewEvents((previous) => [...previous, ...prepareEvents(page.items)]); setPreviewCursor(page.nextCursor); setPreviewState('ready'); }
-      else { setEvents((previous) => [...previous, ...prepareEvents(page.items)]); setNextCursor(page.nextCursor); setMoreState('idle'); }
+      if (!active()) return;
+      if (page.area?.key !== snapshot.area?.key) throw new Error('Discovery scope changed');
+      setState((previous) => preview
+        ? { ...previous, previewEvents: [...previous.previewEvents, ...prepareEvents(page.items)], previewCursor: page.nextCursor, previewState: 'ready' }
+        : { ...previous, events: [...previous.events, ...prepareEvents(page.items)], nextCursor: page.nextCursor, moreState: 'idle' });
     } catch {
-      if (controller.signal.aborted || requestKey !== currentKey.current) return;
-      if (preview) setPreviewState('error-more'); else setMoreState('error');
-    }
+      if (active()) setState((previous) => ({ ...previous, ...(preview ? { previewState: 'error-more' } : { moreState: 'error' }) }));
+    } finally { if (requests.current[lane] === controller) requests.current[lane] = null; }
   }
   useEffect(() => {
-    if (!submitted.date || loadState !== 'ready' || events.length) { setPreviewEvents([]); setPreviewCursor(null); setPreviewState('idle'); return; }
+    requests.current.preview?.abort(); requests.current.previewMore?.abort();
+    if (!selectedCity || !submitted.date || loadState !== 'ready' || events.length || !confirmedDiscoveryScope(visible.area, resolutionStatus) || hasUpcomingAreaEvents === false) return;
     const controller = new AbortController();
-    setPreviewEvents([]); setPreviewCursor(null); setPreviewState('loading');
+    requests.current.preview = controller;
+    const requestGeneration = generation.current;
+    const active = () => !controller.signal.aborted && currentKey.current === key && generation.current === requestGeneration;
+    setState((previous) => ({ ...previous, previewEvents: [], previewCursor: null, previewState: 'loading' }));
     api(url(upcomingWeekRange(submitted.date)), { signal: controller.signal })
-      .then((page) => { if (!controller.signal.aborted) { setPreviewEvents(prepareEvents(page.items)); setPreviewCursor(page.nextCursor); setPreviewState('ready'); } })
-      .catch(() => { if (!controller.signal.aborted) setPreviewState('error'); });
+      .then((page) => {
+        if (!active()) return;
+        if (page.area?.key !== visible.area.key) throw new Error('Discovery scope changed');
+        setState((previous) => ({ ...previous, previewEvents: prepareEvents(page.items), previewCursor: page.nextCursor, previewState: 'ready' }));
+      })
+      .catch(() => { if (active()) setState((previous) => ({ ...previous, previewState: 'error' })); });
     return () => controller.abort();
-  }, [key, loadState, events.length === 0]);
-  return { events, previewEvents, loadState, nextCursor, moreState, previewCursor, previewState, range, reload, loadMore };
+  }, [key, loadState, events.length === 0, hasUpcomingAreaEvents, resolutionStatus]);
+  useEffect(() => () => { for (const request of Object.values(requests.current)) request?.abort(); }, []);
+  return { ...visible, range, reload, loadMore };
 }

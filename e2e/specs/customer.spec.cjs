@@ -1,5 +1,6 @@
 const { test: baseTest, expect, loginViaApi, expectNoOverflow } = require('../fixtures.cjs');
 const test = baseTest.extend({ fixtureRecipe: 'commerce' });
+const discoveryTest = baseTest.extend({ fixtureRecipe: 'customer-discovery' });
 const authTest = baseTest.extend({ fixtureRecipe: 'customer-auth' });
 const paginationTest = baseTest.extend({ fixtureRecipe: 'bookings-pagination' });
 const { expectBrandImage, expectBrandIcons } = require('../brand-checks.cjs');
@@ -7,6 +8,11 @@ const { urls } = require('../environment.cjs');
 const { checkPasswordVisibility } = require('../password-visibility.cjs');
 
 const savedCheckout = page => page.evaluate(() => localStorage.getItem(`nitewide.checkout.${JSON.parse(localStorage.getItem('nitewide.session')).user.id}`));
+const deferred = () => {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+};
 
 async function selectVipCheckout(page) {
   const details = page.getByTestId('customer-event-details');
@@ -15,8 +21,57 @@ async function selectVipCheckout(page) {
   return details;
 }
 
-test('customer footer journey keeps branding and private signed-out access support unobtrusive', async ({ page, fixture }, testInfo) => {
-  await page.goto('/');
+discoveryTest('customer discovery keeps its chosen area, branding and private signed-out support', async ({ page, fixture }, testInfo) => {
+  const geoStarted = deferred(), releaseGeo = deferred(), geoDelivered = deferred();
+  const discoveryRequests = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname === '/api/events') discoveryRequests.push(url.searchParams);
+  });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { getCurrentPosition(_success, failure) { failure({ code: 1 }); } } });
+  });
+  await page.route('https://api.bigdatacloud.net/data/reverse-geocode-client?**', async route => {
+    geoStarted.resolve();
+    await releaseGeo.promise;
+    await route.fulfill({ headers: { 'Access-Control-Allow-Origin': '*' }, json: { city: 'Miami', principalSubdivisionCode: 'US-FL', countryCode: 'US' } });
+    geoDelivered.resolve();
+  });
+  const cards = page.locator('#discover').getByTestId('customer-event-card');
+  const cityInput = page.getByRole('combobox', { name: 'City', exact: true });
+  const otherMarkets = ['Miami', 'Miami Beach', 'Tampa', 'St. Petersburg', 'Fort Lauderdale'];
+  await test.step('unresolved location never loads a global feed; a manual nearby area wins over late IP detection', async () => {
+    await page.goto('/');
+    await geoStarted.promise;
+    await expect(page.getByText('Choose an area to find your night.', { exact: true })).toBeVisible();
+    await expect(cards).toHaveCount(0);
+    expect(discoveryRequests).toHaveLength(0);
+    await cityInput.fill('Winter Park');
+    await expect(cityInput).toHaveAttribute('aria-expanded', 'true');
+    await page.getByRole('listbox', { name: 'City suggestions' }).getByRole('option', { name: /^Winter Park, FL/ }).click();
+    await expect(cityInput).toHaveValue('Winter Park, FL');
+    expect(discoveryRequests).toHaveLength(0);
+    await page.getByRole('button', { name: 'Find my night', exact: true }).click();
+    await expect(cards).toHaveCount(9);
+    await expect(page.locator('#discovery-area-hint')).toContainText(/Orlando.*metro area and surrounding communities/);
+    await expect(cards.filter({ hasText: 'Playwright Winter Park Night' }).locator('.card-location')).toHaveText('Winter Park, FL');
+    await expect(cards.filter({ hasText: 'Playwright Kissimmee Night' }).locator('.card-location')).toHaveText('Kissimmee, FL');
+    expect(await cards.locator('.card-location').allTextContents()).toEqual(expect.arrayContaining(['Orlando, FL', 'Winter Park, FL', 'Kissimmee, FL']));
+    for (const city of otherMarkets) await expect(cards.filter({ hasText: `Playwright ${city} Night` })).toHaveCount(0);
+    await expect(cards.locator('.premium-host-badge')).toHaveCount(9);
+    releaseGeo.resolve();
+    await geoDelivered.promise;
+    await expect(cityInput).toHaveValue('Winter Park, FL');
+    await expect(cards).toHaveCount(9);
+    await page.getByRole('button', { name: 'More nights, more possibilities' }).click();
+    await expect(cards).toHaveCount(10);
+    for (const city of otherMarkets) await expect(cards.filter({ hasText: `Playwright ${city} Night` })).toHaveCount(0);
+  });
+  await test.step('a return visit uses the remembered area', async () => {
+    await page.goto('/');
+    await expect(cityInput).toHaveValue('Winter Park, FL');
+    await expect(cards).toHaveCount(9);
+  });
   const home = page.getByRole('banner').getByRole('link', { name: 'Nitewide home', exact: true });
   await expectBrandImage(home.locator('img'));
   await expectBrandIcons(page);
@@ -51,6 +106,102 @@ test('customer footer journey keeps branding and private signed-out access suppo
   await footer.getByRole('link', { name: 'Nitewide home', exact: true }).click();
   await expect(page).toHaveURL(url => url.pathname === '/' && !url.searchParams.has('event'));
   await expect(home).toBeVisible();
+  await test.step('empty search/date results and the weekly preview remain within an established area', async () => {
+    await page.getByLabel('Search', { exact: true }).fill('no such fixture night');
+    await page.getByRole('button', { name: 'Find my night', exact: true }).click();
+    await expect(page.locator('#discover').getByRole('heading', { name: /No experiences/ })).toBeVisible();
+    await expect(page.getByText(/Nitewide coming soon to/)).toHaveCount(0);
+    await page.getByLabel('Search', { exact: true }).fill('');
+    const yesterday = await page.evaluate(() => {
+      const day = new Date(); day.setDate(day.getDate() - 1);
+      return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+    });
+    await page.getByLabel('Event date', { exact: true }).fill(yesterday);
+    await page.getByRole('button', { name: 'Find my night', exact: true }).click();
+    await expect(cards).toHaveCount(0);
+    const preview = page.locator('.upcoming-preview').getByTestId('customer-event-card');
+    await expect(preview).toHaveCount(9);
+    await expect(preview.filter({ hasText: 'Playwright Winter Park Night' })).toHaveCount(1);
+    await expect(preview.filter({ hasText: 'Playwright Kissimmee Night' })).toHaveCount(1);
+    for (const city of otherMarkets) await expect(preview.filter({ hasText: `Playwright ${city} Night` })).toHaveCount(0);
+    await expect(page.getByText(/Nitewide coming soon to/)).toHaveCount(0);
+    await page.getByLabel('Event date', { exact: true }).fill('');
+    await page.getByRole('button', { name: 'Find my night', exact: true }).click();
+    await expect(cards).toHaveCount(9);
+  });
+  await test.step('switching to a failed city clears cards and rejects an older pagination response', async () => {
+    const pageStarted = deferred(), releasePage = deferred(), pageDelivered = deferred();
+    const miamiStarted = deferred(), releaseMiami = deferred();
+    const raceRoute = async route => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.get('cursor') && params.get('city') === 'Winter Park, FL') {
+        const response = await route.fetch();
+        const payload = await response.json();
+        pageStarted.resolve();
+        await releasePage.promise;
+        try { await route.fulfill({ response, json: payload }); } catch { /* The superseded request may already be aborted. */ }
+        finally { pageDelivered.resolve(); }
+      } else if (params.get('city')?.startsWith('Miami,')) {
+        miamiStarted.resolve();
+        await releaseMiami.promise;
+        await route.fulfill({ status: 503, json: { error: { message: 'Fixture city temporarily unavailable' } } });
+      } else await route.continue();
+    };
+    await page.route('**/api/events?**', raceRoute);
+    try {
+      await page.getByRole('button', { name: 'More nights, more possibilities' }).click();
+      await pageStarted.promise;
+      await page.getByLabel('City', { exact: true }).fill('Miami, FL');
+      await page.getByRole('button', { name: 'Find my night', exact: true }).click();
+      await miamiStarted.promise;
+      await expect(cards).toHaveCount(0);
+      releasePage.resolve();
+      await pageDelivered.promise;
+      await expect(cards).toHaveCount(0);
+      releaseMiami.resolve();
+      await expect(page.getByText(/We couldn’t load events/)).toBeVisible();
+      await expect(cards).toHaveCount(0);
+    } finally {
+      releasePage.resolve(); releaseMiami.resolve();
+      await page.unroute('**/api/events?**', raceRoute);
+    }
+  });
+  await test.step('nearby cities use their metro group without crossing Miami and Fort Lauderdale divisions', async () => {
+    await cityInput.fill('Miami Beach, FL');
+    await page.getByRole('button', { name: 'Find my night', exact: true }).click();
+    await expect(cards).toHaveCount(2);
+    await expect(cityInput).toHaveValue('Miami Beach, FL');
+    await expect(page.locator('#discovery-area-hint')).toContainText(/Miami.*metro division and surrounding communities/);
+    await expect(cards.locator('.card-location')).toHaveText(['Miami, FL', 'Miami Beach, FL']);
+    await expect(cards.filter({ hasText: 'Playwright Fort Lauderdale Night' })).toHaveCount(0);
+    await cityInput.fill('St. Petersburg, FL');
+    await page.getByRole('button', { name: 'Find my night', exact: true }).click();
+    await expect(cards).toHaveCount(2);
+    await expect(cityInput).toHaveValue('St. Petersburg, FL');
+    await expect(page.locator('#discovery-area-hint')).toContainText(/Tampa.*metro area and surrounding communities/);
+    await expect(cards.locator('.card-location')).toHaveText(['Tampa, FL', 'St. Petersburg, FL']);
+    for (const city of ['Miami', 'Miami Beach', 'Fort Lauderdale', 'Orlando']) await expect(cards.filter({ hasText: `Playwright ${city} Night` })).toHaveCount(0);
+  });
+  await test.step('a locality without upcoming events invites businesses through the configured app', async () => {
+    await page.getByLabel('City', { exact: true }).fill('Gainesville, FL');
+    await page.getByRole('button', { name: 'Find my night', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Nitewide coming soon to Gainesville', exact: true })).toBeVisible();
+    await expect(cards).toHaveCount(0);
+    const invitation = page.getByRole('link', { name: 'Nitewide Business', exact: true });
+    await expect(invitation).toBeVisible();
+    const href = new URL(await invitation.getAttribute('href'), page.url());
+    expect(href.origin).toBe(urls.business);
+    expect(href.pathname).toBe('/');
+  });
+  await test.step('clearing the selected city returns to area selection without widening discovery', async () => {
+    const before = discoveryRequests.length;
+    await page.getByRole('button', { name: /^City: Gainesville,/ }).click();
+    await expect(page.getByText('Choose an area to find your night.', { exact: true })).toBeVisible();
+    await expect(cards).toHaveCount(0);
+    expect(discoveryRequests).toHaveLength(before);
+  });
+  expect(discoveryRequests.every(params => params.get('city') && !params.has('allCities'))).toBeTruthy();
+  await expectNoOverflow(page);
 });
 
 authTest('profile lifecycle preserves failed changes, rotates passwords and saves independent contact preferences', async ({ page, request, fixture }) => {
@@ -202,7 +353,7 @@ authTest('registration requires matching passwords and creates a real account', 
 });
 
 test('shared event preserves saved state, maps and free-versus-paid admission labels', async ({ page, fixture }, testInfo) => {
-  await loginViaApi(page, fixture, 'customer', 'customer', `/?event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'customer', 'customer', `/?city=Miami%2C%20FL&event=${fixture.ids.event}`);
   const details = page.getByTestId('customer-event-details');
   await expect(details.getByRole('heading', { name: 'Playwright Friday Night' })).toBeVisible();
   // Regression for CI: the authenticated header is intentionally inaccessible
@@ -286,7 +437,7 @@ test('shared event preserves saved state, maps and free-versus-paid admission la
 });
 
 paginationTest('booking pagination, guestlist passes and notifications navigate to the exact admissions', async ({ page, fixture }) => {
-  await loginViaApi(page, fixture, 'customer');
+  await loginViaApi(page, fixture, 'customer', 'customer', '/?city=Miami%2C%20FL');
   await test.step('pagination and deep-linked guestlist use the correct entry', async () => {
     await page.getByRole('button', { name: 'Booked', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeEnabled();

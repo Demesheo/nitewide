@@ -12,6 +12,7 @@ const { createMediaCleanupService } = require('../services/media-cleanup-service
 const { createPaymentServices } = require('../payments/services');
 const { createPaymentReconciliationLane } = require('./payment-reconciliation');
 const { paymentRuntimeEvidence } = require('../diagnostics/payment-runtime');
+const { createLocationGeocodingService } = require('../services/location-geocoding-service');
 
 function backgroundServices({ sequelize, models, config }) {
   const permissions = createPermissionService(models);
@@ -28,6 +29,7 @@ function backgroundServices({ sequelize, models, config }) {
       concurrency: config.EMAIL_WORKER_CONCURRENCY, batchSize: config.EMAIL_WORKER_BATCH_SIZE,
       requestIntervalMs: config.EMAIL_REQUEST_INTERVAL_MS }),
     notifications,
+    geocoding: createLocationGeocodingService({ sequelize, config }),
     payments: createPaymentReconciliationLane({ ...payments, enabled: payments.stripe?.enabled === true }),
     exports: Array.from({ length: config.EXPORT_WORKER_CONCURRENCY }, () => createReportExportService({ models, businessRead, reports, historicalReports })),
     media: createMediaCleanupService({ models, storage: createMediaStorage({ config }), enabled: config.MEDIA_CLEANUP_ENABLED === 'true', intervalMs: config.MEDIA_CLEANUP_INTERVAL_MS }),
@@ -68,12 +70,13 @@ function createWorkerRuntime({ sequelize, services, pollIntervalMs = 2000, log =
       ...services.exports.map(service => loop('exports', () => service.drain())), loop('heartbeat', () => heartbeat())];
     if (services.media) active.push(loop('media cleanup', () => services.media.drain()));
     if (services.payments?.enabled) active.push(loop('payments', () => services.payments.drain(), services.payments.intervalMs || 30000));
+    if (services.geocoding) active.push(loop('public location geocoding', () => services.geocoding.drain(), 10000));
   }
   function stop() {
     if (stoppingPromise) return stoppingPromise;
     stopping = true; for (const wake of sleepers) wake();
     stoppingPromise = (async () => {
-      const results = await Promise.allSettled([services.email.stop(), services.notifications.stop(), ...services.exports.map(service => service.stop()), services.media?.stop(), services.payments?.stop()]);
+      const results = await Promise.allSettled([services.email.stop(), services.notifications.stop(), ...services.exports.map(service => service.stop()), services.media?.stop(), services.payments?.stop(), services.geocoding?.stop()]);
       await Promise.allSettled(active); await heartbeat('stopped');
       const failed = results.find(result => result.status === 'rejected');
       if (failed) throw failed.reason;

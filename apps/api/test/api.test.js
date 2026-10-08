@@ -18,7 +18,7 @@ function setup(onGuestlistQuery, guestlistScope = { canReviewAny: true, eventAff
 }
 test('public discovery filters finished events before applying its limit', async () => {
   let query;
-  const response = await request(setup(undefined, undefined, (value) => { query ||= value; }), '/api/events?limit=100');
+  const response = await request(setup(undefined, undefined, (value) => { query ||= value; }), '/api/events?limit=100&allCities=true');
   assert.equal(response.status, 200);
   assert.equal(response.body.data[0].title, 'Afterglow');
   assert.equal(query.where.status, 'published');

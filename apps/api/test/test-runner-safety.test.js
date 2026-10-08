@@ -60,7 +60,7 @@ test('standard runner classifies the mandatory integrations and five demo-only s
 });
 
 test('runner child environment blanks every Resend setting and marks only generated test DB targets', () => {
-  const incoming = { RESEND_API_KEY: 'secret', RESEND_FROM_EMAIL: 'secret', RESEND_EXTRA: 'secret', DATABASE_URL: 'ignored', NODE_ENV: 'production' };
+  const incoming = { RESEND_API_KEY: 'secret', RESEND_FROM_EMAIL: 'secret', RESEND_EXTRA: 'secret', DATABASE_URL: 'ignored', NODE_ENV: 'production', LOCATION_GEOCODING_PROVIDER: 'census' };
   const offline = offlineEnvironment(incoming);
   assert.equal(offline.RESEND_API_KEY, '');
   assert.equal(offline.RESEND_FROM_EMAIL, '');
@@ -69,6 +69,8 @@ test('runner child environment blanks every Resend setting and marks only genera
   assert.equal(offline.RESEND_TEST_MODE, 'false');
   assert.equal(offline.NODE_ENV, 'test');
   assert.equal(offline.LOG_LEVEL, 'silent');
+  assert.equal(offline.LOCATION_GEOCODING_PROVIDER, 'disabled', 'test runners never inherit an external geocoder');
+  assert.equal(offlineEnvironment({}).LOCATION_GEOCODING_PROVIDER, 'disabled', 'dotenv cannot restore an ambient provider');
   assert.equal(offlineEnvironment({ LOG_LEVEL: 'info' }).LOG_LEVEL, 'info');
   const child = isolatedEnvironment(dbUrl);
   assert.equal(child.TEST_DATABASE_MANAGED, '1');

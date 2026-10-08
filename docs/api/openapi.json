@@ -303,9 +303,22 @@
             "style": "form",
             "explode": true,
             "schema": {
-              "default": "",
               "type": "string",
               "maxLength": 120
+            }
+          },
+          {
+            "name": "allCities",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
             }
           },
           {
@@ -492,12 +505,89 @@
                                 "string",
                                 "null"
                               ]
+                            },
+                            "area": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "key": {
+                                      "type": "string"
+                                    },
+                                    "label": {
+                                      "type": "string"
+                                    },
+                                    "city": {
+                                      "type": "string"
+                                    },
+                                    "region": {
+                                      "type": "string"
+                                    },
+                                    "countryCode": {
+                                      "type": "string",
+                                      "minLength": 2,
+                                      "maxLength": 2
+                                    },
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": [
+                                        "metro",
+                                        "division",
+                                        "radius",
+                                        "city"
+                                      ]
+                                    },
+                                    "groupLabel": {
+                                      "type": "string"
+                                    },
+                                    "radiusMiles": {
+                                      "type": "number",
+                                      "const": 30
+                                    },
+                                    "centerLabel": {
+                                      "type": "string"
+                                    },
+                                    "geographyCoverage": {
+                                      "type": "string",
+                                      "const": "verified-addresses-only"
+                                    }
+                                  },
+                                  "required": [
+                                    "key",
+                                    "label",
+                                    "city",
+                                    "region",
+                                    "countryCode",
+                                    "kind"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "hasUpcomingAreaEvents": {
+                              "type": [
+                                "boolean",
+                                "null"
+                              ]
+                            },
+                            "resolutionStatus": {
+                              "type": "string",
+                              "enum": [
+                                "resolved",
+                                "unresolved"
+                              ]
                             }
                           },
                           "required": [
                             "items",
                             "hasMore",
-                            "nextCursor"
+                            "nextCursor",
+                            "area",
+                            "hasUpcomingAreaEvents",
+                            "resolutionStatus"
                           ],
                           "additionalProperties": false
                         }
@@ -960,6 +1050,258 @@
                   "startsAt",
                   "endsAt"
                 ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/discovery/areas": {
+      "get": {
+        "operationId": "get__discovery_areas",
+        "tags": [
+          "public"
+        ],
+        "security": [],
+        "deprecated": false,
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "default": "",
+              "type": "string",
+              "maxLength": 120
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "city": {
+                                "type": "string"
+                              },
+                              "region": {
+                                "type": "string"
+                              },
+                              "countryCode": {
+                                "type": "string",
+                                "minLength": 2,
+                                "maxLength": 2
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "metro",
+                                  "division",
+                                  "radius",
+                                  "city"
+                                ]
+                              },
+                              "groupLabel": {
+                                "type": "string"
+                              },
+                              "radiusMiles": {
+                                "type": "number",
+                                "const": 30
+                              },
+                              "centerLabel": {
+                                "type": "string"
+                              },
+                              "geographyCoverage": {
+                                "type": "string",
+                                "const": "verified-addresses-only"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "label",
+                              "city",
+                              "region",
+                              "countryCode",
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "hasMore": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "hasMore"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured error; code identifies the domain failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
               }
             }
           }

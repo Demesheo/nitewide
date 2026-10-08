@@ -103,12 +103,16 @@ test('webhook bodies are bounded, content-typed and unsupported methods have a c
   }
   assert.equal(calls.length, 0);
 });
-test('hosted document security policy allows required Stripe origins without broadening script execution', async () => {
+test('hosted document security policy narrowly allows city lookup and required Stripe origins without broadening script execution', async () => {
   const { app } = fixture();
   const response = await request(app).get('/health/live').expect(200);
   const csp = response.headers['content-security-policy'];
   assert.match(csp, /script-src[^;]*https:\/\/js\.stripe\.com/);
   assert.match(csp, /frame-src[^;]*https:\/\/hooks\.stripe\.com/);
   assert.match(csp, /connect-src[^;]*https:\/\/api\.stripe\.com/);
+  assert.ok(csp.match(/connect-src[^;]*/)[0].split(' ').includes('https://api.bigdatacloud.net/data/reverse-geocode-client'));
+  assert.doesNotMatch(csp, /https:\/\/\*\.bigdatacloud|https:\/\/api\.bigdatacloud\.net(?:\s|;)/);
   assert.doesNotMatch(csp.match(/script-src[^;]*/)[0], /unsafe-inline|unsafe-eval|\shttps:\s|\s\*\s/);
+  const withoutStripe = await request(fixture({ STRIPE_SECRET_KEY: undefined, STRIPE_PUBLISHABLE_KEY: undefined }).app).get('/health/live').expect(200);
+  assert.equal(withoutStripe.headers['content-security-policy'].match(/connect-src[^;]*/)[0], "connect-src 'self' https://api.bigdatacloud.net/data/reverse-geocode-client");
 });

@@ -57,6 +57,17 @@ test('route updates preserve unrelated referral and booking query params', () =>
   assert.equal(replaced.searchParams.get('booking'), 'order-8');
 });
 
+test('clearing an area remains explicit in the URL without rewriting the remembered preference', () => {
+  const previousWindow = globalThis.window;
+  let updated;
+  globalThis.window = { location: { href: 'https://nitewide.test/?city=Miami%2C+FL&ref=REF-123' }, history: { state: {}, pushState(_state, _title, url) { updated = url; } } };
+  try { updateCustomerRoute({ city: '' }); }
+  finally { if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow; }
+  assert.equal(new URL(updated).searchParams.has('city'), true);
+  assert.equal(new URL(updated).searchParams.get('city'), '');
+  assert.equal(new URL(updated).searchParams.get('ref'), 'REF-123');
+});
+
 test('discovery shortcuts use calendar dates through DST and month boundaries', () => {
   const sundayBeforeSpringForward = new Date(2026, 2, 8, 23, 30);
   assert.deepEqual(discoveryShortcutRange('tonight', sundayBeforeSpringForward), { start: '2026-03-08', end: '2026-03-08' });

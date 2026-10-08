@@ -1,5 +1,6 @@
 const { DataTypes, Model } = require('sequelize');
 const { id } = require('./helpers');
+const { invalidateLocationGeography } = require('../../domain/location-geography');
 class Location extends Model {}
 function initLocation(sequelize) {
   Location.init({
@@ -17,8 +18,17 @@ function initLocation(sequelize) {
     latitude: { type: DataTypes.DECIMAL(9, 6), validate: { min: -90, max: 90 } },
     longitude: { type: DataTypes.DECIMAL(9, 6), validate: { min: -180, max: 180 } },
     geo: DataTypes.GEOGRAPHY('POINT', 4326),
+    countyFips: DataTypes.STRING(5),
+    geocodeStatus: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'unverified' },
+    geocodeSource: DataTypes.STRING(40),
+    geocodeAddressHash: DataTypes.STRING(64),
+    geocodeBenchmark: DataTypes.STRING(80),
+    geocodeVintage: DataTypes.STRING(80),
+    geocodedAt: DataTypes.DATE,
+    geocodeAttempts: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    geocodeNextAttemptAt: DataTypes.DATE,
     privacy: { type: DataTypes.ENUM('public', 'attendees_only', 'private'), allowNull: false, defaultValue: 'public' },
-  }, { sequelize, modelName: 'Location', tableName: 'locations', version: true });
+  }, { sequelize, modelName: 'Location', tableName: 'locations', version: true, hooks: { beforeValidate: invalidateLocationGeography } });
   return Location;
 }
 module.exports = { Location, initLocation };

@@ -20,6 +20,7 @@ const commerce = { roles: ['customer', 'business', 'pending', 'promoter'], organ
 const recipes = Object.freeze(Object.fromEntries(Object.entries({
   legacy: { ...commerce, roles: Object.keys(accounts), events: 14, orders: 12, team: 25 },
   'customer-auth': { roles: ['customer'] },
+  'customer-discovery': { roles: ['customer', 'business'], organization: true, events: 15, discoveryAreas: true },
   'admin-auth': { roles: ['admin'] },
   'admin-access': { roles: ['customer', 'admin'] },
   'business-auth': { roles: ['business'], organization: true },
@@ -84,11 +85,21 @@ async function seed(models, config, { credited = false, recipe: recipeName = 'le
         }
       }
     }
+    const discoveryPlaces = recipe.discoveryAreas ? new Map([
+      [1, ['Winter Park', 'Playwright Winter Park Night']], [2, ['Kissimmee', 'Playwright Kissimmee Night']],
+      [10, ['Miami', 'Playwright Miami Night']], [11, ['Tampa', 'Playwright Tampa Night']],
+      [12, ['Fort Lauderdale', 'Playwright Fort Lauderdale Night']],
+      [13, ['Miami Beach', 'Playwright Miami Beach Night']], [14, ['St. Petersburg', 'Playwright St. Petersburg Night']],
+    ]) : new Map();
+    for (const [index, [city]] of discoveryPlaces) {
+      await models.Location.create({ id: uuid(3000 + index), name: `Playwright ${city} Venue`, city, region: 'FL', countryCode: 'US',
+        addressLine1: '100 Browser Fixture Lane', timezone: 'America/New_York', privacy: 'public' }, options);
+    }
     for (let index = 0; index < recipe.events; index++) {
       const eventId = uuid(100 + index);
       const startsAt = new Date(Date.now() + (2 + index * 6) * 3600000);
-      await models.Event.create({ id: eventId, organizationId: ids.org, creatorUserId: accounts.business.id, locationId: ids.location,
-        title: index === 0 ? 'Playwright Friday Night' : `Playwright Night ${String(index + 1).padStart(2, '0')}`,
+      await models.Event.create({ id: eventId, organizationId: ids.org, creatorUserId: accounts.business.id, locationId: discoveryPlaces.has(index) ? uuid(3000 + index) : ids.location,
+        title: discoveryPlaces.get(index)?.[1] || (index === 0 ? 'Playwright Friday Night' : `Playwright Night ${String(index + 1).padStart(2, '0')}`),
         slug: `playwright-night-${index}`, category: 'nightlife', description: 'Deterministic browser test event.', startsAt, endsAt: new Date(+startsAt + 4 * 3600000), status: 'published', capacity: 100, guestlistCapacity: 60 }, options);
       await models.Offering.create({ id: uuid(200 + index), eventId, name: 'General Admission', kind: 'ticket', priceCents: 2500, quantityTotal: 100, quantitySold: index < recipe.orders ? 1 : 0 }, options);
       if (index === 0 && recipe.affiliates) await models.EventAffiliate.create({ id: ids.affiliate, eventId, userId: accounts.promoter.id, code: 'PW-EVENT-LEO', status: 'active', guestlistAllocation: 10, commissionBps: 500, accessScope: 'event' }, options);

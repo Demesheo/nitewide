@@ -50,15 +50,18 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   // Path-style S3 URLs use this exact origin; no wildcard Cloudflare permission.
   const imageSources = ["'self'", 'data:'];
   if (config.R2_ACCOUNT_ID) imageSources.push(new URL(config.R2_ENDPOINT || `https://${config.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`).origin);
+  // The customer app's approximate city suggestion uses only this client lookup
+  // endpoint. Keep it available with or without Stripe, without a broad host allowlist.
+  const connectSources = ["'self'", 'https://api.bigdatacloud.net/data/reverse-geocode-client'];
   // Permit only Stripe's documented payment origins, without weakening script
   // policies with unsafe-inline/unsafe-eval or allowing arbitrary frame hosts.
   const paymentSources = stripeConfiguration(config).configured ? {
     imgSrc: [...imageSources, 'https://*.stripe.com', 'https://*.link.com'],
     scriptSrc: ["'self'", 'https://js.stripe.com', 'https://*.js.stripe.com', 'https://checkout.stripe.com'],
     frameSrc: ["'self'", 'https://js.stripe.com', 'https://*.js.stripe.com', 'https://hooks.stripe.com', 'https://checkout.stripe.com', 'https://link.com', 'https://*.link.com'],
-    connectSrc: ["'self'", 'https://api.stripe.com', 'https://checkout.stripe.com', 'https://link.com', 'https://*.link.com'],
+    connectSrc: [...connectSources, 'https://api.stripe.com', 'https://checkout.stripe.com', 'https://link.com', 'https://*.link.com'],
   } : {};
-  app.use(helmet({ contentSecurityPolicy: { directives: { imgSrc: imageSources, ...paymentSources } } }));
+  app.use(helmet({ contentSecurityPolicy: { directives: { imgSrc: imageSources, connectSrc: connectSources, ...paymentSources } } }));
   app.set('trust proxy', trustedProxy(config));
   app.use(['/health', '/health/live', '/health/ready'], (_req, res, next) => {
     // Public commit/environment identity only, never settings or fingerprints.

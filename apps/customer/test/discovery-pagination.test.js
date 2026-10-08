@@ -11,8 +11,8 @@ const card = await readFile(new URL('../src/components/event-card.jsx', import.m
 const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
 
 test('Discover loads bounded server pages and requests the next page only after an explicit More action', () => {
-  assert.match(hook, /new URLSearchParams\(\{ pageSize: '9', city: submitted\.city, startDate: start, endDate: end, query: submitted\.query, timezone \}\)/);
-  assert.match(hook, /const \[nextCursor, setNextCursor\] = useState\(null\)/);
+  assert.match(hook, /new URLSearchParams\(\{ pageSize: '9', city: selectedCity, startDate: start, endDate: end, query: submitted\.query, timezone \}\)/);
+  assert.match(hook, /nextCursor: null/);
   assert.match(hook, /async function loadMore\(preview = false\)/);
   assert.match(hook, /api\(url\(preview \? upcomingWeekRange\(submitted\.date\) : range, cursor\), \{ signal: controller\.signal \}\)/);
   assert.match(results, /onClick=\{\(\) => loadMore\(\)\}/);
@@ -21,9 +21,10 @@ test('Discover loads bounded server pages and requests the next page only after 
 });
 
 test('filter changes and refreshes abort stale pages while preserving city, date, and search state', () => {
-  assert.match(hook, /const key = JSON\.stringify\(\[submitted, timezone\]\)/);
-  assert.match(hook, /moreRequest\.current\?\.abort\(\)/);
-  assert.match(hook, /if \(controller\.signal\.aborted \|\| requestKey !== currentKey\.current\) return/);
+  assert.match(hook, /const key = JSON\.stringify\(\[selectedCity\.toLowerCase\(\), submitted\.date, submitted\.query, submitted\.shortcut, timezone\]\)/);
+  assert.match(hook, /Object\.values\(requests\.current\)\) request\?\.abort\(\)/);
+  assert.match(hook, /!controller\.signal\.aborted && currentKey\.current === key && generation\.current === requestGeneration/);
+  assert.match(hook, /state\.key === key \? state : emptyResults\(key, selectedCity\)/);
   assert.match(hook, /startDate: start, endDate: end, query: submitted\.query, timezone/);
   assert.match(hook, /function reload\(\) \{ setReloadRevision/);
 });
@@ -42,10 +43,9 @@ test('event card Save remains independent of Open and exposes its pressed state'
 });
 
 test('date-specific next-week preview uses its own cursor and does not overwrite the selected-date result', () => {
-  assert.match(hook, /const \[previewEvents, setPreviewEvents\] = useState\(\[\]\)/);
-  assert.match(hook, /const \[previewCursor, setPreviewCursor\] = useState\(null\)/);
-  assert.match(hook, /setPreviewEvents\(\(previous\) => \[\.\.\.previous, \.\.\.prepareEvents\(page\.items\)\]\)/);
-  assert.match(hook, /!submitted\.date \|\| loadState !== 'ready' \|\| events\.length/);
+  assert.match(hook, /previewEvents: \[\], previewCursor: null/);
+  assert.match(hook, /previewEvents: \[\.\.\.previous\.previewEvents, \.\.\.prepareEvents\(page\.items\)\]/);
+  assert.match(hook, /!submitted\.date \|\| loadState !== 'ready' \|\| events\.length \|\| !confirmedDiscoveryScope\(visible\.area, resolutionStatus\) \|\| hasUpcomingAreaEvents === false/);
   assert.match(results, /onClick=\{\(\) => loadMore\(true\)\}/);
 });
 

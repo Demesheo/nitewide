@@ -30,6 +30,8 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
 import { EventCard } from "./components/event-card";
 import { DiscoveryResults } from './components/discovery-results';
+import { DiscoveryCitySearch } from './components/discovery-city-search';
+import { discoveryScopeLabel, qualifiedDiscoveryCity } from './lib/discovery-selection';
 import { EventArtwork } from './components/event-artwork';
 import { eventAddressLines, eventDate, eventTime } from "./lib/presentation";
 import { LoadingIndicator } from './components/loading-indicator';
@@ -51,7 +53,7 @@ import './components/my-events-navigation.css';
 import { EventConnectionPicker } from './components/event-connection-picker';
 import { useConnections } from './lib/use-connections';
 import { focusEventDialogStart, openEventDialogAtTop } from './lib/dialog-focus';
-import { detectCurrentCity } from "./discovery-defaults";
+import { detectCurrentCity, discoveryAreaStorageKey, initialDiscoveryCity } from "./discovery-defaults";
 import { api } from "./lib/api";
 import { readCheckoutAttempt, prepareCheckoutAttempt, clearCheckoutAttempt, checkCheckoutAttempt, submitCheckoutAttempt, resumePaymentCheckout, checkPaymentCheckout, verifyPaymentCheckout, restoredCheckoutEvent, rememberCheckoutOrder, restorePaymentAttempt } from './lib/checkout-attempt';
 import { businessLink } from './lib/business-link';
@@ -110,12 +112,14 @@ export default function App() {
 
 function CustomerApp() {
   const initialRoute = useRef(parseCustomerRoute(window.location.search)).current;
-  const [city, setCity] = useState(initialRoute.city),
+  const initialCity = useRef(initialDiscoveryCity(initialRoute, readStorage(discoveryAreaStorageKey, ''),
+    new URLSearchParams(window.location.search).has('city') || initialRoute.tab === 'my-events')).current;
+  const [city, setCity] = useState(initialCity),
     [date, setDate] = useState(initialRoute.date),
     [query, setQuery] = useState(initialRoute.query);
   const [shortcut, setShortcut] = useState(initialRoute.shortcut);
-  const [submitted, setSubmitted] = useState({ city: initialRoute.city, date: initialRoute.date, query: initialRoute.query, shortcut: initialRoute.shortcut });
-  const { events, previewEvents, loadState, nextCursor, moreState, previewCursor, previewState, range: discoveryRange, reload: loadEvents, loadMore } = useDiscovery(submitted);
+  const [submitted, setSubmitted] = useState({ city: initialCity, date: initialRoute.date, query: initialRoute.query, shortcut: initialRoute.shortcut });
+  const { events, previewEvents, loadState, nextCursor, moreState, previewCursor, previewState, area: discoveryArea, resolutionStatus, hasUpcomingAreaEvents, range: discoveryRange, reload: loadEvents, loadMore } = useDiscovery(submitted);
   const [view, setView] = useState(initialRoute.tab);
   const [returnVisitor] = useState(() => Boolean(readStorage('nitewide.returning', false)));
   useEffect(() => { writeStorage('nitewide.returning', true); }, []);
@@ -280,6 +284,11 @@ function CustomerApp() {
     else window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   function applyDiscovery(next) {
+    locationEdited.current = true;
+    const selectedCity = qualifiedDiscoveryCity(next.city);
+    next = { ...next, city: selectedCity || next.city.trim() };
+    setCity(next.city);
+    if (selectedCity) writeStorage(discoveryAreaStorageKey, selectedCity);
     rememberScroll();
     setSubmitted(next);
     setView('discover');
@@ -291,10 +300,14 @@ function CustomerApp() {
     const onPopState = () => {
       if (checkoutLock.current) return;
       const route = parseCustomerRoute(window.location.search);
+      locationEdited.current = true;
       setView(route.tab);
       if (route.tab !== 'my-events') {
-        setCity(route.city); setDate(route.date); setQuery(route.query); setShortcut(route.shortcut);
-        setSubmitted({ city: route.city, date: route.date, query: route.query, shortcut: route.shortcut });
+        const qualifiedCity = qualifiedDiscoveryCity(route.city);
+        const selectedCity = qualifiedCity || route.city;
+        if (qualifiedCity) writeStorage(discoveryAreaStorageKey, qualifiedCity);
+        setCity(selectedCity); setDate(route.date); setQuery(route.query); setShortcut(route.shortcut);
+        setSubmitted({ city: selectedCity, date: route.date, query: route.query, shortcut: route.shortcut });
       }
       setBookingRoute(route.booking);
       setMyEventsRoute({ myEventId: route.myEventId, myStatus: route.myStatus, myPage: route.myPage, mySearch: route.mySearch });
@@ -310,7 +323,7 @@ function CustomerApp() {
   useLayoutEffect(() => {
     if (selected) focusEventDialogStart(eventDialogRef.current);
   }, [selected?.id]);
-  const [locationState, setLocationState] = useState("finding");
+  const [locationState, setLocationState] = useState(initialCity || new URLSearchParams(window.location.search).has('city') || initialRoute.tab === 'my-events' ? 'selected' : 'finding');
   useEffect(() => {
     if (!selected?.id || !session?.accessToken) { setGuestEntry(null); setGuestState(''); setGuestPartySize(1); setGuestMaxPartySize(customerGuestlistMaxPartySize); setGuestRequestsOpen(true); setGuestStatusLoading(false); return; }
     const controller = new AbortController();
@@ -352,20 +365,29 @@ function CustomerApp() {
     return () => { active = false; };
   }, []);
   useEffect(() => {
+    const explicitCity = new URLSearchParams(window.location.search).has('city');
+    if (initialCity || explicitCity || initialRoute.tab === 'my-events') {
+      const selectedCity = qualifiedDiscoveryCity(initialCity);
+      if (selectedCity) writeStorage(discoveryAreaStorageKey, selectedCity);
+      return;
+    }
     let active = true;
-    detectCurrentCity().then((value) => {
+    const controller = new AbortController();
+    detectCurrentCity({ signal: controller.signal }).then((value) => {
       if (active) {
-        if (!locationEdited.current && !initialRoute.city) {
-          const detected = value || 'Orlando, FL';
-          setCity(detected);
-          setSubmitted((current) => ({ ...current, city: detected }));
-          updateCustomerRoute({ city: detected }, { replace: true });
+        const detectedCity = qualifiedDiscoveryCity(value);
+        if (!locationEdited.current && detectedCity) {
+          setCity(detectedCity);
+          setSubmitted((current) => ({ ...current, city: detectedCity }));
+          writeStorage(discoveryAreaStorageKey, detectedCity);
+          updateCustomerRoute({ city: detectedCity }, { replace: true });
         }
-        setLocationState(value ? "detected" : "fallback");
+        setLocationState(detectedCity ? "detected" : "unavailable");
       }
     });
     return () => {
       active = false;
+      controller.abort();
     };
   }, []);
   useEffect(() => {
@@ -867,42 +889,8 @@ function CustomerApp() {
               applyDiscovery(next);
             }}
           >
-            <label className="search-field">
-              <MapPin />
-              <span>
-                <b>WHERE TO?</b>
-                <input
-                  aria-label="City"
-                  name="city"
-                  list="cities"
-                  value={city}
-                  placeholder={
-                    locationState === "finding"
-                      ? "Finding your city…"
-                      : "All cities"
-                  }
-                  onChange={(event) => {
-                    locationEdited.current = true;
-                    setCity(event.target.value);
-                  }}
-                />
-              </span>
-            </label>
-            <datalist id="cities">
-              {[
-                ...new Set([
-                  "Orlando, FL",
-                  "Miami, FL",
-                  "Fort Lauderdale, FL",
-                  "Tampa, FL",
-                  ...events.map(
-                    (e) => `${cityName(e)}, ${e.location?.region || ""}`,
-                  ),
-                ]),
-              ].map((value) => (
-                <option key={value} value={value} />
-              ))}
-            </datalist>
+            <DiscoveryCitySearch value={city} onChange={(value) => { locationEdited.current = true; setCity(value); }}
+              describedBy="discovery-area-hint" placeholder={locationState === 'finding' ? 'Finding your city…' : 'City, state or region'}/>
             <label className="search-field date-field">
               <CalendarDays />
               <span>
@@ -945,11 +933,12 @@ function CustomerApp() {
               <ArrowRight size={19} />
             </Button>
           </form>
+          <p id="discovery-area-hint" className="discovery-area-hint">{discoveryArea ? `Results area: ${discoveryScopeLabel(discoveryArea)}.${discoveryArea.kind === 'radius' ? ' Nearby results include only public event locations with confirmed coordinates.' : resolutionStatus === 'unresolved' || hasUpcomingAreaEvents == null ? ' Nearby coverage is not fully confirmed.' : ''}` : qualifiedDiscoveryCity(submitted.city) ? loadState === 'error' ? `Coverage for ${submitted.city} could not be loaded.` : `Checking coverage for ${submitted.city}.` : 'Choose a city and state or region. Outside the US, include the country.'}{city !== submitted.city && ' Apply your selection to update results.'}</p>
           <div className="discovery-shortcuts" aria-label="Quick dates">
             {[['tonight', 'Tonight'], ['tomorrow', 'Tomorrow'], ['weekend', 'This weekend']].map(([value, label]) => <button key={value} type="button" aria-pressed={submitted.shortcut === value} onClick={() => { setShortcut(value); setDate(''); applyDiscovery({ city, date: '', query, shortcut: value }); }}>{label}</button>)}
           </div>
           {(submitted.city || submitted.date || submitted.query || submitted.shortcut) && <div className="active-discovery-filters" aria-label="Active filters">
-            {submitted.city && <button onClick={() => { setCity(''); applyDiscovery({ ...submitted, city: '' }); }}>City: {submitted.city} <X size={13} /></button>}
+            {submitted.city && <button onClick={() => applyDiscovery({ ...submitted, city: '' })}>City: {submitted.city} <X size={13} /></button>}
             {submitted.date && <button onClick={() => { setDate(''); applyDiscovery({ ...submitted, date: '' }); }}>Date: {calendarLabel(submitted.date)} <X size={13} /></button>}
             {submitted.shortcut && <button onClick={() => { setShortcut(''); applyDiscovery({ ...submitted, shortcut: '' }); }}>{submitted.shortcut === 'weekend' ? 'This weekend' : submitted.shortcut === 'tonight' ? 'Tonight' : 'Tomorrow'} <X size={13} /></button>}
             {submitted.query && <button onClick={() => { setQuery(''); applyDiscovery({ ...submitted, query: '' }); }}>Search: {submitted.query} <X size={13} /></button>}
@@ -958,7 +947,7 @@ function CustomerApp() {
             <span>Book on the web. Be there in real life.</span>
           </div>
         </div>
-        <DiscoveryResults submitted={submitted} results={results} loadState={loadState} nextCursor={nextCursor} moreState={moreState} loadEvents={loadEvents} loadMore={loadMore} saved={saved} save={save} openEvent={openEvent} discoveryRange={discoveryRange} weekRange={weekRange} weeklyEvents={weeklyEvents} previewState={previewState} previewCursor={previewCursor} visible={view === 'discover'} />
+        <DiscoveryResults submitted={submitted} area={discoveryArea} resolutionStatus={resolutionStatus} hasUpcomingAreaEvents={hasUpcomingAreaEvents} results={results} loadState={loadState} nextCursor={nextCursor} moreState={moreState} loadEvents={loadEvents} loadMore={loadMore} saved={saved} save={save} openEvent={openEvent} discoveryRange={discoveryRange} weekRange={weekRange} weeklyEvents={weeklyEvents} previewState={previewState} previewCursor={previewCursor} visible={view === 'discover'} />
         {!returnVisitor && <section className="how-section wrap">
           <div>
             <p className="eyebrow">FIND YOUR VIBE</p>

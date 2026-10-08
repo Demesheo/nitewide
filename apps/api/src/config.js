@@ -42,6 +42,8 @@ const schema = z.object({
   R2_READ_URL_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
   MEDIA_CLEANUP_ENABLED: z.enum(['true', 'false']).default('false'),
   MEDIA_CLEANUP_INTERVAL_MS: z.coerce.number().int().min(60000).max(86400000).default(3600000),
+  // Release defaults are derived below; this optional setting can pause disclosure.
+  LOCATION_GEOCODING_PROVIDER: optionalR2(z.enum(['disabled', 'census'])),
   CORS_ORIGINS: z.string().default('http://localhost:5173,http://localhost:5174,http://localhost:5175'),
   AUTH_TOKEN_SECRET: z.string().min(32).optional(),
   QR_TOKEN_SECRET: z.string().min(32).optional(),
@@ -84,6 +86,10 @@ function getConfig(environment = process.env) {
   }
   const values = schema.parse(environment);
   values.EMAIL_DELIVERY_POLICY = emailDeliveryPolicy(values);
+  // Public-address matching is automatic in approved release environments only.
+  // Local, test and demo runtimes stay offline even with an inherited override.
+  values.LOCATION_GEOCODING_PROVIDER = values.NODE_ENV === 'production' && values.APP_ENVIRONMENT && values.HOSTED_DEMO === 'false'
+    ? (values.LOCATION_GEOCODING_PROVIDER ?? 'census') : 'disabled';
   if (values.TRUST_PROXY_MODE) {
     if (values.TRUST_PROXY_HOPS !== undefined) throw new Error('Use TRUST_PROXY_MODE or TRUST_PROXY_HOPS, not both');
     if (values.NODE_ENV !== 'production' || !values.APP_ENVIRONMENT || values.HOSTED_DEMO !== 'false') {

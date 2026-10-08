@@ -28,9 +28,15 @@ test('regular release configuration isolates staging/production, bounds pools an
     assert.equal(config.serveFrontends, true);
     assert.equal(config.hostedDemo, false);
     assert.equal(config.EMAIL_DELIVERY_POLICY, APP_ENVIRONMENT === 'staging' ? 'essential' : 'all');
+    assert.equal(config.LOCATION_GEOCODING_PROVIDER, 'census');
+    for (const override of ['', 'census']) assert.equal(releaseConfig({ ...environment,
+      LOCATION_GEOCODING_PROVIDER: override }).LOCATION_GEOCODING_PROVIDER, 'census');
+    assert.equal(releaseConfig({ ...environment, LOCATION_GEOCODING_PROVIDER: 'disabled' }).LOCATION_GEOCODING_PROVIDER, 'disabled');
     const lifecycle = [], dependencies = {
       log: () => {}, verifyMediaAccess: async () => { lifecycle.push('storage'); },
-      migrate: async () => { lifecycle.push('migrate'); }, startRuntime: async role => { lifecycle.push(role); },
+      migrate: async () => { lifecycle.push('migrate'); }, startRuntime: async (role, runtimeConfig) => {
+        assert.equal(runtimeConfig.LOCATION_GEOCODING_PROVIDER, 'census'); lifecycle.push(role);
+      },
     };
     await main(['check'], environment, dependencies);
     assert.deepEqual(lifecycle, [], 'offline configuration check makes no provider calls');
@@ -65,6 +71,7 @@ test('regular release configuration isolates staging/production, bounds pools an
       { CUSTOMER_APP_URL: `${environment.CUSTOMER_APP_URL}/?invite=unexpected` },
       { DATABASE_POOL_MAX: '0' }, { DATABASE_POOL_MAX: '41' }, { RENDER_GIT_COMMIT: 'not-a-sha' },
       { STRIPE_SANDBOX_SHARED_ACCOUNT_ID: 'acct_sharedfixture' }, { STRIPE_SECRET_KEY: 'sk_live_forbidden' },
+      { LOCATION_GEOCODING_PROVIDER: 'unknown' },
     ]) assert.throws(() => releaseConfig({ ...environment, ...invalid }));
     await assert.rejects(main(['api'], { ...environment, SERVE_FRONTENDS: 'false' }), /API must enable/);
     await assert.rejects(main(['worker'], environment), /worker must disable/);
@@ -91,6 +98,9 @@ test('regular release configuration isolates staging/production, bounds pools an
       crossEnvironment.CORS_ORIGINS = ['CUSTOMER_APP_URL', 'BUSINESS_APP_URL', 'ADMIN_APP_URL'].map(name => new URL(crossEnvironment[name]).origin).join(',');
       assert.throws(() => releaseConfig(crossEnvironment), /production app hostnames/);
     }
+  }
+  for (const HOSTED_DEMO of ['false', 'true']) for (const override of [undefined, 'census']) {
+    assert.equal(getConfig({ ...production, HOSTED_DEMO, LOCATION_GEOCODING_PROVIDER: override }).LOCATION_GEOCODING_PROVIDER, 'disabled');
   }
   assert.throws(() => getConfig({ ...production, SERVE_FRONTENDS: 'true' }), /explicit staging\/production/);
   const offline = require('../scripts/test-database.cjs').offlineEnvironment({ APP_ENVIRONMENT: 'production', APP_ROUTING_MODE: 'subdomains', ADMIN_APP_URL: 'https://admin.nitewide.com', SERVE_FRONTENDS: 'true', TRUST_PROXY_MODE: 'cloudflare-render', TRUST_PROXY_HOPS: '2' });

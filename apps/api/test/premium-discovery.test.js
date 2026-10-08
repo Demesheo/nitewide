@@ -11,7 +11,7 @@ for (const [tier, expected] of [['premium', true], ['free', false], [null, false
     const controller = createPublicController({ models });
     let result;
     const res = { json: payload => { result = payload.data; } };
-    await controller.listEvents({ query: {} }, res);
+    await controller.listEvents({ query: { allCities: 'true' } }, res);
     assert.equal(result[0].isPremiumHost, expected);
     await controller.getEvent({ params: { eventId: 'event' } }, res);
     assert.equal(result.isPremiumHost, expected);

@@ -32,7 +32,8 @@ export function updateCustomerRoute(changes, { replace = false, eventEntry = fal
   for (const [field, param] of Object.entries(fields)) {
     if (!(field in changes)) continue;
     const value = changes[field];
-    if (value && !(field === 'tab' && value === 'discover') && !(field === 'myStatus' && value === 'upcoming') && !(field === 'myPage' && value === 1)) url.searchParams.set(param, value);
+    if (field === 'city' && value === '') url.searchParams.set(param, '');
+    else if (value && !(field === 'tab' && value === 'discover') && !(field === 'myStatus' && value === 'upcoming') && !(field === 'myPage' && value === 1)) url.searchParams.set(param, value);
     else url.searchParams.delete(param);
   }
   const operatorView = url.searchParams.get('tab') === 'my-events';

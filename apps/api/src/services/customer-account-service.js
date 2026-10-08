@@ -20,8 +20,7 @@ function profile(user) {
 }
 function eventSummary(event, { canViewAttendeeAddress = false } = {}) {
   if (!event) return null;
-  const location = event.location?.privacy === 'attendees_only' && canViewAttendeeAddress
-    ? event.location.toJSON() : redactLocation(event.location);
+  const location = redactLocation(event.location, { includeAttendeeAddress: canViewAttendeeAddress });
   if (location) location.addressVisible = location.privacy === 'public' || (location.privacy === 'attendees_only' && canViewAttendeeAddress);
   return { id: event.id, title: event.title, startsAt: event.startsAt, endsAt: event.endsAt, status: event.status,
     imageUrl: event.imageUrl, isPremiumHost: event.organization?.planTier === 'premium', organization: event.organization ? { name: event.organization.name } : null,
