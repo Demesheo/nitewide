@@ -75,9 +75,15 @@ test('affected browser spec selection uses exact configured specs/projects and b
   assert.deepEqual(plan.specs, ['business-payments.spec.cjs']);
   const runner = recorder(); await runAffected(plan, { runner, timing });
   assert.deepEqual(runner.calls.at(-1).args, ['run', 'test:e2e', '--', '--project=business-desktop', '--project=business-iphone', 'e2e/specs/business-payments.spec.cjs']);
+  for (const spec of ['customer-discovery.spec.cjs', 'customer-auth.spec.cjs', 'customer-commerce.spec.cjs']) {
+    const customer = selectAffected([`e2e/specs/${spec}`], { ci: false });
+    assert.equal(customer.mode, 'selected');
+    assert.deepEqual(customer.projects, [...projectsByApp.customer].sort());
+    assert.deepEqual(customer.specs, [spec]);
+  }
   for (const file of ['apps/api/src/services/checkout-service.js', 'apps/api/src/db/migrations/new.js', 'apps/api/test/new.test.js',
     'apps/pricing/index.cjs', 'apps/customer/vite.config.js', 'apps/customer/package.json', 'package-lock.json', 'playwright.config.cjs',
-    'e2e/fixtures.cjs', 'e2e/specs/new.spec.cjs', 'e2e/specs/admin.spec.cjs', 'deploy/Dockerfile', '.github/workflows/demo-image.yml',
+    'e2e/fixtures.cjs', 'e2e/specs/new.spec.cjs', 'e2e/specs/customer.spec.cjs', 'e2e/specs/admin.spec.cjs', 'deploy/Dockerfile', '.github/workflows/demo-image.yml',
     'docs/UI_TESTING.md', '../apps/customer/src/App.jsx', 'apps/customer/src/../../business/src/App.jsx']) {
     assert.equal(selectAffected(['apps/customer/src/App.jsx', file], { ci: false }).mode, 'release', file);
   }

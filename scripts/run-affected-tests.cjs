@@ -5,7 +5,7 @@ const { createTimingCollector } = require('./test-timing.cjs');
 const { runQuick, frontendWorkspaces } = require('./run-quick-tests.cjs');
 
 const projectsByApp = Object.freeze({ customer: ['customer-iphone', 'customer-desktop'], business: ['business-iphone', 'business-desktop'], admin: ['admin-rebuild-iphone', 'admin-rebuild-desktop'] });
-const specsByApp = Object.freeze({ customer: ['customer.spec.cjs', 'customer-my-events.spec.cjs', 'commissions-messages.spec.cjs'],
+const specsByApp = Object.freeze({ customer: ['customer-discovery.spec.cjs', 'customer-auth.spec.cjs', 'customer-commerce.spec.cjs', 'customer-my-events.spec.cjs', 'commissions-messages.spec.cjs'],
   business: ['business.spec.cjs', 'business-access.spec.cjs', 'business-payments.spec.cjs', 'commissions-messages.spec.cjs'],
   admin: ['admin-rebuild.spec.cjs', 'admin-access-requests.spec.cjs'] });
 

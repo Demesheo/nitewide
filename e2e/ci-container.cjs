@@ -6,17 +6,26 @@ const { ensureTimingRunId } = require('../scripts/test-timing.cjs');
 
 // Balance measured journey time by file, not concurrent fixture mutations.
 // Each CI group owns a separate disposable database and still uses one worker.
-const projectGroups = {
-  customer: { apps: ['customer'], specs: [] },
-  'customer-core': { apps: ['customer'], specs: ['customer.spec.cjs'] },
-  'customer-operations': { apps: ['customer'], specs: ['customer-my-events.spec.cjs', 'commissions-messages.spec.cjs'] },
-  business: { apps: ['business'], specs: [] },
+// Spec arguments intersect each selected project's configured testMatch, so
+// mixed-app lanes do not execute unrelated device/spec pairs.
+const ciProjectGroups = {
   'business-core': { apps: ['business'], specs: ['business.spec.cjs'] },
-  // Run 61 measured Customer operations at ~95s, Business operations at
-  // ~84s and Admin at ~128s. Keep the shared Messages file with both customer
-  // and business projects so its device/spec pairs cannot run in two lanes.
+  'customer-commerce': { apps: ['customer'], specs: ['customer-commerce.spec.cjs'] },
+  'customer-operations': { apps: ['customer', 'business'], specs: ['customer-my-events.spec.cjs', 'business-access.spec.cjs'] },
+  // Keep both apps' shared Messages/commissions selections in one lane,
+  // including its six intentional cross-app skips.
+  'platform-operations': { apps: ['admin-rebuild', 'customer', 'business'], specs: ['admin-rebuild.spec.cjs', 'admin-access-requests.spec.cjs', 'commissions-messages.spec.cjs'] },
+  'discovery-access': { apps: ['customer', 'business'], specs: ['customer-discovery.spec.cjs', 'customer-auth.spec.cjs', 'business-payments.spec.cjs'] },
+};
+
+// Retain complete-app and former core/operations selections for local focused
+// runs; only ciProjectGroups participates in the workflow matrix.
+const projectGroups = {
+  ...ciProjectGroups,
+  customer: { apps: ['customer'], specs: [] },
+  'customer-core': { apps: ['customer'], specs: ['customer-discovery.spec.cjs', 'customer-auth.spec.cjs', 'customer-commerce.spec.cjs'] },
+  business: { apps: ['business'], specs: [] },
   'business-operations': { apps: ['business', 'customer'], specs: ['business-access.spec.cjs', 'business-payments.spec.cjs', 'commissions-messages.spec.cjs', 'customer-my-events.spec.cjs'] },
-  'platform-operations': { apps: ['admin-rebuild'], specs: ['admin-rebuild.spec.cjs', 'admin-access-requests.spec.cjs'] },
   'admin-rebuild': { apps: ['admin-rebuild'], specs: [] },
 };
 
@@ -66,4 +75,4 @@ async function main(args = process.argv.slice(2)) {
   });
 }
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1; });
-module.exports = { containerPlan, projectGroups };
+module.exports = { containerPlan, projectGroups, ciProjectGroups };

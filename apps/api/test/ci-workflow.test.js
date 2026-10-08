@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { containerPlan, projectGroups } = require('../../../e2e/ci-container.cjs');
+const { containerPlan, projectGroups, ciProjectGroups } = require('../../../e2e/ci-container.cjs');
 const root = path.resolve(__dirname, '../../..');
 const workflow = fs.readFileSync(path.join(root, '.github/workflows/demo-image.yml'), 'utf8');
 const section = name => {
@@ -35,9 +35,11 @@ test('browser container preserves loopback isolation, sequential tests and exact
   assert.throws(() => containerPlan({ ...options, workspace: '/workspace,unsafe' }), /safe absolute/);
 });
 
-test('CI balances four file partitions while keeping every device/spec pair exactly once', () => {
-  const groups = ['customer-core', 'business-core', 'business-operations', 'platform-operations'];
-  assert.match(section('browser'), /app: \[customer-core, business-core, business-operations, platform-operations\]/);
+test('CI balances five file partitions while keeping every device/spec pair exactly once', () => {
+  const groups = Object.keys(ciProjectGroups);
+  assert.deepEqual(groups, ['business-core', 'customer-commerce', 'customer-operations', 'platform-operations', 'discovery-access']);
+  const matrixGroups = section('browser').match(/app: \[([^\]]+)\]/)?.[1].split(',').map(group => group.trim());
+  assert.deepEqual(matrixGroups, groups, 'Workflow matrix contains exactly the balanced CI groups');
   assert.match(section('browser'), /fail-fast: false/);
   assert.match(section('browser'), /group: demo-browser-\$\{\{ matrix\.app \}\}-\$\{\{ github\.ref \}\}/);
   assert.match(section('browser'), /PLAYWRIGHT_PROJECT_GROUP: \$\{\{ matrix\.app \}\}/);
@@ -47,7 +49,10 @@ test('CI balances four file partitions while keeping every device/spec pair exac
   const coverage = [];
   for (const group of groups) {
     const { args } = containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: group } });
-    const { apps, specs: files } = projectGroups[group];
+    const { apps, specs: files } = ciProjectGroups[group];
+    assert.ok(files.length, 'CI partitions must select explicit files');
+    assert.equal(new Set(apps).size, apps.length, 'No duplicated app selection within a lane');
+    assert.equal(new Set(files).size, files.length, 'No duplicated spec selection within a lane');
     assert.deepEqual(args.slice(args.indexOf('npm')), ['npm', 'run', 'test:e2e', '--',
       ...apps.flatMap(app => [`--project=${app}-iphone`, `--project=${app}-desktop`]), ...files.map(file => `e2e/specs/${file}`)]);
     assert.doesNotMatch(args.join(' '), /never-forward|live\.example|--workers|--fully-parallel/);
@@ -60,11 +65,17 @@ test('CI balances four file partitions while keeping every device/spec pair exac
   const expected = config.projects.flatMap(project => project.testMatch.map(file => `${project.name}:${file}`));
   assert.deepEqual(coverage.sort(), expected.sort(), 'Every configured device/spec pair runs exactly once');
   assert.equal(new Set(coverage).size, coverage.length, 'No duplicated device/spec executions');
-  assert.deepEqual(projectGroups['business-operations'].apps, ['business', 'customer']);
-  assert.ok(projectGroups['business-operations'].specs.includes('customer-my-events.spec.cjs'));
-  assert.deepEqual(projectGroups['platform-operations'], { apps: ['admin-rebuild'], specs: ['admin-rebuild.spec.cjs', 'admin-access-requests.spec.cjs'] });
-  const legacy = containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: 'customer' } });
-  assert.deepEqual(legacy.args.slice(-6), ['npm', 'run', 'test:e2e', '--', '--project=customer-iphone', '--project=customer-desktop']);
+  assert.deepEqual(ciProjectGroups['customer-operations'], { apps: ['customer', 'business'], specs: ['customer-my-events.spec.cjs', 'business-access.spec.cjs'] });
+  assert.deepEqual(ciProjectGroups['platform-operations'], { apps: ['admin-rebuild', 'customer', 'business'], specs: ['admin-rebuild.spec.cjs', 'admin-access-requests.spec.cjs', 'commissions-messages.spec.cjs'] });
+  assert.deepEqual(groups.filter(group => ciProjectGroups[group].specs.includes('commissions-messages.spec.cjs')), ['platform-operations']);
+  assert.deepEqual(ciProjectGroups['discovery-access'], { apps: ['customer', 'business'], specs: ['customer-discovery.spec.cjs', 'customer-auth.spec.cjs', 'business-payments.spec.cjs'] });
+  for (const app of ['customer', 'business', 'admin-rebuild']) {
+    const legacy = containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: app } });
+    assert.deepEqual(legacy.args.slice(-6), ['npm', 'run', 'test:e2e', '--', `--project=${app}-iphone`, `--project=${app}-desktop`]);
+    assert.deepEqual(projectGroups[app], { apps: [app], specs: [] });
+  }
+  assert.deepEqual(projectGroups['customer-core'], { apps: ['customer'], specs: ['customer-discovery.spec.cjs', 'customer-auth.spec.cjs', 'customer-commerce.spec.cjs'] });
+  assert.deepEqual(projectGroups['business-operations'], { apps: ['business', 'customer'], specs: ['business-access.spec.cjs', 'business-payments.spec.cjs', 'commissions-messages.spec.cjs', 'customer-my-events.spec.cjs'] });
   assert.throws(() => containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: 'customer --workers=4' } }), /supported browser project group/);
   assert.throws(() => containerPlan({ ...options, source: { ...source, PLAYWRIGHT_PROJECT_GROUP: 'toString' } }), /supported browser project group/);
 });
@@ -80,13 +91,21 @@ test('CI browser timeouts allow both device projects and reserve time for setup 
 test('CI retains setup and test timings even on failure, outside Playwright output cleanup', () => {
   for (const name of ['unit', 'browser']) {
     const job = section(name);
-    assert.match(job, /run: node scripts\/time-test-phase\.cjs npm-version/);
-    assert.match(job, /run: node scripts\/time-test-phase\.cjs dependencies/);
     assert.match(job, /name: Summarize test performance\n\s+if: \$\{\{ always\(\) && !cancelled\(\) \}\}\n\s+run: node scripts\/report-test-timings\.cjs/);
     assert.match(job, /\.test-metrics\//);
     assert.match(job, /include-hidden-files: true/);
   }
-  assert.match(section('browser'), /run: node scripts\/time-test-phase\.cjs browser-pull/);
+  const unit = section('unit');
+  assert.match(unit, /run: node scripts\/time-test-phase\.cjs npm-version/);
+  assert.match(unit, /run: node scripts\/time-test-phase\.cjs dependencies/);
+  const browser = section('browser');
+  const setup = browser.match(/name: Install dependencies and pull preinstalled browsers\n\s+run: node scripts\/ci-browser-bootstrap\.cjs\n\s+timeout-minutes: (\d+)/);
+  assert.ok(setup, 'Browser setup uses the combined measured bootstrap');
+  assert.equal(Number(setup[1]), 8, 'Reserve time for ordered npm setup and concurrent image pull');
+  const compatibility = browser.indexOf('run: node e2e/ci-container.cjs --check');
+  assert.ok(compatibility > setup.index, 'Check installed Playwright compatibility after dependency installation and image pull');
+  assert.ok(compatibility < browser.indexOf('run: node e2e/ci-container.cjs\n'), 'Compatibility check gates browser execution');
+  assert.doesNotMatch(browser, /run: node scripts\/time-test-phase\.cjs (?:npm-version|dependencies|browser-pull)/);
   const { args } = containerPlan(options);
   assert.ok(args.some(arg => /^NITEWIDE_TEST_TIMING_RUN_ID=[a-f0-9]{32}$/.test(arg)));
   const config = require('../../../playwright.config.cjs');
@@ -199,6 +218,10 @@ test('retired admin browser paths are excluded while rebuild workflows have dedi
   for (const project of config.projects.filter(project => project.name.startsWith('business-'))) {
     assert.deepEqual(project.testMatch, ['business.spec.cjs', 'business-access.spec.cjs', 'business-payments.spec.cjs','commissions-messages.spec.cjs']);
   }
+  for (const project of config.projects.filter(project => project.name.startsWith('customer-'))) {
+    assert.deepEqual(project.testMatch, ['customer-discovery.spec.cjs', 'customer-auth.spec.cjs', 'customer-commerce.spec.cjs', 'customer-my-events.spec.cjs', 'commissions-messages.spec.cjs']);
+  }
+  assert.ok(!fs.existsSync(path.join(root, 'e2e/specs/customer.spec.cjs')));
   assert.ok(!fs.existsSync(path.join(root, 'e2e/specs/admin.spec.cjs')));
   const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
   assert.match(dockerfile, /npm run build --workspace @nitewide\/admin/);
