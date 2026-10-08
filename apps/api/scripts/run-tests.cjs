@@ -15,6 +15,7 @@ INTEGRATION_TESTS.push('business-payment-account-integration.test.js');
 INTEGRATION_TESTS.push('business-payment-disconnect-integration.test.js');
 INTEGRATION_TESTS.push('guestlist-passes-integration.test.js');
 INTEGRATION_TESTS.push('customer-my-events-integration.test.js');
+INTEGRATION_TESTS.push('customer-rundown-integration.test.js');
 INTEGRATION_TESTS.push('guestlist-quantity-integration.test.js');
 INTEGRATION_TESTS.push('commission-ledger-integration.test.js');
 INTEGRATION_TESTS.push('commission-payment-integration.test.js');

@@ -30,6 +30,8 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
 import { EventCard } from "./components/event-card";
 import { DiscoveryResults } from './components/discovery-results';
+import { RundownPage } from './components/rundown-page';
+import { loadRundownEvent } from './lib/rundown-event';
 import { DiscoveryCitySearch } from './components/discovery-city-search';
 import { DiscoveryDateSearch } from './components/discovery-date-search';
 import { DiscoveryControls } from './components/discovery-controls';
@@ -63,7 +65,7 @@ import { businessLink } from './lib/business-link';
 import { referralCodeForEvent, referralFromSearch } from './lib/referral';
 import { eventShareUrl } from './lib/event-share';
 import { bookingFromSearch } from './lib/booking-link';
-import { canApplyInitialEvent, parseCustomerRoute, updateCustomerRoute } from './lib/customer-route';
+import { canApplyInitialEvent, parseCustomerRoute, rundownContextKeyFromSearch, rundownIdFromSearch, rundownPreviewFromSearch, updateCustomerRoute } from './lib/customer-route';
 import { mapsUrlForLocation } from './lib/maps-link';
 import { clearPassCache } from './lib/pass-cache';
 import { GuestlistInvitationPage } from './components/guestlist-invitation-page';
@@ -115,6 +117,10 @@ export default function App() {
 
 function CustomerApp() {
   const initialRoute = useRef(parseCustomerRoute(window.location.search)).current;
+  const [rundownId, setRundownId] = useState(() => rundownIdFromSearch(window.location.search));
+  const [rundownPreview, setRundownPreview] = useState(() => rundownPreviewFromSearch(window.location.search));
+  const rundownEventRequest = useRef(null);
+  useEffect(() => () => rundownEventRequest.current?.abort(), []);
   const initialCity = useRef(initialDiscoveryCity(initialRoute, readStorage(discoveryAreaStorageKey, ''),
     new URLSearchParams(window.location.search).has('city') || initialRoute.tab === 'my-events')).current;
   const [city, setCity] = useState(initialCity),
@@ -125,13 +131,16 @@ function CustomerApp() {
   submittedRef.current = submitted;
   const holdCityMenuOnBlur = useRef(false);
   const [cityMenuDismissal, setCityMenuDismissal] = useState(0);
-  const { events, previewEvents, loadState, nextCursor, moreState, previewCursor, previewState, area: discoveryArea, distanceOrigin, resolutionStatus, hasUpcomingAreaEvents, reload: loadEvents, loadMore } = useDiscovery(submitted);
+  const { events, previewEvents, loadState, nextCursor, moreState, previewCursor, previewState, area: discoveryArea, distanceOrigin, resolutionStatus, hasUpcomingAreaEvents, reload: loadEvents, loadMore } = useDiscovery(rundownId || rundownPreview ? { ...submitted, city: '' } : submitted);
   const [view, setView] = useState(initialRoute.tab);
+  const showingRundown = view === 'discover' && Boolean(rundownId || rundownPreview);
   const [returnVisitor] = useState(() => Boolean(readStorage('nitewide.returning', false)));
   useEffect(() => { writeStorage('nitewide.returning', true); }, []);
   const [session, setSession] = useState(validSession),
     [authOpen, setAuthOpen] = useState(false),
     [walletOpen, setWalletOpen] = useState(() => new URLSearchParams(window.location.search).has('commissionProfileReturn'));
+  const currentSessionToken = useRef(session?.accessToken);
+  currentSessionToken.current = session?.accessToken;
   const [notificationBooking, setNotificationBooking] = useState(null);
   const [messageBooking, setMessageBooking] = useState(null), [messageThread, setMessageThread] = useState(null);
   const [supportThread, setSupportThread] = useState(null);
@@ -220,7 +229,11 @@ function CustomerApp() {
     return false;
   }
   const [connectionsRevision, setConnectionsRevision] = useState(0);
-  const connectionsHistory = useConnections(session, connectionsRevision);
+  const navigationRefreshKey = JSON.stringify([view,
+    view === 'my-events' ? myEventsRoute : null,
+    view === 'booked' ? bookingRoute : null,
+    showingRundown ? rundownId || rundownPreview : null]);
+  const connectionsHistory = useConnections(session, `${connectionsRevision}:${navigationRefreshKey}`);
   const hasConnections = Boolean(session && connectionsHistory?.eligible);
   const refreshConnections = () => setConnectionsRevision((value) => value + 1);
   useEffect(() => {
@@ -248,6 +261,14 @@ function CustomerApp() {
     [offeringId, setOfferingId] = useState(""),
     [quantity, setQuantity] = useState(1),
     [stage, setStage] = useState("details");
+  const previousPreviewToken = useRef(session?.accessToken);
+  useEffect(() => {
+    if (rundownPreview && previousPreviewToken.current !== session?.accessToken) {
+      rundownEventRequest.current?.abort();
+      setSelected(null); setReferral(null);
+    }
+    previousPreviewToken.current = session?.accessToken;
+  }, [rundownPreview, session?.accessToken]);
   const [shareFeedback, setShareFeedback] = useState('');
   const { copy: copyLink, manualLink } = useClipboardCopy(selected?.id);
   const [shareAsCopy, setShareAsCopy] = useState(null);
@@ -288,6 +309,9 @@ function CustomerApp() {
   }
   function navigateView(next, { replace = false } = {}) {
     if (checkoutLock.current) return;
+    rundownEventRequest.current?.abort();
+    setRundownId(null);
+    setRundownPreview(null);
     currentCity.cancel();
     rememberScroll();
     setView(next);
@@ -295,11 +319,14 @@ function CustomerApp() {
     setBookingRoute(null);
     const operatorRoute = { myEventId: null, myStatus: 'upcoming', myPage: 1, mySearch: '' };
     setMyEventsRoute(operatorRoute);
-    updateCustomerRoute({ tab: next, eventId: null, booking: null, ...(next === 'my-events' ? operatorRoute : {}), ...(next === 'discover' ? submitted : {}) }, { replace });
+    updateCustomerRoute({ tab: next, eventId: null, referralCode: null, rundownId: null, rundownPreview: null, booking: null, ...(next === 'my-events' ? operatorRoute : {}), ...(next === 'discover' ? submitted : {}) }, { replace });
     if (next === 'discover') requestAnimationFrame(() => document.getElementById('discover')?.scrollIntoView({ behavior: 'smooth' }));
     else window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   function applyDiscovery(next, { preserveDraft = false, scrollResults = true, preserveLocation = false } = {}) {
+    rundownEventRequest.current?.abort();
+    setRundownId(null);
+    setRundownPreview(null);
     locationEdited.current = true;
     if (!preserveLocation) currentCity.cancel();
     const selectedCity = qualifiedDiscoveryCity(next.city);
@@ -309,7 +336,7 @@ function CustomerApp() {
     rememberScroll();
     setSubmitted(next);
     setView('discover');
-    updateCustomerRoute({ tab: 'discover', city: next.city, date: next.date, query: next.query, shortcut: next.shortcut, scope: next.scope, sort: next.sort, eventId: null, booking: null });
+    updateCustomerRoute({ tab: 'discover', rundownId: null, rundownPreview: null, referralCode: null, city: next.city, date: next.date, query: next.query, shortcut: next.shortcut, scope: next.scope, sort: next.sort, eventId: null, booking: null });
     if (scrollResults) requestAnimationFrame(() => document.getElementById('discover')?.scrollIntoView({ behavior: 'smooth' }));
   }
   function changeDiscoveryControls(changes) {
@@ -331,7 +358,10 @@ function CustomerApp() {
     let active = true;
     const onPopState = () => {
       if (checkoutLock.current) return;
+      rundownEventRequest.current?.abort();
       const route = parseCustomerRoute(window.location.search);
+      setRundownId(rundownIdFromSearch(window.location.search));
+      setRundownPreview(rundownPreviewFromSearch(window.location.search));
       locationEdited.current = true;
       currentCity.cancel();
       setView(route.tab);
@@ -345,10 +375,20 @@ function CustomerApp() {
       setBookingRoute(route.booking);
       setMyEventsRoute({ myEventId: route.myEventId, myStatus: route.myStatus, myPage: route.myPage, mySearch: route.mySearch });
       requestAnimationFrame(() => window.scrollTo({ top: window.history.state?.nitewideScrollY || 0 }));
-      if (!route.eventId) { setSelected(null); return; }
-      api(`/events/${encodeURIComponent(route.eventId)}`)
-        .then((event) => { if (active && parseCustomerRoute(window.location.search).eventId === event.id) openEvent(event, { fromRoute: true }); })
-        .catch(() => { if (active) setNotice('This event is no longer available.'); });
+      if (!route.eventId) { setSelected(null); setReferral(null); return; }
+      // Do not leave a different event's details/credit visible while history
+      // restores this link. A recovered checkout retains ownership instead.
+      if (activeCheckoutAttempt.current?.body.eventId !== route.eventId) { setSelected(null); setReferral(null); }
+      const controller = new AbortController();
+      rundownEventRequest.current = controller;
+      const incoming = referralFromSearch(window.location.search);
+      loadRundownEvent({ eventId: route.eventId, code: incoming?.code, signal: controller.signal, sessionKey: referralSessionKey() }, api)
+        .then(({ event, referral: source }) => {
+          if (active && !controller.signal.aborted && canApplyInitialEvent({ eventId: event.id, routeEventId: parseCustomerRoute(window.location.search).eventId, checkoutLocked: checkoutLock.current, checkoutEventId: activeCheckoutAttempt.current?.body.eventId })) {
+            setReferral(source); openEvent(event, { fromRoute: true });
+          }
+        })
+        .catch(() => { if (active && !controller.signal.aborted) setNotice('This event link is no longer available.'); });
     };
     window.addEventListener('popstate', onPopState);
     return () => { active = false; window.removeEventListener('popstate', onPopState); };
@@ -376,36 +416,31 @@ function CustomerApp() {
   }, [selected?.id, session?.accessToken, referral?.code]);
   useEffect(() => {
     const incoming = referralFromSearch(window.location.search);
+    const initialRundown = rundownContextKeyFromSearch(window.location.search);
     const eventId = initialRoute.eventId;
     if (!eventId) return;
+    const controller = new AbortController();
+    rundownEventRequest.current = controller;
     let active = true;
-    const canApply = (event) => active && canApplyInitialEvent({
+    const canApply = (event) => active && !controller.signal.aborted
+      && rundownContextKeyFromSearch(window.location.search) === initialRundown
+      && referralFromSearch(window.location.search)?.code === incoming?.code
+      && canApplyInitialEvent({
       eventId: event.id,
       routeEventId: parseCustomerRoute(window.location.search).eventId,
       checkoutLocked: checkoutLock.current,
       checkoutEventId: activeCheckoutAttempt.current?.body.eventId,
     });
-    if (incoming) {
-      const sessionKey = sessionStorage.getItem('nitewide.referral-session') || crypto.randomUUID();
-      sessionStorage.setItem('nitewide.referral-session', sessionKey);
-      Promise.all([
-        api(`/events/${encodeURIComponent(incoming.eventId)}`),
-        api(`/events/${encodeURIComponent(incoming.eventId)}/referral-visits`, { body: { code: incoming.code, sessionKey } }),
-      ]).then(([event, visit]) => {
+    loadRundownEvent({ eventId, code: incoming?.code, sessionKey: referralSessionKey(), signal: controller.signal }, api)
+      .then(({ event, referral: source }) => {
         if (!canApply(event)) return;
-        setReferral({ ...incoming, referrerName: visit.referrerName });
-        openEvent(event, { fromRoute: true });
-      }).catch(() => { if (active) setNotice('This referral link is no longer active. You can still browse events.'); });
-    } else {
-      api(`/events/${encodeURIComponent(eventId)}`)
-        .then((event) => { if (canApply(event)) openEvent(event, { fromRoute: true }); })
-        .catch(() => { if (active) setNotice('This event is no longer available. You can still browse events.'); });
-    }
-    return () => { active = false; };
+        setReferral(source); openEvent(event, { fromRoute: true });
+      }).catch(() => { if (active && !controller.signal.aborted) setNotice('This event link is no longer available. You can still browse events.'); });
+    return () => { active = false; controller.abort(); };
   }, []);
   useEffect(() => {
     const explicitCity = new URLSearchParams(window.location.search).has('city');
-    if (initialCity || explicitCity || initialRoute.tab === 'my-events') {
+    if (rundownContextKeyFromSearch(window.location.search) || initialCity || explicitCity || initialRoute.tab === 'my-events') {
       const selectedCity = qualifiedDiscoveryCity(initialCity);
       if (selectedCity) writeStorage(discoveryAreaStorageKey, selectedCity);
       return;
@@ -475,13 +510,17 @@ function CustomerApp() {
   const savedCheckout = session && readCheckoutAttempt(session.user.id);
   const selectedPendingCheckout = savedCheckout?.body.eventId === selected?.id ? savedCheckout : null;
   const demoCheckoutEnabled = Boolean(paymentConfig?.demoEnabled && paymentConfig.mode === 'disabled');
-  function openEvent(event, { fromRoute = false } = {}) {
+  function openEvent(event, { fromRoute = false, referralCode } = {}) {
     activeCheckoutAttempt.current = null;
     setCheckoutRecovering(false);
     setPaymentCheckout(null);
     setDemoError('');
     setSelected(event);
-    if (!fromRoute) { rememberScroll(); updateCustomerRoute({ eventId: event.id }, { eventEntry: true }); }
+    if (!fromRoute) {
+      const alreadyOpen = parseCustomerRoute(window.location.search).eventId === event.id;
+      if (!alreadyOpen) rememberScroll();
+      updateCustomerRoute({ eventId: event.id, referralCode: referralCode !== undefined ? referralCode : referralCodeForEvent(referral, event.id) || null }, { replace: alreadyOpen, eventEntry: alreadyOpen ? Boolean(window.history.state?.nitewideEventEntry) : true });
+    }
     setShareFeedback('');
     const first = event.offerings?.find((o) => availableQuantity(o));
     setOfferingId(first?.id || "");
@@ -519,7 +558,31 @@ function CustomerApp() {
   }
   function closeEvent() {
     if (window.history.state?.nitewideEventEntry) window.history.back();
-    else { setSelected(null); updateCustomerRoute({ eventId: null }, { replace: true }); }
+    else { setSelected(null); setReferral(null); updateCustomerRoute({ eventId: null, referralCode: null }, { replace: true }); }
+  }
+  function referralSessionKey() {
+    try {
+      const key = sessionStorage.getItem('nitewide.referral-session') || crypto.randomUUID();
+      sessionStorage.setItem('nitewide.referral-session', key);
+      return key;
+    } catch { return crypto.randomUUID(); }
+  }
+  async function openRundownEvent(card) {
+    if (checkoutLock.current || (!rundownId && !rundownPreview) || (rundownPreview && !session?.accessToken)) return;
+    const contextKey = rundownContextKeyFromSearch(window.location.search);
+    const previewToken = rundownPreview ? session.accessToken : null;
+    rundownEventRequest.current?.abort();
+    const controller = new AbortController();
+    rundownEventRequest.current = controller;
+    try {
+      const { event, referral: source } = await loadRundownEvent({ eventId: card.id, code: card.referralCode, signal: controller.signal, sessionKey: referralSessionKey() }, api);
+      if (controller.signal.aborted || checkoutLock.current || rundownContextKeyFromSearch(window.location.search) !== contextKey
+        || (previewToken && currentSessionToken.current !== previewToken)) return;
+      setReferral(source);
+      openEvent(event, { referralCode: source?.code || null });
+    } catch {
+      if (!controller.signal.aborted) setNotice('This event link is no longer available. Please refresh the rundown and try again.');
+    }
   }
   async function shareSelectedEvent() {
     if (!selected) return;
@@ -552,12 +615,13 @@ function CustomerApp() {
       api(`/events/${encodeURIComponent(entry.event.id)}/referral-visits`, { body: { code: entry.code, sessionKey } }),
     ]);
     setReferral({ eventId: event.id, code: visit.code, referrerName: visit.referrerName });
-    setWalletOpen(false); openEvent(event);
+    setWalletOpen(false); openEvent(event, { referralCode: visit.code });
   }
   async function chooseEventConnection(entry) {
     if (referralBusy || entry === undefined) return;
     setReferralError('');
-    if (entry === null) { setReferral(null); return; }
+    const syncReferral = code => updateCustomerRoute({ referralCode: code }, { replace: true, eventEntry: Boolean(window.history.state?.nitewideEventEntry) });
+    if (entry === null) { setReferral(null); syncReferral(null); return; }
     if (entry.event.id !== selected?.id) return;
     const controller = new AbortController();
     referralRequest.current?.abort(); referralRequest.current = controller;
@@ -566,7 +630,10 @@ function CustomerApp() {
       const sessionKey = sessionStorage.getItem('nitewide.referral-session') || crypto.randomUUID();
       sessionStorage.setItem('nitewide.referral-session', sessionKey);
       const visit = await api(`/events/${encodeURIComponent(entry.event.id)}/referral-visits`, { signal: controller.signal, body: { code: entry.code, sessionKey } });
-      if (!controller.signal.aborted) setReferral({ eventId: entry.event.id, code: visit.code, referrerName: visit.referrerName });
+      if (!controller.signal.aborted) {
+        setReferral({ eventId: entry.event.id, code: visit.code, referrerName: visit.referrerName });
+        syncReferral(visit.code);
+      }
     } catch (error) {
       if (!controller.signal.aborted) setReferralError(`Couldn’t apply this connection. ${error.message}`);
     } finally { if (referralRequest.current === controller) setReferralPending(null); }
@@ -605,7 +672,7 @@ function CustomerApp() {
           return;
         }
         const event = restoredCheckoutEvent(pending);
-        if (event) openEvent(event);
+        if (event) openEvent(event, { referralCode: pending.body.affiliateCode || null });
         activeCheckoutAttempt.current = pending;
         setOfferingId(pending.body.items[0].offeringId); setQuantity(pending.body.items[0].quantity); setCheckoutRecovering(true);
         setReferral(pending.body.affiliateCode ? { eventId: pending.body.eventId, code: pending.body.affiliateCode, referrerName: typeof pending.referrerName === 'string' ? pending.referrerName : 'Your host' } : null);
@@ -630,10 +697,11 @@ function CustomerApp() {
       if (currentCheckoutBuyer.current !== buyerId) return;
       const attempt = restorePaymentAttempt(buyerId, result);
       if (result.status === 'paid') { await openPurchasedPasses(result.orderId, attempt); setCheckoutRecovering(false); return; }
-      openEvent({ ...result.booking.event, offerings: attempt.eventContext.offerings });
+      openEvent({ ...result.booking.event, offerings: attempt.eventContext.offerings }, { referralCode: attempt.body.affiliateCode || null });
       activeCheckoutAttempt.current = attempt;
       setOfferingId(attempt.body.items[0].offeringId); setQuantity(attempt.body.items[0].quantity);
-      setReferral(null); setStage('checkout'); setCheckoutRecovering(true); setPaymentCheckout(result);
+      setReferral(attempt.body.affiliateCode ? { eventId: attempt.body.eventId, code: attempt.body.affiliateCode, referrerName: attempt.referrerName || 'Your host' } : null);
+      setStage('checkout'); setCheckoutRecovering(true); setPaymentCheckout(result);
     } catch (error) {
       if (error.terminalOrderId && currentCheckoutBuyer.current === buyerId) {
         const attempt = [activeCheckoutAttempt.current, readCheckoutAttempt(buyerId)].find(value => value?.orderId === error.terminalOrderId);
@@ -645,7 +713,7 @@ function CustomerApp() {
   async function openPurchasedPasses(orderId, attempt, token = session.accessToken) {
     const ticket = await api(`/customer/purchases/${encodeURIComponent(orderId)}/tickets`, { token });
     if (currentCheckoutBuyer.current !== attempt.buyerId) return;
-    setSelected(null); setWalletOpen(false); setView('booked'); setBookingRoute(`purchase:${orderId}`);
+    setSelected(null); setWalletOpen(false); setView('booked'); setRundownId(null); setRundownPreview(null); setBookingRoute(`purchase:${orderId}`);
     setNotificationBooking({ ticket });
     setPaymentCheckout(null);
     updateCustomerRoute({ tab: 'booked', eventId: null, booking: `purchase:${orderId}` });
@@ -683,7 +751,7 @@ function CustomerApp() {
       try { event = await api(`/events/${encodeURIComponent(attempt.body.eventId)}`); }
       catch (error) { event = restoredCheckoutEvent(attempt); if (!event) throw error; }
       if (!active) return;
-      openEvent(event);
+      openEvent(event, { referralCode: attempt.body.affiliateCode || null });
       activeCheckoutAttempt.current = resumed?.booking ? restorePaymentAttempt(attempt.buyerId, resumed) : resumed?.orderId ? rememberCheckoutOrder(attempt, resumed.orderId) : attempt;
       setOfferingId(attempt.body.items[0].offeringId); setQuantity(attempt.body.items[0].quantity); setStage('checkout'); setCheckoutRecovering(true);
       setReferral(attempt.body.affiliateCode ? { eventId: attempt.body.eventId, code: attempt.body.affiliateCode, referrerName: typeof attempt.referrerName === 'string' ? attempt.referrerName : 'Your host' } : null);
@@ -816,7 +884,7 @@ function CustomerApp() {
     if (!entryId || !token) return;
     try {
       const ticket = await api(`/customer/guestlists/${encodeURIComponent(entryId)}/pass`, { token });
-      setSelected(null); setWalletOpen(false); setView('booked'); setBookingRoute(`guestlist:${entryId}`); setNotificationBooking({ ticket });
+      setSelected(null); setWalletOpen(false); setView('booked'); setRundownId(null); setRundownPreview(null); setBookingRoute(`guestlist:${entryId}`); setNotificationBooking({ ticket });
       updateCustomerRoute({ tab: 'booked', eventId: null, booking: `guestlist:${entryId}` });
       window.scrollTo({ top: 0 });
     } catch (error) { setNotice(`Your guestlist entry is in Booked, but it couldn’t open just now: ${error.message}`); }
@@ -841,7 +909,7 @@ function CustomerApp() {
   return (
     <>
       <PasswordResetDialog token={passwordResetToken} onClose={clearResetToken} onSuccess={() => { clearResetToken(); setNotice('Password updated. Sign in with your new password.'); setAuthOpen(true); }} />
-      <a className="skip-link" href={`#${view === 'my-events' ? 'my-events' : view === 'connections' ? 'connections' : view === 'booked' ? 'booked' : view === 'saved' ? 'saved' : 'discover'}`}>
+      <a className="skip-link" href={`#${showingRundown ? 'rundown' : view === 'my-events' ? 'my-events' : view === 'connections' ? 'connections' : view === 'booked' ? 'booked' : view === 'saved' ? 'saved' : 'discover'}`}>
         Skip to events
       </a>
       <header className="site-header" data-operator-nav={hasMyEvents}>
@@ -873,8 +941,8 @@ function CustomerApp() {
           <div className="header-actions">
             {session ? (
               <>
-                <Notifications key={session.user.id} session={session} onNotification={openNotification} refreshKey={`${bookingsRevision}:${selected?.id || ''}:${paymentCheckout?.status || ''}`} />
-                <Messages key={`messages:${session.user.id}`} session={session} initialBooking={messageBooking} initialThreadId={messageThread} initialSupportThreadId={supportThread} onSupportOpened={() => setSupportThread(null)} supportContext={selected ? { eventId: selected.id, eventTitle: selected.title } : undefined} onOpened={() => { setMessageBooking(null); setMessageThread(null); }} />
+                <Notifications key={session.user.id} session={session} onNotification={openNotification} refreshKey={navigationRefreshKey} />
+                <Messages key={`messages:${session.user.id}`} session={session} refreshKey={navigationRefreshKey} initialBooking={messageBooking} initialThreadId={messageThread} initialSupportThreadId={supportThread} onSupportOpened={() => setSupportThread(null)} supportContext={selected ? { eventId: selected.id, eventTitle: selected.title } : undefined} onOpened={() => { setMessageBooking(null); setMessageThread(null); }} />
                 <button className="profile-avatar profile-trigger" aria-label={`Open ${session.user.displayName}'s profile`} title="Your profile" onClick={() => setWalletOpen(true)}>{initials(session.user.displayName)}</button>
               </>
             ) : (
@@ -908,7 +976,8 @@ function CustomerApp() {
         {savedCollection.loadState === 'loading' && !savedCollection.items.length ? <LoadingIndicator>Finding your saved nights…</LoadingIndicator> : savedCollection.loadState === 'error' && !savedCollection.items.length ? <div className="account-empty"><p>We couldn’t load your saved events.</p><Button onClick={savedCollection.retry}>Try again</Button></div> : savedUpcoming.length ? <div className="event-grid">{savedUpcoming.map((event) => <EventCard key={event.id} event={event} saved onSave={() => save(event)} onOpen={() => openEvent(event)} />)}</div> : <div className="account-empty"><h2>{savedCollection.hasMore ? 'No active nights on this page.' : 'No upcoming saved events yet.'}</h2><p>{savedCollection.hasMore ? 'More saved nights may appear on the next page.' : 'Tap the heart on an event to keep it here. Past events stay out of your shortlist.'}</p><Button className="dark-glass-action" onClick={() => navigateView('discover')}>Discover events</Button></div>}
         {savedCollection.hasMore && savedCollection.loadState !== 'error' && <Button className="load-more" variant="outline" disabled={savedCollection.loadState === 'loading'} onClick={savedCollection.loadMore}>More saved nights</Button>}
       </main>}
-      <main hidden={view !== 'discover'} className={returnVisitor ? 'return-visitor-discovery' : ''}
+      {showingRundown && <RundownPage rundownId={rundownId} preview={rundownPreview} session={session} onSignIn={() => setAuthOpen(true)} onOpenEvent={openRundownEvent} />}
+      <main hidden={view !== 'discover' || showingRundown} className={returnVisitor ? 'return-visitor-discovery' : ''}
         onPointerDownCapture={retainCityMenuForControl} onMouseDownCapture={retainCityMenuForControl}
         onClickCapture={dismissCityMenuForControl} onPointerCancelCapture={dismissCityMenuForControl}>
         <section className="hero wrap">
@@ -964,7 +1033,7 @@ function CustomerApp() {
             <span>Book on the web. Be there in real life.</span>
           </div>
         </div>
-        <DiscoveryResults submitted={submitted} area={discoveryArea} distanceOrigin={distanceOrigin} resolutionStatus={resolutionStatus} hasUpcomingAreaEvents={hasUpcomingAreaEvents} results={results} loadState={loadState} nextCursor={nextCursor} moreState={moreState} loadEvents={loadEvents} loadMore={loadMore} saved={saved} save={save} openEvent={openEvent} weekRange={weekRange} weeklyEvents={weeklyEvents} previewState={previewState} previewCursor={previewCursor} visible={view === 'discover'} onFiltersChange={changeDiscoveryControls}/>
+        <DiscoveryResults submitted={submitted} area={discoveryArea} distanceOrigin={distanceOrigin} resolutionStatus={resolutionStatus} hasUpcomingAreaEvents={hasUpcomingAreaEvents} results={results} loadState={loadState} nextCursor={nextCursor} moreState={moreState} loadEvents={loadEvents} loadMore={loadMore} saved={saved} save={save} openEvent={openEvent} weekRange={weekRange} weeklyEvents={weeklyEvents} previewState={previewState} previewCursor={previewCursor} visible={view === 'discover' && !showingRundown} onFiltersChange={changeDiscoveryControls}/>
         {!returnVisitor && <section className="how-section wrap">
           <div>
             <p className="eyebrow">FIND YOUR VIBE</p>

@@ -49,7 +49,8 @@ test('cancelled response bodies and invalid notification pages never reach a ren
         if (calls === 1) return { ok: true, status: 200, json: () => new Promise((resolve, reject) => { cancelBody = reject; }) };
         return response(page);
       };
-      view = render(React.createElement(Notifications, { session: { accessToken: 'fixture-token' }, onNotification() {} }), { container: dom.window.document.getElementById('root') });
+      const props = { session: { accessToken: 'fixture-token' }, onNotification() {} };
+      view = render(React.createElement(Notifications, props), { container: dom.window.document.getElementById('root') });
       await waitFor(() => assert.equal(typeof cancelBody, 'function'));
       await act(async () => cancelBody(new DOMException('Notification response cancelled', 'AbortError')));
       const trigger = screen.getByRole('button', { name: /^Notifications/ });
@@ -58,7 +59,7 @@ test('cancelled response bodies and invalid notification pages never reach a ren
       assert.equal(screen.queryByRole('alert'), null);
       assert.equal(trigger.getAttribute('aria-label'), 'Notifications, 1 unread');
       globalThis.fetch = async () => response({});
-      await act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
+      view.rerender(React.createElement(Notifications, { ...props, refreshKey: 1 }));
       const alert = await screen.findByRole('alert');
       assert.match(alert.textContent, /couldn’t load notifications/);
       assert.ok(screen.getByRole('button', { name: /Recovered booking/ }), 'a malformed refresh retains the previously loaded notification');

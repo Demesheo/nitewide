@@ -1,0 +1,67 @@
+.rundown-page {
+  padding-block: 24px 32px;
+}
+.rundown-heading { margin-bottom: 16px; }
+.rundown-heading .eyebrow { font-size: 9px; letter-spacing: 1.8px; }
+.rundown-heading h1 {
+  margin-top: 3px;
+  font-size: clamp(24px, 3.2vw, 36px);
+  line-height: 1.2;
+  letter-spacing: -.9px;
+  overflow-wrap: anywhere;
+}
+.rundown-heading-note { margin-top: 5px; color: var(--text-muted); font-size: 12px; }
+.rundown-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.rundown-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--noir-panel, var(--surface-card));
+  box-shadow: inset 0 1px #ffffff08;
+}
+.rundown-card-open { display: block; width: 100%; padding: 0; text-align: left; color: inherit; background: none; border: 0; }
+.rundown-card-open:focus-visible { outline-offset: -3px; border-radius: 12px; }
+.rundown-card .rundown-flyer { display: grid; place-items: center; height: 180px; min-height: 0; background: var(--surface-deep); }
+.rundown-flyer img { display: block; position: static; width: 100%; height: 100%; min-height: 0; object-fit: contain; filter: none; }
+.rundown-flyer .artwork-caption { left: 4px; bottom: 4px; max-width: calc(100% - 8px); padding: 2px 4px; font-size: 8px; }
+.rundown-flyer .artwork-monogram { font-size: 68px; }
+.rundown-card-copy { display: grid; gap: 3px; padding: 9px 10px 10px; }
+.rundown-card-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-primary); font: 650 14px/18px "Manrope", sans-serif; }
+.rundown-card-date, .rundown-card-location { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; line-height: 14px; }
+.rundown-card-date { color: var(--text-secondary); }
+.rundown-card-location { color: var(--text-muted); }
+.rundown-card-bottom { display: flex; align-items: center; justify-content: space-between; gap: 3px; color: var(--text-primary); font-size: 11px; line-height: 15px; }
+.rundown-card-bottom > span { min-width: 0; }
+.rundown-card-bottom svg { color: var(--customer-icon, var(--highlight)); }
+.rundown-more { display: flex; justify-content: center; margin-top: 14px; }
+.rundown-more > button { min-height: 44px; min-width: 132px; }
+.rundown-more-error { margin-top: 14px; color: var(--text-secondary); text-align: center; font-size: 12px; }
+.rundown-loading { display: flex; justify-content: center; padding-block: 72px; color: var(--text-secondary); }
+.rundown-state { display: grid; justify-items: center; gap: 12px; padding: 48px 16px; text-align: center; }
+.rundown-state h2 { font-size: 20px; line-height: 1.4; }
+.rundown-state p { max-width: 360px; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+.rundown-discover { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; color: var(--highlight); font-size: 13px; }
+@media (hover: hover) {
+  .rundown-card:hover { border-color: var(--border-strong); background: var(--noir-panel-hover, var(--surface-raised)); }
+}
+@media (max-width: 760px) {
+  .rundown-page.wrap { padding: 12px 16px 20px; }
+  .rundown-heading { margin-bottom: 12px; }
+  .rundown-heading h1 { font-size: 23px; line-height: 28px; }
+  .rundown-heading-note { margin-top: 3px; font-size: 11px; line-height: 14px; }
+  .rundown-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .rundown-card .rundown-flyer { height: 112px; }
+  .rundown-card-copy { gap: 2px; padding: 7px 8px 8px; }
+  .rundown-card-title { font-size: 12px; line-height: 16px; }
+  .rundown-card-date, .rundown-card-location { font-size: 10px; line-height: 13px; }
+  .rundown-card-bottom { font-size: 10px; line-height: 14px; }
+  .rundown-more { margin-top: 12px; }
+}
+/* Safari's browser chrome can leave an iPhone with only ~664 CSS pixels.
+   Keep all six initial flyers in that space without shrinking tap targets. */
+@media (max-width: 760px) and (max-height: 740px) {
+  .rundown-card .rundown-flyer { height: 92px; }
+  .rundown-card-copy { gap: 1px; padding-block: 5px; }
+  .rundown-card-location, .rundown-heading-note { display: none; }
+}

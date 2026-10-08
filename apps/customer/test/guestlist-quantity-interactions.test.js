@@ -134,6 +134,43 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
       reset();
     });
 
+    await t.test('Booked navigation issues one read under StrictMode and ignores focus, visibility and ordinary rerenders', async (subtest) => {
+      reset();
+      const empty = { page: 1, pageSize: 10, total: 0, orders: [], guestlists: [], entries: [] };
+      const props = { open: true, embedded: true, session, onOpenChange() {} };
+      const strict = (value) => React.createElement(React.StrictMode, null, React.createElement(AccountDialog, value));
+      handler = () => response(empty);
+      view = render(strict(props), { container: container() });
+      await screen.findByText('Something to look forward to.');
+      assert.equal(calls.length, 1, 'StrictMode does not start a canceled duplicate bookings request');
+      assert.equal(calls[0].signal.aborted, false);
+      subtest.mock.timers.enable({ apis: ['setInterval'] });
+      await act(async () => {
+        subtest.mock.timers.tick(30_000);
+        dom.window.dispatchEvent(new dom.window.Event('focus'));
+        dom.window.document.dispatchEvent(new dom.window.Event('visibilitychange'));
+      });
+      subtest.mock.timers.reset();
+      view.rerender(strict({ ...props, session: { ...session, user: { ...session.user } } }));
+      assert.equal(calls.length, 1);
+      view.rerender(strict({ ...props, bookingsRevision: 1 }));
+      await waitFor(() => assert.equal(calls.length, 2));
+      await user.click(screen.getByRole('button', { name: 'Refresh bookings' }));
+      assert.equal(calls.length, 3, 'explicit actions can refresh the current page');
+      view.rerender(strict({ ...props, bookingsRevision: 1, open: false }));
+      view.rerender(strict({ ...props, bookingsRevision: 1 }));
+      await waitFor(() => assert.equal(calls.length, 4));
+      reset();
+      const ticket = { id: pending.id, kind: 'guestlist', partySize: 2, event, tickets: [{ id: 'linked-pass', status: 'pending', offering: 'Guestlist', qrImage: null }] };
+      handler = () => response(ticket);
+      view = render(strict({ ...props, bookingRoute: `guestlist:${ticket.id}` }), { container: container() });
+      await screen.findByRole('article', { name: 'Guest list entry: Pending review' });
+      assert.equal(calls.length, 1, 'a deep link opens its pass without starting a bookings read');
+      assert.equal(calls[0].url.pathname, `/api/customer/guestlists/${ticket.id}/pass`);
+      assert.equal(calls[0].signal.aborted, false);
+      reset();
+    });
+
     await t.test('Booked edits initialize deep-linked legacy requests, cap at five and keep a failed draft retryable', async () => {
       reset();
       let release;
@@ -157,17 +194,17 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
       await screen.findByRole('alert');
       assert.equal(quantity('Spots'), 5);
       assert.equal(screen.getByRole('button', { name: 'Save spots' }).disabled, false);
-      let releasePoll, releaseSaved;
-      handler = (call) => new Promise((resolve) => { if (call.method === 'PATCH') releaseSaved = () => resolve(response({ entry: { id: ticket.id, status: 'pending', partySize: call.body.partySize } })); else releasePoll = () => resolve(response(ticket)); });
+      let releaseSaved;
+      handler = (call) => new Promise((resolve) => { if (call.method === 'PATCH') releaseSaved = () => resolve(response({ entry: { id: ticket.id, status: 'pending', partySize: call.body.partySize } })); });
       await act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
       await user.click(screen.getByRole('button', { name: 'Save spots' }));
-      await act(async () => releasePoll());
       await act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
-      assert.equal(calls.filter((call) => call.url.pathname.endsWith('/pass')).length, 1, 'polling pauses while the quantity edit is saving');
+      assert.equal(screen.getByRole('button', { name: 'Refresh pass' }).disabled, true);
+      assert.equal(calls.filter((call) => call.url.pathname.endsWith('/pass')).length, 0, 'window focus does not reread a pass or interrupt a quantity save');
       await act(async () => releaseSaved());
       await screen.findByRole('button', { name: 'Edit spots' });
       await user.click(screen.getByRole('button', { name: 'Edit spots' }));
-      assert.equal(quantity('Spots'), 5, 'an older poll cannot undo the saved quantity');
+      assert.equal(quantity('Spots'), 5, 'the saved response updates the quantity');
       assert.equal(screen.getByRole('button', { name: 'Save spots' }).disabled, true);
       reset();
     });
@@ -218,7 +255,7 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
       reset();
     });
 
-    await t.test('opening and polling a pass reconcile its quantity and date while return restores focus and scroll', async () => {
+    await t.test('opening and explicitly refreshing a pass reconcile its quantity and date while return restores focus and scroll', async () => {
       reset();
       const requested = { id: pending.id, partySize: 5, status: 'pending', event };
       const changedEvent = { ...event, startsAt: '2099-10-06T23:00:00Z', endsAt: '2099-10-07T03:00:00Z' };
@@ -238,6 +275,8 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
       await screen.findByText('Pending review');
       currentPass = approved;
       await act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
+      assert.equal(calls.filter((call) => call.url.pathname.endsWith('/pass')).length, 1, 'focus does not reread an open pass');
+      await user.click(screen.getByRole('button', { name: 'Refresh pass' }));
       await screen.findByText('Pass 1 of 4');
       assert.equal(calls.filter((call) => call.url.pathname.endsWith('/pass')).length, 2, 'route synchronization does not duplicate an opened pass request');
       await user.click(screen.getByRole('button', { name: 'Back to my nights' }));
@@ -251,7 +290,7 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
       reset();
     });
 
-    await t.test('pass polling skips hidden tabs, avoids overlapping requests and clears unavailable admission caches', async () => {
+    await t.test('passes do not poll or refresh on focus, and explicit refresh clears unavailable admission caches', async (subtest) => {
       reset();
       const approved = { id: pending.id, kind: 'guestlist', partySize: 4, status: 'confirmed', event, tickets: Array.from({ length: 4 }, (_, index) => ({ id: `status-pass-${index}`, spots: 1, status: 'confirmed', offering: 'Guestlist', qrImage: `data:image/png;base64,status-${index}` })) };
       const page = { page: 1, total: 1, orders: [], guestlists: [approved], entries: [{ kind: 'guestlist', id: approved.id }] };
@@ -259,6 +298,10 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
       handler = (call) => call.url.pathname.endsWith('/pass') ? new Promise((resolve) => { releasePass = (pass) => resolve(response(pass)); }) : response(page);
       view = render(React.createElement(AccountDialog, { open: true, embedded: true, session, notificationBooking: { ticket: approved }, onOpenChange() {} }), { container: container() });
       await screen.findByText('Pass 1 of 4');
+      subtest.mock.timers.enable({ apis: ['setInterval'] });
+      await act(async () => subtest.mock.timers.tick(15_000));
+      subtest.mock.timers.reset();
+      assert.equal(calls.length, 0, 'an open pass makes no timer reads');
       const cacheKey = `nitewide.passes:${session.user.id}:guestlist:${approved.id}`;
       assert.ok(dom.window.localStorage.getItem(cacheKey));
       Object.defineProperty(dom.window.document, 'hidden', { configurable: true, value: true });
@@ -266,7 +309,10 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
       assert.equal(calls.length, 0);
       Object.defineProperty(dom.window.document, 'hidden', { configurable: true, value: false });
       await act(async () => { dom.window.document.dispatchEvent(new dom.window.Event('visibilitychange')); dom.window.dispatchEvent(new dom.window.Event('focus')); });
-      assert.equal(calls.length, 1, 'focus and visibility events share the in-flight refresh');
+      assert.equal(calls.length, 0, 'focus and visibility events do not reread the pass');
+      await user.click(screen.getByRole('button', { name: 'Refresh pass' }));
+      await user.click(screen.getByRole('button', { name: 'Refresh pass' }));
+      assert.equal(calls.length, 1, 'explicit refresh disables overlapping reads');
       const revoked = { ...approved, status: 'rejected', tickets: approved.tickets.map((pass) => ({ ...pass, status: 'rejected', qrImage: null })) };
       await act(async () => releasePass(revoked));
       await screen.findByRole('article', { name: 'Guest list pass 1: Declined' });
@@ -276,13 +322,65 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
         { ...approved, event: { ...event, status: 'cancelled' }, tickets: approved.tickets.map((ticket) => ({ ...ticket, qrImage: null })) },
         { ...approved, status: 'checked_in', tickets: approved.tickets.map((ticket) => ({ ...ticket, status: 'checked_in', qrImage: null })) },
       ]) {
-        await act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
+        await user.click(screen.getByRole('button', { name: 'Refresh pass' }));
         await act(async () => releasePass(pass));
         assert.equal(dom.window.localStorage.getItem(cacheKey), null);
         assert.equal(screen.queryByRole('img', { name: /QR code/ }), null);
       }
       assert.ok(screen.getByText('4 of 4 checked in'));
       delete dom.window.document.hidden;
+      reset();
+    });
+
+    await t.test('deep-linked passes retry explicitly, recheck renewed credentials and discard revoked cached admission', async () => {
+      reset();
+      const approved = { id: pending.id, kind: 'guestlist', partySize: 1, status: 'confirmed', event, tickets: [{ id: 'credential-pass', spots: 1, status: 'confirmed', offering: 'Guestlist', qrImage: 'data:image/png;base64,credential' }] };
+      const props = { open: true, embedded: true, session, bookingRoute: `guestlist:${approved.id}`, onOpenChange() {} };
+      let fails = true;
+      handler = () => response(fails ? { message: 'Temporary pass failure.' } : approved, fails ? 503 : 200);
+      view = render(React.createElement(AccountDialog, props), { container: container() });
+      await screen.findByRole('alert');
+      assert.equal(calls.length, 1);
+      fails = false;
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
+      await screen.findByRole('img', { name: /QR code/ });
+      assert.equal(calls.length, 2, 'retry reopens the deep-linked pass without fetching the timeline');
+      const cacheKey = `nitewide.passes:${session.user.id}:guestlist:${approved.id}`;
+      assert.ok(dom.window.localStorage.getItem(cacheKey));
+      handler = () => response({ message: 'This booking is no longer available.' }, 403);
+      view.rerender(React.createElement(AccountDialog, { ...props, session: { ...session, accessToken: 'renewed-token' } }));
+      await screen.findByRole('alert');
+      assert.equal(calls.length, 3);
+      assert.equal(calls.at(-1).headers.Authorization, 'Bearer renewed-token');
+      assert.equal(dom.window.localStorage.getItem(cacheKey), null);
+      assert.equal(screen.queryByRole('img', { name: /QR code/ }), null);
+      assert.ok(calls.every((call) => call.url.pathname.endsWith('/pass')));
+      reset();
+    });
+
+    await t.test('returning from an in-flight manual pass refresh aborts it and keeps the current bookings page', async () => {
+      reset();
+      const entry = { id: pending.id, kind: 'guestlist', partySize: 1, status: 'confirmed', event, tickets: [{ id: 'manual-pass', spots: 1, status: 'confirmed', offering: 'Guestlist', qrImage: 'data:image/png;base64,manual' }] };
+      const page = { page: 1, pageSize: 10, total: 1, orders: [], guestlists: [entry], entries: [{ kind: 'guestlist', id: entry.id }] };
+      let releasePass;
+      handler = (call) => response(call.url.pathname.endsWith('/pass') ? entry : page);
+      function BookedFixture() {
+        const [route, setRoute] = React.useState(null);
+        return React.createElement(AccountDialog, { open: true, embedded: true, session, bookingRoute: route, onBookingRouteChange: setRoute, onOpenChange() {} });
+      }
+      view = render(React.createElement(BookedFixture), { container: container() });
+      await user.click(await screen.findByRole('button', { name: /View guest list entry for Fixture Night, 1/ }));
+      await screen.findByRole('img', { name: /QR code/ });
+      handler = (call) => call.url.pathname.endsWith('/pass') ? new Promise((resolve) => { releasePass = () => resolve(response(entry)); }) : response(page);
+      await user.click(screen.getByRole('button', { name: 'Refresh pass' }));
+      const request = calls.at(-1);
+      await user.click(screen.getByRole('button', { name: 'Back to my nights' }));
+      await screen.findByRole('button', { name: /View guest list entry for Fixture Night, 1/ });
+      assert.equal(request.signal.aborted, true);
+      await act(async () => releasePass());
+      assert.equal(screen.queryByRole('button', { name: 'Back to my nights' }), null);
+      assert.equal(screen.queryByRole('img', { name: /QR code/ }), null);
+      assert.equal(calls.filter((call) => call.url.pathname.endsWith('/bookings')).length, 2);
       reset();
     });
 
@@ -370,6 +468,7 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
       reset();
       handler = () => new Promise((resolve) => { releaseBookings = () => resolve(response(page)); });
       view = render(React.createElement(AccountDialog, props), { container: container() });
+      await waitFor(() => assert.equal(calls.length, 1));
       const unfinished = calls[0];
       view.unmount(); view = null;
       assert.equal(unfinished.signal.aborted, true);

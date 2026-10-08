@@ -28,6 +28,7 @@ const initializers = [
   require('./EmailOutbox').initEmailOutbox,
   require('./EmailDeliveryEvent').initEmailDeliveryEvent,
   require('./SavedEvent').initSavedEvent,
+  require('./Rundown').initRundown,
   require('./SupportCase').initSupportCase,
   require('./BusinessAccessRequest').initBusinessAccessRequest,
 ];

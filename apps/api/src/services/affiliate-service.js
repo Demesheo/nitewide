@@ -17,6 +17,46 @@ const employeeReferralCode = (membershipId) => `STAFF-${membershipId}`;
 const leaderReferralCode = (membershipId) => `LEAD-${membershipId}`;
 const invalidCode = () => new DomainError('Promoter code is invalid or inactive', { code: 'INVALID_AFFILIATE' });
 
+async function resolveRundownMember(models, { event, code, now, transaction, lock, persist }) {
+  if (!/^RUN-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(code) || !models.Rundown) throw invalidCode();
+  const common = { transaction, ...(lock ? { lock } : {}) };
+  const profile = await models.Rundown.findByPk(code.slice(4), common);
+  if (!profile?.published || !profile.userId) throw invalidCode();
+  // This alias is a public sharing link. It cannot become a back door to
+  // private/unlisted events or preserve a role after an account/team removal.
+  try { await require('./business-access-policy').assertBusinessAccess(models, profile.userId, transaction, undefined, { allowSuspendedOrganizations: false }); }
+  catch (error) { if (error.code === 'BUSINESS_ACCESS_REQUIRED') throw invalidCode(); throw error; }
+  const { personalRundownScope, publicRundownEventScope } = require('./rundown-policy');
+  const [eligible] = await models.Event.sequelize.query(`SELECT e.id FROM events e WHERE e.id=:eventId
+    AND ${publicRundownEventScope} AND ${personalRundownScope}`, {
+    replacements: { eventId: event.id, userId: profile.userId, currentTime: now }, transaction, type: 'SELECT',
+  });
+  if (!eligible) throw invalidCode();
+  let assignment = await models.EventAffiliate.findOne({ where: { eventId: event.id, userId: profile.userId }, ...common });
+  if (assignment) return resolveAffiliate(models, { event, code: assignment.code, now, transaction, lock, persist });
+  const membership = await currentOrganizationMembership(models, event.organizationId, profile.userId, transaction, now);
+  const venue = await require('./venue-access-policy').currentVenueMembership(models, event, profile.userId, transaction);
+  const independent = !event.organizationId && event.creatorUserId === profile.userId;
+  if (!membership && !venue && !independent) throw invalidCode();
+  const defaults = { eventId: event.id, userId: profile.userId, code: `NW-${randomUUID()}`,
+    orgAffiliateId: membership?.kind === 'affiliate' ? membership.record.id : null,
+    commissionBps: membership?.kind === 'affiliate' || !membership && !independent ? null : 0,
+    guestlistAllocation: membership?.kind === 'affiliate' || !membership && !independent ? null : 0,
+    status: 'active', accessScope: independent ? 'event' : membership ? 'organization' : 'venue',
+    venueAccessId: !membership && !independent ? venue.id : null };
+  if (persist) {
+    // Creation is permitted only inside the existing attribution mutations.
+    // Checkout preflight uses persist:false and public pages never call here.
+    if (!transaction) throw invalidCode();
+    [assignment] = await models.EventAffiliate.findOrCreate({ where: { eventId: event.id, userId: profile.userId }, defaults, transaction });
+    return resolveAffiliate(models, { event, code: assignment.code, now, transaction, lock, persist });
+  }
+  const orgAffiliate = defaults.orgAffiliateId ? membership.record : null;
+  return eligibleReferral(models, { eventAffiliate: defaults, orgAffiliate,
+    commissionBps: defaults.commissionBps ?? orgAffiliate?.defaultCommissionBps ?? 0,
+    guestlistAllocation: defaults.guestlistAllocation ?? orgAffiliate?.defaultGuestlistAllocation ?? 0 }, { now, transaction, lock });
+}
+
 async function resolveVenueMember(models, { event, code, now, transaction, lock, persist = true }) {
   const leader = code.startsWith('LEAD-');
   if (!event.organizationId || !/^(STAFF|LEAD)-[0-9a-f-]{36}$/i.test(code)) throw invalidCode();
@@ -53,6 +93,7 @@ function isActiveWindow(record, now) {
 
 async function resolveAffiliate(models, { event, code, now = new Date(), transaction, lock, persist = true }) {
   if (!code) return eligibleReferral(models, { commissionBps: 0, guestlistAllocation: 0, orgAffiliate: null, eventAffiliate: null }, { now, transaction });
+  if (code.startsWith('RUN-')) return resolveRundownMember(models, { event, code, now, transaction, lock, persist });
   if (code.startsWith('STAFF-') || code.startsWith('LEAD-')) return resolveVenueMember(models, { event, code, now, transaction, lock, persist });
   const common = { transaction, ...(lock ? { lock } : {}) };
   let eventAffiliate = await models.EventAffiliate.findOne({ where: { eventId: event.id, code }, ...common });

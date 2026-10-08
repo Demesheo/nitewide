@@ -1,6 +1,10 @@
 // Closed inventory: route registration fails if a new operation lacks review.
 // Generated artifact parity tests also detect removals or schema drift.
 const routeInventory = [
+  { method: 'get', path: '/customer/rundowns', successStatuses: [200] },
+  { method: 'get', path: '/customer/rundowns/preview', successStatuses: [200] },
+  { method: 'post', path: '/customer/rundowns', successStatuses: [200] },
+  { method: 'get', path: '/rundowns/:id', successStatuses: [200] },
   { method: 'get', path: '/discovery/areas', successStatuses: [200] },
   { method: 'post',path: '/support/requests',successStatuses: [200] },
   { method: 'post',path: '/support/access-requests',successStatuses: [200] },

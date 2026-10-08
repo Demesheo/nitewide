@@ -202,6 +202,53 @@ test('My events respects explicit search, scoped finances, capability checks and
       view.unmount(); view = null;
     });
 
+    await t.test('StrictMode navigation waits for access and starts each directory read once without focus polling', async () => {
+      const calls = [];
+      let accessChecks = 0, releaseAccess;
+      globalThis.fetch = async (path, options) => {
+        calls.push({ path: String(path), signal: options.signal });
+        if (String(path).endsWith('/my-events/access')) {
+          accessChecks += 1;
+          if (accessChecks === 1) return response({ eligible: true });
+          return new Promise(resolve => { releaseAccess = () => resolve(response({ eligible: true })); });
+        }
+        if (String(path).endsWith('/rundowns')) return response({ items: [
+          { kind: 'personal', name: 'Alex Operator', organizationId: null, published: false, canPublish: true, url: null },
+        ] });
+        return response(page([event]));
+      };
+      const session = { user: { id: 'operator' }, accessToken: 'operator' };
+      function Harness({ active }) {
+        const checked = useMyEventsAccess(session, active);
+        return React.createElement(React.Fragment, null,
+          React.createElement('p', { 'data-testid': 'checked-access' }, `${checked.eligible}:${checked.loading}`),
+          active && checked.eligible && React.createElement(MyEventsPage, { session, access: checked,
+            route: { myStatus: 'upcoming', myPage: 1, mySearch: '', myEventId: null }, onRouteChange() {} }));
+      }
+      const strict = active => React.createElement(React.StrictMode, null, React.createElement(Harness, { active }));
+      view = render(strict(false), { container: container() });
+      await waitFor(() => assert.equal(screen.getByTestId('checked-access').textContent, 'true:false'));
+      assert.equal(accessChecks, 1, 'development effect replay does not start a discarded transport');
+      view.rerender(strict(true));
+      await waitFor(() => assert.equal(typeof releaseAccess, 'function'));
+      assert.equal(calls.filter(call => !call.path.endsWith('/my-events/access')).length, 0, 'lists wait for the authoritative navigation check');
+      await act(async () => {
+        for (let i = 0; i < 3; i += 1) {
+          dom.window.dispatchEvent(new dom.window.Event('focus'));
+          dom.window.document.dispatchEvent(new dom.window.Event('visibilitychange'));
+        }
+      });
+      assert.equal(accessChecks, 2, 'returning focus does not repeat the access check');
+      await act(async () => releaseAccess());
+      await screen.findByRole('button', { name: 'View Night at Lounge operations' });
+      await screen.findByRole('link', { name: 'View', exact: true });
+      assert.equal(calls.filter(call => call.path.includes('/my-events?')).length, 1);
+      assert.equal(calls.filter(call => call.path.endsWith('/rundowns')).length, 1);
+      await act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
+      assert.equal(calls.length, 4);
+      view.unmount(); view = null;
+    });
+
     await t.test('capability is token-scoped, checks once initially and rechecks when entering the view', async () => {
       const calls = [], pending = [];
       globalThis.fetch = async (_path, options) => { calls.push(options.headers.Authorization); if (calls.length <= 2) return response({ eligible: calls.length === 1 }); return new Promise(resolve => pending.push({ signal: options.signal, resolve })); };

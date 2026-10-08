@@ -36,7 +36,7 @@ export function MyEventGuestlist({ session, detail, capabilities, onChanged, onU
   }
   useEffect(() => {
     const controller = new AbortController(); setLoading(true); setError('');
-    api(`/customer/my-events/${event.id}/guestlist-page?${query}`, { token: session.accessToken, signal: controller.signal })
+    Promise.resolve().then(() => controller.signal.aborted ? undefined : api(`/customer/my-events/${event.id}/guestlist-page?${query}`, { token: session.accessToken, signal: controller.signal }))
       .then((data) => {
         if (controller.signal.aborted) return;
         const lastPage = Math.max(1, Math.ceil(data.total / data.pageSize));

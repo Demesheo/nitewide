@@ -82,16 +82,23 @@ export function rememberCheckoutOrder(attempt, orderId, storage) {
 export function restorePaymentAttempt(buyerId, checkout, storage) {
   const booking = checkout.booking;
   if (!booking?.event?.id || !booking.items?.length || !booking.idempotencyKey || !checkout.orderId) throw new Error('This checkout could not be restored. Refresh Notifications and try again.');
+  const existing = readCheckoutAttempt(buyerId, storage);
+  const sameCheckout = existing?.body.eventId === booking.event.id && existing.body.idempotencyKey === booking.idempotencyKey &&
+    (!existing.orderId || existing.orderId === checkout.orderId);
+  // The server snapshot owns the cart. Only the matching saved attempt may
+  // supply its original referral; an unrelated checkout must not lend credit.
+  const affiliateCode = sameCheckout && typeof existing.body.affiliateCode === 'string' ? existing.body.affiliateCode : null;
   const body = { eventId: booking.event.id, idempotencyKey: booking.idempotencyKey,
-    items: booking.items.map(item => ({ offeringId: item.offeringId, quantity: item.quantity })), expectedTotalCents: booking.totalCents };
+    items: booking.items.map(item => ({ offeringId: item.offeringId, quantity: item.quantity })), expectedTotalCents: booking.totalCents,
+    ...(affiliateCode ? { affiliateCode } : {}) };
   const event = { ...booking.event, offerings: booking.items.map(item => ({ id: item.offeringId, name: item.name, kind: item.kind,
     priceCents: item.unitPriceCents, currency: booking.currency, minPerOrder: item.quantity, maxPerOrder: item.quantity })) };
   const attempt = { buyerId, body, scope: checkoutScope(buyerId, body), mode: 'stripe', orderId: checkout.orderId,
+    referrerName: affiliateCode && typeof existing.referrerName === 'string' ? existing.referrerName : null,
     eventContext: snapshotEvent(event), bookingTotals: { subtotal: booking.subtotalCents, total: booking.totalCents, fee: booking.totalCents - booking.subtotalCents } };
   try {
     storage = resolveStorage(storage);
-    const existing = readCheckoutAttempt(buyerId, storage);
-    if (!existing || existing.body.idempotencyKey === body.idempotencyKey) storage.setItem(storageKey(buyerId), JSON.stringify(attempt));
+    if (!existing || sameCheckout) storage.setItem(storageKey(buyerId), JSON.stringify(attempt));
   } catch { /* Already-created orders do not need browser storage to resume. */ }
   return attempt;
 }

@@ -26,9 +26,9 @@ async function sessionToken(page) {
 }
 
 function guestlist(page) { return page.locator('.my-event-guestlist-panel'); }
-async function capture(page, testInfo, name) {
+async function capture(page, testInfo, name, fullPage = false) {
   const path = testInfo.outputPath(`${name}.png`);
-  await page.screenshot({ path, animations: 'disabled' });
+  await page.screenshot({ path, animations: 'disabled', fullPage });
   await testInfo.attach(name, { path, contentType: 'image/png' });
 }
 async function expectSmallPhoneLayout(page) {
@@ -37,6 +37,213 @@ async function expectSmallPhoneLayout(page) {
   await expectNoOverflow(page);
   await page.setViewportSize(viewport);
 }
+
+paginationTest('My events and Booked navigation load once and stay quiet on focus, visibility and idle time', async ({ page, fixture }) => {
+  const reads = [], cancelled = [], pending = new Set();
+  const tracked = request => request.method() === 'GET' && /^\/api\/(notifications|customer\/(messages|connections\/summary|my-events|rundowns|bookings)|support\/messages)(?:[/?]|$)/.test(new URL(request.url()).pathname);
+  page.on('request', request => { if (tracked(request)) { reads.push(new URL(request.url()).pathname); pending.add(request); } });
+  page.on('requestfinished', request => pending.delete(request));
+  page.on('requestfailed', request => { pending.delete(request); if (tracked(request)) cancelled.push(request.url()); });
+  await loginViaApi(page, fixture, 'customer', 'business', '/?city=Orlando%2C+FL');
+  await expect(page.getByRole('button', { name: 'My events', exact: true })).toBeVisible();
+  await expect.poll(() => pending.size).toBe(0);
+  await page.clock.install();
+  const count = (path, from = 0) => reads.slice(from).filter(value => value === path).length;
+  const myNavigation = reads.length;
+  await page.getByRole('button', { name: 'My events', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Rundown', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'View Playwright Friday Night operations', exact: true })).toBeVisible();
+  await expect.poll(() => pending.size).toBe(0);
+  for (const path of ['/api/customer/my-events/access', '/api/customer/my-events', '/api/customer/rundowns', '/api/notifications', '/api/customer/messages', '/api/support/messages', '/api/customer/connections/summary']) {
+    expect(count(path, myNavigation), `one read of ${path} on My events navigation`).toBe(1);
+  }
+  async function remainsQuiet() {
+    const before = reads.length;
+    await page.evaluate(() => { window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange')); });
+    await page.clock.runFor(65000);
+    await expect.poll(() => pending.size).toBe(0);
+    expect(reads).toHaveLength(before);
+    expect(cancelled).toEqual([]);
+  }
+  await remainsQuiet();
+  const bookedNavigation = reads.length;
+  await page.getByRole('button', { name: 'Booked', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Booked.', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Something to look forward to.', exact: true })).toBeVisible();
+  await expect.poll(() => pending.size).toBe(0);
+  for (const path of ['/api/customer/bookings', '/api/notifications', '/api/customer/messages', '/api/support/messages', '/api/customer/connections/summary']) {
+    expect(count(path, bookedNavigation), `one read of ${path} on Booked navigation`).toBe(1);
+  }
+  await remainsQuiet();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Something to look forward to.', exact: true })).toBeVisible();
+  await expect.poll(() => pending.size).toBe(0);
+  expect(count('/api/customer/bookings', bookedNavigation)).toBe(2, 'a browser reload refreshes bookings');
+  expect(count('/api/notifications', bookedNavigation)).toBe(2, 'a browser reload refreshes notifications');
+  expect(count('/api/customer/messages', bookedNavigation)).toBe(2, 'a browser reload refreshes messages');
+  expect(cancelled).toEqual([]);
+});
+
+paginationTest('business rundown viewing before sharing, six-flyer paging and anonymous checkout keep generic credit', async ({ page, context, fixture }, testInfo) => {
+  await gestureClipboard(context, '__rundownLink');
+  await loginViaApi(page, fixture, 'customer', 'business', '/?tab=my-events');
+  const rundownChoice = page.getByRole('combobox', { name: 'Rundown', exact: true });
+  const triggerBox = await rundownChoice.boundingBox();
+  await rundownChoice.click();
+  await expect(page.getByRole('listbox')).toBeVisible();
+  await expectNoOverflow(page);
+  if (testInfo.project.name.endsWith('iphone')) {
+    const menuBox = await page.getByRole('listbox').boundingBox();
+    expect(menuBox.y).toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height);
+  }
+  await capture(page, testInfo, 'rundown-picker-open');
+  await page.getByRole('option', { name: 'Playwright Nightlife', exact: true }).click();
+  await expect(rundownChoice).toContainText('Playwright Nightlife');
+  const previewLink = page.getByRole('link', { name: 'View', exact: true });
+  await expect(previewLink).toHaveAttribute('href', /rundownPreview=/);
+  const previewOpened = page.waitForEvent('popup');
+  await previewLink.click();
+  const preview = await previewOpened;
+  await expect(preview.getByRole('heading', { name: 'Playwright Nightlife’s Rundown', exact: true })).toBeVisible();
+  await expect(preview.getByTestId('rundown-event-card')).toHaveCount(6);
+  await preview.getByTestId('rundown-event-card').first().getByRole('button').click();
+  await expect(preview.getByTestId('customer-event-details')).toBeVisible();
+  await preview.reload();
+  await expect(preview.getByTestId('customer-event-details')).toBeVisible();
+  await preview.getByTestId('customer-event-details').getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(preview.getByTestId('rundown-event-card')).toHaveCount(6);
+  await expect(page.getByRole('heading', { name: 'My events.', exact: true })).toBeVisible();
+  await preview.close();
+  await expectNoOverflow(page);
+  await expect(page.locator('.rundown-share-buttons svg')).toHaveCount(0);
+  await page.getByRole('heading', { name: 'My events.', exact: true }).hover();
+  const actionStyle = selector => page.locator(selector).evaluate(node => {
+    const style = getComputedStyle(node), box = node.getBoundingClientRect();
+    return { background: style.backgroundImage, backgroundColor: style.backgroundColor,
+      color: style.color, border: style.border, radius: style.borderRadius, fontSize: style.fontSize,
+      fontWeight: style.fontWeight, height: box.height };
+  });
+  await expect(async () => {
+    expect(await actionStyle('.rundown-share-buttons a')).toEqual(await actionStyle('.rundown-share-buttons button'));
+  }).toPass();
+  const sharingGeometry = await page.locator('.rundown-sharing').evaluate(panel => {
+    const share = panel.querySelector('.rundown-share-buttons button').getBoundingClientRect();
+    const view = panel.querySelector('.rundown-share-buttons a').getBoundingClientRect();
+    const choice = panel.querySelector('.rundown-choice-trigger').getBoundingClientRect();
+    return { right: panel.querySelector('.rundown-sharing-controls').getBoundingClientRect().right, shareRight: share.right,
+      shareTop: share.top, viewTop: view.top, choiceWidth: choice.width, choiceTop: choice.top };
+  });
+  expect(Math.abs(sharingGeometry.right - sharingGeometry.shareRight)).toBeLessThanOrEqual(1);
+  expect(sharingGeometry.shareTop).toBe(sharingGeometry.viewTop);
+  if (testInfo.project.name.endsWith('desktop')) {
+    expect(sharingGeometry.choiceWidth).toBeGreaterThan(300);
+    expect(sharingGeometry.choiceTop).toBe(sharingGeometry.shareTop);
+  }
+  await capture(page, testInfo, 'rundown-sharing-controls');
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  const share = page.getByRole('dialog', { name: 'Share your rundown', exact: true });
+  await expect(share.getByRole('button', { name: 'Copy link', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Publish rundown', exact: true })).toHaveCount(0);
+  await share.getByRole('button', { name: 'Copy link', exact: true }).click();
+  await expect(share.getByRole('button', { name: 'Link copied', exact: true })).toBeVisible();
+  const link = await page.evaluate(() => window.__rundownLink);
+  const url = new URL(link);
+  expect([...url.searchParams.keys()]).toEqual(['rundown']);
+  await page.evaluate(() => localStorage.removeItem('nitewide.session'));
+  const discoveryRequests = [];
+  page.on('request', request => { if (/\/api\/(events\?|discovery\/|location)/.test(request.url())) discoveryRequests.push(request.url()); });
+  await page.goto(link);
+  await expect(page.getByRole('heading', { name: 'Playwright Nightlife’s Rundown', exact: true })).toBeVisible();
+  const cards = page.getByTestId('rundown-event-card');
+  await expect(cards).toHaveCount(6);
+  await expect(page.getByRole('button', { name: 'Log in', exact: true })).toBeVisible();
+  await expectNoOverflow(page);
+  if (testInfo.project.name.endsWith('iphone')) {
+    const geometry = await cards.evaluateAll(items => ({ rects: items.map(item => { const r = item.getBoundingClientRect(); return { x: r.x, y: r.y, bottom: r.bottom }; }), height: window.innerHeight }));
+    expect(geometry.rects[0].y).toBe(geometry.rects[1].y);
+    expect(geometry.rects[2].y).toBe(geometry.rects[3].y);
+    expect(geometry.rects[4].y).toBe(geometry.rects[5].y);
+    expect(geometry.rects[4].y).toBeGreaterThan(geometry.rects[2].y);
+    expect(geometry.rects[5].bottom).toBeLessThanOrEqual(geometry.height);
+  }
+  await capture(page, testInfo, 'business-rundown-six-flyers', testInfo.project.name.endsWith('desktop'));
+  await page.getByRole('button', { name: 'View more', exact: true }).click();
+  await expect(cards).toHaveCount(12);
+  const firstId = await cards.first().getAttribute('data-event-id');
+  await cards.first().getByRole('button').click();
+  const details = page.getByTestId('customer-event-details');
+  await expect(details).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('rundown')).toBe(url.searchParams.get('rundown'));
+  expect(new URL(page.url()).searchParams.has('ref')).toBe(false);
+  await details.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(details).toHaveCount(0);
+  await expect(cards).toHaveCount(12);
+  expect(discoveryRequests).toEqual([]);
+  // A customer can use the usual checkout at the public link. The shared
+  // business link must not inherit a previous personal affiliate context.
+  await loginViaApi(page, fixture, 'customer', 'customer', `${url.pathname}${url.search}`);
+  await page.getByTestId('rundown-event-card').first().getByRole('button').click();
+  await details.getByRole('button', { name: /^Continue ·/ }).click();
+  const ordered = page.waitForResponse(response => response.url().endsWith('/api/orders') && response.request().method() === 'POST');
+  await details.getByRole('button', { name: 'Confirm demo booking', exact: true }).click();
+  const response = await ordered;
+  expect(response.ok()).toBeTruthy();
+  expect(response.request().postDataJSON().affiliateCode || null).toBeNull();
+  expect(response.request().postDataJSON().eventId).toBe(firstId);
+  await expect(page).toHaveURL(/tab=booked/);
+  expect(new URL(page.url()).searchParams.has('rundown')).toBe(false);
+  await expectNoOverflow(page);
+});
+
+paginationTest('personal rundown survives details reload and preserves referral credit at purchase', async ({ page, context, fixture }) => {
+  await gestureClipboard(context, '__personalRundownLink');
+  await loginViaApi(page, fixture, 'customer', 'promoter', '/?tab=my-events');
+  const previewLink = page.getByRole('link', { name: 'View', exact: true });
+  await expect(previewLink).toHaveAttribute('href', /rundownPreview=personal/);
+  const previewOpened = page.waitForEvent('popup');
+  await previewLink.click();
+  const preview = await previewOpened;
+  await expect(preview.getByRole('heading', { name: 'Leo Promoter’s Rundown', exact: true })).toBeVisible();
+  await expect(preview.getByTestId('rundown-event-card')).toHaveCount(6);
+  expect(new URL(preview.url()).searchParams.has('ref')).toBe(false);
+  await expect(page.getByRole('heading', { name: 'My events.', exact: true })).toBeVisible();
+  await preview.close();
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  const share = page.getByRole('dialog', { name: 'Share your rundown', exact: true });
+  await expect(share.getByRole('button', { name: 'Copy link', exact: true })).toBeVisible();
+  await share.getByRole('button', { name: 'Copy link', exact: true }).click();
+  await expect(share.getByRole('button', { name: 'Link copied', exact: true })).toBeVisible();
+  const link = await page.evaluate(() => window.__personalRundownLink);
+  const rundownId = new URL(link).searchParams.get('rundown');
+  await page.evaluate(() => localStorage.removeItem('nitewide.session'));
+  await page.goto(link);
+  await expect(page.getByRole('heading', { name: 'Leo Promoter’s Rundown', exact: true })).toBeVisible();
+  await expect(page.getByTestId('rundown-event-card')).toHaveCount(6);
+  await page.getByTestId('rundown-event-card').first().getByRole('button').click();
+  const details = page.getByTestId('customer-event-details');
+  await expect(details).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('ref')).toBe(`RUN-${rundownId}`);
+  await page.reload();
+  await expect(details).toBeVisible();
+  await details.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(details).toHaveCount(0);
+  await expect(page.getByTestId('rundown-event-card')).toHaveCount(6);
+  const closed = new URL(page.url());
+  expect(closed.searchParams.get('rundown')).toBe(rundownId);
+  expect(closed.searchParams.has('event')).toBe(false);
+  expect(closed.searchParams.has('ref')).toBe(false);
+  await loginViaApi(page, fixture, 'customer', 'customer', `${closed.pathname}${closed.search}`);
+  await page.getByTestId('rundown-event-card').first().getByRole('button').click();
+  await details.getByRole('button', { name: /^Continue ·/ }).click();
+  const ordered = page.waitForResponse(response => response.url().endsWith('/api/orders') && response.request().method() === 'POST');
+  await details.getByRole('button', { name: 'Confirm demo booking', exact: true }).click();
+  const response = await ordered;
+  expect(response.ok()).toBeTruthy();
+  expect(response.request().postDataJSON().affiliateCode).toBe(`RUN-${rundownId}`);
+  expect((await response.json()).data.order.eventAffiliateId).toBe(fixture.ids.affiliate);
+  await expect(page).toHaveURL(/tab=booked/);
+  await expectNoOverflow(page);
+});
 
 authTest('My events is hidden for customer-only accounts and its API rejects direct access', async ({ page, request, fixture }) => {
   await login(page, fixture, 'customer');
@@ -160,28 +367,22 @@ operatorTest('manager invites four account-free guests, copies only from dialogs
     const bounds = await select.boundingBox();
     expect(bounds?.height, 'invitation selectors remain touch-sized on every browser').toBeGreaterThanOrEqual(44);
   }
-  // Returning from another app rechecks access, but must not discard an open
-  // invitation (or a potentially in-flight write) while that read is pending.
-  let checkingAccess = false, releaseAccess;
-  const accessReleased = new Promise(resolve => { releaseAccess = resolve; });
-  const accessPattern = '**/api/customer/my-events/access';
-  await page.route(accessPattern, async route => {
-    checkingAccess = true;
-    await accessReleased;
-    await route.fulfill({ json: { data: { eligible: true } } });
-  });
+  // Returning focus must not reload access or discard an open invitation.
+  const accessRequests = [];
+  const trackAccess = request => { if (request.url().endsWith('/api/customer/my-events/access')) accessRequests.push(request.url()); };
+  page.on('request', trackAccess);
   try {
-    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-    await expect.poll(() => checkingAccess).toBe(true);
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('focus'));
+      return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
     await expect(invite).toBeVisible();
     // The modal correctly hides background content from the accessibility
     // tree; inspect the retained DOM rather than an accessible heading role.
     await expect(page.locator('#my-event-stats-heading')).toHaveText('Event performance');
+    expect(accessRequests).toHaveLength(0);
   } finally {
-    const recheckedAccess = checkingAccess ? page.waitForResponse(response => response.url().endsWith('/api/customer/my-events/access')) : null;
-    releaseAccess();
-    if (recheckedAccess) await recheckedAccess;
-    await page.unroute(accessPattern);
+    page.off('request', trackAccess);
   }
   await invite.getByLabel('Guest name', { exact: true }).fill('Alex and friends');
   await invite.getByLabel('Spots', { exact: true }).fill('4');

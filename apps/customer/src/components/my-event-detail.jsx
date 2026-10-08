@@ -46,22 +46,25 @@ export function MyEventStats({ detail }) {
   </>;
 }
 
-export function MyEventDetail({ session, eventId, refreshKey = 0, onBack, onUnauthorized }) {
+export function MyEventDetail({ session, eventId, refreshKey = 0, accessChecking = false, onBack, onUnauthorized }) {
   const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
   const token = session?.accessToken;
+  const requestKey = `${token}:${eventId}:${revision}:${refreshKey}`;
   const detail = snapshot?.token === token && snapshot?.eventId === eventId ? snapshot.data : null;
   const reloadDetail = () => setRevision(value => value + 1);
   useEffect(() => {
     if (!token || !eventId) { setSnapshot(null); setLoading(false); return; }
+    if (accessChecking || snapshot?.requestKey === requestKey) return;
     const controller = new AbortController();
     setLoading(true); setError('');
-    api(`/customer/my-events/${encodeURIComponent(eventId)}`, { token, signal: controller.signal })
+    Promise.resolve().then(() => controller.signal.aborted ? undefined : api(`/customer/my-events/${encodeURIComponent(eventId)}`, { token, signal: controller.signal }))
       .then(data => {
+        if (controller.signal.aborted) return;
         if (!validMyEventDetail(data) || data.event.id !== eventId) throw new Error('We couldn’t load this event. Please try again.');
-        if (!controller.signal.aborted) setSnapshot({ token, eventId, data });
+        setSnapshot({ token, eventId, data, requestKey });
       })
       .catch(cause => {
         if (controller.signal.aborted) return;
@@ -74,7 +77,7 @@ export function MyEventDetail({ session, eventId, refreshKey = 0, onBack, onUnau
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [eventId, token, revision, refreshKey, onUnauthorized]);
+  }, [eventId, token, revision, refreshKey, accessChecking, onUnauthorized]);
   const event = detail?.event;
   const phase = event && myEventPhase(event);
   return <div className="my-event-detail">

@@ -4,6 +4,7 @@ import { Button } from './ui/button';
 import { EventArtwork } from './event-artwork';
 import { LoadingIndicator } from './loading-indicator';
 import { MyEventDetail } from './my-event-detail';
+import { RundownSharing } from './rundown-sharing';
 import { api } from '../lib/api';
 import { eventDate, eventTime } from '../lib/presentation';
 import { eventVenueName } from '../lib/event-venue';
@@ -42,17 +43,20 @@ export function MyEventsPage({ session, access, route, onRouteChange, onUnauthor
   const [revision, setRevision] = useState(0);
   const token = session?.accessToken;
   const path = myEventsListPath(route);
+  const requestKey = `${token}:${path}:${revision}:${access.successRevision || 0}`;
   const ready = Boolean(token && access.eligible && !route.myEventId);
   const result = snapshot?.token === token && snapshot?.path === path && ready ? snapshot.data : null;
   useEffect(() => { setSearch(route.mySearch); }, [route.mySearch]);
   useEffect(() => {
     if (!ready) { setSnapshot(null); setLoading(false); setError(''); return; }
+    if (access.loading || snapshot?.requestKey === requestKey) return;
     const controller = new AbortController();
     setLoading(true); setError('');
-    api(path, { token, signal: controller.signal })
+    Promise.resolve().then(() => controller.signal.aborted ? undefined : api(path, { token, signal: controller.signal }))
       .then(data => {
+        if (controller.signal.aborted) return;
         if (!validMyEventsPage(data)) throw new Error('We couldn’t load your events. Please try again.');
-        if (!controller.signal.aborted) setSnapshot({ token, path, data });
+        setSnapshot({ token, path, data, requestKey });
       })
       .catch(cause => {
         if (controller.signal.aborted) return;
@@ -61,7 +65,7 @@ export function MyEventsPage({ session, access, route, onRouteChange, onUnauthor
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [ready, path, token, revision, access.successRevision, onUnauthorized]);
+  }, [ready, path, token, revision, access.loading, access.successRevision, onUnauthorized]);
 
   function update(changes) { onRouteChange({ ...route, myEventId: null, ...changes }); }
   function submit(event) { event.preventDefault(); update({ mySearch: search.trim().slice(0, 120), myPage: 1 }); }
@@ -71,6 +75,7 @@ export function MyEventsPage({ session, access, route, onRouteChange, onUnauthor
       <div><p className="eyebrow">YOUR EVENTS. YOUR PEOPLE.</p><h1>My events.</h1><p>Keep up with the nights you’re part of.</p></div>
       <span className="my-events-heading-note"><Sparkles size={16} aria-hidden="true" /> Your business access, here.</span>
     </div>
+    {session && access.eligible && <RundownSharing session={session} accessChecking={access.loading} refreshKey={access.successRevision} onUnauthorized={onUnauthorized} onRecheck={access.recheck} />}
     {!session ? <div className="my-events-empty"><CalendarDays aria-hidden="true" /><h2>Sign in to your events.</h2><p>Use the account connected to your business or event team.</p><Button className="dark-glass-action" onClick={onSignIn}>Sign in</Button></div>
       : access.loading && !access.eligible ? <LoadingIndicator>Checking your event access…</LoadingIndicator>
       : access.error && !access.eligible ? <div className="my-events-error" role="alert"><p>{access.error}</p><Button variant="outline" onClick={access.recheck}>Try again</Button></div>
@@ -105,6 +110,6 @@ export function MyEventsPage({ session, access, route, onRouteChange, onUnauthor
   </>;
   return <main className="my-events-page wrap" id="my-events">
     {access.eligible && access.error && <div className="my-events-access-warning" role="status"><p>Couldn’t refresh your event access.</p><button type="button" onClick={access.recheck}>Retry access check</button></div>}
-    {session && access.eligible && route.myEventId ? <MyEventDetail key={`${token}:${route.myEventId}`} session={session} eventId={route.myEventId} refreshKey={access.successRevision} onBack={() => update({})} onUnauthorized={onUnauthorized} /> : list}
+    {session && access.eligible && route.myEventId ? <MyEventDetail key={`${token}:${route.myEventId}`} session={session} eventId={route.myEventId} accessChecking={access.loading} refreshKey={access.successRevision} onBack={() => update({})} onUnauthorized={onUnauthorized} /> : list}
   </main>;
 }

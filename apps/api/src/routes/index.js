@@ -45,6 +45,7 @@ function createRouter(options) {
   const customerEventRead = createBusinessReadService({ models, internalReadPermission: 'events.manage' });
   const myEvents = require('../services/customer-my-events-service').createCustomerMyEventsService({ models, businessRead: customerEventRead, businessEventRead,
     invitations, referralLinks, reviewGuestlist: options.reviewGuestlist });
+  const rundowns = require('../services/rundown-service').createRundownService({ models, permissions, customerAppUrl });
   const account = createCustomerAccountService({ models, tokenSecret: qrTokenSecret });
   const saved = createCustomerSavedService({ models });
   const admissions = createAdmissionsService({ models, permissions });
@@ -57,6 +58,7 @@ function createRouter(options) {
   // before sign-in; all order/account mutations below require a real session.
   router.get('/customer/payment-config', (_req, res) => res.set('Cache-Control', 'no-store').json({ data: paymentConfiguration }));
   require('./customer-my-events').registerCustomerMyEventsRoutes(context);
+  require('./rundowns').registerRundownRoutes({ ...context, rundowns });
   require('./customer').registerCustomerRoutes(context);
   require('./organizer-messages').registerOrganizerMessageRoutes({ ...context, organizerMessages });
   const supportMessages = require('../services/support-message-service').createSupportMessageService({ models,permissions,notifications,sequelize: options.sequelize });

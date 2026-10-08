@@ -313,6 +313,9 @@ test('manager without finance or earnings permission does not see payments navig
   await expect(page.getByRole('heading', { name: 'Payment accounts' })).toHaveCount(0);
   expect(paymentRequests).toEqual([]);
   await expectNoOverflow(page);
+  // Redirecting denied Payments access to Overview refreshes bootstrap again.
+  // Drain that permission override before teardown disposes its fetched body.
+  await page.unrouteAll({ behavior: 'wait' });
 });
 
 test('commission-only access shows personal earnings without merchant requests or payment accounts', async ({ page, fixture }) => {

@@ -1,10 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canApplyInitialEvent, parseCustomerRoute, updateCustomerRoute } from '../src/lib/customer-route.js';
+import { canApplyInitialEvent, parseCustomerRoute, rundownContextKeyFromSearch, rundownIdFromSearch, rundownPreviewFromSearch, updateCustomerRoute } from '../src/lib/customer-route.js';
 import { mapsUrlForLocation } from '../src/lib/maps-link.js';
 import { clearPassCache, loadPassCache, savePassCache } from '../src/lib/pass-cache.js';
 import { discoveryShortcutRange } from '../src/lib/discovery-shortcuts.js';
 import { uniqueSavedIds, savedIdBatches } from '../src/lib/saved-id-batch.js';
+
+test('private rundown viewing is separate from public links and rejects invalid or operational routes', () => {
+  const id = '61daf017-d30c-4030-9b89-dd29d875ddaf';
+  assert.deepEqual(rundownPreviewFromSearch('?rundownPreview=personal'), { kind: 'personal', organizationId: null });
+  assert.deepEqual(rundownPreviewFromSearch(`?rundownPreview=${id.toUpperCase()}`), { kind: 'business', organizationId: id });
+  assert.equal(rundownContextKeyFromSearch('?rundownPreview=personal'), 'preview:personal:');
+  assert.equal(rundownContextKeyFromSearch(`?rundownPreview=${id}`), `preview:business:${id}`);
+  assert.equal(rundownIdFromSearch(`?rundown=${id}&rundownPreview=personal`), id);
+  assert.equal(rundownPreviewFromSearch(`?rundown=${id}&rundownPreview=personal`), null);
+  for (const search of ['?rundownPreview=invalid', '?rundownPreview=personal&tab=my-events', `?rundownPreview=${id}&tab=saved`]) {
+    assert.equal(rundownPreviewFromSearch(search), null);
+    assert.equal(rundownContextKeyFromSearch(search), '');
+  }
+  const priorWindow = globalThis.window;
+  const updates = [];
+  globalThis.window = { location: { href: `https://nitewide.test/?rundownPreview=personal` }, history: { state: {}, pushState(_state, _title, url) { updates.push(url); } } };
+  try {
+    updateCustomerRoute({ eventId: id });
+    updateCustomerRoute({ tab: 'my-events' });
+    updateCustomerRoute({ tab: 'discover', rundownPreview: null });
+  } finally { if (priorWindow === undefined) delete globalThis.window; else globalThis.window = priorWindow; }
+  assert.equal(updates[0].searchParams.get('rundownPreview'), 'personal', 'event detail retains the viewing context');
+  assert.equal(updates[1].searchParams.has('rundownPreview'), false);
+  assert.equal(updates[2].searchParams.has('rundownPreview'), false);
+});
 
 test('late initial event responses cannot replace a recovered checkout after its request lock clears', () => {
   const eventId = '61daf017-d30c-4030-9b89-dd29d875ddaf';

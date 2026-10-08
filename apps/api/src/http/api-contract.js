@@ -16,6 +16,7 @@ const payments = require('./payment-schemas');
 const organizerMessages = require('./organizer-message-schemas');
 const supportMessages = require('./support-message-schemas');
 const commissions = require('./commission-payment-schemas');
+const rundowns = require('./rundown-schemas');
 const { MAX_GUESTLIST_REQUEST_PARTY_SIZE } = require('../domain/guestlist-party-size');
 
 const uuid = z.uuid();
@@ -78,6 +79,9 @@ const guestlistRow = guest.extend({ eventId: uuid, userId: uuid.nullable(), even
 // Dynamic management resources retain JSON extension fields by design.
 const responses = { entity, event, offering, user, session, guest, sales, reportRow, exportJob, accessRequest, onboardingInvitation, error, page, envelope };
 const queries = {
+  '/customer/rundowns': z.object({}).strict(),
+  '/customer/rundowns/preview': rundowns.previewQuery,
+  '/rundowns/:id': rundowns.pageQuery,
   '/discovery/areas': publicQuery.discoveryAreaQuery,
   '/account/organization-requests': businessAccess.query,
   '/support/messages': supportMessages.pageQuery,
@@ -161,6 +165,9 @@ function responseFor(method, path) {
   if (path === '/business/orders/:orderId/refund-request') return organizerMessages.resolution;
   if (path.endsWith('/commission-settings')) return z.object({ organizationId: uuid.nullable(), eventId: uuid.optional(), minimumSubtotalCents: count.nullable(),
     effectiveMinimumSubtotalCents: count, floorSubtotalCents: z.literal(1000), appliesTo: z.literal('future_orders') });
+  if (path === '/customer/rundowns') return method === 'get' ? z.object({ items: z.array(rundowns.item) }).strict() : rundowns.item;
+  if (path === '/customer/rundowns/preview') return rundowns.page;
+  if (path === '/rundowns/:id') return rundowns.page;
   if (path === '/customer/my-events/access') return z.object({ eligible: z.boolean() });
   if (path === '/customer/my-events') return page(myEvent).extend({ counts: z.object({ upcoming: count, past: count, draft: count }) });
   if (path === '/customer/my-events/:eventId') return z.object({ event, scope: z.enum(['event', 'own']), summary: eventSummary,

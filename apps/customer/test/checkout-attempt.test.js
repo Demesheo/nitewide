@@ -34,6 +34,29 @@ test('resuming another server order never overwrites an unresolved locally saved
   clearCheckoutAttempt('buyer', attempt.body.idempotencyKey, store);
   assert.deepEqual(readCheckoutAttempt('buyer', store), prior);
 });
+test('server cart recovery preserves attribution only from the same saved checkout', () => {
+  const store = storage();
+  const prior = prepareCheckoutAttempt('buyer', body, store, () => restored.booking.idempotencyKey, 'stripe', 'Original host');
+  rememberCheckoutOrder(prior, restored.orderId, store);
+  const attempt = restorePaymentAttempt('buyer', restored, store);
+  assert.equal(attempt.body.affiliateCode, 'host');
+  assert.equal(attempt.referrerName, 'Original host');
+  assert.deepEqual(readCheckoutAttempt('buyer', store), attempt);
+  assert.equal(restorePaymentAttempt('buyer', restored, store).body.affiliateCode, 'host');
+  assert.equal(JSON.stringify(attempt).includes('secret-never-persist'), false);
+});
+test('server cart recovery never borrows attribution from a different event, key or order', () => {
+  for (const mismatch of ['event', 'key', 'order']) {
+    const store = storage();
+    const prior = prepareCheckoutAttempt('buyer', { ...body, eventId: mismatch === 'event' ? 'other-event' : body.eventId }, store,
+      () => mismatch === 'key' ? 'other-key' : restored.booking.idempotencyKey, 'stripe', 'Other host');
+    const saved = rememberCheckoutOrder(prior, mismatch === 'order' ? 'other-order' : restored.orderId, store);
+    const attempt = restorePaymentAttempt('buyer', restored, store);
+    assert.equal(attempt.body.affiliateCode, undefined);
+    assert.equal(attempt.referrerName, null);
+    assert.deepEqual(readCheckoutAttempt('buyer', store), saved);
+  }
+});
 test('server order recovery still works if persistence is denied; malformed recovery cannot produce a new checkout', () => {
   const denied = { getItem() { throw new Error('Denied'); } };
   assert.equal(restorePaymentAttempt('buyer', restored, denied).orderId, 'original-order');

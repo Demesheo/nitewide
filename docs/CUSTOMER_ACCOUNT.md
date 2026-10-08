@@ -2,6 +2,23 @@
 
 The customer header uses compact Discover / Booked / Saved navigation, plus Connections for eligible signed-in customers, notifications, and an initials avatar. The avatar opens Profile settings; Booked opens purchases and guestlist entries. Connections has its own feed. There is no separate ticket shortcut. All visitors find For business in the footer beside the brand, replacing the former city list.
 
+## Refresh behavior
+
+Customer message and notification badges refresh on page navigation and browser
+reload, not on timers, window focus, or visibility changes. Opening an inbox or
+conversation, pagination, retries, and explicit message/notification actions still
+load or update the requested records. Connections follows navigation and explicit
+booking/request changes. This behavior is scoped to the customer app; shared
+business messaging keeps its existing refresh policy.
+
+My events rechecks current access on entry before starting its initial directory,
+rundown, or detail reads. Loaded content and open invitation dialogs remain
+mounted during explicit rechecks; confirmed scope changes and denials still
+refresh or clear the affected content. Development effect replay does not start
+discarded requests. Booked reads on navigation and explicit timeline actions;
+admission passes load when opened or when **Refresh pass** is selected, without
+background polling. Venue check-in always validates current server-side status.
+
 ## Contact Nitewide
 
 An unobtrusive footer link opens Nitewide support in Messages. Organizer conversations and refund requests stay in their own Organizer view. Signed-in customers can report an issue, optionally attach their currently open event/booking, see case status and exchange private in-app replies with Nitewide. Context is checked server-side; other customers' records cannot be attached or read. Resolved/closed conversations are read-only. Reply/status notifications contain no private message text, and no support email is sent.
@@ -32,7 +49,7 @@ For venues marked `attendees_only`, authenticated booking and pass responses inc
 
 Connections derive from a customer's paid referred purchases, referred guestlist entries (including requests), and accepted guestlist invitations. Past, current and future event dates all qualify. Direct-only purchases and direct guestlist entries do **not** unlock the tab; an accepted personal invitation to the direct venue pool does qualify through its inviter. Pending/unclaimed invitations and self-referrals do not qualify. The connection is to the person, across all organizations and venues where that person currently has access. For example, one promoter can appear at La Rosa Thursday, Room 22 Friday, Euphoria Saturday, and Eden Sunday. No previous visit to the destination venue is required.
 
-`GET /api/customer/connections/summary?page=&pageSize=&search=` is authenticated, customer-scoped and no-store. It returns `{eligible,people,total,page,pageSize,hasMore}` with up to 50 people per page (20 by default); `/api/customer/connections/people` is an equivalent paged lookup for the selector. `eligible` reflects historical attribution even when a person is inactive or the name filter finds no result, while `total` counts visible people matching the name search. Each visible person has a public name and only this customer's booking/guestlist-event counts. Invitations and their resulting entries count once per person/event. People remain visible between events; inactive accounts are hidden without erasing history-based eligibility. No private contact details, commission amounts or unrelated customer data are exposed. The header refreshes on login, completed purchases/requests, and focus, and clears session-specific data on logout/account changes.
+`GET /api/customer/connections/summary?page=&pageSize=&search=` is authenticated, customer-scoped and no-store. It returns `{eligible,people,total,page,pageSize,hasMore}` with up to 50 people per page (20 by default); `/api/customer/connections/people` is an equivalent paged lookup for the selector. `eligible` reflects historical attribution even when a person is inactive or the name filter finds no result, while `total` counts visible people matching the name search. Each visible person has a public name and only this customer's booking/guestlist-event counts. Invitations and their resulting entries count once per person/event. People remain visible between events; inactive accounts are hidden without erasing history-based eligibility. No private contact details, commission amounts or unrelated customer data are exposed. The header refreshes on login, navigation, and completed purchases/requests, and clears session-specific data on logout/account changes. Window focus does not refresh it.
 
 The main Connections page includes a compact multi-select dialog with server-backed name search and prior booking/guestlist counts. Selections remain draft until Apply; Cancel, Escape and closing discard changes. Show all resets to all connections; one to 50 individual people may be selected. Person/city/search filters combine on the server, with shared saved-event cards and 20 event/referrer pairs per loaded page. Multiple referrers for one event are deduplicated into one card with an explicit referrer selector. Its booking action and copy-link action use the selected person's code; filters cannot leave a hidden person's code selected. No fake follow, messaging, discount or guaranteed-admission controls are offered. Empty and loading states remain part of the normal page layout.
 
@@ -43,6 +60,59 @@ Opened Discover and Saved events also offer a **Book with** selector when the si
 The feed includes future published, discoverable events for active owners, managers, employees, organization promoters, independent creators, and event-only promoters. It revalidates current membership, referral windows, and event removal through the shared referral-link service. Stable event assignments may be created for eligible staff/creators as part of obtaining their link. `GET /api/customer/connections?page=&pageSize=&city=&query=&personIds=` returns `{items,page,pageSize,total,hasMore}` with up to 30 event/referrer pairs per page; `personIds` is a comma-separated set of up to 50 UUIDs, and `total` counts pairs, not distinct events. The server applies city, event/person text search, selected people, event lifecycle and active role predicates before limiting rows in SQL. Historical counts are aggregated in PostgreSQL using customer-scoped indexes rather than loading every order, guestlist row and invitation into application memory. It exposes public referrer names only, never their contact information or other customers.
 
 Opening a card validates and applies that person's referral code for the destination event. Purchase and guestlist requests use the existing attribution services. The destination event's current commission applies to a new order; historical orders retain their snapshots. Business sales, customer, commission, analytics, and notification records receive the normal checkout updates. Being connected to someone does not grant them access to unrelated customer activity.
+
+## Public rundowns
+
+Approved business users find a compact rundown selector in the customer app’s
+**My events** directory. **My rundown** combines their eligible events; business
+names select the corresponding business page. **View** opens the
+customer-facing layout in a new tab immediately,
+before sharing, preserving **My events**. Viewing is authenticated and read-only;
+it does not provision a public link, copy it or create a referral visit.
+
+**Share** prepares the selected page’s stable public link automatically, with no
+opt-in or publishing confirmation. Any currently eligible business team member
+can obtain its business link, without gaining additional operational permissions.
+Copy/native sharing retain their normal user-gesture requirements and manual
+copy fallback. No handles, custom names, editor or hide controls are introduced.
+
+Each page has a stable, opaque `/?rundown=<UUID>` link on the customer app.
+Business pages automatically list that organization’s current/upcoming published,
+discoverable events. Personal pages combine events across the person’s current
+organizations, exact venue grants, standalone event assignments and independent
+creator access. Removed/expired assignments, revoked roles, suspended entities,
+drafts, unlisted events and ended events are excluded. Street addresses remain
+redacted for attendee-only/private locations. Names are read from existing
+profiles, so normal profile/name changes appear without a rundown editor.
+
+Anonymous visitors see six miniature flyers initially (two columns and three
+rows on iPhone). **View more** requests six more using server-side chronological
+keyset pagination across all cities, with no seven-day cutoff. The page does not
+request city detection or inherit discovery filters. Events open the normal
+details, sign-in and checkout flows. Close/Back returns to the loaded rundown;
+the event link preserves its rundown and personal referral context on reload.
+
+`GET /api/customer/rundowns` reads available sharing choices without provisioning
+anything. `GET /api/customer/rundowns/preview?kind=personal` (or `kind=business`
+with `organizationId`) provides the same six-card page for the authenticated
+owner/team, without creating rows. `POST /api/customer/rundowns` idempotently
+prepares the selected personal or authorized business link.
+`GET /api/rundowns/:id?pageSize=6&cursor=...` is an
+anonymous, no-store, read-only snapshot with an explicit public-field allowlist.
+It never creates referral assignments, visits, orders or email jobs.
+
+Personal cards use an opaque `RUN-<rundown UUID>` alias. Existing attribution
+actions revalidate both public-event eligibility and the person’s exact current
+access, then reuse existing event-specific commission/allocation terms. Lazy
+assignment creation happens only inside the existing attribution transactions;
+preflight and public listing remain read-only. Individual payout-readiness rules
+and historic order snapshots are unchanged. Business links are generic and do
+not apply personal credit.
+
+Deploying this feature requires the ordinary additive migration
+`202610090001-customer-rundowns.cjs`. No new environment variables, provider keys,
+external service or data backfill are needed. Public link records are provisioned
+on first **Share**, not by listing or viewing rundowns.
 
 ## Profile
 

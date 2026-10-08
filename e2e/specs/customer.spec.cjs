@@ -889,6 +889,75 @@ test('cancelled and refunded saved checkouts retire on reload and allow explicit
   expect(prepares[0].idempotencyKey).not.toBe(prepares[1].idempotencyKey);
 });
 
+test('saved attributed sandbox checkout preserves referral credit through recovery, cancellation and reload', async ({ page, fixture }) => {
+  await loginViaApi(page, fixture, 'customer');
+  const booking = (await abandonedCheckoutFixture(page, fixture))();
+  const affiliateCode = 'PW-EVENT-LEO';
+  const initialVisitStarted = deferred(), releaseInitialVisit = deferred(), initialVisitDelivered = deferred();
+  let visits = 0;
+  await page.route(`**/api/events/${fixture.ids.event}/referral-visits`, async route => {
+    const initial = ++visits === 1;
+    if (initial) { initialVisitStarted.resolve(); await releaseInitialVisit.promise; }
+    try {
+      await route.fulfill({ json: { data: { code: affiliateCode, referrerName: 'Leo Promoter' } } });
+    } catch (error) {
+      if (!initial) throw error;
+      // Recovery may abort the initial deep-link request after taking ownership.
+    } finally { if (initial) initialVisitDelivered.resolve(); }
+  });
+  await page.route(`**/api/customer/payment-checkouts/${fixture.ids.order}/resume`, route => route.fulfill({ json: { data: {
+    orderId: fixture.ids.order, status: 'pending', verificationStatus: 'pending',
+    clientSecret: 'fixture_attributed_secret', stripeAccountId: 'acct_fixture', booking,
+  } } }));
+  await page.route(`**/api/customer/payment-checkouts/${fixture.ids.order}/cancel`, route => route.fulfill({ json: { data: {
+    orderId: fixture.ids.order, status: 'cancelled',
+  } } }));
+  await page.route('**/api/customer/checkout-attempts/*', route => route.fulfill({ status: 404, json: { error: { message: 'Absent' } } }));
+  const prepares = [];
+  await page.route('**/api/customer/payment-checkouts', route => {
+    prepares.push(route.request().postDataJSON());
+    return route.fulfill({ json: { data: { orderId: fixture.ids.order, status: 'pending', clientSecret: 'fixture_renewed_secret', stripeAccountId: 'acct_fixture' } } });
+  });
+  await page.evaluate(({ orderId, booking, affiliateCode }) => {
+    const buyerId = JSON.parse(localStorage.getItem('nitewide.session')).user.id;
+    localStorage.setItem(`nitewide.checkout.${buyerId}`, JSON.stringify({ buyerId, orderId, mode: 'stripe', referrerName: 'Leo Promoter',
+      body: { eventId: booking.event.id, idempotencyKey: booking.idempotencyKey, affiliateCode,
+        items: booking.items.map(item => ({ offeringId: item.offeringId, quantity: item.quantity })), expectedTotalCents: booking.totalCents } }));
+  }, { orderId: fixture.ids.order, booking, affiliateCode });
+  const details = page.getByTestId('customer-event-details');
+  try {
+    await page.goto(`/?event=${fixture.ids.event}&ref=${affiliateCode}`);
+    await initialVisitStarted.promise;
+    // Hold the initial referral response so only the saved attempt can supply
+    // the credit when recovery restores the event and rewrites its route.
+    await expect(details.getByRole('button', { name: 'Cancel payment attempt' })).toBeEnabled();
+    expect(new URL(page.url()).searchParams.get('ref')).toBe(affiliateCode);
+    const restored = JSON.parse(await savedCheckout(page));
+    expect(restored.body.affiliateCode).toBe(affiliateCode);
+    expect(restored.body.idempotencyKey).toBe(booking.idempotencyKey);
+    expect(prepares).toEqual([]);
+    releaseInitialVisit.resolve();
+    await initialVisitDelivered.promise;
+    await details.getByRole('button', { name: 'Cancel payment attempt' }).click();
+    await expect(details.getByRole('button', { name: /^Continue ·/ })).toBeEnabled();
+    expect(await savedCheckout(page)).toBeNull();
+    expect(new URL(page.url()).searchParams.get('ref')).toBe(affiliateCode);
+    await page.reload();
+    await expect(details.locator('.connection-context')).toContainText('Leo Promoter');
+    expect(await savedCheckout(page)).toBeNull();
+    expect(prepares).toEqual([]);
+    await selectVipCheckout(page);
+    await details.getByRole('button', { name: 'Continue to payment', exact: true }).click();
+    await expect(details.getByRole('button', { name: /^Pay / })).toBeVisible();
+    expect(prepares).toHaveLength(1);
+    expect(prepares[0].affiliateCode).toBe(affiliateCode);
+    expect(prepares[0].eventId).toBe(fixture.ids.event);
+    expect(prepares[0].idempotencyKey).not.toBe(booking.idempotencyKey);
+    expect(JSON.parse(await savedCheckout(page)).body.affiliateCode).toBe(affiliateCode);
+    await expectNoOverflow(page);
+  } finally { releaseInitialVisit.resolve(); }
+});
+
 test('Continue retires an ended saved sandbox checkout in one click without silently resubmitting', async ({ page, fixture }) => {
   await loginViaApi(page, fixture, 'customer');
   await abandonedCheckoutFixture(page, fixture);

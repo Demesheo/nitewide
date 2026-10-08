@@ -19,29 +19,26 @@ export function useMyEventsAccess(session, active) {
     if (!token) { setSnapshot(null); return; }
     const controller = new AbortController();
     setSnapshot(current => current?.token === token ? { ...current, checking: true, error: '' } : null);
-    api('/customer/my-events/access', { token, signal: controller.signal })
+    // StrictMode replays mount effects in development. Start only the surviving
+    // read, while still aborting real navigation/account changes immediately.
+    Promise.resolve().then(() => controller.signal.aborted ? undefined : api('/customer/my-events/access', { token, signal: controller.signal }))
       .then(data => {
+        if (controller.signal.aborted) return;
         if (typeof data?.eligible !== 'boolean') throw new Error('We couldn’t check your event access. Please try again.');
-        if (!controller.signal.aborted) setSnapshot(current => ({ token, eligible: data.eligible, checking: false, error: '', successRevision: current?.token === token ? (current.successRevision || 0) + 1 : 1 }));
+        setSnapshot(current => ({ token, eligible: data.eligible, checking: false, error: '', requestRevision: revision, successRevision: current?.token === token ? (current.successRevision || 0) + 1 : 1 }));
       })
       .catch(error => {
         if (controller.signal.aborted) return;
         const denied = error.status === 401 || error.status === 403;
         const transient = error.status === undefined || error.status >= 500;
-        setSnapshot(current => ({ token, eligible: Boolean(transient && current?.token === token && current.eligible), checking: false,
+        setSnapshot(current => ({ token, eligible: Boolean(transient && current?.token === token && current.eligible), checking: false, requestRevision: revision,
           error: denied ? '' : 'We couldn’t check your event access. Please try again.',
           successRevision: current?.token === token ? current.successRevision || 0 : 0 }));
       });
     return () => controller.abort();
   }, [token, revision]);
 
-  useEffect(() => {
-    if (!active || !token) return;
-    const onFocus = () => { if (!document.hidden) recheck(); };
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-  }, [active, token, recheck]);
-
   const current = token && snapshot?.token === token ? snapshot : null;
-  return { eligible: current?.eligible === true, loading: Boolean(token && (!current || current.checking)), error: current?.error || '', successRevision: current?.successRevision || 0, recheck, invalidate };
+  const entering = previous.current.token === token && active && !previous.current.active;
+  return { eligible: current?.eligible === true, loading: Boolean(token && (entering || !current || current.checking || current.requestRevision !== revision)), error: current?.error || '', successRevision: current?.successRevision || 0, recheck, invalidate };
 }
