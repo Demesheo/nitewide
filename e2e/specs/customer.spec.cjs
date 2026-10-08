@@ -155,6 +155,7 @@ discoveryTest('customer discovery keeps its chosen area, branding and private si
       // Manual qualified-city submission must work even after suggestions load,
       // not only in the short interval before the autocomplete response arrives.
       await expect(page.getByRole('listbox', { name: 'City suggestions' }).getByRole('option', { name: /^Miami, FL/ })).toBeVisible();
+      await expect(page.getByRole('listbox', { name: 'City suggestions' }).getByRole('option')).toHaveText(['Miami, FL']);
       await page.getByRole('button', { name: 'Find my night', exact: true }).click();
       await miamiStarted.promise;
       await expect(cards).toHaveCount(0);

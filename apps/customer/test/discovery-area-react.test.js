@@ -162,7 +162,7 @@ test('area-scoped discovery guards real React renders, refreshes and late reques
       view.unmount();
     });
 
-    await t.test('City combobox bounds suggestions, supports keyboard choice and rejects stale responses', async () => {
+    await t.test('City combobox shows at most five clean city labels, supports keyboard choice and rejects stale responses', async () => {
       requests = [];
       let submissions = 0;
       function CityForm() {
@@ -177,9 +177,14 @@ test('area-scoped discovery guards real React renders, refreshes and late reques
       await waitFor(() => assert.equal(requests.length, 1));
       assert.equal(requests[0].url.pathname, '/api/discovery/areas');
       assert.deepEqual([...requests[0].url.searchParams], [['q', 'Win']]);
-      await finish(0, { items: Array.from({ length: 12 }, (_, index) => ({ key: `place:${index}`,
-        label: index ? `Winter ${index}, FL` : 'Winter Park, FL', groupLabel: 'Orlando–Kissimmee–Sanford, FL' })), hasMore: true });
-      assert.equal(view.getAllByRole('option').length, 8);
+      const oversizedChoices = Array.from({ length: 12 }, (_, index) => ({ key: `place:${index}`,
+        label: index ? `Winter ${index}, FL` : 'Winter Park, FL', groupLabel: 'Orlando–Kissimmee–Sanford, FL' }));
+      oversizedChoices.splice(1, 0, { ...oversizedChoices[0], label: 'Duplicate alias, FL' });
+      await finish(0, { items: oversizedChoices, hasMore: true });
+      assert.equal(view.getAllByRole('option').length, 5);
+      assert.ok(view.getByRole('option', { name: 'Winter Park, FL', exact: true }));
+      assert.equal(view.queryByRole('option', { name: 'Duplicate alias, FL' }), null);
+      assert.equal(view.queryByText('Orlando–Kissimmee–Sanford, FL'), null);
       assert.equal(view.getByRole('listbox', { name: 'City suggestions' }).id, input.getAttribute('aria-controls'));
       fireEvent.keyDown(input, { key: 'ArrowDown' });
       assert.equal(input.getAttribute('aria-activedescendant'), view.getAllByRole('option')[0].id);
@@ -332,7 +337,7 @@ test('area-scoped discovery guards real React renders, refreshes and late reques
       const input = view.getByRole('combobox', { name: 'City' });
       await user.click(input);
       await waitFor(() => assert.equal(requests.length, 1));
-      await finish(0, { items: Array.from({ length: 8 }, (_, index) => ({ key: `place:${index}`,
+      await finish(0, { items: Array.from({ length: 5 }, (_, index) => ({ key: `place:${index}`,
         label: `Winter ${index}, FL`, groupLabel: 'Orlando–Kissimmee–Sanford, FL' })) });
       const options = view.getAllByRole('option');
       const scrolls = [];
@@ -343,8 +348,8 @@ test('area-scoped discovery guards real React renders, refreshes and late reques
         assert.deepEqual(scrolls.at(-1), { index, settings: { block: 'nearest' } });
       }
       await user.keyboard('{ArrowUp}');
-      assert.equal(input.getAttribute('aria-activedescendant'), options[6].id);
-      assert.deepEqual(scrolls.at(-1), { index: 6, settings: { block: 'nearest' } });
+      assert.equal(input.getAttribute('aria-activedescendant'), options[3].id);
+      assert.deepEqual(scrolls.at(-1), { index: 3, settings: { block: 'nearest' } });
       assert.equal(dom.window.document.activeElement, input);
       view.unmount();
     });

@@ -57,19 +57,23 @@ function placeLabel(place) {
   const matches = aliases.get(identity(place.city, place.region)) || [];
   return `${matches.length === 1 ? place.city : place.legalName}, ${place.region}`;
 }
+function placeScopeKey(place) {
+  if (!place.centerCountyFips) return `unresolved:${place.geoid}`;
+  return groups.has(place.groupKey) ? `us:${place.groupKey}` : `us:radius:${place.geoid}`;
+}
 function resolvePlace(place) {
   const group = groups.get(place.groupKey);
   const label = placeLabel(place);
-  const common = { version: catalogVersion, label, city: label.slice(0, label.lastIndexOf(',')), region: place.region,
+  const common = { key: placeScopeKey(place), version: catalogVersion, label, city: label.slice(0, label.lastIndexOf(',')), region: place.region,
     countryCode: 'US', placeKey: `place:${place.geoid}`, center: Object.freeze({ latitude: place.latitude, longitude: place.longitude }),
     centerLabel: label, centerCountyFips: place.centerCountyFips };
-  if (!place.centerCountyFips) return Object.freeze({ ...common, key: `unresolved:${place.geoid}`, kind: 'city', resolutionStatus: 'unresolved', localities: [common.city], members: [], counties: [] });
+  if (!place.centerCountyFips) return Object.freeze({ ...common, kind: 'city', resolutionStatus: 'unresolved', localities: [common.city], members: [], counties: [] });
   if (group) {
     const members = groupMembers.get(group.key) || [];
-    return Object.freeze({ ...common, key: `us:${group.key}`, kind: group.kind, groupLabel: group.label, resolutionStatus: 'resolved',
+    return Object.freeze({ ...common, kind: group.kind, groupLabel: group.label, resolutionStatus: 'resolved',
       counties: group.counties, members, localities: [...new Set(members.map((member) => member.city))] });
   }
-  return Object.freeze({ ...common, key: `us:radius:${place.geoid}`, kind: 'radius', resolutionStatus: 'resolved',
+  return Object.freeze({ ...common, kind: 'radius', resolutionStatus: 'resolved',
     radiusMeters: catalog.radiusMeters, radiusMiles: 30, counties: [], members: [], localities: [common.city] });
 }
 
@@ -84,23 +88,44 @@ function resolveNationalDiscoveryArea(selection) {
   return resolvePlace(matches[0]);
 }
 
-function searchDiscoveryAreas(query, limit = 8) {
+function searchDiscoveryAreas(query, limit = 5) {
   if (typeof query !== 'string' || query.length > 120) return { items: [], hasMore: false };
-  const terms = normalize(query).replace(/,/g, ' ').split(/\s+/).filter(Boolean);
+  const qualified = parseDiscoverySelection(query);
+  if (qualified && qualified.countryCode !== 'US') return { items: [], hasMore: false };
+  const terms = normalize(qualified?.city || query).replace(/,/g, ' ').split(/\s+/).filter(Boolean);
   if (!terms.length) return { items: [], hasMore: false };
-  const maximum = Math.max(1, Math.min(8, Number.isInteger(limit) ? limit : 8));
-  const matches = places.filter((place) => place.centerCountyFips && place.names.some((name) => {
-    const haystack = normalize(`${name} ${place.regionText}`);
+  const maximum = Math.max(1, Math.min(5, Number.isInteger(limit) ? limit : 5));
+  const requestedCity = normalize(qualified?.city || query.split(',')[0]);
+  const exactPlace = place => place.names.some(name => normalize(name) === requestedCity);
+  const matches = places.filter((place) => place.centerCountyFips && (!qualified || place.region === qualified.region) && place.names.some((name) => {
+    const haystack = normalize(qualified ? name : `${name} ${place.regionText}`);
     return terms.every((term) => haystack.includes(term));
-  })).sort((a, b) => {
-    const requestedCity = normalize(query.split(',')[0]);
-    const rank = (place) => place.names.some((name) => normalize(name) === requestedCity) ? 0 : normalize(place.city).startsWith(terms[0]) ? 1 : 2;
+  })).filter((place) => {
+    const label = placeLabel(place);
+    const roundTrip = aliases.get(identity(label.slice(0, label.lastIndexOf(',')), place.region));
+    // Identical Census legal names can still refer to multiple places in one
+    // state. Never offer a label that would resolve to an unknown/different area.
+    return roundTrip?.length === 1 && roundTrip[0] === place;
+  }).sort((a, b) => {
+    const rank = (place) => exactPlace(place) ? 0 : normalize(place.city).startsWith(terms[0]) ? 1 : 2;
     return rank(a) - rank(b) || placeLabel(a).localeCompare(placeLabel(b), 'en', { sensitivity: 'base' }) || a.geoid.localeCompare(b.geoid);
   });
-  return { items: matches.slice(0, maximum).map((place) => {
+  // A complete place name is a selection, not a broad substring search through
+  // its state name. Unqualified exact names still preserve distinct states.
+  const exactMatches = matches.filter(exactPlace);
+  const distinct = [];
+  const seenScopes = new Set();
+  for (const place of exactMatches.length ? exactMatches : matches) {
+    const key = placeScopeKey(place);
+    if (seenScopes.has(key)) continue;
+    seenScopes.add(key);
+    distinct.push(place);
+    if (distinct.length > maximum) break;
+  }
+  return { items: distinct.slice(0, maximum).map((place) => {
     const area = resolvePlace(place);
-    return { key: area.placeKey, label: area.label, city: area.city, region: area.region, countryCode: 'US', kind: area.kind, ...(area.groupLabel ? { groupLabel: area.groupLabel } : {}) };
-  }), hasMore: matches.length > maximum };
+    return { key: area.key, label: area.label, city: area.city, region: area.region, countryCode: 'US', kind: area.kind, ...(area.groupLabel ? { groupLabel: area.groupLabel } : {}) };
+  }), hasMore: distinct.length > maximum };
 }
 
 function countyArea(countyFips) {

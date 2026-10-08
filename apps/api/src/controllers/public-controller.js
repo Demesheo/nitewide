@@ -167,8 +167,8 @@ function createPublicController({ models, discoveryCatalog }) {
   return {
     discoveryAreas: async (req, res) => {
       const { q } = require('../http/public-schemas').discoveryAreaQuery.parse(req.query);
-      const found = q.length >= 2 ? catalog.searchDiscoveryAreas(q, 8) : { items: [], hasMore: false };
-      res.json({ data: { items: found.items.slice(0, 8).map(areaMetadata), hasMore: Boolean(found.hasMore) } });
+      const found = q.length >= 2 ? catalog.searchDiscoveryAreas(q, 5) : { items: [], hasMore: false };
+      res.json({ data: { items: found.items.slice(0, 5).map(areaMetadata), hasMore: Boolean(found.hasMore) } });
     },
     batchEvents: async (req, res) => {
       const ids = require('../http/public-schemas').batchQuery.parse(req.query).ids;

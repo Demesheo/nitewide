@@ -110,14 +110,62 @@ test('radius fallback is exactly thirty statute miles from a known city point, n
 
 test('city suggestions are bounded, qualified and preserve ambiguous legal names', () => {
   assert.equal(search('').items.length, 0);
-  assert.equal(search('Springfield', 100).items.length, 8);
+  assert.equal(search('Springfield', 100).items.length, 5);
+  assert.equal(search('Springfield').items.length, 5);
   assert.equal(search('Springfield').hasMore, true);
-  const exact = search('Miami Beach, Florida').items;
-  assert.ok(exact.some((item) => item.label === 'Miami Beach, FL'));
+  assert.equal(search('Springfield', 2).items.length, 2);
+  const scopes = new Set();
   for (const item of search('Springfield').items) {
-    assert.match(item.key, /^place:\d{7}$/);
+    assert.match(item.key, /^us:(?:metro|division|radius):\d{5,7}$/);
     assert.match(item.label, /, [A-Z]{2}$/);
-    assert.equal(resolve(item.label).resolutionStatus, 'resolved');
+    const area = resolve(item.label);
+    assert.equal(area.resolutionStatus, 'resolved');
+    assert.equal(item.key, area.key);
+    assert.ok(!scopes.has(item.key)); scopes.add(item.key);
     assert.equal(item.center, undefined);
   }
+  const burbank = search('Burbank, California');
+  assert.deepEqual(burbank.items.map((item) => item.label), ['Burbank CDP, CA', 'Burbank city, CA']);
+  assert.equal(new Set(burbank.items.map((item) => item.key)).size, 2);
+  for (const item of burbank.items) assert.equal(resolve(item.label).key, item.key);
+  const ambiguous = search('Bear Valley CDP, California');
+  assert.ok(!ambiguous.items.some(item => item.label === 'Bear Valley CDP, CA'), 'identical legal names cannot identify a unique city scope');
+  for (const item of ambiguous.items) assert.equal(resolve(item.label).key, item.key);
+});
+
+test('suggestions collapse matching suburbs before limiting without widening metro or radius geography', () => {
+  for (const [query, label] of [['Miami, FL', 'Miami, FL'], ['Miami Beach, Florida', 'Miami Beach, FL'], ['North Miami, FL', 'North Miami, FL']]) {
+    const result = search(query, 1);
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].label, label, 'the exact requested place wins within its group');
+    assert.equal(result.items[0].key, resolve('Miami, FL').key);
+    assert.equal(result.hasMore, false, 'suppressed suburbs do not imply more distinct areas');
+  }
+  assert.equal(search('Miami').items[0].label, 'Miami, AZ');
+  assert.ok(search('Miami').items.some((item) => item.key === resolve('Miami, FL').key));
+  assert.equal(search('Fort Lauderdale, FL').items[0].key, resolve('Fort Lauderdale, FL').key);
+  assert.notEqual(search('Fort Lauderdale, FL').items[0].key, search('Miami, FL').items[0].key);
+  const midway = search('Midway, Arkansas');
+  assert.deepEqual(midway.items.map((item) => item.label), ['Midway CDP, AR', 'Midway town, AR']);
+  assert.ok(midway.items.every((item) => item.kind === 'radius'));
+  assert.equal(new Set(midway.items.map((item) => item.key)).size, 2, 'different thirty-mile centers remain separate');
+  assert.equal(midway.hasMore, false);
+});
+
+test('complete qualified city matches exclude incidental state-name matches while partial and multi-state choices remain', () => {
+  for (const label of ['New York, NY', 'Orlando, FL', 'Tampa, FL', 'Miami, FL', 'Los Angeles, CA', 'Dallas, TX', 'Atlanta, GA']) {
+    const result = search(label);
+    assert.deepEqual(result.items.map(item => item.label), [label]);
+    assert.equal(result.items[0].key, resolve(label).key);
+    assert.equal(result.hasMore, false);
+  }
+  assert.ok(search('New Y').items.length > 1, 'partial city names still offer distinct areas');
+  assert.deepEqual(search('Atlanta, Georgia, United States').items.map(item => item.label), ['Atlanta, GA']);
+  assert.deepEqual(search('San Fr, CA').items.map(item => item.label), ['San Francisco, CA'], 'qualified partial city tokens do not search another state');
+  assert.deepEqual(search('Toronto, Ontario, Canada'), { items: [], hasMore: false }, 'US-only suggestions do not misrepresent a qualified foreign selection');
+  const ambiguousState = search('Springfield');
+  assert.equal(ambiguousState.items.length, 5);
+  assert.equal(ambiguousState.hasMore, true);
+  assert.equal(new Set(ambiguousState.items.map(item => item.region)).size, 5);
+  assert.ok(ambiguousState.items.every(item => item.city === 'Springfield'));
 });

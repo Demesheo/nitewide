@@ -101,7 +101,7 @@ The form has three fields: **Where to?**, **When?**, and **Search**. Search is a
 
 #### Nationwide area selection
 
-`GET /discovery/areas?q=` serves at most eight qualified city suggestions. The browser never downloads the nationwide catalog. Keyboard, mouse and touch selection change the draft location; submitting Find my night applies it. Manual/URL selection wins over a remembered location and late approximate IP detection. Clearing the city stays unresolved, never a global feed. No automatic precise-GPS prompt occurs.
+`GET /discovery/areas?q=` serves at most five qualified city suggestions, one per discovery area. Nearby cities sharing a metro or division do not repeat the same option; the best matching city is shown with its state, without formal Census labels. A specific nearby-city search still selects that city within its shared area. Different areas and the city-centered 30-mile fallback remain distinct. The browser never downloads the nationwide catalog. Keyboard, mouse and touch selection change the draft location; submitting Find my night applies it. Manual/URL selection wins over a remembered location and late approximate IP detection. Clearing the city stays unresolved, never a global feed. No automatic precise-GPS prompt occurs.
 
 The API ships a pinned catalog of 32,350 Census places in the 50 states, DC and Puerto Rico. Official July 2023 OMB metropolitan divisions take precedence over metros, with these product-approved full-metro exceptions:
 

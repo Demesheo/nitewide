@@ -28,6 +28,20 @@ test('unselected discovery fails closed without consulting the event catalog', a
   }
 });
 
+test('public suggestions expose at most five distinct qualified area choices without querying events', async () => {
+  const controller = createPublicController({ models: {} });
+  let result;
+  const res = { json: (payload) => { result = payload.data; } };
+  await controller.discoveryAreas({ query: { q: 'Springfield' } }, res);
+  assert.equal(result.items.length, 5);
+  assert.equal(new Set(result.items.map((item) => item.key)).size, 5);
+  assert.equal(result.hasMore, true);
+  await controller.discoveryAreas({ query: { q: 'Miami, FL' } }, res);
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].label, 'Miami, FL');
+  assert.equal(result.hasMore, false);
+});
+
 test('all-city discovery requires a deliberate flag and cannot coexist with a supplied city', () => {
   const base = { pageSize: '9', startDate: '2031-11-02', endDate: '2031-11-09' };
   assert.equal(discoveryQuery.parse(base).allCities, false);

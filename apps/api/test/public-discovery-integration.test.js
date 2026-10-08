@@ -249,7 +249,8 @@ test('public discovery cursor pages preserve global listing order, filters, and 
 
     const suggestions = await request('/discovery/areas?q=San');
     assert.equal(suggestions.status, 200, JSON.stringify(suggestions));
-    assert.equal(suggestions.data.items.length, 8); assert.equal(suggestions.data.hasMore, true);
+    assert.equal(suggestions.data.items.length, 5); assert.equal(suggestions.data.hasMore, true);
+    assert.equal(new Set(suggestions.data.items.map(area => area.key)).size, 5, 'suburbs sharing one resolved area do not repeat suggestions');
     assert.ok(suggestions.data.items.every(area => area.key && area.label && area.region && area.countryCode === 'US'));
     assert.deepEqual((await request('/discovery/areas?q=x')).data, { items: [], hasMore: false });
     const borderVenues = await models.Location.bulkCreate([

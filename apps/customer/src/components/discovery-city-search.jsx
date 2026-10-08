@@ -64,7 +64,13 @@ export function DiscoveryCitySearch({ value, onChange, placeholder, describedBy 
       api(`/discovery/areas?${new URLSearchParams({ q: term })}`, { signal: controller.signal })
         .then((page) => {
           if (controller.signal.aborted || currentTerm.current !== term) return;
-          const items = (page.items || []).filter((item) => typeof item.label === 'string' && item.label.length <= 120).slice(0, 8);
+          const choices = new Map();
+          for (const item of page.items || []) {
+            if (typeof item.label !== 'string' || item.label.length > 120) continue;
+            const identity = item.key || item.label;
+            if (!choices.has(identity)) choices.set(identity, item);
+          }
+          const items = [...choices.values()].slice(0, 5);
           setSuggestions({ key: term, status: 'ready', items, hasMore: Boolean(page.hasMore) });
         })
         .catch(() => { if (!controller.signal.aborted && currentTerm.current === term) setSuggestions({ key: term, status: 'error', items: [] }); });
@@ -95,7 +101,7 @@ export function DiscoveryCitySearch({ value, onChange, placeholder, describedBy 
           ref={(element) => { optionRefs.current[index] = element; }}
           id={`${listId}-${index}`} key={item.key || item.label} aria-selected={index === activeIndex}
           onPointerDown={(event) => event.preventDefault()} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(item)}>
-          <span>{item.label}</span>{item.groupLabel && <small>{item.groupLabel}</small>}
+          <span>{item.label}</span>
         </button>)}
       </div>
       {visible.status === 'loading' && <p role="status">Finding cities…</p>}
