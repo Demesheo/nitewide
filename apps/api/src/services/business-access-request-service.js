@@ -2,6 +2,7 @@ const { Op, Transaction } = require('sequelize');
 const { conflict, forbidden, notFound, DomainError } = require('../domain/errors');
 const { activeUser } = require('./lifecycle-service');
 const { mutationTransaction } = require('./mutation-transaction');
+const { findAndCountSequential } = require('./transaction-reads');
 const { pageResult } = require('./business-read-service');
 const schemas = require('../http/business-access-schemas');
 const RECEIVED = Object.freeze({ message: 'Request received. Nitewide will review your business access request. Access is not granted until onboarding is completed.' });
@@ -47,7 +48,7 @@ function createBusinessAccessRequestService({ models, permissions, onboarding, n
       const where = { [Op.or]: [{ requesterUserId: actor }, { email: user.email }] };
       if (input.statuses.length) where.status = { [Op.in]: [...new Set(input.statuses)] };
       if (input.search) where.businessName = { [Op.iLike]: `%${input.search.replace(/[\\%_]/g, '\\$&')}%` };
-      const { rows, count } = await models.BusinessAccessRequest.findAndCountAll({ where,
+      const { rows, count } = await findAndCountSequential(models.BusinessAccessRequest, { where,
         order: [['createdAt','DESC'],['id','ASC']], limit: input.pageSize, offset: (input.page - 1) * input.pageSize, transaction });
       return pageResult(rows.map(applicantView), count, input.page, input.pageSize);
     });
@@ -61,7 +62,7 @@ function createBusinessAccessRequestService({ models, permissions, onboarding, n
       where[Op.or] = ['displayName','email','phone','businessName'].map(key => ({ [key]: { [Op.iLike]: search } }));
     }
     return read(actor, async transaction => {
-      const { rows, count } = await models.BusinessAccessRequest.findAndCountAll({ where, order: [['createdAt','ASC'],['id','ASC']], limit: input.pageSize, offset: (input.page - 1) * input.pageSize, transaction });
+      const { rows, count } = await findAndCountSequential(models.BusinessAccessRequest, { where, order: [['createdAt','ASC'],['id','ASC']], limit: input.pageSize, offset: (input.page - 1) * input.pageSize, transaction });
       return pageResult(rows, count, input.page, input.pageSize);
     });
   }

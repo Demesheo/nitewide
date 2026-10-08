@@ -1,11 +1,16 @@
+import { reportRangeIssue } from '../../../shared/report-dates.mjs';
+
 const kinds = ['businesses', 'events', 'offerings', 'purchases', 'customers', 'team', 'regions', 'venues'];
 export const reportKinds = kinds;
+export function reportDateIssue(params) {
+  return params.get('period') === 'custom' ? reportRangeIssue(params.get('startDate'), params.get('endDate')) : null;
+}
 export function reportPath(params) {
   try { const value = JSON.parse(params.get('drill') || '[]'); return Array.isArray(value) ? value.filter((row) => kinds.includes(row.kind) && typeof row.id === 'string' && typeof row.label === 'string').map(({ kind, id, label }) => ({ kind, id, label })).slice(0, 6) : []; } catch { return []; }
 }
 export function reportRequest(params, { includePaging = false } = {}) {
   const query = new URLSearchParams(); const period = params.get('period') || '30';
-  if (period === 'custom') { const from = params.get('startDate'); const to = params.get('endDate'); if (!from || !to || from > to) return null; query.set('startDate', from); query.set('endDate', to); }
+  if (period === 'custom') { if (reportDateIssue(params)) return null; query.set('startDate', params.get('startDate')); query.set('endDate', params.get('endDate')); }
   else query.set('days', ['7', '30', '90', '365'].includes(period) ? period : '30');
   query.set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
   for (const region of params.getAll('regions')) query.append('regions', region);

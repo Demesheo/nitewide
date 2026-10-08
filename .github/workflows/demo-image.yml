@@ -154,6 +154,7 @@ jobs:
           test "$(docker image inspect nitewide-demo:test --format '{{.Config.User}}')" = 'node'
           docker run --rm --entrypoint node nitewide-demo:test -e "const fs=require('node:fs'); for(const p of ['apps/api/src/server.js','apps/api/src/worker.js','apps/api/src/background/runtime.js','apps/customer/dist/index.html','apps/business/dist/index.html','apps/admin/dist/index.html','deploy/start.cjs','deploy/supervise.cjs','deploy/run.cjs','deploy/migrate.cjs']) fs.accessSync(p); if(fs.existsSync('.env')) throw Error('Unexpected environment file');"
           docker run --rm --entrypoint node nitewide-demo:test -e "if(require('./apps/api/release.json').revision !== process.argv[1]) throw Error('Runtime release identity differs from verified image');" "$GITHUB_SHA"
+          docker run --rm --entrypoint node nitewide-demo:test -e "const {reportDate}=require('./apps/api/src/http/report-date-schemas.js'); reportDate.parse('2024-02-29'); if(reportDate.safeParse('2025-02-29').success) throw Error('Runtime report date validation failed');"
           sha256sum nitewide-demo.tar > nitewide-demo.tar.sha256
       - name: Retain the built image for publication without rebuilding
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (Node 24)

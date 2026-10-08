@@ -426,10 +426,8 @@ function createAdminManagementService({ models, permissions, email = null, custo
       else if (key === 'orders') {
         if (record.status === 'cancelled') return safe(config, record);
         if (record.status !== 'pending' || record.paidAt) throw conflict('Paid or refunded orders require the payment-provider refund workflow; their financial and admission histories are retained', 'ORDER_PROVIDER_WORKFLOW_REQUIRED');
-        const [items, committedPayments] = await Promise.all([
-          models.OrderItem.count({ where: { orderId: id }, transaction }),
-          models.Payment.count({ where: { orderId: id, status: { [Op.ne]: 'failed' } }, transaction }),
-        ]);
+        const items = await models.OrderItem.count({ where: { orderId: id }, transaction });
+        const committedPayments = await models.Payment.count({ where: { orderId: id, status: { [Op.ne]: 'failed' } }, transaction });
         if (items || committedPayments) throw conflict('This order has inventory-bearing items or a payment in progress. A checkout compensation workflow is required before cancellation.', 'ORDER_COMPENSATION_REQUIRED');
         changes = { status: 'cancelled' };
       }

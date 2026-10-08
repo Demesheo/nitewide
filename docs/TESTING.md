@@ -104,24 +104,33 @@ versioned editors retain lifecycle, ownership, history, and transaction coverage
 See [the browser cleanup coverage map](UI_TESTING.md#october-8-production-candidate-cleanup)
 for deliberately retired click paths and their complementary lower-layer tests.
 
-Separate review findings remain outside this behavior-preserving cleanup:
+The subsequent hardening pass addresses the active review findings:
 
-- Active Business report date validation can accept impossible calendar days
-  normalized by `Date.parse`; Admin adds an exact calendar-day check. Custom
-  report ranges have no explicit span cap.
-  Harden the shared validator with precise error and real HTTP regression tests;
-  the removed legacy analytics validator is not protection for active reports.
-- Export progress is globally dispatched without session identity, and an
-  automatic prepared-export continuation is not cancelled on account change.
-  Add identity-scoped cancellation and account-switch interactions before
-  refactoring the shared export lifecycle.
-- Customer inbox polling is disabled, but current Business notifications and
-  Business/Admin shared messaging still enable polling. Align that active
-  behavior with the navigation/refresh-only product requirement in a dedicated
-  change; do not remove its tests as if it were unused code.
-- Boost auction/ranking/billing, Premium subscription billing, and ticket
-  transfer are unfinished features, not approved deletions. SMS backend and
-  consent storage also remain deliberately deferred.
+- Business/Admin inboxes load on navigation, opening, explicit reload, and
+  relevant mutations, not timers or window focus/visibility changes. Rendered
+  regressions cover the shared conversations and both workspace shells. The
+  existing Business access-recovery browser journeys use page refresh instead
+  of focus to recheck bootstrap; their denial, protected-data, and session
+  assertions remain unchanged.
+  Business API-auth browser setup activates its page and waits for a successful
+  bootstrap response matching the fresh session token before the unchanged
+  visible-navigation assertion; it does not bypass real Business authorization.
+- Report downloads and progress are scoped to an opaque session identity.
+  Account/token changes and logout cancel pending requests, body reads, status
+  waits, and file saves; late results cannot update another account. Same-session
+  report navigation does not cancel preparation, and server jobs remain intact.
+- Both report APIs and frontends share strict calendar-date validation, paired
+  ordered dates, and a 366-calendar-day inclusive custom-range limit. Real HTTP
+  regressions reject invalid ranges before report queries or export persistence
+  and preserve timezone/DST end-day semantics.
+- Reads sharing one PostgreSQL transaction client run serially, including
+  Sequelize page count/rows. Tests guard invitation membership reads and real
+  report/support transaction queries against overlap; independent pooled reads
+  remain parallel. Do not suppress the pg concurrency deprecation warning.
+
+Boost auction/ranking/billing, Premium subscription billing, and ticket transfer
+remain unfinished features, not approved deletions. SMS backend and consent
+storage also remain deliberately deferred.
 
 Run `npm test` from the repository root, or `npm test --workspace @nitewide/api` for the API alone. The API runner first executes unit tests and mocked email tests, then runs required integration suites with bounded concurrency of two. Each suite receives its own disposable database. Coverage includes:
 

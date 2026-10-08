@@ -73,10 +73,8 @@ function createTeamService({ models, permissions, email: emailService = null, bu
       const organization = await assertManager(actorUserId, organizationId, transaction);
       const existingOwner = await models.OrganizationOwner.unscoped().findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE });
       if (existingOwner?.role === 'owner' && existingOwner.lifecycleState === 'active') throw conflict('Organization owners cannot be reassigned from the team page');
-      const [employee, affiliate] = await Promise.all([
-        models.OrganizationEmployee.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE }),
-        models.OrgAffiliate.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE }),
-      ]);
+      const employee = await models.OrganizationEmployee.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE });
+      const affiliate = await models.OrgAffiliate.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE });
       if (!existingOwner && !employee && !affiliate) throw notFound('Organization team member');
       const before = existingOwner?.lifecycleState === 'active' ? 'manager' : employee?.status === 'active' ? 'employee' : affiliate?.status === 'active' ? 'affiliate' : 'removed';
       if (existingOwner && nextRole !== 'manager') await existingOwner.update({ lifecycleState: 'archived', financeAuthorized: false }, { transaction });
@@ -111,10 +109,8 @@ function createTeamService({ models, permissions, email: emailService = null, bu
       const organization = await assertManager(actorUserId, organizationId, transaction);
       const owner = await models.OrganizationOwner.unscoped().findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE });
       if (owner?.role === 'owner' && owner.lifecycleState === 'active') throw conflict('Organization owners cannot be removed from the team page');
-      const [employee, affiliate] = await Promise.all([
-        models.OrganizationEmployee.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE }),
-        models.OrgAffiliate.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE }),
-      ]);
+      const employee = await models.OrganizationEmployee.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE });
+      const affiliate = await models.OrgAffiliate.findOne({ where: { organizationId, userId: memberUserId }, transaction, lock: transaction.LOCK.UPDATE });
       if (!owner && !employee && !affiliate) throw notFound('Organization team member');
       const before = {
         role: owner?.lifecycleState === 'active' ? 'manager' : employee?.status === 'active' ? 'employee' : affiliate?.status === 'active' ? 'affiliate' : 'inactive',
@@ -245,11 +241,10 @@ function createTeamService({ models, permissions, email: emailService = null, bu
         await assertActiveOrganization(models, row.organizationId, transaction);
         await permissions.assertManageOrganization(row.invitedByUserId, row.organizationId, transaction);
         const where = { organizationId: row.organizationId, userId };
-        const [owner, employee, affiliate] = await Promise.all([
-          models.OrganizationOwner.unscoped().findOne({ where, transaction, lock: transaction.LOCK.UPDATE }),
-          models.OrganizationEmployee.findOne({ where, transaction, lock: transaction.LOCK.UPDATE }),
-          models.OrgAffiliate.findOne({ where, transaction, lock: transaction.LOCK.UPDATE }),
-        ]);
+        // One transaction owns one PostgreSQL client; its reads cannot overlap.
+        const owner = await models.OrganizationOwner.unscoped().findOne({ where, transaction, lock: transaction.LOCK.UPDATE });
+        const employee = await models.OrganizationEmployee.findOne({ where, transaction, lock: transaction.LOCK.UPDATE });
+        const affiliate = await models.OrgAffiliate.findOne({ where, transaction, lock: transaction.LOCK.UPDATE });
         if (owner?.role === 'owner' && owner.lifecycleState === 'active' && row.role !== 'manager') throw conflict('Organization owners cannot be reassigned through an invitation');
         const staffRole = row.role !== 'affiliate';
         if (staffRole && affiliate) await detachOrgAffiliateForStaffRole({ models, orgAffiliate: affiliate,

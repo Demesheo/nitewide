@@ -40,10 +40,8 @@ function createManagementService({ models, permissions, email = null, businessAp
       const before = await models.OrgAffiliate.findOne({ where: { organizationId: ids.organizationId, userId: input.userId }, transaction, lock: transaction.LOCK.UPDATE });
       if (before?.status === 'active') throw conflict('This organization referrer is already active');
       const data = before ? await before.update({ ...input, status: 'active' }, { transaction }) : await models.OrgAffiliate.create({ ...input, organizationId: ids.organizationId }, { transaction });
-      const [leader, employee] = await Promise.all([
-        models.OrganizationOwner.findOne({ where: { organizationId: ids.organizationId, userId: input.userId, lifecycleState: 'active' }, transaction }),
-        models.OrganizationEmployee.findOne({ where: { organizationId: ids.organizationId, userId: input.userId, status: 'active' }, transaction }),
-      ]);
+      const leader = await models.OrganizationOwner.findOne({ where: { organizationId: ids.organizationId, userId: input.userId, lifecycleState: 'active' }, transaction });
+      const employee = await models.OrganizationEmployee.findOne({ where: { organizationId: ids.organizationId, userId: input.userId, status: 'active' }, transaction });
       await require('./event-affiliate-transition').setOrganizationAssignmentsActive({ models, organizationId: ids.organizationId, userId: input.userId, actorUserId: userId, active: true, staffRole: Boolean(leader || employee), transaction });
       await models.AuditLog.create({ actorUserId: userId, organizationId: ids.organizationId, entityType: 'OrgAffiliate', entityId: data.id, action: 'organization.referrer.added', after: data.toJSON() }, { transaction });
       return data;

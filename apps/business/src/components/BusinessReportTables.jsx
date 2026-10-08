@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDownToLine, ChevronRight } from 'lucide-react';
 import { api } from '@/lib/api';
 import { eventDateLabel, money } from '@/lib/business';
-import { reportQuery, downloadBusinessReport } from '@/lib/report-client';
+import { reportQuery } from '@/lib/report-client';
+import { useReportDownload } from '@/hooks/useReportDownload';
 import { eventReportTime } from '@/lib/report-time';
 import { usePagedResource } from '@/hooks/usePagedResource';
 import { SalesMixPie } from './SalesMixPie';
@@ -38,8 +39,7 @@ function cell(row, key, selectedVenueTimezone) {
 export function BusinessReportTable({ kind, session, query, onUnauthorized, onEvent, onRegion, onVenue, refreshToken = 0,
   onOffering, initialPage = 1, onPageChange, pageSize = 10, onPageSizeChange, sort = 'sales_desc', onSortChange, selectedVenueTimezone, toolbar }) {
   const target = useRef(null);
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState('');
+  const { download, exporting, error: exportError } = useReportDownload(session, { onError: (error) => { if (error.status === 401) onUnauthorized?.(); } });
   const page = usePagedResource(query == null ? null : `/business/reports/${kind}?${query}`, session, { pageSize, initialPage, onPageChange, onUnauthorized, refreshToken });
   const columnSort = { label: 'name', salesCents: 'sales', orders: 'orders', startsAt: 'starts', events: 'events', customers: 'customers', units: 'units', checkedIn: 'checkins', averageOrderCents: 'average' };
   const header = ([key, label]) => {
@@ -57,10 +57,7 @@ export function BusinessReportTable({ kind, session, query, onUnauthorized, onEv
     if (!query || exporting) return;
     const params = new URLSearchParams(query);
     params.set('exportTable', kind);
-    setExporting(true); setExportError('');
-    try { await downloadBusinessReport(session, params.toString()); }
-    catch (error) { if (error.status === 401) onUnauthorized?.(); else if (error.name !== 'AbortError') setExportError(error.message); }
-    finally { setExporting(false); }
+    await download(params.toString());
   };
   return <section className="rounded-xl border border-border bg-card report-table-panel" ref={target} aria-busy={query != null && page.loading}>
     <AnalyticsReportHeader title={kind === 'team' ? 'Team performance and direct sales' : kind === 'offerings' ? 'Tickets and packages' : kind === 'customers' ? 'Customers' : kind === 'regions' ? 'Regions' : kind === 'venues' ? 'Venues & creators' : 'Events'}
@@ -85,7 +82,7 @@ export function BusinessReportPanel({ session, days, organizationIds, venueIds, 
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
   const [mix, setMix] = useState('offerings');
-  const [exporting, setExporting] = useState(false);
+  const { download, exporting, error: exportError } = useReportDownload(session, { onError: (err) => { if (err.status === 401) onUnauthorized?.(); } });
   const query = useMemo(() => reportQuery({ days, organizationIds, venueIds, timezone }), [days, organizationIds, venueIds, timezone]);
   useEffect(() => {
     const controller = new AbortController();
@@ -101,9 +98,10 @@ export function BusinessReportPanel({ session, days, organizationIds, venueIds, 
       orders: row.orders, dateLabel: row.startsAt ? eventDateLabel({ startsAt: row.startsAt, location: { timezone: row.venueTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } }) : null }));
   return <div className="business-report-panel">
     <section className="panel"><div className="section-heading"><div><span className="eyebrow">SALES MIX</span><h2>What drives the room</h2><p>Paid face value, including every filtered sale. Small categories are grouped as Other.</p></div>
-      <Button variant="outline" disabled={exporting} onClick={async () => { setExporting(true); setError(''); try { await downloadBusinessReport(session, query); } catch (err) { if (err.name !== 'AbortError') setError(err.message); } finally { setExporting(false); } }}><ArrowDownToLine size={16}/>{exporting ? 'Preparing…' : 'Export full report'}</Button></div>
+      <Button variant="outline" disabled={exporting} onClick={() => download(query)}><ArrowDownToLine size={16}/>{exporting ? 'Preparing…' : 'Export full report'}</Button></div>
       {loading && <LoadingState>Loading sales mix…</LoadingState>}
       {error && <div className="error" role="alert">{error}<Button variant="outline" onClick={() => setRetry((value) => value + 1)}>Try again</Button></div>}
+      {exportError && <div className="error" role="alert">{exportError}</div>}
       <div className="sales-mix-content"><Tabs value={mix} onValueChange={setMix}><TabsList><TabsTrigger value="offerings">Tickets & packages</TabsTrigger><TabsTrigger value="events">Events</TabsTrigger></TabsList></Tabs>
       {slices?.length ? <><SalesMixPie slices={slices}/><SalesMixRankBars rows={slices} totalSales={summary.summary.salesCents}/></> : !loading && <p className="empty-inline">Sales will appear here after your first paid order.</p>}
       {summary && <p className="hint">{ownOnly ? 'Only sales attributed to you.' : `Direct sales ${money(summary.summary.directSalesCents)} · recorded commissions ${money(summary.summary.commissionCents)}.`} Export includes every row, not just this preview.</p>}</div>

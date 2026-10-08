@@ -9,6 +9,5 @@ const reportDetailQuery = business.reportDetailQuery.safeExtend({
   exportTable: reportTables.optional(),
   sort: z.enum([...business.reportDetailQuery.shape.sort.unwrap().options, 'paid_asc', 'paid_desc', 'fees_asc', 'fees_desc']).default('sales_desc'),
 }).refine(value => !value.offeringId || !value.offeringKind, 'Choose an offering ID or historical offering name')
-  .refine(value => !value.businessId || (!value.organizationId && !value.organizationIds.length), 'Choose businessId or organization filters')
-  .refine(value => [value.startDate,value.endDate].every(date => { if (!date) return true; const parsed = new Date(`${date}T00:00:00Z`); return Number.isFinite(+parsed) && parsed.toISOString().slice(0,10) === date; }),'Use valid calendar dates');
+  .refine(value => !value.businessId || (!value.organizationId && !value.organizationIds.length), 'Choose businessId or organization filters');
 module.exports = { reportDetailQuery, reportTables, businessId };

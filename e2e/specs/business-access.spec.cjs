@@ -206,7 +206,7 @@ businessAuthTest('bootstrap failures hide protected data, retry safely and retur
   await expect(page.locator('.app-shell')).toHaveCount(0);
   unavailable = false; await page.getByRole('button', { name: 'Try again', exact: true }).click();
   await expect(page.getByRole('navigation').filter({ visible: true }).getByRole('button', { name: 'Overview', exact: true })).toBeVisible();
-  unavailable = true; await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  unavailable = true; await page.reload();
   await expect(page.getByRole('heading', { name: 'We couldn’t open your workspace.', exact: true })).toBeVisible();
   await expect(page.locator('.app-shell')).toHaveCount(0);
   await page.getByRole('button', { name: 'Return to sign in', exact: true }).click();
@@ -215,14 +215,14 @@ businessAuthTest('bootstrap failures hide protected data, retry safely and retur
   expect((await request.get(`${urls.api}/api/auth/me`, { headers: { Authorization: `Bearer ${business.accessToken}` } })).status()).toBe(200);
 });
 
-businessAuthTest('report scope denials keep the approved session, but focus refresh access revocation clears the workspace', async ({ page, fixture }) => {
+businessAuthTest('report scope denials keep the approved session, but page refresh after access revocation clears the workspace', async ({ page, fixture }) => {
   await page.route('**/api/business/reports/summary?**', route => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'FORBIDDEN', message: 'You do not have report access for this scope.' } }) }));
   await login(page, fixture, 'business');
   await expect(page.getByRole('alert')).toContainText('report access');
   expect(await page.evaluate(key => Boolean(sessionStorage.getItem(key)), sessionKey)).toBe(true);
   await expect(page.locator('.app-shell')).toBeVisible();
   await page.route('**/api/business/bootstrap', route => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify(denied) }));
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await page.reload();
   await expect(page.getByRole('button', { name: 'Request access', exact: true })).toBeVisible();
   await expect(page.locator('.app-shell')).toHaveCount(0);
   expect(await page.evaluate(key => sessionStorage.getItem(key), sessionKey)).toBeNull();

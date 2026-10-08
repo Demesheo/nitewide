@@ -39,7 +39,7 @@ import { OrganizationRequestDialog } from '@/components/OrganizationRequestDialo
 import { BusinessBrand as Brand } from "@/components/BusinessBrand";
 import { LoadingState } from "@/components/LoadingState";
 import { Admissions } from "@/components/Admissions";
-import { api, readSession, SESSION_KEY } from "@/lib/api";
+import { api, matchesStoredSession, readSession, writeSession } from "@/lib/api";
 import { workspaceAccess } from "@/lib/workspace-access";
 import { writeWorkspaceLocation } from '@/lib/workspace-navigation';
 import { reusableDraft } from '@/lib/event-reuse';
@@ -47,7 +47,9 @@ import { useWorkspaceNavigation } from '@/hooks/useWorkspaceNavigation';
 import { useBusinessBootstrap } from '@/hooks/useBusinessBootstrap';
 import { useOrganizationScope } from '@/hooks/useOrganizationScope';
 import { OWNED_ORGANIZATIONS, allowsOwnedOrganizations } from '@/lib/organization-scope';
-import { downloadBusinessReport, reportQuery, browserReportTimezone } from '@/lib/report-client';
+import { reportQuery, browserReportTimezone } from '@/lib/report-client';
+import { useReportDownload } from '@/hooks/useReportDownload';
+import { useReportExportSession } from '@/hooks/useReportExportSession';
 import { PreparedExports } from '@/components/PreparedExports';
 
 const navigation = [
@@ -60,6 +62,7 @@ const navigation = [
 ];
 export default function App() {
   const [session, setSession] = useState(readSession);
+  useReportExportSession(session);
   const [onboardingToken, setOnboardingToken] = useState(() => new URLSearchParams(window.location.search).get('onboarding'));
   const [onboardingSignIn, setOnboardingSignIn] = useState(false);
   const [inviteToken, setInviteToken] = useState(() => new URLSearchParams(window.location.search).get('invite'));
@@ -67,7 +70,7 @@ export default function App() {
     days, eventToOpen, guestlistEntryToOpen, eventTabToOpen, eventNavigationRevision,
     navigate: navigateRoute, chooseVenues, chooseDays, selectEvent } = useWorkspaceNavigation();
   const [notice, setNotice] = useState("");
-  const [exporting, setExporting] = useState(false);
+  const { download: exportReport, exporting } = useReportDownload(session, { onError: error => setNotice(error.message) });
   const [loginNotice, setLoginNotice] = useState("");
   const [editor, setEditor] = useState(null);
   const verificationAttempted = useRef(false);
@@ -86,10 +89,10 @@ export default function App() {
   const signOut = useCallback(async (expired = false, everywhere = false, accessNotice = '') => {
     if (!expired && session?.accessToken) {
       try { await api(everywhere ? '/auth/sessions/revoke-all' : '/auth/logout', session, { method: 'POST' }); }
-      catch (error) { if (error.status !== 401) { setNotice(error.message); return error.message; } }
+      catch (error) { if (error.status !== 401) { if (!matchesStoredSession(session)) return; setNotice(error.message); return error.message; } }
     }
+    if (!writeSession(null, session)) return;
     if (!onboardingToken && !inviteToken) window.history.replaceState(null, '', '/sign-in');
-    sessionStorage.removeItem(SESSION_KEY);
     setSession(null);
     setSupportThread(null);
     setEditor(null);
@@ -133,11 +136,6 @@ export default function App() {
   }, [session, onboardingToken, inviteToken, requireBusinessAccess]);
   const refreshAdmissions = useCallback(() => setRevision((value) => value + 1), []);
   useEffect(() => {
-    if (!session) return;
-    window.addEventListener('focus', refreshAdmissions);
-    return () => window.removeEventListener('focus', refreshAdmissions);
-  }, [session, refreshAdmissions]);
-  useEffect(() => {
     const token = new URLSearchParams(window.location.search).get('verifyEmail');
     if (!token || verificationAttempted.current) return;
     verificationAttempted.current = true;
@@ -149,7 +147,7 @@ export default function App() {
           try {
             const identity = await api('/auth/me', session);
             const updated = { ...session, user: { ...session.user, ...identity.user }, roles: identity.roles };
-            sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated)); setSession(updated);
+            if (writeSession(updated, session)) setSession(updated);
           } catch { /* Verification succeeded even if the existing session expired. */ }
         }
       })
@@ -171,7 +169,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [session, expire]);
   function login(value) {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(value));
+    writeSession(value);
     setSession(value);
     setOnboardingSignIn(false);
     setLoginNotice("");
@@ -314,7 +312,7 @@ export default function App() {
         <DialogContent className="business-profile-dialog">
           <DialogTitle className="sr-only">Your profile</DialogTitle>
           <DialogDescription className="sr-only">View and edit your Nitewide account details.</DialogDescription>
-          <BusinessProfile session={session} capabilities={data?.capabilities} onLogout={(everywhere) => signOut(false, everywhere)} onSessionChanged={(updated) => { sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated)); setProfileOpen(false); setNotice('Password changed. Other sessions have been signed out.'); setSession(updated); }} onUpdated={(user) => { const updated = { ...session, user: { ...session.user, ...user } }; sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated)); setSession(updated); }} />
+          <BusinessProfile session={session} capabilities={data?.capabilities} onLogout={(everywhere) => signOut(false, everywhere)} onSessionChanged={(updated) => { if (!writeSession(updated, session)) return; setProfileOpen(false); setNotice('Password changed. Other sessions have been signed out.'); setSession(updated); }} onUpdated={(user) => { const updated = { ...session, user: { ...session.user, ...user } }; if (writeSession(updated, session)) setSession(updated); }} />
         </DialogContent>
       </Dialog>
       <nav className="mobile-bottom-nav" aria-label="Business navigation">
@@ -340,8 +338,8 @@ export default function App() {
             <strong>{visibleNavigation.find(([id]) => id === visiblePage)?.[2] || 'Overview'}</strong>
           </div>
           <div className="topbar-right">
-            <Notifications session={session} onNavigate={navigate} onMessage={setMessageThread} onSupportMessage={setSupportThread} />
-            <Messages session={session} initialThreadId={messageThread} initialSupportThreadId={supportThread} onSupportOpened={() => setSupportThread(null)} supportContext={selectedOrganizations.length === 1 ? { organizationId: selectedOrganizations[0], organizationName: data?.organizations?.find(org => org.id === selectedOrganizations[0])?.name } : undefined} onOpened={() => setMessageThread(null)} />
+            <Notifications session={session} refreshKey={eventNavigationRevision} onNavigate={navigate} onMessage={setMessageThread} onSupportMessage={setSupportThread} />
+            <Messages session={session} refreshKey={eventNavigationRevision} initialThreadId={messageThread} initialSupportThreadId={supportThread} onSupportOpened={() => setSupportThread(null)} supportContext={selectedOrganizations.length === 1 ? { organizationId: selectedOrganizations[0], organizationName: data?.organizations?.find(org => org.id === selectedOrganizations[0])?.name } : undefined} onOpened={() => setMessageThread(null)} />
             <span className="live-label">
               <span />
               Connected workspace
@@ -417,12 +415,7 @@ export default function App() {
                   ["365", "Last 365 days"],
                 ]}
               />
-              <Button variant="outline" disabled={!data || loading || exporting} onClick={async () => {
-                setExporting(true);
-                try { await downloadBusinessReport(session, reportQuery({ days, organizationIds: selectedOrganizations, ownedOnly: organizationScope.ownedOnly, venueIds: selectedVenues, timezone: browserReportTimezone() })); }
-                catch (err) { setNotice(err.message); }
-                finally { setExporting(false); }
-              }}><ArrowDownToLine/>{exporting ? 'Preparing…' : 'Export report'}</Button>
+              <Button variant="outline" disabled={!data || loading || exporting} onClick={() => exportReport(reportQuery({ days, organizationIds: selectedOrganizations, ownedOnly: organizationScope.ownedOnly, venueIds: selectedVenues, timezone: browserReportTimezone() }))}><ArrowDownToLine/>{exporting ? 'Preparing…' : 'Export report'}</Button>
             </div>}
           </div>}
           {notice && (

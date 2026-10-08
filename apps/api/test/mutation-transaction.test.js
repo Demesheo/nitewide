@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { mutationTransaction, authorizationFence } = require('../src/services/mutation-transaction');
+const { findAndCountSequential } = require('../src/services/transaction-reads');
 const { canonicalCart, fingerprint } = require('../src/services/checkout-service');
 
 test('mutation begins at READ COMMITTED and acquires the fence before application work', async () => {
@@ -30,6 +31,32 @@ test('shared to exclusive upgrades fail before an unsafe lock upgrade', async ()
   const tx = {}, sequelize = { query: async () => {} };
   await authorizationFence(sequelize, tx);
   await assert.rejects(authorizationFence(sequelize, tx, true), /Cannot upgrade/);
+});
+
+test('transaction page count and rows run serially while retaining Sequelize result semantics', async () => {
+  const transaction = {}, row = { id: 'row' };
+  for (const count of [0, 3, [{ kind: 'ticket', count: 3 }]]) {
+    const calls = [];
+    let counting = false;
+    const options = { transaction, where: { active: true }, attributes: ['id'], limit: 2, offset: 2, order: [['id', 'ASC']] };
+    const model = {
+      async count(input) {
+        assert.equal(input.transaction, transaction);
+        assert.deepEqual(input, { ...options, attributes: undefined });
+        counting = true; calls.push('count');
+        await Promise.resolve();
+        counting = false; return count;
+      },
+      async findAll(input) {
+        assert.equal(counting, false, 'rows must wait until the count query completes');
+        assert.equal(input, options); calls.push('rows'); return [row];
+      },
+    };
+    assert.deepEqual(await findAndCountSequential(model, options), { count, rows: count === 0 ? [] : [row] });
+    assert.deepEqual(calls, ['count', 'rows']);
+    assert.deepEqual(options.attributes, ['id'], 'count preparation does not change the row projection');
+  }
+  await assert.rejects(findAndCountSequential({}, {}), /require a transaction/);
 });
 
 test('cart fingerprint merges duplicates and sorts items, but distinguishes event, quantities and referral', () => {

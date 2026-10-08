@@ -11,7 +11,7 @@ function fixture({role='owner',financeAuthorized=false,active=true}={}) {
     User:{findByPk:async()=>({id:'user',isActive:active})},OrganizationOwner:{findOne:async()=>({role,financeAuthorized})},
     PaymentAccount:{findByPk:async id=>profiles.get(id),findOne:async ({where})=>{const a=where.id?profiles.get(where.id):[...profiles.values()].find(p=>p.stripeAccountId===where.stripeAccountId);return a && (!where.organizationId || a.organizationId===where.organizationId) && (!where.lifecycleState || a.lifecycleState===where.lifecycleState)?a:null;},
       create:async v=>{const a={...v,lifecycleState:'active',disconnectStatus:'none',update:async function(values){Object.assign(this,values);},toJSON:function(){const {update,toJSON,...values}=this;return values;}};profiles.set(a.id,a);return a;},
-      findAndCountAll:async()=>({rows:[...profiles.values()],count:profiles.size})},Event:{findAll:async()=>[],findByPk:async()=>null},Order:{count:async()=>0} };
+      count:async()=>profiles.size,findAll:async()=>[...profiles.values()]},Event:{findAll:async()=>[],findByPk:async()=>null},Order:{count:async()=>0} };
   let remote = readyRemote();
   const stripe = {mode:'test',createAccount:async (params,options)=>{calls.push({params,options});return remote;},retrieveAccount:async ()=>remote,createAccountLink:async params=>{calls.push(params);return {object:'v2.core.account_link',account:params.account,livemode:false,url:'https://connect.stripe.test/single-use',expires_at:'2033-05-18T03:33:20.000Z'};}};
   return {models,stripe,profiles,calls,organization,service:createBusinessPaymentAccountService({models,stripe,businessAppUrl:'https://business.example/app'}),setRemote:r=>remote=r};

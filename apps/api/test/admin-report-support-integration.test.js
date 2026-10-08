@@ -1,10 +1,32 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const request = require('supertest');
+const { request: httpRequest } = require('./support/http-client.cjs');
 const { randomUUID } = require('node:crypto');
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 const { createFixture } = require('./admissions-fixture.cjs');
 const { reportDetailQuery } = require('../src/http/admin-report-schemas');
+
+async function assertSequentialTransactionQueries(db, callback) {
+  const active = new Map();
+  let peak = 0;
+  const name = `sequential-report-support-${randomUUID()}`;
+  db.addHook('beforeQuery', name, options => {
+    if (!options.transaction) return;
+    const count = (active.get(options.transaction) || 0) + 1;
+    active.set(options.transaction, count); peak = Math.max(peak, count);
+  });
+  db.addHook('afterQuery', name, options => {
+    if (options.transaction) active.set(options.transaction, active.get(options.transaction) - 1);
+  });
+  try {
+    await callback();
+    assert.ok(peak <= 1, 'report and support reads execute at most one query at a time on each transaction client');
+  } finally {
+    db.removeHook('beforeQuery', name); db.removeHook('afterQuery', name);
+  }
+}
+
 test('platform reporting and support preserve canonical scopes, snapshots, finances, and authorization', { timeout: 90000 },async t => {
   assertManagedTestDatabase();
   const { getConfig } = require('../src/config');
@@ -42,7 +64,82 @@ test('platform reporting and support preserve canonical scopes, snapshots, finan
     const query = reportDetailQuery.parse({ startDate: '2026-03-08',endDate: '2026-03-08',timezone: 'America/New_York',pageSize: 1 });
     const app = createApp({ sequelize: db,models: m,config,services: { email: { enabled: false } } });
     const api = (method,path,userId = ids.admin) => request(app)[method](`/api${path}`).set('x-user-id',userId);
-    await t.test('zero-event directory and canonical drilldowns count mixed orders and unique buyers once',async () => {
+    await t.test('Business and Admin reject invalid or overlong dates before report SQL and export persistence', async () => {
+      const exportCounts = async () => (await db.query(`SELECT
+        (SELECT COUNT(*)::integer FROM report_export_jobs) AS jobs,
+        (SELECT COUNT(*)::integer FROM report_export_rows) AS rows,
+        (SELECT COUNT(*)::integer FROM report_export_chunks) AS chunks`, { type: 'SELECT' }))[0];
+      const before = await exportCounts();
+      const statements = [];
+      const originalQuery = db.query;
+      db.query = function (sql, ...args) {
+        statements.push(typeof sql === 'string' ? sql : sql.query);
+        return originalQuery.call(this, sql, ...args);
+      };
+      try {
+        const invalid = [
+          [{ startDate: '2026-02-31', endDate: '2026-03-03' }, 'startDate'],
+          [{ startDate: '2026-02-28', endDate: '2026-02-29' }, 'endDate'],
+          [{ startDate: '2026-2-01', endDate: '2026-02-02' }, 'startDate'],
+          [{ startDate: '2026-02-01' }, 'endDate'],
+          [{ endDate: '2026-02-01' }, 'startDate'],
+          [{ startDate: '2026-02-02', endDate: '2026-02-01' }, 'endDate'],
+          [{ startDate: '2024-01-01', endDate: '2025-01-01' }, 'endDate'],
+          [{ startDate: '2025-01-01', endDate: '2026-01-02' }, 'endDate'],
+        ];
+        for (const [audience, userId] of [['business', ids.owner], ['admin', ids.admin]]) {
+          for (const endpoint of ['summary', 'events', 'export.csv']) {
+            for (const [dates, field] of invalid) {
+              const response = await httpRequest(app, `/api/${audience}/reports/${endpoint}`, { headers: { 'x-user-id': userId } })
+                .query({ ...dates, timezone: 'America/New_York', ...(endpoint === 'export.csv' ? { exportTable: 'events' } : {}) }).expect(422);
+              assert.equal(response.body.error.code, 'VALIDATION_ERROR');
+              assert.equal(response.body.error.message, 'Request validation failed');
+              assert.deepEqual(response.body.error.details.formErrors, []);
+              assert.ok(response.body.error.details.fieldErrors[field]?.every(message => message === 'Invalid value'));
+            }
+          }
+        }
+        assert.ok(statements.length > 0, 'authentication and abuse checks still use the database');
+        assert.ok(statements.every(sql => !/scoped_events|AT TIME ZONE|report_export_(jobs|rows|chunks)/i.test(sql)),
+          'invalid dates never reach report aggregates, timezone conversion or export job/snapshot SQL');
+      } finally { db.query = originalQuery; }
+      assert.deepEqual(await exportCounts(), before, 'rejected requests create no export jobs, snapshot rows or CSV chunks');
+    });
+    await t.test('366 inclusive days work in leap and ordinary years across summary, table and CSV boundaries', async () => assertSequentialTransactionQueries(db, async () => {
+      // New York midnight is resolved independently of the date span cap.
+      const leapLast = await createOrder('2025-01-01T04:59:59Z');
+      const leapNext = await createOrder('2025-01-01T05:00:00Z');
+      const ordinaryLast = await createOrder('2026-01-02T04:59:59Z');
+      const ordinaryNext = await createOrder('2026-01-02T05:00:00Z');
+      for (const [audience, userId] of [['business', ids.owner], ['admin', ids.admin]]) {
+        for (const [startDate, endDate, salesCents, lastId, nextId] of [
+          ['2024-01-01', '2024-12-31', 2000, leapLast.id, leapNext.id],
+          ['2025-01-01', '2026-01-01', 4000, ordinaryLast.id, ordinaryNext.id],
+        ]) {
+          const dates = { startDate, endDate, timezone: 'America/New_York' };
+          const get = endpoint => httpRequest(app, `/api/${audience}/reports/${endpoint}`, { headers: { 'x-user-id': userId } });
+          const summary = (await get('summary').query(dates).expect(200)).body.data;
+          assert.equal(summary.range.startDate, startDate); assert.equal(summary.range.endDate, endDate);
+          assert.equal(summary.daily.length, 366); assert.equal(summary.daily.at(-1).date, endDate);
+          assert.equal(summary.summary.salesCents, salesCents, 'the last local day is included and the following midnight is excluded');
+          const table = (await get('events').query({ ...dates, eventId: ids.otherEvent }).expect(200)).body.data;
+          assert.equal(table.items.length, 1); assert.equal(table.items[0].salesCents, salesCents);
+          const csv = await get('export.csv').query({ ...dates, eventId: ids.otherEvent, exportTable: 'events' })
+            .expect(200).expect('Content-Type', /text\/csv/);
+          assert.match(csv.text, new RegExp(`"${(salesCents / 100).toFixed(2)}"`));
+          if (audience === 'admin') {
+            const purchases = (await get('purchases').query({ ...dates, eventId: ids.otherEvent }).expect(200)).body.data.items;
+            assert.ok(purchases.some(row => row.orderId === lastId));
+            assert.ok(purchases.every(row => row.orderId !== nextId));
+          }
+        }
+        const spring = (await httpRequest(app, `/api/${audience}/reports/summary`, { headers: { 'x-user-id': userId } })
+          .query({ startDate: '2026-03-08', endDate: '2026-03-08', timezone: 'America/New_York' }).expect(200)).body.data;
+        assert.equal(spring.summary.salesCents, 6000);
+        assert.equal(Date.parse(spring.range.until) - Date.parse(spring.range.since), 23 * 3600000);
+      }
+    }));
+    await t.test('zero-event directory and canonical drilldowns count mixed orders and unique buyers once',async () => assertSequentialTransactionQueries(db, async () => {
       const bootstrap = await reports.bootstrap(ids.admin);
       assert.ok(bootstrap.organizations.some(row => row.id === zero.id));
       const businesses = await reports.table(ids.admin,'businesses',{ ...query,pageSize: 100 });
@@ -74,7 +171,7 @@ test('platform reporting and support preserve canonical scopes, snapshots, finan
       await api('get','/admin/reports/purchases',ids.owner).expect(403);
       await api('get','/admin/reports/purchases',supportAdmin.id).expect(403);
       await api('get','/admin/reports/purchases',reader.id).query({ startDate: '2026-03-08',endDate: '2026-03-08' }).expect(200);
-    });
+    }));
     await t.test('the export captures the whole filtered snapshot even when the report page has one row',async () => {
       const businessReports = createBusinessReportService({ models: m,businessRead: read });
       const exports = createReportExportService({ models: m,businessRead: read,reports: businessReports,historicalReports: reports.reports,smallLimit: 0 });
@@ -99,7 +196,7 @@ test('platform reporting and support preserve canonical scopes, snapshots, finan
       await m.User.update({ isInternalAdmin: true },{ where: { id: ids.admin } });
       await exports.stop();
     });
-    await t.test('cases require scoped links, versioned reasons and resolutions while attention excludes guestlist work',async () => {
+    await t.test('cases require scoped links, versioned reasons and resolutions while attention excludes guestlist work',async () => assertSequentialTransactionQueries(db, async () => {
       const created = await api('post','/admin/support/cases',supportAdmin.id).send({ title: 'Paid booking admission problem',description: 'Customer cannot scan their valid booking',
         category: 'admission',orderId: ids.order,assignedAdminUserId: supportAdmin.id,reason: 'Customer at door requested help' }).expect(201);
       const caseId = created.body.data.id;
@@ -127,7 +224,7 @@ test('platform reporting and support preserve canonical scopes, snapshots, finan
       await api('get','/admin/support/cases',ids.owner).expect(403);
       await m.User.update({ isInternalAdmin: false },{ where: { id: supportAdmin.id } });
       await api('post','/admin/support/cases',supportAdmin.id).send({ title: 'Access issue',description: 'Help requested',category: 'account_access',reason: 'Revoked staff write' }).expect(403);
-    });
+    }));
     await t.test('attention joins actionable platform failures with pending invitations and orders',async () => {
       await m.OnboardingInvitation.create({ userId: ids.outsider,invitedByUserId: ids.admin,email: `${ids.outsider}@offline.nitewide.test`,accountMode: 'existing',
         grants: { kind: 'organization',organizationId: ids.org },tokenHash: randomUUID().replaceAll('-','').repeat(2),expiresAt: new Date(Date.now()-1000) });

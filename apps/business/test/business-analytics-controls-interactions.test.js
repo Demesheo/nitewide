@@ -152,7 +152,7 @@ test('analytics table controls stay with the active table and preserve URL scope
       url.searchParams.get('organizationIds') === 'org-a' && url.searchParams.get('venueIds') === 'venue-a')));
 
     await user.clear(screen.getByLabelText('End date'));
-    await waitFor(() => assert.ok(screen.getByText(/Choose both dates in order to load a custom paid-order report/i)));
+    await waitFor(() => assert.ok(screen.getByText(/Choose a start and end date to load a custom report/i)));
     assert.equal(toolbar().length, 1, 'the controls remain mounted for an incomplete custom range');
     assert.ok(toolbar()[0].closest('.report-table-panel'));
     assert.equal(screen.queryByLabelText('Sales period'), null);
@@ -473,6 +473,32 @@ test('analytics table controls stay with the active table and preserve URL scope
       !url.searchParams.has('eventId') && !url.searchParams.has('personId') && !url.searchParams.has('offeringName') &&
       !url.searchParams.has('venueIds') && !url.searchParams.has('regions') && url.searchParams.get('startDate') === '2026-09-01')));
     assert.equal(screen.getByRole('button', { name: 'Customers', pressed: true }).textContent, 'Customers');
+    const restoreDates = (startDate, endDate) => act(() => {
+      const params = new URLSearchParams(dom.window.location.search);
+      params.set('reportPeriod', 'custom'); params.set('reportStart', startDate); params.set('reportEnd', endDate);
+      dom.window.history.pushState({}, '', `/app?${params}`);
+      dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate'));
+    });
+    for (const [startDate, endDate, message] of [
+      ['2026-02-31', '2026-03-03', /Use a valid start date/],
+      ['2024-01-01', '2025-01-01', /at most 366 calendar days/],
+      ['2025-01-01', '2026-01-02', /at most 366 calendar days/],
+    ]) {
+      restoreDates(startDate, endDate);
+      await waitFor(() => assert.match(screen.getByRole('alert').textContent, message));
+      const count = requests.length;
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 280)); });
+      assert.equal(requests.length, count, 'invalid custom dates do not submit summary, table or export requests');
+      const params = new URLSearchParams(dom.window.location.search);
+      assert.equal(params.get('reportStart'), startDate); assert.equal(params.get('reportEnd'), endDate);
+    }
+    for (const [startDate, endDate] of [['2024-01-01', '2024-12-31'], ['2025-01-01', '2026-01-01']]) {
+      restoreDates(startDate, endDate);
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 280)); });
+      await waitFor(() => assert.ok(requests.some(url => url.pathname === '/api/business/reports/summary' &&
+        url.searchParams.get('startDate') === startDate && url.searchParams.get('endDate') === endDate)));
+      assert.equal(screen.queryByRole('alert'), null);
+    }
   } finally {
     finishExport?.(new Response('Name,Sales\n', { status: 200, headers: { 'content-type': 'text/csv' } }));
     try { unmount?.(); } catch {}

@@ -71,10 +71,8 @@ async function queueGuestlistEmail({ email, models, entry, event, kind, customer
 }
 
 async function audienceForEvent(models, eventId, transaction) {
-  const [orders, entries] = await Promise.all([
-    models.Order.findAll({ where: { eventId, status: 'paid' }, attributes: ['id', 'buyerUserId'], transaction }),
-    models.GuestlistEntry.findAll({ where: { eventId, status: ['pending', 'confirmed', 'checked_in'] }, attributes: ['id', 'userId'], transaction }),
-  ]);
+  const orders = await models.Order.findAll({ where: { eventId, status: 'paid' }, attributes: ['id', 'buyerUserId'], transaction });
+  const entries = await models.GuestlistEntry.findAll({ where: { eventId, status: ['pending', 'confirmed', 'checked_in'] }, attributes: ['id', 'userId'], transaction });
   const userIds = [...new Set([...orders.map((row) => row.buyerUserId), ...entries.map((row) => row.userId)].filter(Boolean))];
   if (!userIds.length) return [];
   const users = await models.User.findAll({ where: { id: userIds, isActive: true }, attributes: ['id', 'email', 'displayName'], transaction });

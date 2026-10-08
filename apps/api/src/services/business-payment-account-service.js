@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const { forbidden, conflict, notFound } = require('../domain/errors');
 const { activeUser, assertActiveOrganization } = require('./lifecycle-service');
 const { mutationTransaction } = require('./mutation-transaction');
+const { findAndCountSequential } = require('./transaction-reads');
 const { eventFinished } = require('../domain/event-policy');
 const { unsettledMerchantWhere } = require('../domain/payment-merchant-policy');
 const RESPONSIBILITIES = Object.freeze({ fees_collector: 'stripe', losses_collector: 'stripe' });
@@ -104,7 +105,7 @@ function createBusinessPaymentAccountService({ models, stripe = null, businessAp
     }
     return transact(async transaction => { const org = await assertFinanceAccess(models,userId,organizationId,transaction);
       const membership = await models.OrganizationOwner.findOne({where:{organizationId,userId,lifecycleState:'active'},transaction});
-      const { rows, count } = await models.PaymentAccount.findAndCountAll({ where: { organizationId }, order: [['createdAt','ASC'],['id','ASC']], limit: pageSize, offset: (page-1)*pageSize, transaction });
+      const { rows, count } = await findAndCountSequential(models.PaymentAccount, { where: { organizationId }, order: [['createdAt','ASC'],['id','ASC']], limit: pageSize, offset: (page-1)*pageSize, transaction });
       const shared = sharedAccountId && await models.PaymentAccount.findOne({where:{stripeAccountId:sharedAccountId,mode:'test',lifecycleState:'active'},transaction});
       return { items: rows.map(a=>safeProfile(a,now())), total: count, page, pageSize, hasMore: page*pageSize<count, defaultPaymentAccountId: org.defaultPaymentAccountId, canManageFinance: true,
         canDisconnectPayments:membership.role === 'owner' || Boolean(membership.paymentDisconnectAuthorized),

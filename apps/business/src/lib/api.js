@@ -1,7 +1,18 @@
+import { reportSessionKey, setReportExportSession } from './report-export-session.js';
+
 export const SESSION_KEY = "nitewide.business.session";
+function storedSession() { try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)); } catch { return null; } }
+export const matchesStoredSession = (session) => reportSessionKey(storedSession()) === reportSessionKey(session);
+export function writeSession(session, expected) {
+  if (expected !== undefined && !matchesStoredSession(expected)) return false;
+  if (session?.accessToken) sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  else sessionStorage.removeItem(SESSION_KEY);
+  setReportExportSession(session);
+  return true;
+}
 export function readSession() {
   try {
-    const s = JSON.parse(sessionStorage.getItem(SESSION_KEY));
+    const s = storedSession();
     return s?.accessToken && new Date(s.expiresAt) > new Date() ? s : null;
   } catch {
     return null;

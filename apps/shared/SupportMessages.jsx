@@ -15,7 +15,7 @@ function recoverySecret() { return Array.from(crypto.getRandomValues(new Uint8Ar
 function pendingSecret() { try { const saved = sessionStorage.getItem('nitewide.support.pending-secret'); if (/^[a-f\d]{64}$/.test(saved || '')) return saved; } catch {} const token = recoverySecret(); try { sessionStorage.setItem('nitewide.support.pending-secret', token); } catch {} return token; }
 
 // A panel shared by the app Messages dialog and the Admin Messages workspace.
-export function SupportMessages({ session, source = 'customer', request, ui, admin = false, active = true, showHeading = true, initialContext, guestRecovery, initialThreadId, onOpened, onOpenCase, onUnreadChange, onBusyChange, polling = true, refreshKey = 0 }) {
+export function SupportMessages({ session, source = 'customer', request, ui, admin = false, active = true, showHeading = true, initialContext, guestRecovery, initialThreadId, onOpened, onOpenCase, onUnreadChange, onBusyChange, refreshKey = 0 }) {
   const { Button } = ui;
   const [list, setList] = useState(null), [detail, setDetail] = useState(null), [selected, setSelected] = useState(guestRecovery?.id || null);
   const [recovery, setRecovery] = useState(guestRecovery || null), [composing, setComposing] = useState(!session && !guestRecovery);
@@ -33,13 +33,6 @@ export function SupportMessages({ session, source = 'customer', request, ui, adm
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { mutationController.current?.abort(); lock.current = false; setBusy(false); setList(null); setDetail(null); setSelected(guestRecovery?.id || null); setRecovery(guestRecovery || null); setComposing(!session && !guestRecovery); setTitle(''); setCategory('other'); setBody(''); setName(''); setEmail(''); setError(''); setNotice(''); setPage(1); setMessagePage(1); setVisibleFor(identity); return () => mutationController.current?.abort(); }, [identity]);
   useEffect(() => { onBusyChange?.(busy); }, [busy]);
-  useEffect(() => {
-    if (!polling) return;
-    const refresh = () => { if (!document.hidden && !lock.current) setRevision(value => value + 1); };
-    const timer = setInterval(refresh, 30000);
-    window.addEventListener('focus', refresh);
-    return () => { clearInterval(timer); window.removeEventListener('focus', refresh); };
-  }, [polling]);
   const base = recovery ? `/support/access-requests` : admin ? '/admin/support/messages' : '/support/messages';
   const headers = recovery ? { 'X-Support-Recovery-Token': recovery.token } : undefined;
   const copy = useClipboardCopy(recovery?.id);
@@ -52,7 +45,7 @@ export function SupportMessages({ session, source = 'customer', request, ui, adm
     if (!selected) setList(null);
     const path = selected ? `${base}/${encodeURIComponent(selected)}?page=${messagePage}&pageSize=30` : `${base}?page=${page}&pageSize=20${admin && status.length ? `&status=${encodeURIComponent(status.join(','))}` : ''}${admin && appliedSearch ? `&search=${encodeURIComponent(appliedSearch)}` : ''}`;
     Promise.resolve().then(() => {
-      if (!controller.signal.aborted) return callbacks.current.request(path, { headers, signal: controller.signal });
+      if (!controller.signal.aborted && identityRef.current === identity) return callbacks.current.request(path, { headers, signal: controller.signal });
     }).then(async result => {
       if (controller.signal.aborted || identityRef.current !== identity) return;
       if (selected) {
@@ -94,6 +87,7 @@ export function SupportMessages({ session, source = 'customer', request, ui, adm
   return <section className="support-messages" aria-busy={busy || loading}>
     {showHeading && <h2>{admin ? 'Nitewide support messages' : 'Contact Nitewide'}</h2>}
     <p className="booking-message-help">{admin ? 'Review customer, business, and account-access messages. Replies are private to the requester; open the linked support case to manage its status.' : recovery ? 'Your private account-access conversation with Nitewide.' : session ? 'Private messages with Nitewide. Organizer conversations and refund requests stay in Organizer messages.' : 'Help with signing in or accessing your account. Sign in for other support questions.'}</p>
+    {(session || recovery) && <Button variant="outline" type="button" disabled={busy || loading} onClick={() => setRevision(value => value + 1)}>Reload support messages</Button>}
     {error && <p role="alert" className="booking-message-error">{error} <Button variant="outline" type="button" disabled={busy} onClick={() => setRevision(value => value + 1)}>Retry loading</Button></p>}
     {notice && <p role="status">{notice}</p>}
     {admin && !selected && <form className="support-filter" onSubmit={event => { event.preventDefault(); setAppliedSearch(search.trim()); setPage(1); }}><fieldset><legend>Case status (all when none selected)</legend>{['open','in_progress','resolved','closed'].map(value => <label key={value}><input type="checkbox" checked={status.includes(value)} onChange={event => { const checked = event.target.checked; setStatus(previous => checked ? [...previous,value] : previous.filter(item => item !== value)); setList(null); setPage(1); }}/>{value.replaceAll('_',' ')}</label>)}</fieldset><label>Search support messages<input value={search} maxLength={180} onChange={event => setSearch(event.target.value)}/></label><Button type="submit">Search</Button></form>}
@@ -114,8 +108,8 @@ export function SupportMessages({ session, source = 'customer', request, ui, adm
   </section>;
 }
 
-export function ContactNitewide({ session, source, request, ui, polling = true }) {
+export function ContactNitewide({ session, source, request, ui }) {
   const { Button, Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } = ui;
   const [recovery, setRecovery] = useState(recoveryFromLocation), [open, setOpen] = useState(Boolean(recovery)), [busy, setBusy] = useState(false);
-  return <><Button variant="ghost" type="button" className="contact-nitewide-link" onClick={() => { const saved = recoveryFromLocation(); if (session && !saved) window.dispatchEvent(new CustomEvent('nitewide:contact-support')); else { setRecovery(saved); setOpen(true); } }}>Contact Nitewide</Button><Dialog open={open} onOpenChange={value => { if (!busy) setOpen(value); }}><DialogContent className="booking-messages-dialog" showCloseButton={!busy} onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} onPointerDownOutside={event => { if (busy) event.preventDefault(); }}><DialogHeader><DialogTitle>Contact Nitewide</DialogTitle><DialogDescription>Private account-access support.</DialogDescription></DialogHeader><SupportMessages key={session?.accessToken || 'guest'} session={session} source={source} request={request} ui={ui} guestRecovery={recovery} showHeading={false} onBusyChange={setBusy} polling={polling}/></DialogContent></Dialog></>;
+  return <><Button variant="ghost" type="button" className="contact-nitewide-link" onClick={() => { const saved = recoveryFromLocation(); if (session && !saved) window.dispatchEvent(new CustomEvent('nitewide:contact-support')); else { setRecovery(saved); setOpen(true); } }}>Contact Nitewide</Button><Dialog open={open} onOpenChange={value => { if (!busy) setOpen(value); }}><DialogContent className="booking-messages-dialog" showCloseButton={!busy} onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} onPointerDownOutside={event => { if (busy) event.preventDefault(); }}><DialogHeader><DialogTitle>Contact Nitewide</DialogTitle><DialogDescription>Private account-access support.</DialogDescription></DialogHeader><SupportMessages key={session?.accessToken || 'guest'} session={session} source={source} request={request} ui={ui} guestRecovery={recovery} showHeading={false} onBusyChange={setBusy}/></DialogContent></Dialog></>;
 }

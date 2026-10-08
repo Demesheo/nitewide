@@ -41,6 +41,16 @@ test('request and query contracts retain the actual shared validators and canoni
   }
   assert.equal(find('post', '/business/events').requestSchema, business.eventEditor);
   assert.equal(find('get', '/business/reports/:table').querySchema, business.reportDetailQuery);
+  for (const [audience, reportSchema] of [['business', business.reportDetailQuery], ['admin', require('../src/http/admin-report-schemas').reportDetailQuery]]) {
+    for (const endpoint of ['summary', ':table', 'export.csv']) {
+      const path = `/${audience}/reports/${endpoint}`;
+      assert.equal(find('get', path).querySchema, reportSchema);
+      const date = document.paths[path.replace(':table', '{table}')].get.parameters.find(parameter => parameter.name === 'startDate');
+      assert.equal(date.schema.pattern, '^\\d{4}-\\d{2}-\\d{2}$');
+      assert.match(date.schema.description, /at most 366 calendar days inclusive/);
+      assert.match(date.schema.description, /years 0001–9999/);
+    }
+  }
   assert.equal(find('get', '/customer/bookings').querySchema, domain.bookings);
   assert.equal(find('post', '/admin/onboarding').requestSchema, require('../src/services/admin-onboarding-service').onboardingSchema);
   assert.equal(find('post', '/admin/management/users/:id/scoped-role').requestSchema, require('../src/services/admin-role-service').scopedRoleSchema);

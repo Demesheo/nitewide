@@ -1,7 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { reportDetailQuery } = require('../src/http/business-schemas');
+const { reportDetailQuery: adminReportDetailQuery } = require('../src/http/admin-report-schemas');
+const { reportDate } = require('../src/http/report-date-schemas');
 const { calendarPeriod } = require('../src/services/business-report-period');
+const { createBusinessReportService } = require('../src/services/business-report-service');
 const { aggregateHierarchy, aggregateReferrals } = require('../src/services/analytics-service');
 
 const event = (id, title, city, organization = null) => ({ id, title, category: 'nightlife', organizationId: organization?.id || null, creatorUserId: 'creator', creator: { displayName: 'Independent creator' }, organization, location: { city, region: 'FL', countryCode: 'US' }, startsAt: '2026-09-25T22:00:00Z' });
@@ -17,6 +20,78 @@ test('report date filters require paired ordered dates and retain multiselect ar
   assert.equal(reportDetailQuery.safeParse({ startDate: '2026-09-22', endDate: '2026-09-21' }).success, false);
   assert.equal(reportDetailQuery.safeParse({ startDate: 'invalid', endDate: '2026-03-01' }).success, false);
   for (const days of [0, 367]) assert.equal(reportDetailQuery.safeParse({ days }).success, false);
+});
+
+test('Business and Admin share actual calendar dates and a 366-day inclusive custom range', () => {
+  const valid = [
+    { startDate: '2024-01-01', endDate: '2024-12-31' }, // Full leap year: 366 days.
+    { startDate: '2025-01-01', endDate: '2025-12-31' }, // Ordinary year: 365 days.
+    { startDate: '2025-01-01', endDate: '2026-01-01' }, // Exactly 366 inclusive days.
+    { startDate: '2024-02-29', endDate: '2024-02-29' },
+    { startDate: '2000-02-29', endDate: '2000-02-29' },
+    { startDate: '0099-01-01', endDate: '0099-01-01' },
+    { startDate: '2026-03-08', endDate: '2026-03-08', timezone: 'America/New_York' },
+    { startDate: '2026-11-01', endDate: '2026-11-01', timezone: 'America/New_York' },
+  ];
+  const invalid = [
+    { startDate: '2026-02-31', endDate: '2026-03-03' },
+    { startDate: '2026-04-30', endDate: '2026-04-31' },
+    { startDate: '2026-02-29', endDate: '2026-03-01' },
+    { startDate: '1900-02-29', endDate: '1900-03-01' },
+    { startDate: '2100-02-29', endDate: '2100-03-01' },
+    { startDate: '0000-01-01', endDate: '0000-01-02' },
+    { startDate: '2026-2-01', endDate: '2026-02-02' },
+    { startDate: ' 2026-02-01', endDate: '2026-02-02' },
+    { startDate: '2026-02-01T00:00:00Z', endDate: '2026-02-02' },
+    { startDate: '', endDate: '' },
+    { startDate: ['2026-02-01'], endDate: '2026-02-02' },
+    { startDate: '2026-02-01' },
+    { endDate: '2026-02-01' },
+    { startDate: '2026-02-02', endDate: '2026-02-01' },
+    { startDate: '2024-01-01', endDate: '2025-01-01' }, // 367, not a leap-year exception.
+    { startDate: '2025-01-01', endDate: '2026-01-02', timezone: 'America/New_York' },
+  ];
+  for (const schema of [reportDetailQuery, adminReportDetailQuery]) {
+    assert.equal(schema.shape.startDate.unwrap(), reportDate);
+    assert.equal(schema.shape.endDate.unwrap(), reportDate);
+    assert.equal(schema.parse({}).days, 30);
+    assert.equal(schema.parse({}).timezone, 'UTC');
+    for (const days of [7, 30, 90, 365, 366]) assert.equal(schema.parse({ days }).days, days);
+    for (const input of valid) assert.equal(schema.safeParse(input).success, true, JSON.stringify(input));
+    for (const input of invalid) assert.equal(schema.safeParse(input).success, false, JSON.stringify(input));
+    const span = schema.safeParse(invalid.at(-1));
+    assert.deepEqual(span.error.issues.map(({ path, message }) => ({ path, message })), [{
+      path: ['endDate'], message: 'Custom reports must span at most 366 calendar days, including the start and end dates.',
+    }]);
+    assert.deepEqual(schema.safeParse({ startDate: '2026-02-01' }).error.issues.map(issue => issue.path), [['endDate']]);
+  }
+});
+
+test('a one-day report on 9999-12-31 terminates at the inclusive end without entering year 10000', async () => {
+  const transaction = {};
+  let calls = 0;
+  const sequelize = { query: async (sql, options) => {
+    assert.equal(options.transaction, transaction);
+    calls += 1;
+    if (calls === 1) {
+      assert.match(sql, /AT TIME ZONE/);
+      return [{ since: new Date('9999-12-31T00:00:00.000Z'), until: new Date('+010000-01-01T00:00:00.000Z') }];
+    }
+    assert.equal(calls, 2);
+    assert.match(sql, /summary_daily/);
+    return [{ financial: { salesCents: '1250', commissionCents: '0', directSalesCents: '1250', orders: 1, customers: 1 },
+      units: { units: '1' }, tickets: { admissions: 1, checkedIn: 0 }, guests: { guestlistPlaces: 0, checkedIn: 0 },
+      eventCount: { events: 1 }, activeEventCount: { events: 0 }, daily: [{ date: '9999-12-31', orders: 1, salesCents: '1250' }],
+      channels: [], regionalMix: [], category: [], offerings: [], eventMix: [], event: null, person: null }];
+  } };
+  const reports = createBusinessReportService({ models: { Event: { sequelize } }, businessRead: {
+    actor: async () => ({}), filters: async () => ({ sql: '', values: {} }),
+  } });
+  const query = reportDetailQuery.parse({ startDate: '9999-12-31', endDate: '9999-12-31', timezone: 'UTC' });
+  const report = await reports.summary('fixture-user', query, { transaction });
+  assert.deepEqual(report.daily, [{ date: '9999-12-31', orders: 1, salesCents: 1250 }]);
+  assert.equal(report.summary.salesCents, 1250); assert.equal(report.range.endDate, '9999-12-31');
+  assert.equal(calls, 2);
 });
 
 test('managers are labeled separately before their first attributed sale', () => {

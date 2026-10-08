@@ -1,4 +1,5 @@
 const { z } = require("zod");
+const { MAX_REPORT_RANGE_DAYS, reportDate, refineReportDates } = require('./report-date-schemas');
 const uuid = z.string().uuid();
 const text = (max) => z.string().trim().max(max);
 const reportTimezone = z.string().max(64).refine((value) => { try { new Intl.DateTimeFormat('en', { timeZone: value }); return true; } catch { return false; } }, 'Use a valid IANA timezone').default('UTC');
@@ -102,7 +103,7 @@ const reportFilters = z.object({
   venueIds: z.preprocess(value => value === undefined ? [] : Array.isArray(value) ? value : [value], z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(100).default([])),
   organizationId: z.union([uuid, z.literal("independent")]).optional(),
   organizationIds: z.preprocess((value) => value === undefined ? [] : Array.isArray(value) ? value : [value], z.array(z.union([uuid, z.literal('independent')])).max(50).default([])),
-  days: z.coerce.number().int().min(1).max(366).default(30),
+  days: z.coerce.number().int().min(1).max(MAX_REPORT_RANGE_DAYS).default(30),
 });
 const reportQuery = reportFilters.refine((value) => !value.organizationId || !value.organizationIds.length, 'Choose either organizationId or organizationIds');
 const page = { page: z.coerce.number().int().min(1).max(100000).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(20) };
@@ -120,14 +121,13 @@ const eventPageQuery = z.object({ ...page, search: z.string().trim().max(120).de
   roles: z.preprocess((value) => value === undefined ? [] : Array.isArray(value) ? value : [value], z.array(z.enum(['Owner', 'Manager', 'Employee', 'Promoter', 'Creator'])).max(5).default([])),
   statuses: z.preprocess((value) => value === undefined ? [] : Array.isArray(value) ? value : [value], z.array(z.enum(['pending', 'confirmed', 'rejected', 'checked_in', 'no_show'])).max(5).default([])),
   status: z.enum(['all', 'pending', 'confirmed', 'rejected', 'checked_in', 'no_show']).default('all') });
-const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`)), 'Use a valid UTC date');
 const reportDetailQuery = reportFilters.extend({
   eventId: uuid.optional(),
   personId: uuid.optional(),
   offeringKind: z.enum(['ticket', 'package', 'reservation']).optional(),
   offeringName: text(160).optional(),
   exportTable: z.enum(['regions', 'venues', 'events', 'offerings', 'team', 'customers']).optional(),
-  startDate: dateOnly.optional(), endDate: dateOnly.optional(),
+  startDate: reportDate.optional(), endDate: reportDate.optional(),
   regions: z.preprocess((value) => value === undefined ? [] : Array.isArray(value) ? value : [value], z.array(text(160)).max(50).default([])),
   search: z.string().trim().max(120).default(''),
   personSearch: z.string().trim().max(120).default(''),
@@ -137,7 +137,6 @@ const reportDetailQuery = reportFilters.extend({
   ...page,
   sort: z.enum(['sales_desc', 'sales_asc', 'name_asc', 'name_desc', 'role_asc', 'role_desc', 'orders_desc', 'orders_asc', 'starts_asc', 'starts_desc', 'customers_asc', 'customers_desc', 'units_asc', 'units_desc', 'admissions_asc', 'admissions_desc', 'checkins_asc', 'checkins_desc', 'average_asc', 'average_desc', 'events_asc', 'events_desc', 'guestlist_asc', 'guestlist_desc', 'commission_asc', 'commission_desc', 'contribution_asc', 'contribution_desc']).default('sales_desc'),
 }).refine((value) => !value.organizationId || !value.organizationIds.length, 'Choose either organizationId or organizationIds')
-  .refine((value) => Boolean(value.startDate) === Boolean(value.endDate), 'Use both custom dates')
-  .refine((value) => !value.startDate || value.startDate <= value.endDate, 'End date must be on or after start date')
+  .superRefine(refineReportDates)
   .refine((value) => Boolean(value.offeringKind) === Boolean(value.offeringName), 'Use both offering kind and name');
 module.exports = { eventEditor, reportQuery, eventListQuery, eventPageQuery, reportDetailQuery, reportTimezone, page };

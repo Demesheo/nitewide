@@ -134,6 +134,8 @@ test('all parallel verification jobs gate publication without registry writes or
   assert.match(dockerfile, /ARG RELEASE_REVISION/);
   assert.match(dockerfile, /\/app\/apps\/api\/release\.json/);
   assert.match(dockerfile, /COPY --from=build \/app\/apps\/shared\/discovery-areas\.mjs apps\/shared\/discovery-areas\.mjs/);
+  assert.match(dockerfile, /COPY --from=build \/app\/apps\/shared\/report-dates\.mjs apps\/shared\/report-dates\.mjs/);
+  assert.match(section('build'), /require\('\.\/apps\/api\/src\/http\/report-date-schemas\.js'\)/);
   assert.match(section('build'), /cache-from: type=gha,scope=nitewide-demo-amd64/);
   assert.match(section('build'), /compression-level: 0/);
   assert.match(section('build'), /retention-days: 1/);

@@ -1,6 +1,7 @@
 const { Op,QueryTypes,Transaction } = require('sequelize');
 const { z } = require('zod');
 const { mutationTransaction } = require('./mutation-transaction');
+const { findAndCountSequential } = require('./transaction-reads');
 const { activeUser } = require('./lifecycle-service');
 const { pageResult } = require('./business-read-service');
 const { conflict,notFound } = require('../domain/errors');
@@ -45,7 +46,7 @@ function createAdminSupportService({ models,permissions,notifications,now = () =
     return read(actor,async transaction => {
       const row = await models.SupportCase.findByPk(z.uuid().parse(id),{ transaction });
       if (!row) throw notFound('Support case');
-      const history = await models.AuditLog.findAndCountAll({ where: { entityType: 'SupportCase',entityId: id },order: [['createdAt','DESC'],['id','DESC']],limit: 50,transaction });
+      const history = await findAndCountSequential(models.AuditLog, { where: { entityType: 'SupportCase',entityId: id },order: [['createdAt','DESC'],['id','DESC']],limit: 50,transaction });
       const [conversation] = await select('SELECT id FROM support_conversations WHERE case_id=:id',{ id },transaction);
       return { case: plain(row),supportThreadId: conversation?.id || null,history: history.rows.map(plain),historyMeta: { total: history.count,page: 1,pageSize: 50,hasMore: history.count>50 } };
     });
@@ -54,7 +55,7 @@ function createAdminSupportService({ models,permissions,notifications,now = () =
     const input = schemas.historyQuery.parse(query);
     return read(actor,async transaction => {
       if (!await models.SupportCase.findByPk(z.uuid().parse(id),{ attributes: ['id'],transaction })) throw notFound('Support case');
-      const result = await models.AuditLog.findAndCountAll({ where: { entityType: 'SupportCase',entityId: id },order: [['createdAt','DESC'],['id','DESC']],
+      const result = await findAndCountSequential(models.AuditLog, { where: { entityType: 'SupportCase',entityId: id },order: [['createdAt','DESC'],['id','DESC']],
         limit: input.pageSize,offset: (input.page-1)*input.pageSize,transaction });
       return pageResult(result.rows.map(plain),result.count,input.page,input.pageSize);
     });

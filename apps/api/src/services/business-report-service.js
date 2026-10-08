@@ -186,7 +186,8 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
       averageOrderCents: financial.orders ? Math.round(number(financial.salesCents) / financial.orders) : 0 };
     const byDate = new Map(daily.map((row) => [row.date, row]));
     const series = [];
-    for (let day = new Date(`${range.startDate}T00:00:00.000Z`); day.toISOString().slice(0, 10) <= range.endDate; day.setUTCDate(day.getUTCDate() + 1)) {
+    const endDay = Date.parse(`${range.endDate}T00:00:00.000Z`);
+    for (let day = new Date(`${range.startDate}T00:00:00.000Z`); day.getTime() <= endDay; day.setUTCDate(day.getUTCDate() + 1)) {
       const date = day.toISOString().slice(0, 10);
       const row = byDate.get(date);
       series.push({ date, orders: row?.orders || 0, salesCents: number(row?.salesCents) });

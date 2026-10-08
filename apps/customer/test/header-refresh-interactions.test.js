@@ -203,18 +203,24 @@ test('customer header reads follow navigation and explicit inbox actions without
       view.unmount(); view = null;
     });
 
-    await t.test('shared business messaging retains its existing polling option', async () => {
+    await t.test('shared business messaging follows the same quiet navigation and explicit refresh policy', async () => {
       dom.window.document.body.innerHTML = '<div id="root"></div>';
       const Button = ({ variant, size, ...props }) => React.createElement('button', props);
       const panel = ({ children }) => React.createElement('div', null, children);
       const ui = { Button, Dialog: ({ children }) => React.createElement('div', null, children), DialogContent: panel, DialogHeader: panel, DialogTitle: panel, DialogDescription: panel };
       const requests = [];
       const request = async path => { requests.push(path); return { items: [], unreadCount: 0, total: 0 }; };
-      view = render(React.createElement(BookingMessages, { session, side: 'business', request, ui }), { container: dom.window.document.getElementById('root') });
+      const props = { session, side: 'business', request, ui, refreshKey: 0 };
+      view = render(React.createElement(BookingMessages, props), { container: dom.window.document.getElementById('root') });
       await waitFor(() => assert.equal(requests.length, 2));
-      assert.equal(pollingIntervals.length, 2, 'organizer and support polling remain enabled by default');
-      await act(async () => { for (const callback of pollingIntervals) callback(); });
+      assert.equal(pollingIntervals.length, 0, 'shared Business inboxes never schedule polling');
+      await passiveEvents(); assert.equal(requests.length, 2);
+      view.rerender(React.createElement(BookingMessages, { ...props, refreshKey: 1 }));
       await waitFor(() => assert.equal(requests.length, 4));
+      await user.click(screen.getByRole('button', { name: 'Messages' }));
+      await waitFor(() => assert.equal(requests.length, 6));
+      await user.click(screen.getByRole('button', { name: 'Reload messages' }));
+      await waitFor(() => assert.equal(requests.length, 8));
       view.unmount(); view = null;
     });
   } finally {

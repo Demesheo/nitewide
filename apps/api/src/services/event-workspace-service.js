@@ -205,10 +205,8 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
           if (linkedAffiliate?.startsAt && (!assignment.startsAt || linkedAffiliate.startsAt > assignment.startsAt)) values.startsAt = linkedAffiliate.startsAt;
           if (linkedAffiliate?.endsAt && (!assignment.endsAt || linkedAffiliate.endsAt < assignment.endsAt)) values.endsAt = linkedAffiliate.endsAt;
         } else if (linkedAffiliate?.status === 'inactive' && linkedAffiliate.organizationId === event.organizationId && linkedAffiliate.userId === person.id) {
-          const [leader, employee] = await Promise.all([
-            m.OrganizationOwner.findOne({ where: { organizationId: event.organizationId, userId: person.id, lifecycleState: 'active' }, transaction }),
-            m.OrganizationEmployee.findOne({ where: { organizationId: event.organizationId, userId: person.id, status: 'active' }, transaction }),
-          ]);
+          const leader = await m.OrganizationOwner.findOne({ where: { organizationId: event.organizationId, userId: person.id, lifecycleState: 'active' }, transaction });
+          const employee = await m.OrganizationEmployee.findOne({ where: { organizationId: event.organizationId, userId: person.id, status: 'active' }, transaction });
           if (leader || employee) {
             values.orgAffiliateId = null;
             values.sourceOrgAffiliateId = scope === 'organization' ? linkedAffiliate.id : null;

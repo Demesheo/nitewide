@@ -28,6 +28,7 @@ RUN npm install --global npm@12.1.0 && npm ci --omit=dev --workspace @nitewide/a
 COPY --from=build /app/apps/api/src apps/api/src
 COPY --from=build /app/apps/shared/legal apps/shared/legal
 COPY --from=build /app/apps/shared/discovery-areas.mjs apps/shared/discovery-areas.mjs
+COPY --from=build /app/apps/shared/report-dates.mjs apps/shared/report-dates.mjs
 COPY --from=build /app/apps/api/.sequelizerc apps/api/.sequelizerc
 COPY --from=build /app/apps/customer/dist apps/customer/dist
 COPY --from=build /app/apps/business/dist apps/business/dist

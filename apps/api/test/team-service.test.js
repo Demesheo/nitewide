@@ -44,20 +44,33 @@ test('managers can invite managers, employees, and promoters within their organi
 
 test('accepting an employee invitation adds staff access, not manager access, to an existing customer', async () => {
   const writes = [];
+  let pendingReads = 0;
+  const membershipReads = [];
+  const readMembership = (kind) => async ({ transaction }) => {
+    assert.ok(transaction, 'membership checks retain their invitation transaction');
+    assert.equal(pendingReads, 0, 'membership queries must not overlap on one PostgreSQL transaction client');
+    pendingReads += 1;
+    try {
+      await Promise.resolve();
+      membershipReads.push(kind);
+      return null;
+    } finally { pendingReads -= 1; }
+  };
   const row = { role: 'employee', email: 'customer@example.com', organizationId: 'org', expiresAt: new Date(Date.now() + 60000), update: async (values) => writes.push(['accepted', values]) };
   const models = {
     Organization: { findByPk: async () => ({ id: 'org', status: 'active' }) },
     Event: { findAll: async () => [] },
     TeamInvitation: { sequelize: { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: true } }) }, findOne: async () => row },
     User: { findByPk: async () => ({ id: 'customer', email: 'customer@example.com' }) },
-    OrganizationEmployee: { findOne: async () => null, create: async (values) => writes.push(['employee', values]) },
-    OrganizationOwner: { findOne: async () => null, unscoped() { return this; }, create: async () => writes.push(['manager']) },
-    OrgAffiliate: { findOne: async () => null },
+    OrganizationEmployee: { findOne: readMembership('employee'), create: async (values) => writes.push(['employee', values]) },
+    OrganizationOwner: { findOne: readMembership('owner'), unscoped() { return this; }, create: async () => writes.push(['manager']) },
+    OrgAffiliate: { findOne: readMembership('affiliate') },
     EventAffiliate: { findAll: async () => [] },
     AuditLog: { create: async () => {} },
   };
   const service = createTeamService({ models, permissions: { assertManageOrganization: async () => ({}) } });
   assert.deepEqual(await service.accept('customer', 'private-token'), { organizationId: 'org', role: 'employee' });
+  assert.deepEqual(membershipReads, ['owner', 'employee', 'affiliate']);
   assert.equal(writes[0][0], 'employee');
   assert.equal(writes.some((entry) => entry[0] === 'manager'), false);
 });

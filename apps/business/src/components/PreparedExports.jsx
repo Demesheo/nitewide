@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, RefreshCw } from 'lucide-react';
 import { api } from '../lib/api';
 import { downloadPreparedExport } from '../lib/report-client';
+import { reportExportIdentity, reportSessionKey } from '../lib/report-export-session';
 import { Button } from './ui/button';
 
 export function PreparedExports({ session, request = api, className = 'panel', audience = 'business' }) {
@@ -10,21 +11,28 @@ export function PreparedExports({ session, request = api, className = 'panel', a
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
   const lifecycle = useRef(null);
+  const identityKey = JSON.stringify([prefix, reportSessionKey(session)]);
+  const currentIdentity = useRef(identityKey), jobsIdentity = useRef(null);
+  currentIdentity.current = identityKey;
   useEffect(() => {
+    jobsIdentity.current = identityKey;
     setJobs([]); setError(''); setBusy(null);
     if (!session?.accessToken) return;
     let active = true;
+    const controller = new AbortController();
+    const identity = reportExportIdentity(session, prefix);
+    const isActive = () => active && currentIdentity.current === identityKey;
     let latestRequest = 0, revision = 0;
     const updates = new Map();
     const update = (job) => {
-      if (!active) return;
+      if (!isActive()) return;
       updates.set(job.id, ++revision);
       setJobs((current) => [job, ...current.filter((value) => value.id !== job.id)].slice(0, 20));
     };
     const refresh = async () => {
       const requestId = ++latestRequest, startedAtRevision = revision;
-      const value = await request(`/${prefix}/reports/exports`, session);
-      if (!active || requestId !== latestRequest) return;
+      const value = await request(`/${prefix}/reports/exports`, session, { signal: controller.signal });
+      if (!isActive() || requestId !== latestRequest) return;
       if (!Array.isArray(value)) throw new Error('Unable to load prepared exports. Please try again.');
       // A snapshot started before a progress event must not erase that event.
       // The next snapshot stays authoritative, so expired jobs can leave.
@@ -32,10 +40,10 @@ export function PreparedExports({ session, request = api, className = 'panel', a
       for (const [id, version] of updates) if (version <= startedAtRevision) updates.delete(id);
       setJobs((current) => [...current.filter((job) => newer.has(job.id)), ...value.filter((job) => !newer.has(job.id))].slice(0, 20));
     };
-    const scope = { isActive: () => active, refresh, update };
+    const scope = { isActive, refresh, update, signal: controller.signal };
     lifecycle.current = scope;
     const progress = (event) => {
-      if (event.detail?.id && (event.detail.audience || 'business') === prefix) update(event.detail);
+      if (event.detail?.id && event.detail.audience === prefix && identity && event.detail.identity === identity) update(event.detail);
     };
     const backgroundRefresh = () => refresh().catch(() => {});
     backgroundRefresh();
@@ -43,28 +51,29 @@ export function PreparedExports({ session, request = api, className = 'panel', a
     window.addEventListener('nitewide:export-progress', progress);
     return () => {
       active = false;
+      controller.abort();
       if (lifecycle.current === scope) lifecycle.current = null;
       clearInterval(timer); window.removeEventListener('nitewide:export-progress', progress);
     };
-  }, [session?.accessToken, request, prefix]);
+  }, [session?.accessToken, session?.user?.id, request, prefix]);
 
   async function actOnJob(job) {
     const scope = lifecycle.current;
-    if (!scope) return;
+    if (!scope?.isActive()) return;
     setBusy(job.id); setError('');
     try {
       if (job.status === 'ready') await downloadPreparedExport(session, job.id, job.filename, { audience: prefix });
       else {
-        const retried = await request(`/${prefix}/reports/exports/${job.id}/retry`, session, { method: 'POST' });
+        const retried = await request(`/${prefix}/reports/exports/${job.id}/retry`, session, { method: 'POST', signal: scope.signal });
         if (!scope.isActive()) return;
         scope.update(retried);
         await scope.refresh();
       }
-    } catch (err) { if (scope.isActive()) setError(err.message); }
+    } catch (err) { if (scope.isActive() && err.name !== 'AbortError') setError(err.message); }
     finally { if (scope.isActive()) setBusy(null); }
   }
 
-  if (!jobs.length) return null;
+  if (jobsIdentity.current !== identityKey || !jobs.length) return null;
   return <details className={className} data-testid="prepared-exports"><summary>Prepared exports · {jobs.length}</summary>
     <p className="muted">Downloads stay available for 24 hours. Access is checked again before download.</p>
     {error && <p className="error" role="alert">{error}</p>}

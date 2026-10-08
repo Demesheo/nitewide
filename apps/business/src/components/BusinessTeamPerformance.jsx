@@ -10,7 +10,7 @@ import { ServerPager } from './ServerPager';
 import { LoadingState } from './LoadingState';
 import { ReportTableSurface } from './ReportTableSurface';
 import { readWorkspaceLocation, writeWorkspaceLocation } from '@/lib/workspace-navigation';
-import { downloadBusinessReport } from '@/lib/report-client';
+import { useReportDownload } from '@/hooks/useReportDownload';
 import { AnalyticsReportHeader } from './AnalyticsReportHeader';
 
 const roleOptions = ['Owner', 'Manager', 'Employee', 'Promoter', 'Creator'].map((role) => ({ id: role, label: `${role}s` }));
@@ -41,8 +41,7 @@ export function BusinessTeamPerformance({ session, query, totalSales, directSale
   const [descending, setDescending] = useState(initial[`${field}Sort`].endsWith('_desc'));
   const [urlPage, setUrlPage] = useState(initial[`${field}Page`]);
   const [pageSize, setPageSize] = useState(initial[`${field}PageSize`]);
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState('');
+  const { download, exporting, error: exportError } = useReportDownload(session, { onError: (error) => { if (error.status === 401) onUnauthorized?.(); } });
   const showPersonSearch = !analyticsView || !toolbar;
   useEffect(() => { const restore = () => { const state = readWorkspaceLocation();
     setRoles(state[`${field}Roles`]); setSearch(state[`${field}Search`]);
@@ -75,10 +74,7 @@ export function BusinessTeamPerformance({ session, query, totalSales, directSale
     if (!filterQuery || exporting) return;
     const params = new URLSearchParams(filterQuery);
     params.set('exportTable', 'team');
-    setExporting(true); setExportError('');
-    try { await downloadBusinessReport(session, params.toString()); }
-    catch (error) { if (error.status === 401) onUnauthorized?.(); else if (error.name !== 'AbortError') setExportError(error.message); }
-    finally { setExporting(false); }
+    await download(params.toString());
   };
   const exportButton = <Button type="button" variant="outline" size="sm" className="shrink-0" disabled={!filterQuery || exporting} onClick={exportRows}>
     <ArrowDownToLine size={15}/>{exporting ? 'Preparing…' : 'Export CSV'}</Button>;

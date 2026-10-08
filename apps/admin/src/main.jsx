@@ -15,6 +15,7 @@ import Messages from './components/Messages';
 import PageHeader from './components/PageHeader';
 import { AdminBrand, AdminLoginMark } from './components/AdminBrand';
 import { publicAppLink } from '../../shared/app-links.mjs';
+import { useReportExportSession } from '../../business/src/hooks/useReportExportSession';
 import './styles.css';
 import './rebuild.css';
 import './messages.css';
@@ -36,26 +37,26 @@ function Login({ onAuthenticated }) {
 
 function Dashboard({ session, onSignOut }) {
   const [query, setQuery] = useState(window.location.search); const [mobileNav, setMobileNav] = useState(false); const [logoutBusy, setLogoutBusy] = useState(false); const [logoutError, setLogoutError] = useState('');
+  const [navigationRevision, setNavigationRevision] = useState(0);
   const [messageUnread, setMessageUnread] = useState(0);
   const messageCountRevision = useRef(0);
   const canReadMessages = hasAdminPermission(session.user, 'support.view');
   const route = readRoute(query);
-  useEffect(() => { const pop = () => setQuery(window.location.search); window.addEventListener('popstate', pop); return () => window.removeEventListener('popstate', pop); }, []);
+  useEffect(() => { const pop = () => { setQuery(window.location.search); setNavigationRevision(value => value + 1); }; window.addEventListener('popstate', pop); return () => window.removeEventListener('popstate', pop); }, []);
   useEffect(() => {
     if (!canReadMessages) { setMessageUnread(0); return; }
     const controller = new AbortController();
     const refresh = () => {
-      if (document.hidden) return;
+      if (controller.signal.aborted) return;
       const revision = ++messageCountRevision.current;
       api('/admin/support/messages?page=1&pageSize=1', { signal: controller.signal })
         .then(result => { if (!controller.signal.aborted && messageCountRevision.current === revision) setMessageUnread(result.unreadCount || 0); })
         .catch(() => {});
     };
-    refresh(); const timer = setInterval(refresh, 30000);
-    window.addEventListener('focus', refresh);
-    return () => { controller.abort(); clearInterval(timer); window.removeEventListener('focus', refresh); };
-  }, [canReadMessages, session.accessToken]);
-  function navigate(next, replace = false) { window.history[replace ? 'replaceState' : 'pushState']({}, '', next); setQuery(next); setMobileNav(false); }
+    Promise.resolve().then(refresh);
+    return () => controller.abort();
+  }, [canReadMessages, session.accessToken, navigationRevision]);
+  function navigate(next, replace = false) { window.history[replace ? 'replaceState' : 'pushState']({}, '', next); setQuery(next); setNavigationRevision(value => value + 1); setMobileNav(false); }
   function update(values, replace = true) { navigate(changedQuery(query, values), replace); }
   const openRecord = (resource, id, options) => navigate(recordQuery(query, resource, id, options));
   async function logout(everywhere) { setLogoutBusy(true); setLogoutError(''); try { await onSignOut(everywhere); } catch (error) { setLogoutError(error.message); } finally { setLogoutBusy(false); } }
@@ -84,8 +85,8 @@ function Dashboard({ session, onSignOut }) {
       {!selected ? <p className="error" role="alert">Your staff role does not have access to this section.</p>
         : route.id ? <RecordDetail resourceKey={route.resource} id={route.id} params={route.params} onUpdate={update} onBack={() => navigate(returnQuery(query))} returnLabel={recordReturnLabel(query)} onOpenRecord={openRecord} session={session}/>
         : route.section === 'overview' ? <Overview onOpenRecord={openRecord} onNavigate={navigate}/>
-        : route.section === 'analytics' ? <Analytics params={route.params} onUpdate={update} onOpenRecord={openRecord}/>
-        : route.section === 'messages' ? <Messages session={session} params={route.params} onUpdate={update} onOpenCase={caseId => navigate(changedQuery('', { section: 'support', case: caseId }))} onUnreadChange={count => { messageCountRevision.current += 1; setMessageUnread(count); }}/>
+        : route.section === 'analytics' ? <Analytics session={session} params={route.params} onUpdate={update} onOpenRecord={openRecord}/>
+        : route.section === 'messages' ? <Messages session={session} params={route.params} refreshKey={navigationRevision} onUpdate={update} onOpenCase={caseId => navigate(changedQuery('', { section: 'support', case: caseId }))} onUnreadChange={count => { messageCountRevision.current += 1; setMessageUnread(count); }}/>
         : route.section === 'support' ? <Support params={route.params} onUpdate={update} onOpenRecord={openRecord} onOpenConversation={threadId => navigate(changedQuery('', { section: 'messages', thread: threadId }))}/>
         : <Directory session={session} section={route.section} resourceKey={route.resource} params={route.params} onUpdate={update} onOpenRecord={openRecord}/>}
     </main>
@@ -94,6 +95,7 @@ function Dashboard({ session, onSignOut }) {
 
 function App() {
   const [session, setSession] = useState(readSession()); const [checking, setChecking] = useState(Boolean(session));
+  useReportExportSession(session, 'admin');
   const [verificationError, setVerificationError] = useState(''); const [verificationAttempt, setVerificationAttempt] = useState(0);
   useEffect(() => {
     if (!session) return;

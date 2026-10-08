@@ -6,6 +6,8 @@ Business and Admin analytics use scoped SQL aggregates and server-paginated tabl
 
 Business uses `/api/business/reports/summary` and `/api/business/reports/:table`; Admin uses `/api/admin/reports/summary`, `/api/admin/reports/:table` and `/api/admin/reports/bootstrap`. Tables are `regions`, `venues`, `events`, `offerings`, `team` and `customers`. Existing date, search, scope, sorting and drilldown filters still apply. Table pages remain bounded; exports omit pagination deliberately.
 
+Custom dates must be real calendar dates in `YYYY-MM-DD` format (years 0001–9999), supplied together and in order. The maximum span is 366 calendar days including both endpoints; this allows a complete leap year. The API rejects invalid ranges with `422 VALIDATION_ERROR` before report queries or export creation. Business/Admin controls use the same validator and preserve invalid drafts for correction. Dates still refer to midnight in the selected IANA timezone, not a fixed number of elapsed hours.
+
 The summary executes one aggregate statement over a shared materialized event/order/item/guest scope instead of sequential aggregate statements. Authorization, filters and data reads share a transaction snapshot. Intermediate rows contain only required columns, management access is calculated per event, and customer units are grouped by order rather than repeatedly scanned. Report transactions use `SET LOCAL jit=off`, not a database-wide configuration change.
 
 Business access continues to exclude archived resources and preserve own-referral restrictions. Internal Admin reporting retains historical records, including archived events. Venue selection includes organization or independent-creator identity so separate businesses sharing a location are not combined accidentally. Admin's `No event location` group keeps historical events with missing locations reachable.
@@ -23,6 +25,8 @@ Request `GET /api/business/reports/export.csv` or internal-only `GET /api/admin/
 - Retry failed preparation with `POST /api/business/reports/exports/:id/retry`. Three preparing jobs per account are allowed; serializable admission and bounded retries enforce this during concurrent submissions and retries.
 
 Business and Admin show a collapsible Prepared exports section with progress, Download and Retry. Automatic polling waits up to ten minutes without resubmitting the export; longer jobs can be downloaded later from that section. Leaving Analytics does not cancel a queued job.
+
+Client downloads are bound to the current Business/Admin session. Switching accounts, changing tokens, or signing out aborts status waits, fetches, response readers, and pending file-save continuations. Progress events carry an opaque session ID, never credentials, and cannot update another account. Same-session navigation keeps a download alive; cancellation does not delete or cancel the server job. A native file-picker dialog already open may remain visible, but its stale continuation cannot start a save after cancellation.
 
 ## Snapshot and worker lifecycle
 

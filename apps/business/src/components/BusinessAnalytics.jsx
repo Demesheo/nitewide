@@ -4,6 +4,7 @@ import { api } from '@/lib/api';
 import { money } from '@/lib/business';
 import { reportQuery } from '@/lib/report-client';
 import { eventReportTime } from '@/lib/report-time';
+import { reportRangeIssue } from '../../../shared/report-dates.mjs';
 import { readWorkspaceLocation, writeWorkspaceLocation } from '@/lib/workspace-navigation';
 import { BusinessReportTable } from './BusinessReportTables';
 import { AnalyticsReportNavigation } from './AnalyticsReportNavigation';
@@ -66,7 +67,8 @@ export function BusinessAnalytics({ session, ownOnly = false, organizationIds: w
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
-  const ready = period !== 'custom' || Boolean(startDate && endDate && startDate <= endDate);
+  const dateIssue = period === 'custom' ? reportRangeIssue(startDate, endDate) : null;
+  const ready = !dateIssue;
   useEffect(() => { const restore = () => { const state = readWorkspaceLocation();
     const dates = reportDates(state);
     setPeriod(state.reportPeriod); setStartDate(dates.startDate); setEndDate(dates.endDate);
@@ -242,14 +244,14 @@ export function BusinessAnalytics({ session, ownOnly = false, organizationIds: w
     </div>;
   const tableControls = <div className="analytics-table-controls flex flex-wrap items-end gap-3 border-t border-border px-5 py-4" aria-label="Analytics table controls">
       <AnalyticsReportNavigation breadcrumbs={breadcrumbs} categories={categories} navigationRef={eventHeading} onReset={resetReport}/>
-      <label className="text-xs text-muted-foreground">Start date<Input className="mt-1" type="date" value={startDate} max={endDate || undefined} onChange={(event) => updateDate('reportStart', event.target.value, setStartDate)}/></label>
-      <label className="text-xs text-muted-foreground">End date<Input className="mt-1" type="date" value={endDate} min={startDate || undefined} onChange={(event) => updateDate('reportEnd', event.target.value, setEndDate)}/></label>
+      <label className="text-xs text-muted-foreground">Start date<Input className="mt-1" type="date" value={startDate} max={endDate || undefined} aria-invalid={dateIssue?.field === 'startDate'} aria-describedby={dateIssue?.field === 'startDate' ? 'business-report-date-error' : undefined} onChange={(event) => updateDate('reportStart', event.target.value, setStartDate)}/></label>
+      <label className="text-xs text-muted-foreground">End date<Input className="mt-1" type="date" value={endDate} min={startDate || undefined} aria-invalid={dateIssue?.field === 'endDate'} aria-describedby={dateIssue?.field === 'endDate' ? 'business-report-date-error' : undefined} onChange={(event) => updateDate('reportEnd', event.target.value, setEndDate)}/></label>
       <form className="analytics-search-form flex min-w-0 flex-1 items-center gap-2" onSubmit={submitSearch} role="search">
         <label className="analytics-search relative min-w-0 flex-1"><Search size={15} className="absolute left-3 top-3 text-muted-foreground"/><Input className="pl-9" aria-label="Search business analytics" value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} placeholder="Search"/></label>
         {/* The initial charts move this toolbar; wait before accepting a touch submission. */}
         <Button type="submit" disabled={Boolean(query && !summary && !error)}>Search</Button>
       </form>
-      {!ready && <p role="status" className="hint basis-full">Choose both dates in order to load a custom paid-order report.</p>}
+      {dateIssue && <p id="business-report-date-error" role={dateIssue.kind === 'incomplete' ? 'status' : 'alert'} className="hint basis-full">{dateIssue.message}</p>}
     </div>;
   return <div className="business-analytics space-y-5">
     {filters}

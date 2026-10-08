@@ -99,6 +99,21 @@ async function loginViaApi(page, fixture, app, role = app, destination = app ===
       expect(verified.ok(), 'customer client session verification').toBeTruthy();
       expect((await verified.json()).data.user.id).toBe(account.id);
       await expect(page.getByRole('button', { name: `Open ${account.name}'s profile`, includeHidden: true })).toBeAttached();
+    } else if (app === 'business') {
+      // API authentication does not activate the browser page like a sign-in
+      // form does. Foreground it before mounting, then verify the real client
+      // access bootstrap before checking the responsive navigation.
+      await page.bringToFront();
+      const [verified] = await Promise.all([
+        page.waitForResponse(response => new URL(response.url()).pathname === '/api/business/bootstrap' &&
+          response.request().headers().authorization === `Bearer ${session.accessToken}`, { timeout: 10000 }),
+        page.goto(`${urls[app]}${destination}`),
+      ]);
+      expect(verified.ok(), 'business client access verification').toBeTruthy();
+      const workspace = (await verified.json()).data;
+      expect(workspace.organizations).toEqual(expect.any(Array));
+      expect(workspace.venues).toEqual(expect.any(Array));
+      await expectAuthenticated(page, account, app);
     } else {
       await page.goto(`${urls[app]}${destination}`);
       await expectAuthenticated(page, account, app);

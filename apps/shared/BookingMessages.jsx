@@ -7,7 +7,7 @@ import { SupportMessages } from './SupportMessages';
 const timestamp = value => value ? new Date(value).toLocaleString() : '';
 const requestLabel = kind => kind === 'cancellation' ? 'Cancellation request' : kind === 'refund' ? 'Refund request' : 'Question';
 
-export function BookingMessages({ session, side, request, ui, initialBooking, initialThreadId, initialSupportThreadId, onSupportOpened, onOpened, supportContext, polling = true, refreshKey = 0 }) {
+export function BookingMessages({ session, side, request, ui, initialBooking, initialThreadId, initialSupportThreadId, onSupportOpened, onOpened, supportContext, refreshKey = 0 }) {
   const token = session?.accessToken;
   const { Button, Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } = ui;
   const [open, setOpen] = useState(false), [list, setList] = useState(null), [detail, setDetail] = useState(null);
@@ -47,12 +47,12 @@ export function BookingMessages({ session, side, request, ui, initialBooking, in
     if (!token) return;
     const controller = new AbortController();
     async function load() {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || currentToken.current !== token) return;
       try {
         const result = await requestRef.current(`${base}?page=${page}&pageSize=20`, { signal: controller.signal });
         if (controller.signal.aborted || currentToken.current !== token) return;
         if (!Array.isArray(result?.items)) throw new Error('We couldn’t load messages. Please try again.');
-        if (!controller.signal.aborted && currentToken.current === token) setList(result);
+        if (!controller.signal.aborted && currentToken.current === token) { setList(result); if (open && !selected && !booking) setError(''); }
         try {
           const countRevision = supportCountRevision.current;
           const support = await requestRef.current('/support/messages?page=1&pageSize=1', { signal: controller.signal });
@@ -62,17 +62,15 @@ export function BookingMessages({ session, side, request, ui, initialBooking, in
     }
     // StrictMode replays mount effects before this task starts the request.
     Promise.resolve().then(load);
-    if (!polling) return () => controller.abort();
-    const timer = setInterval(() => { if (!document.hidden) load(); }, 30000);
-    const focus = () => { if (!document.hidden) load(); };
-    window.addEventListener('focus', focus);
-    return () => { controller.abort(); clearInterval(timer); window.removeEventListener('focus', focus); };
-  }, [base, token, page, revision, polling, polling && open]);
+    return () => controller.abort();
+  }, [base, token, page, revision]);
   useEffect(() => {
     if (!token || !open || !selected || view !== 'organizer') return;
     const controller = new AbortController();
     setLoading(true); setError('');
-    requestRef.current(`${base}/${encodeURIComponent(selected)}?page=${messagePage}&pageSize=30`, { signal: controller.signal }).then(async result => {
+    Promise.resolve().then(() => {
+      if (!controller.signal.aborted && currentToken.current === token) return requestRef.current(`${base}/${encodeURIComponent(selected)}?page=${messagePage}&pageSize=30`, { signal: controller.signal });
+    }).then(async result => {
       if (controller.signal.aborted || currentToken.current !== token) return;
       if (!result?.thread || !Array.isArray(result.messages?.items)) throw new Error('We couldn’t open this conversation. Please try again.');
       setDetail(result);
@@ -123,8 +121,9 @@ export function BookingMessages({ session, side, request, ui, initialBooking, in
     <Dialog open={open} onOpenChange={value => { if (!mutation.current && !supportBusy) setOpen(value); }}><DialogContent className="booking-messages-dialog" showCloseButton={!busy && !supportBusy} onEscapeKeyDown={event => { if (busy || supportBusy) event.preventDefault(); }} onPointerDownOutside={event => { if (busy || supportBusy) event.preventDefault(); }} aria-busy={Boolean(busy || loading || supportBusy)}>
       <DialogHeader><DialogTitle>{view === 'organizer' && composing ? thread?.eventTitle || booking?.eventTitle || 'Booking conversation' : 'Messages'}</DialogTitle><DialogDescription>Private conversations with organizers and the Nitewide team.</DialogDescription></DialogHeader>
       <div className="support-tabs" role="group" aria-label="Message inbox"><Button variant={view === 'organizer' ? 'default' : 'outline'} disabled={Boolean(busy || supportBusy)} onClick={() => setView('organizer')}>Organizer messages</Button><Button variant={view === 'support' ? 'default' : 'outline'} disabled={Boolean(busy || supportBusy)} onClick={() => setView('support')}>Nitewide support{supportUnread ? ` · ${supportUnread} unread` : ''}</Button></div>
-      <div hidden={view !== 'support'}><SupportMessages key={token} session={session} source={side} active={open && view === 'support'} request={request} ui={ui} polling={polling} refreshKey={refreshKey} initialThreadId={supportTarget} onOpened={() => setSupportTarget(null)} onUnreadChange={count => { supportCountRevision.current += 1; setSupportUnread(count); }} initialContext={booking ? { orderId: booking.orderId, eventId: booking.eventId, eventTitle: booking.eventTitle } : detail?.thread ? { orderId: detail.thread.orderId, eventId: detail.thread.eventId, eventTitle: detail.thread.eventTitle, organizationName: detail.thread.organizationName } : supportContext} onBusyChange={setSupportBusy} /></div>
+      <div hidden={view !== 'support'}><SupportMessages key={token} session={session} source={side} active={open && view === 'support'} request={request} ui={ui} refreshKey={refreshKey} initialThreadId={supportTarget} onOpened={() => setSupportTarget(null)} onUnreadChange={count => { supportCountRevision.current += 1; setSupportUnread(count); }} initialContext={booking ? { orderId: booking.orderId, eventId: booking.eventId, eventTitle: booking.eventTitle } : detail?.thread ? { orderId: detail.thread.orderId, eventId: detail.thread.eventId, eventTitle: detail.thread.eventTitle, organizationName: detail.thread.organizationName } : supportContext} onBusyChange={setSupportBusy} /></div>
       {view === 'organizer' && <>
+      <Button type="button" variant="outline" disabled={Boolean(busy || loading)} onClick={() => setRevision(value => value + 1)}>Reload messages</Button>
       {error && <div className="booking-message-error" role="alert">{error} <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={() => setRevision(value => value + 1)}>Refresh messages</Button></div>}{notice && <p role="status">{notice}</p>}
       {composing ? <><Button type="button" variant="ghost" disabled={Boolean(busy)} onClick={() => { setBooking(null); setSelected(null); setDetail(null); setError(''); setNotice(''); }}>← All messages</Button>
         {loading && !detail && <p role="status">Opening conversation…</p>}
