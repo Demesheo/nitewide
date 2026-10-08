@@ -1,5 +1,20 @@
 # Standard and demo-only tests
 
+## Required local gate before commit and push
+
+Before committing or pushing, use Node 24.21.0 (`.nvmrc`) and npm 12.1.0
+(`package.json`) to pass `CI=true npm run test:release` with the explicit isolated
+PostgreSQL 18 maintenance URL on port 5434 shown below. Also pass
+`npm run api:contract:check` and `git diff --check`. The release gate includes the
+complete workspace/API/database suite and unfiltered browser suite with fresh
+production frontend builds. Focused discovery checks or a frontend build alone
+do not replace required reporting, worker, payment, and permission regressions.
+
+Run on the final file contents; rerun after any subsequent source/test/config
+change. Failed, cancelled, skipped required coverage and recovered browser
+flakes block commit/push. Only the documented cross-app browser skips are
+intentional. See the root `AGENTS.md` for the durable workflow rule.
+
 ## Node test runner and Supertest
 
 API tests use Node's built-in `node:test` runner and `node:assert/strict`. Supertest is a pinned API development dependency, not a production dependency. HTTP regression tests exercise the actual Express routes, middleware, validation, status codes, response bodies, and headers; database integration suites run against migrated PostgreSQL/PostGIS with test-owned fixtures, not a mocked database.
@@ -30,7 +45,7 @@ npm run test:db:up
 export TEST_DATABASE_ADMIN_URL='postgres://postgres:isolated-pg18-password@127.0.0.1:5434/postgres'
 npm run test:api:integration
 # Or run the full unit, component, database and browser release gate:
-npm run test:release
+CI=true npm run test:release
 unset TEST_DATABASE_ADMIN_URL
 npm run test:db:down
 ```

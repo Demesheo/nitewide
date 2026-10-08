@@ -63,8 +63,14 @@ discoveryTest('customer discovery keeps its chosen area, branding and private si
     await expect(areaControls.getByRole('button', { name: 'Include nearby cities', exact: true })).toHaveAttribute('aria-pressed', 'true');
     const discoveryHeading = page.locator('#discover .section-heading h2');
     const sortSelect = page.locator('#discover .section-heading').getByLabel('Sort', { exact: true });
+    await expect(discoveryHeading).toBeVisible();
     await expect(sortSelect).toBeVisible();
-    const [headingBounds, sortBounds] = await Promise.all([discoveryHeading.boundingBox(), sortSelect.boundingBox()]);
+    // Submission scrolls to results. Separate protocol calls can sample two
+    // scroll frames, so measure both controls synchronously in the same frame.
+    const { headingBounds, sortBounds } = await page.locator('#discover .section-heading').evaluate(element => ({
+      headingBounds: element.querySelector('h2')?.getBoundingClientRect().toJSON() ?? null,
+      sortBounds: element.querySelector('select[aria-label="Sort"]')?.getBoundingClientRect().toJSON() ?? null,
+    }));
     expect(headingBounds).not.toBeNull();
     expect(sortBounds).not.toBeNull();
     expect(Math.abs((headingBounds.y + headingBounds.height / 2) - (sortBounds.y + sortBounds.height / 2))).toBeLessThanOrEqual(2);

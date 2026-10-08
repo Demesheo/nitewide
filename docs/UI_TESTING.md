@@ -4,7 +4,7 @@ Playwright exercises the customer, business, and rebuilt admin apps through real
 
 ## Run locally
 
-Use the Node/npm versions pinned in `.node-version` and `package.json`. Start Docker Desktop and the isolated PostgreSQL 18 test server, then:
+Use Node 24.21.0 pinned in `.nvmrc` and npm 12.1.0 pinned in `package.json`. Start Docker Desktop and the isolated PostgreSQL 18 test server, then:
 
 ```sh
 npm ci
@@ -41,13 +41,13 @@ npm run test:e2e:report
 npm run test:quick
 npm run test:affected -- --dry-run
 npm run test:affected -- --base origin/main
-npm run test:release
+CI=true npm run test:release
 npm run test:e2e -- --list
 ```
 
 - `test:quick` runs all frontend unit/component tests and API unit tests, with provider credentials blank and no database provisioning. It is feedback, not a release gate.
 - `test:affected` includes staged, unstaged and untracked files, plus the requested Git merge-base comparison. It prints its selection. Spec-only edits select their configured projects on both devices; frontend test edits run that app's complete unit/component suite. Frontend source currently has cyclic cross-app imports, so source changes select all three frontend suites and all six browser projects. Unknown/shared/API/schema/configuration/deployment changes, Git discovery failures and CI fall back to `test:release`. `--dry-run` executes no verification.
-- `test:release` runs complete `npm test`, then an unfiltered browser suite with fresh production builds. It accepts no coverage filters. Use this before committing/releasing; CI still requires every matrix lane and image check.
+- `test:release` runs complete `npm test`, then an unfiltered browser suite with fresh production builds. It accepts no coverage filters. Run it with `CI=true` before committing/pushing so recovered flakes fail; CI still requires every matrix lane and image check.
 - Browser `--list` skips builds and database/server startup, uses only its console reporter, and keeps inventory timings separate so it cannot replace successful HTML/JUnit/attempt reports with an all-skipped listing. Targeted local allowlisted projects may reuse builds only when source/shared files, build environment/runtime and compiled outputs match their fingerprints. Missing/changed evidence rebuilds. Do not run another frontend build concurrently against the same `dist` directories; normal development servers can run separately. A full browser run and every CI run rebuild all three served apps regardless of local markers.
 
 API database execution creates one new empty `template0`-derived database per invocation, applies every checked-in migration exactly once, verifies migration metadata plus PostGIS/pgcrypto, closes source sessions and disables new connections before cloning. Each mandatory suite receives its own unique clean clone; no application rows or sessions are shared. Two suites run concurrently by default, bounded to 1–2 via `node apps/api/scripts/run-tests.cjs --integration --concurrency 1`. Each required child must execute nonzero tests with zero skips, cancellations or todo cases. Demo seed suites remain separate explicit opt-ins. On the verified macOS/Linux harness, shutdown tracks child process groups, stops them before database cleanup and retains a generated database if its process group cannot be safely stopped; Windows process-tree cleanup is not verified.

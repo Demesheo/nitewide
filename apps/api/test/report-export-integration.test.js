@@ -28,20 +28,72 @@ test('scaled SQL reports and durable snapshot exports', { timeout: 180000 }, asy
     server = app.listen(0, '127.0.0.1'); await new Promise((resolve) => server.once('listening', resolve));
     const request = (url, actor = ids.owner) => httpRequest(server, url, { headers: { 'x-user-id': actor } });
     const baseInput = reportDetailQuery.parse({ organizationIds: [ids.org], days: 30, timezone: 'America/New_York', sort: 'sales_desc' });
+    const artifactCounts = async () => (await q(`SELECT
+      (SELECT COUNT(*)::integer FROM report_export_jobs) AS jobs,
+      (SELECT COUNT(*)::integer FROM report_export_rows) AS rows,
+      (SELECT COUNT(*)::integer FROM report_export_chunks) AS chunks`))[0];
+    async function withinDeadline(promise, message) {
+      let timer;
+      try {
+        return await Promise.race([promise, new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error(message)), 2000);
+        })]);
+      } finally { clearTimeout(timer); }
+    }
+    async function assertImmediateCleanup() {
+      // HTTP EOF precedes the handler's asynchronous finally. Require actual
+      // cleanup, but do not assume the database delete has finished at EOF.
+      const deadline = performance.now() + 2000;
+      let counts;
+      do {
+        counts = await artifactCounts();
+        if (Object.values(counts).every((count) => count === 0)) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      } while (performance.now() < deadline);
+      assert.deepEqual(counts, { jobs: 0, rows: 0, chunks: 0 }, 'immediate snapshot artifacts are cleaned up');
+    }
 
     await t.test('small exports remain immediate and legacy business report routes are retired', async () => {
       await request('/api/business/workspace').expect(410);
       await request('/api/business/analytics').expect(410);
-      const csv = await request(`/api/business/reports/export.csv?exportTable=events&organizationIds=${ids.org}`).expect(200).expect('Content-Type', /csv/);
-      assert.match(csv.text, /Admissions QA Night/);
-      assert.equal((await q('SELECT COUNT(*)::integer AS count FROM report_export_jobs'))[0].count, 0, 'immediate snapshot artifacts are cleaned up');
+      // Hold the real delete until the client receives the CSV, reproducing
+      // the CI race deterministically without slowing or changing production.
+      const originalQuery = db.query.bind(db);
+      const deleteStarted = Promise.withResolvers();
+      const releaseDelete = Promise.withResolvers();
+      const deleteFinished = Promise.withResolvers();
+      let deleting = false;
+      db.query = async (sql, options) => {
+        if (sql !== 'DELETE FROM report_export_jobs WHERE id=:id') return originalQuery(sql, options);
+        deleting = true;
+        deleteStarted.resolve();
+        await releaseDelete.promise;
+        try { return await originalQuery(sql, options); }
+        finally { deleteFinished.resolve(); }
+      };
+      try {
+        const csv = await request(`/api/business/reports/export.csv?exportTable=events&organizationIds=${ids.org}`).expect(200).expect('Content-Type', /csv/);
+        assert.match(csv.text, /Admissions QA Night/);
+        await withinDeadline(deleteStarted.promise, 'immediate export did not start cleanup');
+        const held = await artifactCounts();
+        assert.equal(held.jobs, 1, 'CSV completion does not wait for asynchronous artifact cleanup');
+        assert.ok(held.rows > 0, 'the controlled delete holds the captured snapshot rows');
+      } finally {
+        releaseDelete.resolve();
+        try {
+          if (deleting) await withinDeadline(deleteFinished.promise, 'immediate export cleanup did not finish');
+        } finally { db.query = originalQuery; }
+      }
+      await assertImmediateCleanup();
       const combined = await request(`/api/business/reports/export.csv?organizationIds=${ids.org}`).expect(200);
       assert.match(combined.text, /Daily/);
+      await assertImmediateCleanup();
       await request('/api/admin/reports/export.csv').expect(403);
       await m.Event.update({ lifecycleState: 'archived' }, { where: { id: ids.event } });
       try {
         const csv = await request('/api/admin/reports/export.csv?exportTable=events', ids.admin).expect(200);
         assert.match(csv.text, /Admissions QA Night/);
+        await assertImmediateCleanup();
         const options = (await request('/api/admin/reports/bootstrap', ids.admin).expect(200)).body.data;
         const missing = options.venues.find((venue) => venue.label === 'No event location');
         assert.ok(missing, 'historical events without locations remain reachable');
