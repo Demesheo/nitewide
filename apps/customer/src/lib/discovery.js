@@ -155,8 +155,8 @@ export function checkoutTotal(priceCents, quantity, currency = 'USD', feeMode = 
 }
 export function feeLabel(quote, currency = 'USD') {
   if (!quote.eligible || !quote.total) return '';
-  if (quote.fee > 0) return `+${money(quote.fee, currency)} fee`;
-  return quote.includedFee > 0 ? `includes ${money(quote.includedFee, currency)} fee` : '';
+  const includedFee = quote.fee > 0 ? quote.fee : quote.includedFee;
+  return includedFee > 0 ? `${money(includedFee, currency)} fees included` : '';
 }
 export function offeringPrice(offering, quantity = offering.minPerOrder || 1) {
   return { ...checkoutTotal(offering.priceCents, quantity, offering.currency || 'USD', offering.effectiveFeeMode || 'buyer'), quantity, currency: offering.currency || 'USD' };

@@ -1,6 +1,6 @@
 import { Heart, MapPin, ArrowUpRight } from "lucide-react";
 import { Badge } from "./ui/badge";
-import { cityName, eventStartingPrice, feeLabel, money } from "../lib/discovery";
+import { cityName, eventStartingPrice, money } from "../lib/discovery";
 import { eventDate, eventTime } from "../lib/presentation";
 import { EventArtwork } from "./event-artwork";
 import { isPremiumHost } from '../lib/premium-host';
@@ -61,10 +61,7 @@ export function EventCard({ event, saved, onSave, onOpen, children, actionLabel 
             ) : lowest.total === 0 ? (
               "Free admission"
             ) : (
-              <>
-                <span className="upfront-total"><small>From</small> {money(lowest.total, lowest.currency)} <small>total{lowest.quantity > 1 ? ` for ${lowest.quantity}` : ''}</small></span>
-                <small>{feeLabel(lowest, lowest.currency)}</small>
-              </>
+              <span className="upfront-total"><small>From</small> {money(lowest.total, lowest.currency)} <small>total{lowest.quantity > 1 ? ` for ${lowest.quantity}` : ''}</small></span>
             ))}
           </span>
           <span className="card-arrow" aria-hidden="true">

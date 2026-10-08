@@ -1,10 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCustomerRoute, updateCustomerRoute } from '../src/lib/customer-route.js';
+import { canApplyInitialEvent, parseCustomerRoute, updateCustomerRoute } from '../src/lib/customer-route.js';
 import { mapsUrlForLocation } from '../src/lib/maps-link.js';
 import { clearPassCache, loadPassCache, savePassCache } from '../src/lib/pass-cache.js';
 import { discoveryShortcutRange } from '../src/lib/discovery-shortcuts.js';
 import { uniqueSavedIds, savedIdBatches } from '../src/lib/saved-id-batch.js';
+
+test('late initial event responses cannot replace a recovered checkout after its request lock clears', () => {
+  const eventId = '61daf017-d30c-4030-9b89-dd29d875ddaf';
+  const response = { eventId, routeEventId: eventId, checkoutLocked: false };
+  assert.equal(canApplyInitialEvent(response), true, 'an ordinary deep link opens event details');
+  assert.equal(canApplyInitialEvent({ ...response, checkoutLocked: true }), false, 'recovery is still in flight');
+  assert.equal(canApplyInitialEvent({ ...response, checkoutEventId: eventId }), false, 'restored checkout retains ownership after unlock');
+  assert.equal(canApplyInitialEvent({ ...response, checkoutEventId: 'another-event' }), true, 'another event is not this checkout');
+  assert.equal(canApplyInitialEvent({ ...response, routeEventId: null }), false, 'closing the event invalidates the response');
+  assert.equal(canApplyInitialEvent({ ...response, routeEventId: 'another-event' }), false, 'navigation invalidates the response');
+  assert.equal(canApplyInitialEvent({ ...response, eventId: null, routeEventId: null }), false);
+});
 
 test('customer routes restore tab, event, and submitted discovery filters', () => {
   assert.deepEqual(parseCustomerRoute('?tab=saved&event=61daf017-d30c-4030-9b89-dd29d875ddaf&city=Orlando&date=2026-09-29&q=house&when=tonight'), {

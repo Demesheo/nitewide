@@ -434,11 +434,16 @@ test('shared event preserves saved state, maps and free-versus-paid admission la
   await expect(details.getByRole('link', { name: 'Open in Maps' })).toHaveAttribute('href', /maps/);
   const paidOffering = details.getByRole('button', { name: /General Admission/ });
   await expect(paidOffering.locator('.upfront-total')).toContainText('$27.80');
-  await expect(paidOffering.locator('strong')).toContainText('+$2.80 fee');
+  await expect(paidOffering.locator('.fee-caption')).toHaveText('$2.80 fees included');
+  const offeredFeeSizes = await paidOffering.locator('.fee-caption').evaluate(caption => ({
+    caption: Number.parseFloat(getComputedStyle(caption).fontSize),
+    total: Number.parseFloat(getComputedStyle(caption.closest('button').querySelector('.upfront-total')).fontSize),
+  }));
+  expect(offeredFeeSizes.caption).toBeLessThan(offeredFeeSizes.total);
   await details.getByRole('button', { name: 'Increase quantity', exact: true }).click();
   await expect(paidOffering.locator('.upfront-total')).toContainText('$55.60');
   await expect(paidOffering.locator('strong')).toContainText('total for 2');
-  await expect(paidOffering.locator('strong')).toContainText('+$5.60 fee');
+  await expect(paidOffering.locator('.fee-caption')).toHaveText('$5.60 fees included');
   await expect(details.getByRole('button', { name: 'Continue · $55.60', exact: true })).toBeVisible();
   await expectNoOverflow(page);
   await testInfo.attach('upfront-customer-paid-fees', { body: await page.screenshot(), contentType: 'image/png' });
@@ -455,7 +460,8 @@ test('shared event preserves saved state, maps and free-versus-paid admission la
   await expect(page.locator('#saved').getByTestId('customer-event-card')).toHaveCount(1);
   const savedPrice = page.locator('#saved').getByTestId('customer-event-card').locator('.card-price');
   await expect(savedPrice).toContainText('From $27.80 total');
-  await expect(savedPrice).toContainText('+$2.80 fee');
+  await expect(savedPrice.locator('.fee-caption')).toHaveCount(0);
+  await expect(savedPrice).not.toContainText(/\+\$[\d.]+ fee|\$[\d.]+ fees included|\bfee\b/i);
   await test.step('business-paid fees are itemized without increasing the customer total', async () => {
     await page.route(`**/api/events/${fixture.ids.event}`, async route => {
       const response = await route.fetch();
@@ -465,14 +471,19 @@ test('shared event preserves saved state, maps and free-versus-paid admission la
     });
     await page.goto(`/?event=${fixture.ids.event}`);
     await expect(paidOffering.locator('.upfront-total')).toContainText('$25');
-    await expect(paidOffering.locator('strong')).toContainText('includes $2.80 fee');
+    await expect(paidOffering.locator('.fee-caption')).toHaveText('$2.80 fees included');
     await details.getByRole('button', { name: 'Increase quantity', exact: true }).click();
     await expect(paidOffering.locator('.upfront-total')).toContainText('$50');
-    await expect(paidOffering.locator('strong')).toContainText('includes $5.60 fee');
+    await expect(paidOffering.locator('.fee-caption')).toHaveText('$5.60 fees included');
     await details.getByRole('button', { name: 'Continue · $50', exact: true }).click();
     const review = details.locator('.checkout-review');
-    await expect(review.locator('.order-total')).toContainText('includes $5.60 fee');
+    await expect(review.locator('.order-total .fee-caption')).toHaveText('$5.60 fees included');
     await expect(review.locator('.order-total dd')).toContainText('$50');
+    const checkoutFeeSizes = await review.locator('.order-total .fee-caption').evaluate(caption => ({
+      caption: Number.parseFloat(getComputedStyle(caption).fontSize),
+      total: Number.parseFloat(getComputedStyle(caption.closest('dd')).fontSize),
+    }));
+    expect(checkoutFeeSizes.caption).toBeLessThan(checkoutFeeSizes.total);
     await expect(review).not.toContainText('Service fee');
     await expectNoOverflow(page);
     await testInfo.attach('business-paid-fee-review', { body: await page.screenshot(), contentType: 'image/png' });
@@ -493,7 +504,7 @@ test('shared event preserves saved state, maps and free-versus-paid admission la
       await expect(offering.locator('strong')).toHaveText('Free');
       await expect(offering.locator('strong small')).toHaveCount(0);
     }
-    await expect(details).not.toContainText(/\+\$[\d.]+ fee|includes \$[\d.]+ fee|\+ fees/);
+    await expect(details).not.toContainText(/\+\$[\d.]+ fee|includes \$[\d.]+(?: fee)?|\$[\d.]+ fees included|\+ fees/);
     await details.getByRole('button', { name: 'Claim free admission', exact: true }).click();
     const review = details.locator('.checkout-review');
     await expect(review.getByRole('button', { name: 'Claim admission', exact: true })).toBeEnabled();
@@ -745,7 +756,76 @@ test('abandoned sandbox checkout stays out of Booked and resumes from Notificati
   await page.getByRole('button', { name: /^Notifications/ }).click();
   await page.getByRole('button', { name: /Continue your purchase for/ }).click();
   await expect(details.getByRole('button', { name: 'Cancel payment attempt' })).toBeVisible();
-  await page.reload();
+  let releaseInitialEventRequest;
+  let initialEventRequestSeen;
+  const initialEventGate = new Promise(resolve => { releaseInitialEventRequest = resolve; });
+  const initialEventSeen = new Promise(resolve => { initialEventRequestSeen = resolve; });
+  let eventRequests = 0;
+  const holdInitialEventRequest = async route => {
+    if (route.request().method() === 'GET' && ++eventRequests === 1) {
+      initialEventRequestSeen();
+      await initialEventGate;
+    }
+    await route.continue();
+  };
+  const eventUrl = `**/api/events/${fixture.ids.event}`;
+  await page.route(eventUrl, holdInitialEventRequest);
+  await page.addInitScript(eventId => {
+    const nativeFetch = window.fetch.bind(window);
+    let initialEventFetchObserved = false;
+    window.__nitewideInitialEventPayloadConsumed = false;
+    window.fetch = (input, init) => {
+      const url = typeof input === 'string' ? input : input?.url || '';
+      const method = init?.method || input?.method || 'GET';
+      const watchThisResponse = !initialEventFetchObserved && method === 'GET' && url.includes(`/api/events/${eventId}`);
+      if (watchThisResponse) initialEventFetchObserved = true;
+      const responsePromise = nativeFetch(input, init);
+      if (!watchThisResponse) return responsePromise;
+      return responsePromise.then(response => {
+        const nativeJson = response.json.bind(response);
+        Object.defineProperty(response, 'json', {
+          configurable: true,
+          value: async (...args) => {
+            const payload = await nativeJson(...args);
+            if (payload?.data && typeof payload.data === 'object') {
+              const data = payload.data;
+              Object.defineProperty(payload, 'data', {
+                configurable: true,
+                get() {
+                  window.__nitewideInitialEventPayloadConsumed = true;
+                  return data;
+                },
+              });
+            }
+            return payload;
+          },
+        });
+        return response;
+      });
+    };
+  }, fixture.ids.event);
+  let reload;
+  try {
+    // On reload, the initial deep-link event load and checkout recovery each
+    // fetch this event. Hold only the first request so recovery can complete.
+    reload = page.reload();
+    await initialEventSeen;
+    await expect(details.getByRole('button', { name: /^Pay / })).toBeVisible();
+    expect(eventRequests).toBeGreaterThanOrEqual(2);
+    const releasedEventResponse = page.waitForResponse(response =>
+      response.url().includes(`/api/events/${fixture.ids.event}`) && response.request().method() === 'GET');
+    releaseInitialEventRequest();
+    await releasedEventResponse;
+    // Wait until the app consumes the delayed response payload, then let its
+    // route callback and React update paint before checking the restored stage.
+    await page.waitForFunction(() => window.__nitewideInitialEventPayloadConsumed === true);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await reload;
+  } finally {
+    releaseInitialEventRequest();
+    if (reload) await reload.catch(() => {});
+    await page.unroute(eventUrl, holdInitialEventRequest);
+  }
   await expect(details.getByRole('button', { name: /^Pay / })).toBeVisible();
   expect(JSON.parse(await saved()).body.idempotencyKey).toBe(first.body.idempotencyKey);
   expect(prepares).toEqual([]);

@@ -183,6 +183,10 @@ Artwork tests additionally cover uploaded-image priority, missing/broken images,
 4. Verify sign-in, event details, package selection, and demo confirmation still work after theme changes.
 5. Inspect desktop and mobile widths for overflow, readable text, visible focus, and a correctly themed dialog/search form.
 
+Ticket selection and checkout fee captions read `$amount fees included` beneath the upfront total for both customer-paid and business-paid fees; they never imply the fee is added again. The scoped caption is smaller than the total, without reducing offering descriptions or availability messages. Event listing cards show only the all-in starting total, without a fee caption. Free admission has no fee caption. Changing this copy does not change the fee calculation or who pays it.
+
+Initial event deep-link responses defer to an active recovered checkout for the same event, even after recovery's request lock clears. This prevents a late event/referral response from resetting the restored payment screen or its saved booking selection. Recovery continues to reuse the existing order and idempotency key; it does not prepare a second payment.
+
 No production payment behavior or backend fee policy should be changed solely to adjust presentation.
 # Venue identity
 

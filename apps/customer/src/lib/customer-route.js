@@ -6,6 +6,11 @@ function validDate(value) {
   const parsed = new Date(`${value}T12:00:00`);
   return Number.isFinite(parsed.getTime()) && [parsed.getFullYear(), String(parsed.getMonth() + 1).padStart(2, '0'), String(parsed.getDate()).padStart(2, '0')].join('-') === value ? value : '';
 }
+export function canApplyInitialEvent({ eventId, routeEventId, checkoutLocked, checkoutEventId }) {
+  // A completed recovery owns its checkout even after the request lock clears.
+  // The initial deep-link fetch must not reset it to an event-details screen.
+  return Boolean(eventId && eventId === routeEventId && !checkoutLocked && eventId !== checkoutEventId);
+}
 export function parseCustomerRoute(search) {
   const params = new URLSearchParams(search);
   const requestedTab = params.get('tab');

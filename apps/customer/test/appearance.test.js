@@ -83,6 +83,19 @@ test('viewport supports safe areas without disabling customer zoom', async () =>
   assert.match(html, /viewport-fit=cover/);
   assert.doesNotMatch(html, /user-scalable=no|maximum-scale=1/);
 });
+test('fee captions stay smaller without shrinking offering descriptions or availability messages', async () => {
+  const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
+  const mobile = await readFile(new URL('../src/mobile.css', import.meta.url), 'utf8');
+  assert.match(css, /\.offering strong > \.fee-caption,\s*\.order-total dd > \.fee-caption\s*\{\s*font-size: 9px;/);
+  assert.match(mobile, /\.offering strong > \.fee-caption,\s*\.order-total dd > \.fee-caption\s*\{ font-size: 10px;/);
+  assert.match(mobile, /\.offering small \{ font-size: 12px;/);
+});
+test('event cards retain the all-in starting total without an extra fee caption', async () => {
+  const card = await readFile(new URL('../src/components/event-card.jsx', import.meta.url), 'utf8');
+  assert.match(card, /money\(lowest\.total, lowest\.currency\)/);
+  assert.match(card, /<small>total\{lowest\.quantity > 1/);
+  assert.doesNotMatch(card, /feeLabel|fee-caption/);
+});
 test('dialogs retain touch-sized close controls, stable account height and reduced motion', async () => {
   const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
   assert.match(css, /\.event-modal\[data-event-stage="details"\] > \[data-slot="dialog-close"\]\s*\{[^}]*width: 44px;[^}]*height: 44px;[^}]*border-radius: 50%;[^}]*opacity: 1;/);

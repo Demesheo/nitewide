@@ -70,6 +70,8 @@
   .detail-location { overflow-wrap: anywhere; }
   .offering b { font-size: 14px; }
   .offering small { font-size: 12px; line-height: 1.5; }
+  .offering strong > .fee-caption,
+  .order-total dd > .fee-caption { font-size: 10px; }
   .offering strong { font-size: 15px; white-space: nowrap; }
   .account-tabs [role="tab"] { font-size: 12px; min-width: 0; gap: 5px; }
   .account-heading p { font-size: 12px; overflow-wrap: anywhere; }

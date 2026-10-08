@@ -63,7 +63,7 @@ import { businessLink } from './lib/business-link';
 import { referralCodeForEvent, referralFromSearch } from './lib/referral';
 import { eventShareUrl } from './lib/event-share';
 import { bookingFromSearch } from './lib/booking-link';
-import { parseCustomerRoute, updateCustomerRoute } from './lib/customer-route';
+import { canApplyInitialEvent, parseCustomerRoute, updateCustomerRoute } from './lib/customer-route';
 import { mapsUrlForLocation } from './lib/maps-link';
 import { clearPassCache } from './lib/pass-cache';
 import { GuestlistInvitationPage } from './components/guestlist-invitation-page';
@@ -379,6 +379,12 @@ function CustomerApp() {
     const eventId = initialRoute.eventId;
     if (!eventId) return;
     let active = true;
+    const canApply = (event) => active && canApplyInitialEvent({
+      eventId: event.id,
+      routeEventId: parseCustomerRoute(window.location.search).eventId,
+      checkoutLocked: checkoutLock.current,
+      checkoutEventId: activeCheckoutAttempt.current?.body.eventId,
+    });
     if (incoming) {
       const sessionKey = sessionStorage.getItem('nitewide.referral-session') || crypto.randomUUID();
       sessionStorage.setItem('nitewide.referral-session', sessionKey);
@@ -386,13 +392,13 @@ function CustomerApp() {
         api(`/events/${encodeURIComponent(incoming.eventId)}`),
         api(`/events/${encodeURIComponent(incoming.eventId)}/referral-visits`, { body: { code: incoming.code, sessionKey } }),
       ]).then(([event, visit]) => {
-        if (!active || checkoutLock.current || parseCustomerRoute(window.location.search).eventId !== event.id) return;
+        if (!canApply(event)) return;
         setReferral({ ...incoming, referrerName: visit.referrerName });
         openEvent(event, { fromRoute: true });
       }).catch(() => { if (active) setNotice('This referral link is no longer active. You can still browse events.'); });
     } else {
       api(`/events/${encodeURIComponent(eventId)}`)
-        .then((event) => { if (active && !checkoutLock.current && parseCustomerRoute(window.location.search).eventId === event.id) openEvent(event, { fromRoute: true }); })
+        .then((event) => { if (canApply(event)) openEvent(event, { fromRoute: true }); })
         .catch(() => { if (active) setNotice('This event is no longer available. You can still browse events.'); });
     }
     return () => { active = false; };
@@ -1113,7 +1119,7 @@ function CustomerApp() {
                         </span>
                         <strong>
                           <span className="upfront-total">{itemPrice.eligible ? priceLabel(itemPrice.total, item.currency) : 'Pricing unavailable'}{itemPrice.eligible && itemPrice.total > 0 && <> <small>total{itemQuantity > 1 ? ` for ${itemQuantity}` : ''}</small></>}</span>
-                          {availabilityLabel && (itemPrice.eligible || availabilityLabel !== 'Pricing unavailable') && <small>{availabilityLabel}</small>}
+                          {availabilityLabel && (itemPrice.eligible || availabilityLabel !== 'Pricing unavailable') && <small className={availableQuantity(item) > 0 && itemPrice.eligible ? 'fee-caption' : undefined}>{availabilityLabel}</small>}
                         </strong>
                       </button>;
                     })}
@@ -1209,7 +1215,7 @@ function CustomerApp() {
                   </div>}
                   <div className="order-total">
                     <dt>{totals.total === 0 ? 'Total' : 'Total paid in full'}</dt>
-                    <dd>{priceLabel(totals.total, offering.currency)}{feeLabel(totals, offering.currency) && <small>{feeLabel(totals, offering.currency)}</small>}</dd>
+                    <dd>{priceLabel(totals.total, offering.currency)}{feeLabel(totals, offering.currency) && <small className="fee-caption">{feeLabel(totals, offering.currency)}</small>}</dd>
                   </div>
                 </dl>
               </div>
