@@ -3,7 +3,19 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
 import { createTestServer } from '../../business/test/helpers/vite-server.js';
+
+test('mobile city suggestions stay bounded in normal form flow without overlaying wrapped submit controls', async () => {
+  const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
+  const mobile = styles.match(/@media \(max-width: 760px\) \{([\s\S]*?)^\}/m)?.[1];
+  assert.ok(mobile, 'The wrapped mobile form has an explicit responsive layout');
+  assert.match(mobile, /\.discovery-city-search\s*\{[^}]*flex-direction:\s*column/);
+  assert.match(mobile, /\.discovery-city-options\s*\{[^}]*position:\s*static/);
+  assert.match(mobile, /\.discovery-city-options\s*\{[^}]*min-width:\s*0/);
+  assert.match(mobile, /\.discovery-city-options\s*\{[^}]*width:\s*100%/);
+  assert.match(styles, /\.discovery-city-options\s*\{[^}]*max-height:\s*min\(360px,\s*50dvh\)[^}]*overflow-y:\s*auto/);
+});
 
 test('area-scoped discovery guards real React renders, refreshes and late requests', async (t) => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://customer.fixture.test/', pretendToBeVisual: true });
@@ -198,6 +210,85 @@ test('area-scoped discovery guards real React renders, refreshes and late reques
       await finish(4, { items: [{ key: 'stale', label: 'Stale, FL' }] });
       assert.equal(view.queryByRole('option'), null);
       assert.equal(input.value, 'Tam', 'A suggestion failure must preserve the editable city draft');
+      view.unmount();
+    });
+
+    await t.test('manual qualified-city submit works with ready, pending and failed suggestions without choosing or dismissing one', async () => {
+      for (const status of ['ready', 'pending', 'error']) {
+        requests = [];
+        const submissions = [];
+        const pointerStates = [];
+        function CityForm() {
+          const [value, setValue] = React.useState('');
+          return React.createElement('form', { className: 'search-bar', onSubmit(event) {
+            event.preventDefault();
+            submissions.push(new dom.window.FormData(event.currentTarget).get('city'));
+          } }, React.createElement(DiscoveryCitySearch, { value, onChange: setValue }),
+          React.createElement('button', { type: 'submit', className: 'search-submit',
+            onPointerDown(event) { pointerStates.push({ phase: 'down', menu: Boolean(event.currentTarget.form.querySelector('[role="listbox"]')) }); },
+            onPointerUp(event) { pointerStates.push({ phase: 'up', menu: Boolean(event.currentTarget.form.querySelector('[role="listbox"]')),
+              cityFocused: dom.window.document.activeElement?.getAttribute('name') === 'city' }); },
+          }, 'Find my night'));
+        }
+        const view = render(React.createElement(CityForm));
+        const input = view.getByRole('combobox', { name: 'City' });
+        await user.click(input);
+        await user.type(input, 'Miami, FL');
+        await waitFor(() => assert.equal(requests.length, 1));
+        if (status === 'ready') {
+          await finish(0, { items: [{ key: 'miami', label: 'Miami, FL' }, { key: 'beach', label: 'Miami Beach, FL' }] });
+          assert.equal(view.getAllByRole('option').length, 2);
+        } else if (status === 'error') await fail(0);
+        assert.equal(input.getAttribute('aria-expanded'), 'true', status);
+        await user.click(view.getByRole('button', { name: 'Find my night' }));
+        assert.deepEqual(pointerStates, [{ phase: 'down', menu: true }, { phase: 'up', menu: true, cityFocused: true }], status);
+        assert.deepEqual(submissions, ['Miami, FL'], status);
+        assert.notEqual(dom.window.document.activeElement, input, status);
+        assert.equal(input.value, 'Miami, FL', status);
+        assert.equal(input.getAttribute('aria-expanded'), 'false', status);
+        assert.equal(requests[0].signal.aborted, true, status);
+        if (status === 'pending') {
+          await finish(0, { items: [{ key: 'late', label: 'Another city, FL' }] });
+          assert.equal(view.queryByRole('option'), null);
+          assert.equal(input.value, 'Miami, FL');
+        }
+        view.unmount();
+      }
+    });
+
+    await t.test('Tab to same-form submit keeps geometry stable until Enter; leaving submit focus closes normally', async () => {
+      requests = [];
+      const submissions = [];
+      function CityForm() {
+        const [value, setValue] = React.useState('Miami, FL');
+        return React.createElement(React.Fragment, null,
+          React.createElement('form', { onSubmit(event) {
+            event.preventDefault(); submissions.push(new dom.window.FormData(event.currentTarget).get('city'));
+          } }, React.createElement(DiscoveryCitySearch, { value, onChange: setValue }),
+          React.createElement('button', { type: 'submit' }, 'Find my night')),
+          React.createElement('input', { 'aria-label': 'Outside field' }));
+      }
+      const view = render(React.createElement(CityForm));
+      const input = view.getByRole('combobox', { name: 'City' });
+      const submit = view.getByRole('button', { name: 'Find my night' });
+      await user.click(input);
+      await waitFor(() => assert.equal(requests.length, 1));
+      await finish(0, { items: [{ key: 'miami', label: 'Miami, FL' }] });
+      await user.tab();
+      assert.equal(dom.window.document.activeElement, submit);
+      assert.equal(input.getAttribute('aria-expanded'), 'true');
+      await user.keyboard('{Enter}');
+      assert.deepEqual(submissions, ['Miami, FL']);
+      assert.equal(input.getAttribute('aria-expanded'), 'false');
+      await user.click(input);
+      await waitFor(() => assert.equal(requests.length, 2));
+      await user.tab();
+      assert.equal(dom.window.document.activeElement, submit);
+      assert.equal(input.getAttribute('aria-expanded'), 'true');
+      await user.tab();
+      assert.equal(dom.window.document.activeElement, view.getByRole('textbox', { name: 'Outside field' }));
+      assert.equal(input.getAttribute('aria-expanded'), 'false');
+      assert.equal(requests[1].signal.aborted, true);
       view.unmount();
     });
 

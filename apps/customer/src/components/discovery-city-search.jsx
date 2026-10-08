@@ -2,6 +2,11 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { MapPin } from 'lucide-react';
 import { api } from '../lib/api';
 
+function sameFormSubmit(target, form) {
+  const control = target?.closest?.('button, input');
+  return Boolean(form && control?.form === form && ['submit', 'image'].includes(control.type) && !control.disabled);
+}
+
 export function DiscoveryCitySearch({ value, onChange, placeholder, describedBy }) {
   const id = useId();
   const listId = `${id}-areas`;
@@ -10,13 +15,43 @@ export function DiscoveryCitySearch({ value, onChange, placeholder, describedBy 
   const [suggestions, setSuggestions] = useState({ key: '', status: 'idle', items: [] });
   const [retry, setRetry] = useState(0);
   const inputRef = useRef(null);
+  const pickerRef = useRef(null);
   const optionRefs = useRef([]);
+  const openRef = useRef(open);
+  openRef.current = open;
   const term = value.trim();
   const currentTerm = useRef(term);
   currentTerm.current = term;
   const visible = suggestions.key === term ? suggestions : { status: 'idle', items: [] };
   const expanded = open && term.length >= 2;
   const active = expanded && visible.items[activeIndex];
+  function handleBlur(event) {
+    if (!pickerRef.current?.contains(event.relatedTarget) && !sameFormSubmit(event.relatedTarget, inputRef.current?.form)) setOpen(false);
+  }
+  useEffect(() => {
+    const form = inputRef.current?.form;
+    if (!form) return;
+    // In-flow mobile suggestions must not collapse between pointer-down and
+    // click. Safari may blur to null instead of focusing the submit button.
+    const retainFocus = (event) => {
+      if (openRef.current && sameFormSubmit(event.target, form)) event.preventDefault();
+    };
+    const dismiss = () => {
+      setOpen(false);
+      // Release the retained mobile keyboard focus only after activation.
+      if (form.ownerDocument.activeElement === inputRef.current) inputRef.current.blur();
+    };
+    form.addEventListener('pointerdown', retainFocus, true);
+    form.addEventListener('mousedown', retainFocus, true);
+    form.addEventListener('submit', dismiss);
+    form.addEventListener('focusout', handleBlur);
+    return () => {
+      form.removeEventListener('pointerdown', retainFocus, true);
+      form.removeEventListener('mousedown', retainFocus, true);
+      form.removeEventListener('submit', dismiss);
+      form.removeEventListener('focusout', handleBlur);
+    };
+  }, []);
   useEffect(() => {
     if (active) optionRefs.current[activeIndex]?.scrollIntoView?.({ block: 'nearest' });
   }, [active, activeIndex]);
@@ -38,9 +73,7 @@ export function DiscoveryCitySearch({ value, onChange, placeholder, describedBy 
   }, [term, open, retry]);
   function choose(item) { onChange(item.label); setOpen(false); setActiveIndex(-1); }
   function retrySuggestions() { inputRef.current?.focus(); setRetry((revision) => revision + 1); }
-  return <div className="discovery-city-search" onBlur={(event) => {
-    if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
-  }}>
+  return <div ref={pickerRef} className="discovery-city-search" onBlur={handleBlur}>
     <label className="search-field">
       <MapPin aria-hidden="true"/>
       <span><b>WHERE TO?</b><input ref={inputRef} aria-label="City" name="city" role="combobox" autoComplete="off" maxLength={120}
