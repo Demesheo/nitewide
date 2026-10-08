@@ -26,7 +26,7 @@ The same ID appears in `X-Request-Id`. Clients may supply a UUID in that header;
 | Schema validation | 422 | Field locations and generic messages, without input values |
 | Authentication or authorization | 401 or 403 | Existing domain rules apply |
 | Unique constraint or concurrent update | 409 | Safe conflict message |
-| Retired operation | 410 | Existing replacement guidance is retained |
+| Unregistered API route | 404 | Removed operations are not registered; use the executable contract for supported paths |
 | Unsupported method on a registered API route | 405 | `Allow` header identifies supported methods |
 | Database statement, lock or pool acquisition timeout | 503 | Retryable service busy message |
 | Unexpected failure | 500 | No internal message, stack, SQL or database details |

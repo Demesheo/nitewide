@@ -7,7 +7,7 @@ import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { RecordForm } from './Management';
 import { RecordList, recordTitle, humanLabel } from './Directory';
-import { ResourceState, Pager } from './ResourceState';
+import { ResourceState } from './ResourceState';
 import Ownership from './Ownership';
 const AdminEventEditor = lazy(() => import('./AdminEventEditor'));
 import { hasAdminPermission } from '../lib/permissions';

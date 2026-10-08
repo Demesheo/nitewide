@@ -55,8 +55,8 @@ test('shared PostgreSQL limits and session revocation across API instances', asy
     assert.equal((await request(0, '/auth/me', { token: mismatched })).status, 401);
     for (let i = 0; i < 2; i++) assert.equal((await request(i, '/business/uploads/image', { token, method: 'POST' })).status, 422);
     assert.equal((await request(1, '/business/uploads/image', { token, method: 'POST' })).status, 429);
-    for (let i = 0; i < 2; i++) assert.equal((await request(i, '/admin/analytics', { token })).status, 403);
-    assert.equal((await request(1, '/admin/analytics', { token })).status, 429);
+    for (let i = 0; i < 2; i++) assert.equal((await request(i, '/admin/reports/summary', { token })).status, 403);
+    assert.equal((await request(1, '/admin/reports/summary', { token })).status, 429);
     await models.AuthSession.update({ expiresAt: new Date(Date.now() - 1000) }, { where: { id: sid } });
     assert.equal((await request(0, '/auth/me', { token })).status, 401);
     await models.AbuseBucket.destroy({ where: {} });

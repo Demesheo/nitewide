@@ -25,10 +25,10 @@ test('domain HTTP contracts and legacy/new authorization share the same database
   const sequelize = createSequelize(config);
   const models = initModels(sequelize);
   const app = createApp({ sequelize, models, config });
-  const owner = randomUUID(), manager = randomUUID(), customer = randomUUID(), org = randomUUID();
+  const owner = randomUUID(), manager = randomUUID(), customer = randomUUID(), admin = randomUUID(), org = randomUUID();
   const api = (method, path, userId = manager) => request(app)[method](`/api${path}`).set('x-user-id', userId);
   try {
-    await models.User.bulkCreate([owner, manager, customer].map((id) => ({ id, email: `${id}@offline.nitewide.test`, displayName: 'Domain contract fixture' })));
+    await models.User.bulkCreate([owner, manager, customer, admin].map((id) => ({ id, email: `${id}@offline.nitewide.test`, displayName: 'Domain contract fixture', isInternalAdmin: id === admin })));
     const venue = await models.Location.create({ name: 'Fixture venue', city: 'Orlando', region: 'FL', countryCode: 'US', timezone: 'America/New_York', addressLine1: '1 Fixture St', privacy: 'public' });
     await models.Organization.create({ id: org, name: 'Contract fixture', slug: `contract-${org}`, locationId: venue.id });
     await models.OrganizationVenue.findOrCreate({ where: { organizationId: org, locationId: venue.id } });
@@ -51,6 +51,38 @@ test('domain HTTP contracts and legacy/new authorization share the same database
     const approved = await api('post', `/business/events/${eventId}/guestlist/${guestlist.body.data.entry.id}/decision`).send({ decision: 'approve' }).expect(200);
     validateResponse('post', '/business/events/:eventId/guestlist/:entryId/decision', approved);
     const offeringCount = await models.Offering.count();
+    await t.test('removed reports and admin patch operations cannot alter domain records or financial history', async () => {
+      const persisted = async () => ({
+        user: (await models.User.findByPk(owner)).toJSON(),
+        organization: (await models.Organization.findByPk(org)).toJSON(),
+        event: (await models.Event.findByPk(eventId)).toJSON(),
+        offerings: await models.Offering.findAll({ where: { eventId }, order: [['id', 'ASC']], raw: true }),
+        orders: await models.Order.findAll({ where: { eventId }, order: [['id', 'ASC']], raw: true }),
+        tickets: await models.Ticket.findAll({ where: { eventId }, order: [['id', 'ASC']], raw: true }),
+        guestlists: await models.GuestlistEntry.findAll({ where: { eventId }, order: [['id', 'ASC']], raw: true }),
+        audits: await models.AuditLog.findAll({ order: [['id', 'ASC']], raw: true }),
+        exports: (await sequelize.query(`SELECT
+          (SELECT COUNT(*)::integer FROM report_export_jobs) AS jobs,
+          (SELECT COUNT(*)::integer FROM report_export_rows) AS rows,
+          (SELECT COUNT(*)::integer FROM report_export_chunks) AS chunks`, { type: QueryTypes.SELECT }))[0],
+      });
+      const before = await persisted();
+      for (const path of ['/business/workspace', '/business/analytics', '/admin/analytics']) {
+        const response = await api('get', path, admin).expect(404);
+        assert.equal(response.body.error.code, 'NOT_FOUND');
+      }
+      for (const [path, body] of [
+        [`/admin/users/${owner}`, { isActive: false, reason: 'Retired update probe' }],
+        [`/admin/organizations/${org}`, { status: 'suspended', reason: 'Retired update probe' }],
+      ]) {
+        const response = await api('patch', path, admin).send(body).expect(404);
+        assert.equal(response.body.error.code, 'NOT_FOUND');
+      }
+      const eventPatch = await api('patch', `/admin/events/${eventId}`, admin).send({ title: 'Retired update probe', reason: 'Retired update probe' }).expect(405);
+      assert.equal(eventPatch.body.error.code, 'METHOD_NOT_ALLOWED');
+      assert.deepEqual(eventPatch.headers.allow.split(', '), ['OPTIONS', 'PUT'], 'the active PUT editor does not restore the removed PATCH operation');
+      assert.deepEqual(await persisted(), before, 'missing operations make no user, organization, event, commerce, audit or export changes');
+    });
     await t.test('admissions projection and legacy guestlist aggregates match their wire contracts', async () => {
       const response = await api('get', '/business/admissions/events').expect(200);
       validateResponse('get', '/business/admissions/events', response);

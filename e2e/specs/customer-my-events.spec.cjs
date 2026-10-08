@@ -1,4 +1,4 @@
-const { test: baseTest, expect, login, loginViaApi, expectNoOverflow } = require('../fixtures.cjs');
+const { test: baseTest, expect, loginViaApi, expectNoOverflow } = require('../fixtures.cjs');
 const test = baseTest.extend({ fixtureRecipe: 'commerce' });
 const authTest = baseTest.extend({ fixtureRecipe: 'customer-auth' });
 const paginationTest = baseTest.extend({ fixtureRecipe: 'events-pagination' });
@@ -14,9 +14,9 @@ async function operatorScenario(request, past = false) {
   expect(response.ok(), `isolated operator scenario: ${await response.text()}`).toBeTruthy();
 }
 
-async function openMyEvent(page, fixture, role = 'business', authenticate = loginViaApi) {
+async function openMyEvent(page, fixture, role = 'business') {
   // Directory search and navigation have their own interaction test below.
-  await authenticate(page, fixture, 'customer', role, `/?tab=my-events&myEvent=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'customer', role, `/?tab=my-events&myEvent=${fixture.ids.event}`);
   await expect(page.getByRole('heading', { name: 'Playwright Friday Night', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: /^(Event performance|Your performance)$/ })).toBeVisible();
 }
@@ -246,7 +246,7 @@ paginationTest('personal rundown survives details reload and preserves referral 
 });
 
 authTest('My events is hidden for customer-only accounts and its API rejects direct access', async ({ page, request, fixture }) => {
-  await login(page, fixture, 'customer');
+  await loginViaApi(page, fixture, 'customer');
   const token = await sessionToken(page);
   await expect(page.getByRole('button', { name: 'My events', exact: true })).toHaveCount(0);
   const access = await request.get(`${urls.api}/api/customer/my-events/access`, { headers: { authorization: `Bearer ${token}` } });

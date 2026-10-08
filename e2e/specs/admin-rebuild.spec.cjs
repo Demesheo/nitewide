@@ -82,7 +82,7 @@ async function mockAdmin(page, { role = 'platform_owner' } = {}) {
   const session = { user, roles: ['internal_admin'], accessToken: 'mocked-local-session' };
   await page.addInitScript((value) => sessionStorage.setItem('nitewide.admin.session', JSON.stringify(value)), session);
   const people = Array.from({ length: 30 }, (_, index) => ({ id: uuid(100 + index), displayName: `Person ${index + 1}`, email: `person${index + 1}@example.test`, phone: '', isActive: true, lifecycleState: 'active', version: 0, createdAt: '2026-09-01T12:00:00Z' }));
-  const state = { requests: [], people, cases: [], relatedRows: {}, business: structuredClone(business), venues: [], venueTeam: [], event: structuredClone(event), ownership: { ...business, owners: [{ id: uuid(30), userId: uuid(3), displayName: 'Current Owner', email: 'owner@example.test', isActive: true, financeAuthorized: true }], managers: [], invitations: [] } };
+  const state = { requests: [], people, cases: [], relatedRows: {}, business: structuredClone(business), venues: [], event: structuredClone(event), ownership: { ...business, owners: [{ id: uuid(30), userId: uuid(3), displayName: 'Current Owner', email: 'owner@example.test', isActive: true, financeAuthorized: true }], managers: [], invitations: [] } };
   const summary = { summary: { salesCents: 1500, orders: 1, customers: 1, units: 1, admissions: 1 }, financial: { faceValueSalesCents: 1500, addedBuyerFeesCents: 200, customerPaidCents: 1700, recordedCommissionsCents: 0, businessProceedsBeforeProviderCents: 1500, modeledProcessingCents: 90, modeledContributionCents: 110, unknownModeledOrders: 0 }, daily: [] };
   const paged = (items, params, size = 25) => { const pageNumber = Number(params.get('page') || 1); const pageSize = Number(params.get('pageSize') || size); return { items: items.slice((pageNumber - 1) * pageSize, pageNumber * pageSize), total: items.length, page: pageNumber, pageSize, hasMore: pageNumber * pageSize < items.length }; };
   await page.route('**/api/**', async (route) => {
@@ -105,20 +105,9 @@ async function mockAdmin(page, { role = 'platform_owner' } = {}) {
     else if (path === `/admin/events/${event.id}/editor`) data = { event: state.event, organizations: [{ ...business, canManage: true }], venues: [] };
     else if (path === `/admin/events/${event.id}` && method === 'PUT') { Object.assign(state.event, body, { version: state.event.version + 1 }); data = state.event; }
     else if (path === `/admin/events/${event.id}/notification-preview`) data = { recipients: 12, message: 'Event notices use attendee delivery workflow.' };
-    else if (path.startsWith(`/admin/businesses/${business.id}/venues`)) {
+    else if (method === 'GET' && path.startsWith(`/admin/businesses/${business.id}/venues`)) {
       const suffix = path.replace(`/admin/businesses/${business.id}/venues`, '').split('/').filter(Boolean);
-      const venue = state.venues.find((item) => item.id === suffix[0]);
-      if (suffix[1] === 'team' && method === 'PUT') {
-        const person = people.find((item) => item.id === suffix[2]);
-        let member = state.venueTeam.find((item) => item.locationId === venue.id && item.userId === person.id);
-        if (member) Object.assign(member, body, { version: member.version + 1 });
-        else { member = { ...body, id: uuid(4000 + state.venueTeam.length), organizationId: business.id, locationId: venue.id, userId: person.id, displayName: person.displayName, email: person.email, version: 0 }; state.venueTeam.push(member); }
-        data = member;
-      } else if (suffix[1] === 'team') data = paged(state.venueTeam.filter((item) => item.locationId === venue.id && `${item.displayName} ${item.email}`.toLowerCase().includes((url.searchParams.get('search') || '').toLowerCase())), url.searchParams);
-      else if (suffix[1] === 'candidates') data = paged(people.filter((item) => `${item.displayName} ${item.email}`.toLowerCase().includes((url.searchParams.get('search') || '').toLowerCase())), url.searchParams);
-      else if (method === 'POST') { const saved = { ...body.venue, id: uuid(2000 + state.venues.length), organizationId: business.id, lifecycleState: 'active', version: 0 }; state.venues.push(saved); state.business.version++; state.business.venueCount = state.venues.length; data = { venue: saved, organizationVersion: state.business.version }; }
-      else if (method === 'PATCH') { Object.assign(venue, body, { version: venue.version + 1 }); data = venue; }
-      else if (suffix.length === 1) data = venue;
+      if (suffix.length === 1) data = state.venues.find((item) => item.id === suffix[0]);
       else data = paged(state.venues.filter((item) => `${item.name} ${item.addressLine1} ${item.city}`.toLowerCase().includes((url.searchParams.get('search') || '').toLowerCase())), url.searchParams);
     }
     else if (path === `/admin/businesses/${business.id}/ownership`) data = state.ownership;
@@ -360,26 +349,90 @@ test('business venue paging and event venue choices stay scoped beyond the first
   });
 });
 
-test('business can create and rename its own venue and assign venue-only staff', async ({ page }) => {
-  const state = await mockAdmin(page); await page.goto(`/?section=businesses&resource=organizations&record=${business.id}&tab=venues`); await expect(page.getByText('No venues linked to this business.')).toBeVisible();
-  await page.getByRole('button', { name: 'Create venue', exact: true }).click(); let dialog = page.getByRole('dialog', { name: 'Create business venue' });
-  await dialog.getByLabel('Venue name', { exact: true }).fill('Grand Room'); await dialog.getByLabel('Street address', { exact: true }).fill('100 Main Street'); await dialog.getByLabel('City', { exact: true }).fill('Orlando'); await dialog.getByLabel('Required audit reason').fill('Verified business venue setup'); await dialog.getByRole('button', { name: 'Create venue', exact: true }).click();
-  await expect(page.getByTestId('business-venue')).toContainText('Grand Room'); const created = state.requests.find((item) => item.path.endsWith('/venues') && item.method === 'POST'); expect(created.body).toMatchObject({ version: 3, venue: { name: 'Grand Room', city: 'Orlando' } }); expect(created.body).not.toHaveProperty('locationId');
-  await page.getByRole('button', { name: 'Edit venue', exact: true }).click(); dialog = page.getByRole('dialog', { name: 'Edit venue', exact: true }); await dialog.getByLabel('Venue name', { exact: true }).fill('Grand Hall'); await dialog.getByLabel('Required audit reason').fill('Confirmed venue name update'); await dialog.getByRole('button', { name: 'Save venue changes' }).click(); await expect(page.getByTestId('business-venue')).toContainText('Grand Hall');
-  expect(state.requests.find((item) => item.path.includes('/venues/') && item.method === 'PATCH').body).toMatchObject({ name: 'Grand Hall', version: 0 });
-  await page.getByRole('button', { name: 'Venue team', exact: true }).click(); await page.getByRole('button', { name: 'Add venue team member', exact: true }).click(); dialog = page.getByRole('dialog', { name: 'Add venue team member', exact: true });
-  await dialog.getByLabel('Person', { exact: true }).selectOption(state.people[0].id); await dialog.getByRole('combobox', { name: 'Venue role', exact: true }).selectOption('promoter'); await dialog.getByLabel('Required audit reason').fill('Approved venue promoter access'); await dialog.getByRole('button', { name: 'Add team member', exact: true }).click(); await expect(page.getByTestId('venue-team-member')).toContainText('promoter · active');
-  expect(state.requests.find((item) => item.path.includes('/team/') && item.method === 'PUT').body).toMatchObject({ role: 'promoter', status: 'active', version: null });
-  await page.getByRole('button', { name: 'Update venue access', exact: true }).click(); dialog = page.getByRole('dialog', { name: 'Update venue access', exact: true }); await dialog.getByRole('combobox', { name: 'Venue access', exact: true }).selectOption('inactive'); await dialog.getByLabel('Required audit reason').fill('Revoked venue-only access'); await dialog.getByRole('button', { name: 'Save venue access' }).click(); await expect(page.getByTestId('venue-team-member')).toContainText('promoter · inactive');
-  expect(state.requests.findLast((item) => item.path.includes('/team/') && item.method === 'PUT').body).toMatchObject({ status: 'inactive', version: 0 }); await expectNoOverflow(page);
-});
-
 businessAccessTest('business-facing venue creation and venue-only staff use the real scoped API', async ({ page, fixture }) => {
-  await login(page, fixture, 'business'); await businessSection(page, 'Organization'); const venues = page.getByRole('region', { name: 'Business venues', exact: true });
-  await venues.getByRole('button', { name: 'Create venue', exact: true }).click(); let dialog = page.getByRole('dialog', { name: 'Create business venue' }); await dialog.getByLabel('Venue name', { exact: true }).fill('Second Business Hall'); await dialog.getByLabel('Street address', { exact: true }).fill('200 Example Street'); await dialog.getByLabel('City', { exact: true }).fill('Orlando'); await dialog.getByLabel('Required audit reason').fill('Verified scoped venue creation'); await dialog.getByRole('button', { name: 'Create venue', exact: true }).click();
-  const row = venues.getByTestId('business-venue').filter({ hasText: 'Second Business Hall' }); await expect(row).toBeVisible(); await row.getByRole('button', { name: 'Edit venue', exact: true }).click(); dialog = page.getByRole('dialog', { name: 'Edit venue', exact: true }); await dialog.getByLabel('Venue name', { exact: true }).fill('Renamed Business Hall'); await dialog.getByLabel('Required audit reason').fill('Confirmed scoped venue rename'); await dialog.getByRole('button', { name: 'Save venue changes' }).click();
-  await venues.getByTestId('business-venue').filter({ hasText: 'Renamed Business Hall' }).getByRole('button', { name: 'Venue team', exact: true }).click(); await page.getByRole('button', { name: 'Add venue team member', exact: true }).click(); dialog = page.getByRole('dialog', { name: 'Add venue team member', exact: true }); await dialog.getByRole('textbox', { name: 'Search people', exact: true }).fill(fixture.accounts.promoter.email); await dialog.getByRole('search', { name: 'Search people' }).getByRole('button', { name: 'Search', exact: true }).click(); await dialog.getByRole('combobox', { name: 'Person', exact: true }).selectOption(fixture.accounts.promoter.id); await expect(dialog.getByRole('option', { name: 'Manager', exact: true })).toHaveCount(0); await dialog.getByRole('combobox', { name: 'Venue role', exact: true }).selectOption('promoter'); await dialog.getByLabel('Required audit reason').fill('Approved venue-scoped promoter'); await dialog.getByRole('button', { name: 'Add team member', exact: true }).click();
-  await expect(page.getByTestId('venue-team-member')).toContainText('Leo Promoter'); await expect(page.getByTestId('venue-team-member')).toContainText('promoter · active'); await expectNoOverflow(page); await expect(page.getByRole('alert')).toHaveCount(0);
+  const venuePath = `/api/business/organizations/${fixture.ids.org}/venues`;
+  const responseFor = (path, method) => page.waitForResponse(response =>
+    new URL(response.url()).pathname === path && response.request().method() === method);
+  await login(page, fixture, 'business');
+  const listed = responseFor(venuePath, 'GET');
+  await businessSection(page, 'Organization');
+  const listing = await listed;
+  expect(listing.ok()).toBeTruthy();
+  const organizationVersion = (await listing.json()).data.organizationVersion;
+  expect(organizationVersion).toEqual(expect.any(Number));
+  const venues = page.getByRole('region', { name: 'Business venues', exact: true });
+  let venue, member;
+
+  await test.step('create a fresh venue with its organization version and audit reason', async () => {
+    await venues.getByRole('button', { name: 'Create venue', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Create business venue' });
+    await dialog.getByLabel('Venue name', { exact: true }).fill('Second Business Hall');
+    await dialog.getByLabel('Street address', { exact: true }).fill('200 Example Street');
+    await dialog.getByLabel('City', { exact: true }).fill('Orlando');
+    await dialog.getByLabel('Required audit reason').fill('Verified scoped venue creation');
+    const created = responseFor(venuePath, 'POST');
+    await dialog.getByRole('button', { name: 'Create venue', exact: true }).click();
+    const response = await created;
+    expect(response.ok()).toBeTruthy();
+    expect(response.request().postDataJSON()).toMatchObject({ version: organizationVersion,
+      venue: { name: 'Second Business Hall', city: 'Orlando' }, reason: 'Verified scoped venue creation' });
+    expect(response.request().postDataJSON()).not.toHaveProperty('locationId');
+    venue = (await response.json()).data;
+    expect(venue.version).toBe(0);
+    await expect(venues.getByTestId('business-venue').filter({ hasText: 'Second Business Hall' })).toBeVisible();
+  });
+  await test.step('rename the venue using its current record version', async () => {
+    await venues.getByTestId('business-venue').filter({ hasText: 'Second Business Hall' }).getByRole('button', { name: 'Edit venue', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Edit venue', exact: true });
+    await dialog.getByLabel('Venue name', { exact: true }).fill('Renamed Business Hall');
+    await dialog.getByLabel('Required audit reason').fill('Confirmed scoped venue rename');
+    const renamed = responseFor(`${venuePath}/${venue.id}`, 'PATCH');
+    await dialog.getByRole('button', { name: 'Save venue changes' }).click();
+    const response = await renamed;
+    expect(response.ok()).toBeTruthy();
+    expect(response.request().postDataJSON()).toMatchObject({ name: 'Renamed Business Hall',
+      version: venue.version, reason: 'Confirmed scoped venue rename' });
+    await expect(venues.getByTestId('business-venue').filter({ hasText: 'Renamed Business Hall' })).toBeVisible();
+  });
+  await test.step('grant only venue-scoped promoter access to a searched account', async () => {
+    await venues.getByTestId('business-venue').filter({ hasText: 'Renamed Business Hall' }).getByRole('button', { name: 'Venue team', exact: true }).click();
+    await page.getByRole('button', { name: 'Add venue team member', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Add venue team member', exact: true });
+    await dialog.getByRole('textbox', { name: 'Search people', exact: true }).fill(fixture.accounts.promoter.email);
+    await dialog.getByRole('search', { name: 'Search people' }).getByRole('button', { name: 'Search', exact: true }).click();
+    await dialog.getByRole('combobox', { name: 'Person', exact: true }).selectOption(fixture.accounts.promoter.id);
+    await expect(dialog.getByRole('option', { name: 'Manager', exact: true })).toHaveCount(0);
+    await dialog.getByRole('combobox', { name: 'Venue role', exact: true }).selectOption('promoter');
+    await dialog.getByLabel('Required audit reason').fill('Approved venue-scoped promoter');
+    const granted = responseFor(`${venuePath}/${venue.id}/team/${fixture.accounts.promoter.id}`, 'PUT');
+    await dialog.getByRole('button', { name: 'Add team member', exact: true }).click();
+    const response = await granted;
+    expect(response.ok()).toBeTruthy();
+    expect(response.request().postDataJSON()).toEqual({ role: 'promoter', status: 'active',
+      version: null, reason: 'Approved venue-scoped promoter' });
+    member = (await response.json()).data;
+    expect(member.version).toBe(0);
+    await expect(page.getByTestId('venue-team-member')).toContainText('Leo Promoter');
+    await expect(page.getByTestId('venue-team-member')).toContainText('promoter · active');
+    await expectNoOverflow(page);
+  });
+  await test.step('remove the same venue access with its persisted assignment version', async () => {
+    await page.getByTestId('venue-team-member').getByRole('button', { name: 'Update venue access', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Update venue access', exact: true });
+    await dialog.getByRole('combobox', { name: 'Venue access', exact: true }).selectOption('inactive');
+    await dialog.getByLabel('Required audit reason').fill('Revoked venue-only access');
+    const revoked = responseFor(`${venuePath}/${venue.id}/team/${fixture.accounts.promoter.id}`, 'PUT');
+    await dialog.getByRole('button', { name: 'Save venue access', exact: true }).click();
+    const response = await revoked;
+    expect(response.ok()).toBeTruthy();
+    expect(response.request().postDataJSON()).toEqual({ role: 'promoter', status: 'inactive',
+      version: member.version, reason: 'Revoked venue-only access' });
+    expect((await response.json()).data).toMatchObject({ userId: fixture.accounts.promoter.id,
+      role: 'promoter', status: 'inactive' });
+    await expect(page.getByTestId('venue-team-member')).toContainText('promoter · inactive');
+    await expectNoOverflow(page);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
 });
 
 test('event dates apply immediately without submitting text drafts and stay compact', async ({ page }, testInfo) => {

@@ -1,7 +1,6 @@
 const { z } = require('zod');
 const business = require('./business-schemas');
 const admin = require('./admin-schemas');
-const { analyticsQuery } = require('./analytics-schemas');
 const { routeInventory } = require('./route-inventory');
 const domainQuery = require('./domain-query-schemas');
 const publicQuery = require('./public-schemas');
@@ -122,7 +121,6 @@ const queries = {
   '/admin/support/cases/:id/history': adminSupport.historyQuery,
   '/admin/overview/needs-attention': adminSupport.attentionQuery,
   '/admin/business-access/requests': businessAccess.query,
-  '/business/analytics': analyticsQuery, '/admin/analytics': analyticsQuery,
   '/admin/workspace': admin.reportQuery, '/admin/operations': admin.operationsQuery,
   '/admin/management/:resource': managed.querySchema,
 };
@@ -258,7 +256,7 @@ function responseFor(method, path) {
   if (path === '/customer/checkout-attempts/:idempotencyKey') return payments.checkoutSummary;
   if (path.endsWith('/affiliates') || path.endsWith('/guestlist-allocation') || path.endsWith('/people') && method === 'put') return entity;
   // Heterogeneous workflow responses (onboarding, dynamic admin editors,
-  // bootstrap, legacy analytics) expose extensible JSON object/array contracts.
+  // bootstrap) expose extensible JSON object/array contracts.
   // This is explicitly partial field coverage, not an undocumented {} schema.
   return z.union([record, z.array(record)]);
 }
@@ -281,7 +279,7 @@ function contractFor({ method, path, authenticated, requestSchema }) {
     path.endsWith('/export.csv') && status === 202 ? envelope(exportJob) : path === '/openapi.json' ? data : envelope(data)]));
   return { method, path, authenticated, requestSchema, resourceSchemas, querySchema, paramsSchema, responseSchemas,
     csv: path.endsWith('/export.csv') || path.endsWith('/exports/:id/download'),
-    deprecated: path === '/business/workspace' || path === '/business/analytics' || path === '/admin/analytics' || method === 'patch' && /^\/admin\/(users|organizations|events)\/:id$/.test(path),
+    deprecated: false,
     tag: path.startsWith('/admin') ? 'admin' : path.includes('/reports') || path.includes('/analytics') ? 'reporting'
       : path.startsWith('/auth') ? 'account' : path.includes('/admissions') || path === '/check-ins' ? 'admissions'
         : path.startsWith('/business') || path.startsWith('/organizations') || path.startsWith('/team') ? 'business'

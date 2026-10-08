@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
 import SubmittedSearch from '../SubmittedSearch';
 
 export default function PersonPicker({ request, path, value, onChange, audience }) {

@@ -2,15 +2,13 @@ const { mutationTransaction } = require('./mutation-transaction');
 const { randomUUID } = require('node:crypto');
 const { Op } = require('sequelize');
 const { assertEditorPricing } = require('../domain/editor-pricing-policy');
-const { assertEventEditable } = require('../domain/event-policy');
-const { activeUser, assertActiveEvent, assertActiveOrganization, assertOrganizationVenue } = require('./lifecycle-service');
+const { activeUser, assertOrganizationVenue } = require('./lifecycle-service');
 const { authorizeEventWrite, assertDirectCapacity, persistOffering, recordEventMutation } = require('./event-mutation-policy');
 const { assertPaidPublication, shouldRefreshPaidPublication, selectedPublicationAccount, refreshPublicationAccount } = require('./payment-readiness-service');
 const {
   forbidden,
   conflict,
   notFound,
-  DomainError,
 } = require("../domain/errors");
 
 // Order snapshots, not today's tier price, are the source of historical sales truth.
@@ -151,12 +149,6 @@ function createBusinessService({
   hostedDemo = false,
   stripe = null,
 }) {
-  async function workspace() {
-    throw new DomainError('This bulk workspace has been retired. Use /business/bootstrap, /business/events, and /business/reports/summary with paginated /business/reports/:table.', {
-      status: 410, code: 'LEGACY_REPORT_RETIRED',
-      details: { replacements: ['/business/bootstrap', '/business/events', '/business/reports/summary', '/business/reports/:table'] },
-    });
-  }
   async function prepareEventSave(userId, eventId, input, creatorUserId, transaction) {
     // Lock every involved event in UUID order, including image reuse, before
     // permission reads or child rows. Two events can reuse each other's art.
@@ -327,6 +319,6 @@ function createBusinessService({
       },
     );
   }
-  return { workspace, saveEvent };
+  return { saveEvent };
 }
 module.exports = { createBusinessService, aggregateSales };

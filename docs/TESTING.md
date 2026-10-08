@@ -96,6 +96,33 @@ Bind explicit fixture servers with `app.listen(0, '127.0.0.1')`, await their lis
 
 ## Required database regressions
 
+The October 8 cleanup retires only unreachable implementations and exact
+duplicates, not mandatory integration suites. Removed reporting tombstones and
+disabled legacy admin PATCH operations are checked for absence; authorization
+and shared report-rate-limit checks use the active report summary route. Current
+versioned editors retain lifecycle, ownership, history, and transaction coverage.
+See [the browser cleanup coverage map](UI_TESTING.md#october-8-production-candidate-cleanup)
+for deliberately retired click paths and their complementary lower-layer tests.
+
+Separate review findings remain outside this behavior-preserving cleanup:
+
+- Active Business report date validation can accept impossible calendar days
+  normalized by `Date.parse`; Admin adds an exact calendar-day check. Custom
+  report ranges have no explicit span cap.
+  Harden the shared validator with precise error and real HTTP regression tests;
+  the removed legacy analytics validator is not protection for active reports.
+- Export progress is globally dispatched without session identity, and an
+  automatic prepared-export continuation is not cancelled on account change.
+  Add identity-scoped cancellation and account-switch interactions before
+  refactoring the shared export lifecycle.
+- Customer inbox polling is disabled, but current Business notifications and
+  Business/Admin shared messaging still enable polling. Align that active
+  behavior with the navigation/refresh-only product requirement in a dedicated
+  change; do not remove its tests as if it were unused code.
+- Boost auction/ranking/billing, Premium subscription billing, and ticket
+  transfer are unfinished features, not approved deletions. SMS backend and
+  consent storage also remain deliberately deferred.
+
 Run `npm test` from the repository root, or `npm test --workspace @nitewide/api` for the API alone. The API runner first executes unit tests and mocked email tests, then runs required integration suites with bounded concurrency of two. Each suite receives its own disposable database. Coverage includes:
 
 - `admissions-integration.test.js`: permission boundaries, QR integrity, concurrent admissions, reporting, and customer passes.

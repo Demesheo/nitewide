@@ -148,16 +148,17 @@ Roles combine; no role selector grants access. `OrganizationOwner.role = admin` 
 - Ticket/package breakdowns group historical `nameSnapshot` and `kindSnapshot` across events. Renaming a tier does not rewrite history. Event reporting retains the event's current title.
 - An order is credited once: EventAffiliate takes precedence over OrgAffiliate. Recorded commission is the existing order commission amount, not a confirmed/settled payout. Direct/unattributed sales are displayed separately.
 - Access scope is applied to the database query, not merely hidden in the browser. Owners see managed event orders; promoter-only scopes see only their own attributed orders and people. Exact addresses are only available inside authorized business event scopes; public privacy rules are unchanged.
-- MVP safety bounds: at most 500 events per workspace and 10,000 orders per report, with a clear error asking for a narrower organization/period instead of silent truncation. Move to server-side pagination and grouped SQL/materialized reporting before larger portfolios exceed these limits.
+- Overview, event libraries, and reports use scoped SQL queries and server-side pagination rather than the former capped bulk workspace arrays. See [Reporting and exports](REPORTING_EXPORTS.md) for snapshot exports and scale coverage.
 - Basic reports currently work for both Free and Premium. Billing/feature-entitlement enforcement for the planned advanced Premium analytics is a separate milestone. This change does not alter pricing.
-- The new `GET /api/business/analytics` report uses the same paid-USD, UTC and attribution definitions. Region and organization selections are OR within each field, AND across fields. Search selects matching events (including those with matching authorized customers or referrers) and then aggregates their paid orders; it does not isolate only the matching orders. It caps at 5,000 events and 20,000 orders, returning a narrowing error rather than silently truncating. The existing Overview report retains its earlier, tighter workspace bounds.
+- Current Analytics uses `/api/business/reports/summary` and paginated `/api/business/reports/:table` requests. The old `/api/business/workspace` and `/api/business/analytics` endpoints and their unreachable UI implementations have been removed; they are not alternative client APIs.
 
 ## Backend API and write safety
 
 | Method / endpoint                                           | Contract                                                                                                                     |
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/business/workspace?days=30&organizationId=<uuid>` | Scoped organizations/events/offerings, report, range, scope; omit organization for all; `independent` for independent events |
-| `GET /api/business/analytics` | Permission-scoped portfolio, chart, and referral drill-down data; `days` or `startDate`/`endDate`, repeated `regions`/`organizationIds`, optional `search` |
+| `GET /api/business/bootstrap` | Current workspace capabilities and scoped organizations |
+| `GET /api/business/events` | Server-paginated, scoped event library |
+| `GET /api/business/reports/summary` and `/api/business/reports/:table` | SQL summary and paginated portfolio/referral drill-downs with date, scope, search, and sorting filters |
 | `POST /api/business/events`                                 | Validated event + nested location/offerings, atomic create; creator comes from session                                       |
 | `PUT /api/business/events/:eventId`                         | Full editor document plus current `version`; role enforcement and atomic update                                              |
 | Existing guestlist GET/decision/PATCH endpoints             | Approval queue and separate capacity pools                                                                                   |
@@ -174,8 +175,10 @@ Reference venue capacity is informational in the existing model, not an enforced
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `src/App.jsx`                      | Sign-in, navigation, scope/period controls, dashboard, event search, CSV export, session lifecycle                         |
 | `src/components/EventEditor.jsx`   | Accessible three-step create/edit dialog and dynamic tier forms                                                            |
-| `src/components/Events.jsx` | Event library, timeline views, venue-local dates, search and lifetime sales |
-| `src/components/EventDetail.jsx` | Event sales, tiers, people/commission controls and attendee purchase dialogs |
+| `src/components/PagedEvents.jsx` | Current server-paginated event library, search, and lifetime sales |
+| `src/components/PagedEventDetail.jsx` | Current event summary and paginated sales, attendees, team, and guestlists |
+| `src/components/EventDetail.jsx` | Active shared referral, event-person, and attendee components; the legacy EventDetail export is retired |
+| `src/components/BusinessTeam.jsx` and `src/components/BusinessAnalytics.jsx` | Current paginated team and SQL reporting interfaces |
 | `src/components/EventTable.jsx` | Shared searchable/sortable event tables with 10/25/50 pagination |
 | `src/components/ui/slider.jsx` | shadcn-style Radix slider, including keyboard interaction |
 | API `services/event-workspace-service.js` | Scoped full-event reporting, team selection, audited per-person commission changes |

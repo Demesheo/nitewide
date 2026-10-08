@@ -62,6 +62,12 @@ test('request and query contracts retain the actual shared validators and canoni
 test('registration rejects undocumented operations and method lookup preserves legacy POST events', () => {
   assert.deepEqual(router.allowedMethods('/events'), ['GET', 'HEAD', 'OPTIONS', 'POST']);
   assert.deepEqual(router.allowedMethods('/business/events/not-a-real-id/detail'), ['GET', 'HEAD', 'OPTIONS']);
+  for (const path of ['/business/workspace', '/business/analytics', '/admin/analytics', '/admin/users/{id}', '/admin/organizations/{id}']) {
+    assert.equal(document.paths[path], undefined, `${path} is no longer an API operation`);
+  }
+  assert.equal(document.paths['/admin/events/{id}'].patch, undefined);
+  assert.ok(document.paths['/admin/events/{id}'].put, 'the versioned event editor remains active');
+  assert.deepEqual(router.allowedMethods('/admin/events/not-a-real-id'), ['OPTIONS', 'PUT']);
   assert.deepEqual(router.allowedMethods('/nothing-here'), []);
   assert.throws(() => instrumentRouter(express.Router()).get('/undocumented', () => {}), /API contract missing/);
 });
@@ -103,8 +109,6 @@ test('mixed CSV and asynchronous export statuses and schema references are execu
   };
   scan(document);
   assert.equal(document.paths['/customer/saved/ids'].get.parameters.find((parameter) => parameter.name === 'eventIds').schema.type, 'string');
-  assert.equal(document.paths['/business/analytics'].get.deprecated, true);
-  assert.equal(document.paths['/business/analytics'].get.responses[200], undefined);
   assert.ok(document.paths['/admin/management/{resource}'].post.requestBody);
   const contract = contracts.find((value) => value.path === '/business/admissions/events');
   assert.equal(contract.responseSchemas[200].safeParse({ data: { items: [{ id: '11111111-1111-4111-8111-111111111111', title: 'Projected event', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T04:00:00Z' }], page: 1, pageSize: 20, total: 1, hasMore: false, serverTime: '2026-10-01T00:00:00Z', nextEvent: null } }).success, true);

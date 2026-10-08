@@ -155,7 +155,7 @@ test(
         const token = await tokenFor(user);
         return httpRequest(server, `/api${path}`, { method, token, body });
       }
-      assert.equal((await req("/business/workspace", null)).status, 401);
+      assert.equal((await req("/business/reports/summary", null)).status, 401);
       async function upload(user, bytes, name = "flyer.png") {
         const token = await tokenFor(user);
         return httpRequest(server, '/api/business/uploads/image', { method: 'POST', token })
@@ -368,12 +368,6 @@ test(
       const purchaseDetail = await req(`/business/events/${event.id}/detail`, ids.owner);
       assert.equal(purchaseDetail.status, 200);
       assert.ok(purchaseDetail.body.data.purchases.some((purchase) => purchase.id === checkout.body.data.order.id && purchase.customer === 'QA outsider' && purchase.referredBy === 'QA promoter'));
-      const retiredWorkspace = await req('/business/workspace', ids.owner);
-      assert.equal(retiredWorkspace.status, 410);
-      assert.equal(retiredWorkspace.body.error.code, 'LEGACY_REPORT_RETIRED');
-      const retiredAnalytics = await req('/business/analytics', ids.owner);
-      assert.equal(retiredAnalytics.status, 410);
-      assert.equal(retiredAnalytics.body.error.code, 'LEGACY_REPORT_RETIRED');
       const report = await req(`/business/reports/summary?organizationIds=${ids.org}&days=7`, ids.owner);
       assert.equal(report.status, 200, JSON.stringify(report.body));
       assert.equal(report.body.data.summary.salesCents, 2000);

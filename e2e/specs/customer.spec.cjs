@@ -547,19 +547,6 @@ paginationTest('booking pagination, guestlist passes and notifications navigate 
   });
 });
 
-test('clear all notifications persists without removing bookings', async ({ page, fixture }) => {
-  await loginViaApi(page, fixture, 'customer');
-  await page.getByRole('button', { name: /^Notifications/ }).click();
-  await page.getByRole('button', { name: 'Clear all', exact: true }).click();
-  await expect(page.getByText('No notifications yet.', { exact: true })).toBeVisible();
-  await page.reload();
-  await page.getByRole('button', { name: /^Notifications/ }).click();
-  await expect(page.getByText('No notifications yet.', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Close notifications' }).click();
-  await page.getByRole('button', { name: 'Booked', exact: true }).click();
-  await expect(page.getByRole('button', { name: /View tickets for/ }).first()).toBeVisible();
-});
-
 test('pending guest can edit party size and withdraw without an admission QR', async ({ page, fixture }) => {
   await loginViaApi(page, fixture, 'customer', 'pending', `/?tab=booked&booking=guestlist:${fixture.ids.pending}`);
   await expect(page.getByText('Pending review', { exact: true })).toBeVisible();

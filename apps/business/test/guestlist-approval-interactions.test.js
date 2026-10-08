@@ -16,7 +16,7 @@ const response = (data, status = 200) => new Response(JSON.stringify(status < 40
   status, headers: { 'content-type': 'application/json' },
 });
 
-async function withGuestlist(run, component = 'Guestlists') {
+async function withGuestlist(run) {
   const businessRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/app', pretendToBeVisual: true });
   const globals = {
@@ -57,7 +57,7 @@ async function withGuestlist(run, component = 'Guestlists') {
   let cleanupRoots;
   try {
     vite = await createGuestlistTestServer({ configFile: resolve(businessRoot, 'vite.config.js'), root: businessRoot, logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
-    const module = await vite.ssrLoadModule(`/src/components/${component}.jsx`);
+    const { Guestlists } = await vite.ssrLoadModule('/src/components/Guestlists.jsx');
     const React = await import('react');
     const testing = await import('@testing-library/react');
     cleanupRoots = testing.cleanup;
@@ -68,9 +68,9 @@ async function withGuestlist(run, component = 'Guestlists') {
       event: { id: 'event-fixture', title: 'Fixture Night', status: 'published', startsAt: '2099-10-01T22:00:00Z', canManage: false, canEdit: false },
       session: { accessToken: 'fixture-token' }, expire() {}, onUnauthorized() {},
     };
-    view = testing.render(React.createElement(module[component], props), { container: dom.window.document.getElementById('root') });
+    view = testing.render(React.createElement(Guestlists, props), { container: dom.window.document.getElementById('root') });
     await testing.waitFor(() => assert.ok(state.listCalls));
-    const rerender = (extra = {}) => { Object.assign(props, extra); view.rerender(React.createElement(module[component], props)); };
+    const rerender = (extra = {}) => { Object.assign(props, extra); view.rerender(React.createElement(Guestlists, props)); };
     await run({ ...testing, screen, user, within, state, props, rerender });
   } finally {
     try {
@@ -204,18 +204,4 @@ test('decline ignores the approval draft, approved and admitted entries stay fix
     assert.equal(review.queryByRole('button', { name: 'Approve' }), null);
     assert.equal(review.queryByRole('button', { name: 'Decline' }), null);
   });
-});
-
-test('legacy review keeps its confirmation and sends the same adjusted approval amount', async () => {
-  await withGuestlist(async ({ screen, user, within, state, waitFor }) => {
-    const row = (await screen.findByText('Guest five')).closest('tr');
-    await user.click(within(row).getByRole('button', { name: 'Approve' }));
-    const review = within(screen.getByRole('dialog'));
-    assert.ok(review.getByRole('heading', { name: 'Approve guestlist request?' }));
-    await user.click(review.getByRole('button', { name: 'Decrease approved spots' }));
-    assert.equal(review.getByRole('spinbutton', { name: 'Approved spots' }).getAttribute('aria-valuenow'), '4');
-    await user.click(review.getByRole('button', { name: 'Approve' }));
-    await waitFor(() => assert.equal(screen.queryByRole('dialog'), null));
-    assert.deepEqual(state.requests[0].body, { decision: 'approve', partySize: 4 });
-  }, 'EventGuestlist');
 });

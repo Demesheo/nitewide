@@ -53,9 +53,7 @@ test('scaled SQL reports and durable snapshot exports', { timeout: 180000 }, asy
       assert.deepEqual(counts, { jobs: 0, rows: 0, chunks: 0 }, 'immediate snapshot artifacts are cleaned up');
     }
 
-    await t.test('small exports remain immediate and legacy business report routes are retired', async () => {
-      await request('/api/business/workspace').expect(410);
-      await request('/api/business/analytics').expect(410);
+    await t.test('small exports remain immediate and clean up their snapshot artifacts', async () => {
       // Hold the real delete until the client receives the CSV, reproducing
       // the CI race deterministically without slowing or changing production.
       const originalQuery = db.query.bind(db);

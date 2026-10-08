@@ -5,7 +5,6 @@ import { money, eventDateLabel } from '@/lib/business';
 import { eventPhase, saleLabels } from '@/lib/events';
 import { Button } from './ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
-import { Empty } from './controls';
 import { EventTable } from './EventTable';
 import { LoadingState } from './LoadingState';
 import { ReferralLink } from './EventDetail';

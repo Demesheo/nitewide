@@ -28,7 +28,11 @@ Every domain operation must appear in the closed route inventory. Registration
 captures the actual body validator and references the shared query and parameter
 validators. Adding an undocumented operation fails at startup. Success statuses
 are explicit, including immediate CSV responses and accepted asynchronous exports.
-Retired bulk-report routes remain documented as deprecated HTTP 410 operations.
+The retired bulk-report GETs (`/business/workspace`, `/business/analytics`, and
+`/admin/analytics`) and disabled legacy admin PATCHs (`/admin/users/:id`,
+`/admin/organizations/:id`, and `/admin/events/:id`) are no longer registered.
+Use paginated reports and the versioned management/event editors instead. The
+active `PUT /admin/events/:id` operation is unchanged.
 
 Legacy management controllers delegate to domain services rather than writing
 records themselves. Both event-editor and legacy event creation use the same

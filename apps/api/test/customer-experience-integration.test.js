@@ -6,7 +6,7 @@ const { createFixture, cleanupFixture } = require('./admissions-fixture.cjs');
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 const { request: httpRequest } = require('./support/http-client.cjs');
 
-test('customer experience HTTP: account saved events, paged history, guestlist state and attendee-only venue details', async () => {
+test('customer experience HTTP: account saved events, paged history, guestlist state and attendee-only venue details', async (t) => {
   assertManagedTestDatabase();
   require('dotenv').config({ path: path.resolve(__dirname, '../../../.env') });
   const { getConfig } = require('../src/config');
@@ -205,6 +205,42 @@ test('customer experience HTTP: account saved events, paged history, guestlist s
     assert.equal(firstNotifications.data.hasMore, true);
     assert.equal(new Set([...firstNotifications.data.items, ...secondNotifications.data.items].map((item) => item.id)).size, 14);
     assert.ok([...firstNotifications.data.items, ...secondNotifications.data.items].every((item) => item.userId === undefined || item.userId === ids.guest));
+    await t.test('clear-all persists only the authenticated notification dismissal and retains bookings', async () => {
+      const notifications = () => m.Notification.findAll({ where: { id: notificationIds }, order: [['id', 'ASC']], raw: true });
+      const bookings = async () => ({
+        orders: await m.Order.findAll({ where: { buyerUserId: ids.guest }, order: [['id', 'ASC']], raw: true }),
+        tickets: await m.Ticket.findAll({ where: { holderUserId: ids.guest }, order: [['id', 'ASC']], raw: true }),
+        guestlists: await m.GuestlistEntry.findAll({ where: { userId: ids.guest }, order: [['id', 'ASC']], raw: true }),
+      });
+      const beforeNotifications = await notifications();
+      const beforeBookings = await bookings();
+      assert.equal((await request('/notifications', null, { method: 'DELETE' })).status, 401);
+      assert.deepEqual(await notifications(), beforeNotifications, 'anonymous clear-all leaves every notification unchanged');
+      const cleared = await request('/notifications', 'guest', { method: 'DELETE' });
+      assert.equal(cleared.status, 200, JSON.stringify(cleared));
+      assert.equal(cleared.data.dismissed, 23);
+      const persisted = await notifications();
+      const own = persisted.filter(row => row.userId === ids.guest);
+      assert.equal(own.length, 23, 'clear-all retains notification rows rather than deleting history');
+      assert.ok(own.every(row => row.dismissedAt && row.readAt), 'dismissal and read state survive a fresh database query');
+      assert.deepEqual(persisted.filter(row => row.userId === ids.outsider), beforeNotifications.filter(row => row.userId === ids.outsider), 'other accounts retain their unread notifications unchanged');
+      const empty = await request('/notifications?page=1&pageSize=7', 'guest');
+      assert.equal(empty.status, 200, JSON.stringify(empty));
+      assert.deepEqual(empty.data, { items: [], page: 1, pageSize: 7, total: 0, hasMore: false, unreadCount: 0 });
+      const repeat = await request('/notifications', 'guest', { method: 'DELETE' });
+      assert.equal(repeat.status, 200, JSON.stringify(repeat));
+      assert.equal(repeat.data.dismissed, 0, 'repeated clear-all is idempotent');
+      const other = await request('/notifications?page=1&pageSize=7', 'outsider');
+      assert.equal(other.status, 200, JSON.stringify(other));
+      assert.equal(other.data.total, 3);
+      assert.equal(other.data.unreadCount, 3);
+      assert.ok(other.data.items.every(row => row.readAt === null && row.dismissedAt === null));
+      assert.deepEqual(await bookings(), beforeBookings, 'dismissal never changes paid orders, tickets or guestlist records');
+      const retained = await request('/customer/bookings?page=1&period=upcoming', 'guest');
+      assert.equal(retained.status, 200, JSON.stringify(retained));
+      assert.ok(retained.data.orders.some(order => order.id === ids.order));
+      assert.ok(retained.data.guestlists.some(entry => entry.id === ids.entry));
+    });
 
     // Connection rows use a bounded numbered page; generating more than one
     // page guards against loading all relationship events into the customer UI.

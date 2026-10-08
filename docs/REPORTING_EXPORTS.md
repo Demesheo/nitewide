@@ -10,7 +10,7 @@ The summary executes one aggregate statement over a shared materialized event/or
 
 Business access continues to exclude archived resources and preserve own-referral restrictions. Internal Admin reporting retains historical records, including archived events. Venue selection includes organization or independent-creator identity so separate businesses sharing a location are not combined accidentally. Admin's `No event location` group keeps historical events with missing locations reachable.
 
-The redundant `/api/business/workspace`, `/api/business/analytics` and `/api/admin/analytics` endpoints now return authenticated `410 LEGACY_REPORT_RETIRED`. They do not silently truncate results or ask users to narrow scopes. Current frontends use their replacement APIs; external clients must migrate. Pure aggregation utilities retained for unit tests are not active bulk-loading endpoints.
+The redundant `/api/business/workspace`, `/api/business/analytics` and `/api/admin/analytics` endpoints have been removed after their authenticated HTTP 410 retirement period. Current frontends use the replacement APIs above. Pure aggregation utilities retained as SQL reconciliation oracles are not active bulk-loading endpoints.
 
 ## Export contract
 

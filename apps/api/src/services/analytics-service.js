@@ -1,16 +1,9 @@
-const { DomainError } = require('../domain/errors');
 const { venueKey } = require('./venue-scope');
 
 const json = (record) => record?.toJSON ? record.toJSON() : record;
 const amount = (value) => Number(value || 0);
 const regionKey = (location) => location?.city ? [location.city, location.region, location.countryCode].filter(Boolean).join(', ') : 'Unspecified region';
 const entityFor = (event) => event.organization ? { id: event.organization.id, label: event.organization.name, kind: 'organization' } : { id: `creator:${event.creatorUserId}`, label: event.creator?.displayName || 'Independent creator', kind: 'creator' };
-function resolveRange(query, now = new Date()) {
-  const endDate = query.endDate || now.toISOString().slice(0, 10);
-  const startDate = query.startDate || new Date(Date.parse(`${endDate}T00:00:00Z`) - (query.days - 1) * 86400000).toISOString().slice(0, 10);
-  return { startDate, endDate, since: new Date(`${startDate}T00:00:00Z`), until: new Date(Date.parse(`${endDate}T00:00:00Z`) + 86400000), timezone: 'UTC' };
-}
-
 function aggregateHierarchy(eventsInput, ordersInput, { admin = false, includeCustomers = admin, search = '', venueEntities = false, guests = [] } = {}) {
   const groupEntity = event => venueEntities && event.organization && event.location?.name
     ? { id: venueKey(event), label: event.location.name, kind: 'venue' } : entityFor(event);
@@ -162,13 +155,4 @@ function aggregateReferrals(ordersInput, affiliatesInput, membershipsInput = [],
   return { people: [...people.values()].map(({ _buyers, ...person }) => ({ ...person, customers: _buyers.size })).sort((a, b) => b.salesCents - a.salesCents), customers: [...customers.values()].sort((a, b) => b.salesCents - a.salesCents) };
 }
 
-function createAnalyticsService({ permissions }) {
-  const retired = () => {
-    throw new DomainError('This bulk analytics endpoint has been retired. Use SQL-backed summary and paginated report tables.', {
-      status: 410, code: 'LEGACY_REPORT_RETIRED', details: { replacements: ['/admin/reports/summary', '/admin/reports/:table', '/business/reports/summary', '/business/reports/:table'] },
-    });
-  };
-  return { adminReport: async (userId) => { await permissions.assertInternal(userId); return retired(); },
-    businessReport: async () => retired() };
-}
-module.exports = { regionKey, resolveRange, aggregateHierarchy, aggregateReferrals, createAnalyticsService };
+module.exports = { regionKey, aggregateHierarchy, aggregateReferrals };

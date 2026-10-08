@@ -3,8 +3,6 @@ const { z } = require('zod');
 const { Op } = require('sequelize');
 const { conflict, notFound } = require('../domain/errors');
 const { assertUserAccessChange } = require('./admin-access-guards');
-const { assertOrganizationVenue } = require('./lifecycle-service');
-const { queueEventEmail, formatTime, venueName } = require('./email-events');
 const crypto = require('node:crypto');
 const { TEMPLATES } = require('./email-templates');
 const { venueSchema } = require('./admin-onboarding-service');
@@ -50,7 +48,6 @@ function createAdminEditService({ models, permissions, email = null, customerApp
       if ((record.version ?? 0) !== version) throw conflict('This record changed. Refresh before editing.', 'STALE_VERSION');
       const before = record.toJSON ? record.toJSON() : { ...record };
       let emailVerificationDelivery;
-      let relationshipChanged = false;
       if (key === 'organization_affiliates' && changes.defaultCommissionBps !== undefined) await assertCommissionPricing({ models, organizationId: record.organizationId, commissionBps: changes.defaultCommissionBps, transaction });
       if (key === 'event_affiliates' && changes.commissionBps !== undefined) {
         const organizationAffiliate = changes.commissionBps == null && record.orgAffiliateId ? await models.OrgAffiliate.findByPk(record.orgAffiliateId, { transaction }) : null;
@@ -76,55 +73,9 @@ function createAdminEditService({ models, permissions, email = null, customerApp
           }
         }
       }
-      if (key === 'owners' && record.role === 'owner' && changes.role !== 'owner') {
-        const owners = await models.OrganizationOwner.findAll({ where: { organizationId: record.organizationId, role: 'owner', userId: { [Op.ne]: record.userId } }, transaction, lock: transaction.LOCK.UPDATE });
-        let remaining = 0;
-        for (const owner of owners) { const user = await models.User.findByPk(owner.userId, { transaction, lock: transaction.LOCK.UPDATE }); if (user?.isActive && !user.onboardingPending && (!user.lifecycleState || user.lifecycleState === 'active')) remaining += 1; }
-        if (!remaining) throw conflict('Assign another active, completed owner before changing the last owner', 'LAST_ORGANIZATION_OWNER');
-      }
-      if (key === 'organizations') {
-        const venueIds = changes.venueIds; delete changes.venueIds;
-        if (venueIds) {
-          const unique = [...new Set(venueIds)];
-          const existing = await models.OrganizationVenue.findAll({ where: { organizationId: id }, transaction, lock: transaction.LOCK.UPDATE });
-          relationshipChanged = existing.length !== unique.length || existing.some((link) => !unique.includes(link.locationId));
-          for (const locationId of unique) if (!await models.Location.findByPk(locationId, { transaction })) throw notFound('Venue');
-          for (const link of existing.filter((link) => !unique.includes(link.locationId))) {
-            if (await models.Event.count({ where: { organizationId: id, locationId: link.locationId }, transaction })) throw conflict('A venue used by event history cannot be unlinked', 'VENUE_EVENT_HISTORY');
-            await link.destroy({ transaction });
-          }
-          for (const locationId of unique) await models.OrganizationVenue.findOrCreate({ where: { organizationId: id, locationId }, transaction });
-          changes.locationId = changes.locationId === undefined ? (unique.includes(record.locationId) ? record.locationId : unique[0] || null) : changes.locationId;
-        }
-        if (changes.locationId) await assertOrganizationVenue(models, record, changes.locationId, transaction);
-      }
-      if (key === 'events') {
-        const merged = { ...before, ...changes };
-        if (new Date(merged.endsAt) <= new Date(merged.startsAt)) throw conflict('Event end must be after start', 'INVALID_EVENT_TIME');
-        if (new Date(record.endsAt) <= new Date() || record.status === 'completed') throw conflict('Past events retain their history and cannot be edited', 'EVENT_FINISHED');
-        if (changes.creatorUserId || changes.organizationId !== undefined) {
-          const historical = await models.Order.count({ where: { eventId: id }, transaction }) + await models.GuestlistEntry.count({ where: { eventId: id }, transaction });
-          if (historical) throw conflict('Ownership cannot be reassigned after purchase or guestlist activity', 'EVENT_OWNERSHIP_HISTORY');
-        }
-        if (merged.organizationId) {
-          const organization = await models.Organization.findByPk(merged.organizationId, { transaction }); if (!organization) throw notFound('Organization');
-          await assertOrganizationVenue(models, organization, merged.locationId, transaction);
-        }
-        if (changes.creatorUserId && !await models.User.findByPk(changes.creatorUserId, { transaction })) throw notFound('Creator');
-        if (changes.imageAssetId) {
-          const asset = await models.MediaAsset.findByPk(changes.imageAssetId, { transaction });
-          if (!asset) throw notFound('Image');
-          if (asset.status !== 'ready') throw conflict('Image upload is not ready', 'MEDIA_NOT_READY');
-        }
-        const tickets = await models.Ticket.count({ where: { eventId: id, status: { [Op.in]: ['valid', 'checked_in', 'transferred'] } }, transaction });
-        const approved = Number(await models.GuestlistEntry.sum('partySize', { where: { eventId: id, status: { [Op.in]: ['confirmed', 'checked_in'] } }, transaction })) || 0;
-        if (changes.capacity != null && changes.capacity < tickets + approved) throw conflict('Capacity cannot fall below ticket and approved guestlist admissions', 'EVENT_CAPACITY');
-        if (changes.guestlistCapacity !== undefined && changes.guestlistCapacity < (await models.GuestlistEntry.sum('partySize', { where: { eventId: id, eventAffiliateId: null, status: { [Op.in]: ['confirmed', 'checked_in'] } }, transaction }) || 0)) throw conflict('Direct guestlist capacity cannot fall below approved guests', 'GUESTLIST_CAPACITY');
-      }
       const fieldChanged = Object.entries(changes).some(([name, value]) => value instanceof Date ? new Date(record[name]).getTime() !== value.getTime() : record[name] !== value);
-      if (!fieldChanged && !relationshipChanged) return before;
-      if (fieldChanged) await record.update(changes, { transaction });
-      else { await record.increment('version', { transaction }); await record.reload({ transaction }); }
+      if (!fieldChanged) return before;
+      await record.update(changes, { transaction });
       if (changes.status === 'inactive' && ['employees', 'organization_affiliates', 'event_affiliates'].includes(key)) {
         await revokePendingGuestlistInvitations({ models, actorUserId: actor, transaction,
           ...(key === 'event_affiliates' ? { eventAffiliateId: record.id } : { organizationId: record.organizationId, userId: record.userId }) });
@@ -132,15 +83,6 @@ function createAdminEditService({ models, permissions, email = null, customerApp
       if (key === 'users' && changes.independentCreator === false) await revokePendingGuestlistInvitations({ models, userId: id, actorUserId: actor, transaction });
       const after = record.toJSON ? record.toJSON() : { ...record };
       await models.AuditLog.create({ actorUserId: actor, organizationId: key === 'organizations' ? id : record.organizationId || null, entityType: modelsFor[key], entityId: id, action: `admin.${modelsFor[key].toLowerCase()}.updated`, before, after: { ...after, adminReason: reason } }, { transaction });
-      if (key === 'events' && before.status === 'published') {
-        if (record.status === 'cancelled') await queueEventEmail({ email, models, event: record, kind: 'cancelled', variables: { EVENT_DATE: formatTime(before.startsAt) }, customerAppUrl, transaction, key: `admin-cancelled-${record.version}` });
-        else if (Math.abs(+new Date(record.startsAt) - +new Date(before.startsAt)) >= 900000 || Math.abs(+new Date(record.endsAt) - +new Date(before.endsAt)) >= 900000) await queueEventEmail({ email, models, event: record, kind: 'timeChange', variables: { OLD_TIME: `${formatTime(before.startsAt)} – ${formatTime(before.endsAt)}`, NEW_TIME: `${formatTime(record.startsAt)} – ${formatTime(record.endsAt)}` }, customerAppUrl, transaction, key: `admin-time-${record.id}-${record.version}` });
-        if (record.status === 'published' && before.locationId !== record.locationId) {
-          const previous = before.locationId ? await models.Location.findByPk(before.locationId, { transaction }) : null;
-          const current = record.locationId ? await models.Location.findByPk(record.locationId, { transaction }) : null;
-          await queueEventEmail({ email, models, event: record, kind: 'venueChange', variables: { OLD_VENUE: venueName(previous), NEW_VENUE: venueName(current) }, customerAppUrl, transaction, key: `admin-venue-${record.id}-${record.version}` });
-        }
-      }
       return emailVerificationDelivery ? { ...after, emailVerificationDelivery } : after;
     }, { accessChange: true });
   }

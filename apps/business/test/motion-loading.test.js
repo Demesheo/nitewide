@@ -8,7 +8,7 @@ test('workspace and data views expose visible, accessible loading feedback', () 
   const loader = read('src/components/LoadingState.jsx');
   assert.match(loader, /role="status" aria-live="polite"/);
   assert.match(loader, /nw-loading-icon/);
-  for (const file of ['App.jsx', 'components/EventDetail.jsx', 'components/Guestlists.jsx', 'components/Analytics.jsx', 'components/Team.jsx']) {
+  for (const file of ['App.jsx', 'components/PagedEventDetail.jsx', 'components/Guestlists.jsx', 'components/BusinessAnalytics.jsx', 'components/Team.jsx']) {
     assert.match(read(`src/${file}`), /<LoadingState/);
   }
 });

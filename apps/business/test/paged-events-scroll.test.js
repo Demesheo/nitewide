@@ -37,6 +37,7 @@ test('PagedEvents skips fresh restores, accepts zero, cancels pending restore, a
     canManage: false, offerings: [], location: { name: 'The Venue', timezone: 'UTC' } };
   globalThis.fetch = async (input) => {
     const url = new URL(String(input), dom.window.location.href);
+    assert.equal(url.searchParams.get('sort'), 'starts_asc', 'the current event collection requests earliest dates first');
     const page = Number(url.searchParams.get('page') || 1);
     const pageSize = Number(url.searchParams.get('pageSize') || 10);
     const all = [event, ...Array.from({ length: 10 }, (_, index) => ({ ...event, id: `event-${index + 2}`, title: `Event ${index + 2}` }))];

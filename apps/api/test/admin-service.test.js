@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
-const { aggregateAdminSales, createAdminService } = require('../src/services/admin-service');
+const { aggregateAdminSales } = require('../src/services/admin-service');
 const serviceSource = readFileSync(require.resolve('../src/services/admin-service'), 'utf8');
 const salesIndexMigration = readFileSync(require.resolve('../src/db/migrations/202609290002-admin-paid-sales-index.cjs'), 'utf8');
 
@@ -28,23 +28,4 @@ test('admin sales aggregate paid totals by day, event, and organization', () => 
   assert.equal(result.events[0].salesCents, 31200);
   assert.equal(result.organizations.find((row) => row.id === 'independent').salesCents, 1000);
   assert.equal(result.daily.length, 2);
-});
-
-test('admin edit is permission checked before lookup or write', async () => {
-  let touched = false;
-  const service = createAdminService({
-    models: { User: { findByPk: async () => { touched = true; } } },
-    permissions: { assertInternal: async () => { const error = new Error('forbidden'); error.code = 'FORBIDDEN'; throw error; } },
-  });
-  await assert.rejects(() => service.updateUser('outsider', 'target', { displayName: 'Changed', reason: 'test' }), { code: 'FORBIDDEN' });
-  assert.equal(touched, false);
-});
-
-test('an admin cannot remove their own admin role', async () => {
-  const record = { id: 'admin', toJSON: () => ({ id: 'admin' }) };
-  const service = createAdminService({
-    models: { User: { sequelize: { transaction: async (...args) => args.at(-1)({ LOCK: { UPDATE: 'UPDATE' } }) }, findByPk: async () => record } },
-    permissions: { assertInternal: async () => ({ id: 'admin' }) },
-  });
-  await assert.rejects(() => service.updateUser('admin', 'admin', { isInternalAdmin: false, reason: 'test' }), { code: 'SELF_ADMIN_LOCKOUT' });
 });

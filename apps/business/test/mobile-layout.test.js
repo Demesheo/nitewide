@@ -53,14 +53,20 @@ test('responsive overrides are scoped below desktop and preserve zoom and safe a
   assert.match(read('src/mobile.css'), /100dvh/);
 });
 
-test('operational tables share phone sorting and labeled cells without dropping pagination', () => {
-  for (const file of ['EventTable', 'Team', 'Guestlists']) {
+test('operational tables preserve phone sorting, pagination and compact mobile names', () => {
+  for (const file of ['EventTable', 'Guestlists']) {
     const source = read(`src/components/${file}.jsx`);
     assert.match(source, /<MobileTableSort/);
     assert.match(source, /responsive-event-table/);
     assert.match(source, /data-label=/);
     assert.match(source, file === 'Guestlists' ? /<(?:TablePagination|ServerPager)/ : /<TablePagination/);
   }
+  const mobileStyles = read('src/mobile.css');
+  assert.match(mobileStyles, /\.team-performance-panel \.performance-desktop-table \{ display: none; \}/);
+  assert.match(mobileStyles, /\.team-performance-panel \.performance-mobile-table \{ display: block; \}/);
+  assert.match(mobileStyles, /\.performance-mobile-table \.person \.avatar \{ display: none; \}/);
+  assert.match(mobileStyles, /\.performance-mobile-table \.performance-name span \{ display: block;/);
+  assert.match(read('src/styles.css'), /\.performance-mobile-table \{ display: none; \}/);
 });
 
 test('mobile navigation uses the same authorized destinations and accessible dialog as desktop', () => {
@@ -76,7 +82,7 @@ test('mobile navigation uses the same authorized destinations and accessible dia
 });
 
 test('event collection cards show status in the header and omit duplicate date/status rows on mobile', () => {
-  const component = read('src/components/Events.jsx');
+  const component = read('src/components/PagedEvents.jsx');
   const styles = read('src/mobile.css');
   assert.match(component, /event-list-name"><span className="event-mobile-status"[\s\S]*event-calendar[\s\S]*event-list-meta/);
   assert.match(component, /className:'event-date-cell'/);

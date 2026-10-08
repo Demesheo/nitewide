@@ -1,9 +1,7 @@
 const { mutationTransaction } = require('./mutation-transaction');
 const { Op, QueryTypes, Transaction } = require('sequelize');
-const { notFound, conflict, forbidden } = require('../domain/errors');
+const { notFound, forbidden } = require('../domain/errors');
 const { createPasswordRecord } = require('./auth-service');
-const { queueEventEmail, formatTime } = require('./email-events');
-const { assertUserAccessChange } = require('./admin-access-guards');
 const { activeEventScope } = require('./lifecycle-service');
 
 const plain = (record) => record?.toJSON ? record.toJSON() : record;
@@ -76,7 +74,7 @@ async function loadAdminSales(models, since, organizationId = null) {
   });
 }
 
-function createAdminService({ models, permissions, email = null, customerAppUrl = 'http://localhost:5173' }) {
+function createAdminService({ models, permissions }) {
   async function workspace(userId, query) {
     await permissions.assertInternal(userId);
     const since = new Date(Date.now() - query.days * 86400000);
@@ -150,57 +148,6 @@ function createAdminService({ models, permissions, email = null, customerAppUrl 
     ]);
     return { generatedAt: new Date().toISOString(), counts: { failedPayments, pendingGuestlist, suspendedOrganizations }, queue: { kind: query.kind, page: query.page, pageSize: query.pageSize, total: result.count, items: result.rows.map(plain) } };
   }
-  async function update(userId, entityType, entityId, input) {
-    await permissions.assertInternal(userId);
-    const configs = {
-      user: { model: models.User, audit: 'User', protected: ['email'] },
-      organization: { model: models.Organization, audit: 'Organization', protected: ['slug'] },
-      event: { model: models.Event, audit: 'Event', protected: ['creatorUserId', 'organizationId', 'locationId', 'slug'] },
-    };
-    const config = configs[entityType];
-    return mutationTransaction(models.User.sequelize, async (transaction) => {
-      await permissions.assertInternal(userId, transaction);
-      const record = await config.model.findByPk(entityId, { transaction, lock: transaction.LOCK.UPDATE });
-      if (!record) throw notFound(config.audit);
-      if (entityType === 'user' && entityId === userId && (input.isInternalAdmin === false || input.isActive === false)) throw conflict('You cannot disable your own administrator access', 'SELF_ADMIN_LOCKOUT');
-      if (entityType === 'user' && record.isInternalAdmin && record.isActive && (input.isInternalAdmin === false || input.isActive === false) && await models.User.count({ where: { isInternalAdmin: true, isActive: true }, transaction }) <= 1) throw conflict('At least one active administrator is required', 'LAST_ADMIN');
-      const { reason, ...changes } = input;
-      if (entityType === 'event') {
-        const startsAt = changes.startsAt || record.startsAt;
-        const endsAt = changes.endsAt || record.endsAt;
-        if (new Date(endsAt) <= new Date(startsAt)) throw conflict('Event end must be after its start', 'INVALID_EVENT_TIME');
-        if (changes.guestlistCapacity !== undefined && changes.guestlistCapacity < record.guestlistCapacity) {
-          const approved = await models.GuestlistEntry.sum('partySize', { where: { eventId: entityId, source: 'event', status: { [Op.in]: ['confirmed', 'checked_in'] } }, transaction }) || 0;
-          if (changes.guestlistCapacity < approved) throw conflict('Guestlist capacity cannot fall below approved guests', 'GUESTLIST_CAPACITY');
-        }
-        if (changes.capacity !== undefined && changes.capacity !== null && (record.capacity === null || changes.capacity < record.capacity)) {
-          const soldAdmissions = await models.Ticket.count({ where: { eventId: entityId, status: { [Op.in]: ['valid', 'checked_in', 'transferred'] } }, transaction });
-          if (changes.capacity < soldAdmissions) throw conflict('Event capacity cannot fall below issued tickets', 'EVENT_CAPACITY');
-        }
-      }
-      const before = plain(record);
-      if (entityType === 'user') await assertUserAccessChange({ models, actorUserId: userId, user: record, changes, transaction });
-      await record.update(changes, { transaction });
-      await models.AuditLog.create({
-        actorUserId: userId, organizationId: record.organizationId || null, entityType: config.audit, entityId,
-        action: `admin.${entityType}.updated`, before, after: { ...plain(record), adminReason: reason },
-      }, { transaction });
-      if (entityType === 'event' && before.status === 'published') {
-        if (record.status === 'cancelled') {
-          await queueEventEmail({ email, models, event: record, kind: 'cancelled',
-            variables: { EVENT_DATE: formatTime(before.startsAt) },
-            customerAppUrl, transaction, key: `admin-cancelled-${record.updatedAt.getTime()}` });
-        } else if (record.status === 'published' && (Math.abs(+new Date(before.startsAt) - +new Date(record.startsAt)) >= 15 * 60 * 1000 || Math.abs(+new Date(before.endsAt) - +new Date(record.endsAt)) >= 15 * 60 * 1000)) {
-          await queueEventEmail({ email, models, event: record, kind: 'timeChange',
-            variables: {
-              OLD_TIME: `${formatTime(before.startsAt)} – ${formatTime(before.endsAt)}`,
-              NEW_TIME: `${formatTime(record.startsAt)} – ${formatTime(record.endsAt)}`,
-            }, customerAppUrl, transaction, key: `admin-time-${record.updatedAt.getTime()}` });
-        }
-      }
-      return plain(record);
-    }, { accessChange: true });
-  }
   async function createDemoUser(userId, input) {
     await permissions.assertInternal(userId);
     if (process.env.NODE_ENV === 'production') throw forbidden('Demo user creation is disabled in production');
@@ -233,7 +180,7 @@ function createAdminService({ models, permissions, email = null, customerAppUrl 
       return { id: user.id, email: user.email, displayName: user.displayName, role: input.role };
     }, { accessChange: true });
   }
-  return { workspace, operations, createDemoUser, updateUser: (u, id, v) => update(u, 'user', id, v), updateOrganization: (u, id, v) => update(u, 'organization', id, v), updateEvent: (u, id, v) => update(u, 'event', id, v) };
+  return { workspace, operations, createDemoUser };
 }
 
 module.exports = { aggregateAdminSales, createAdminService };

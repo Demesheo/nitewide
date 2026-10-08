@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight, LogOut, Ticket, UserRound, RefreshCw, Pencil } from 'lucide-react';
+import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight, LogOut, RefreshCw, Pencil } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Tabs, TabsContent } from './ui/tabs';
 import { Button } from './ui/button';

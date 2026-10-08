@@ -88,7 +88,7 @@ Migration `202609300002-event-affiliate-access-scope` adds the nullable scope fi
 
 | Endpoint | Behavior |
 | --- | --- |
-| `GET /api/business/workspace` | Authorized events now include `canEdit` and `lifetimeSales`; organizations include their saved location |
+| `GET /api/business/bootstrap` and `/api/business/events` | Scoped workspace capabilities and server-paginated event library; the former bulk workspace route is removed |
 | `GET /api/business/events/:eventId/detail` | Full-event scoped report, metadata, tiers, people, customers, channels, and manager-only roster candidates |
 | `POST /api/business/events` | Create with organization location or independent location; automatic slug |
 | `PUT /api/business/events/:eventId` | Version-checked edit of unfinished event and tier configuration |
@@ -99,7 +99,7 @@ Migration `202609300002-event-affiliate-access-scope` adds the nullable scope fi
 | `GET /api/team/invitations/:token` | Preview event/venue scope and offered event commission |
 | `POST /api/team/invitations/:token/accept` | Authenticated invited identity; add only the invitation's scoped role |
 
-Existing generic commerce model names remain OrgAffiliate and EventAffiliate. User-facing text says promoter/referrer. Overview keeps its existing workspace/report size bounds. Event detail aggregates one event's authorized paid history; large-event server pagination and reporting aggregation should precede high-volume production rollout.
+Existing generic commerce model names remain OrgAffiliate and EventAffiliate. User-facing text says promoter/referrer. Current Overview and reporting use scoped SQL, while the event-detail interface uses summary and paginated purchases, attendees, people, and guestlist APIs. The older full-detail API remains registered for supported domain consumers; it is not the current paginated interface.
 
 ## Verification
 

@@ -22,12 +22,3 @@ test('business table pagination scrolls to its own card on both page directions'
   assert.match(component, /onClick=\{\(\) => changePage\(pager\.currentPage \+ 1\)\}/);
   assert.match(component, /if \(onPageChange\) return onPageChange\(\)/);
 });
-
-test('Current team and Event collection supply their own card-top targets', () => {
-  const team = readFileSync(new URL('../src/components/Team.jsx', import.meta.url), 'utf8');
-  const events = readFileSync(new URL('../src/components/Events.jsx', import.meta.url), 'utf8');
-  assert.match(team, /<section ref=\{rosterRef\} className="panel team-roster">/);
-  assert.match(team, /<TablePagination pager=\{pager\} onPageChange=\{scrollToRoster\}\/>/);
-  assert.match(events, /<section ref=\{collectionRef\} className="panel event-library">/);
-  assert.match(events, /onPageChange=\{scrollToCollection\}/);
-});

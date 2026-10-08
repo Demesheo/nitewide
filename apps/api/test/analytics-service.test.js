@@ -1,18 +1,22 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { analyticsQuery } = require('../src/http/analytics-schemas');
-const { aggregateHierarchy, aggregateReferrals, createAnalyticsService, resolveRange } = require('../src/services/analytics-service');
+const { reportDetailQuery } = require('../src/http/business-schemas');
+const { calendarPeriod } = require('../src/services/business-report-period');
+const { aggregateHierarchy, aggregateReferrals } = require('../src/services/analytics-service');
 
 const event = (id, title, city, organization = null) => ({ id, title, category: 'nightlife', organizationId: organization?.id || null, creatorUserId: 'creator', creator: { displayName: 'Independent creator' }, organization, location: { city, region: 'FL', countryCode: 'US' }, startsAt: '2026-09-25T22:00:00Z' });
 const order = (id, eventId, buyerUserId, subtotalCents, extra = {}) => ({ id, eventId, buyerUserId, subtotalCents, totalCents: subtotalCents + 179, platformFeeCents: 179, affiliateCommissionCents: 100, paidAt: '2026-09-21T12:00:00Z', items: [{ nameSnapshot: 'GA', kindSnapshot: 'ticket', quantity: 2, entriesPerUnitSnapshot: 1, lineTotalCents: subtotalCents }], buyer: { displayName: buyerUserId, email: `${buyerUserId}@example.test` }, ...extra });
 
-test('date filters require valid inclusive bounded ranges and multiselect arrays', () => {
-  const query = analyticsQuery.parse({ startDate: '2026-09-01', endDate: '2026-09-21', regions: ['Orlando, FL, US', 'Miami, FL, US'], organizationIds: ['independent'] });
+test('report date filters require paired ordered dates and retain multiselect arrays', () => {
+  const query = reportDetailQuery.parse({ startDate: '2026-09-01', endDate: '2026-09-21', regions: ['Orlando, FL, US', 'Miami, FL, US'] });
   assert.deepEqual(query.regions, ['Orlando, FL, US', 'Miami, FL, US']);
-  assert.equal(resolveRange(query).until.toISOString(), '2026-09-22T00:00:00.000Z');
-  assert.equal(analyticsQuery.safeParse({ startDate: '2026-09-21' }).success, false);
-  assert.equal(analyticsQuery.safeParse({ startDate: '2026-09-22', endDate: '2026-09-21' }).success, false);
-  assert.equal(analyticsQuery.safeParse({ startDate: '2026-02-30', endDate: '2026-03-01' }).success, false);
+  assert.deepEqual(calendarPeriod(query, new Date('2026-09-21T12:00:00Z')), {
+    startDate: '2026-09-01', endDate: '2026-09-21', timezone: 'UTC', currency: 'USD', basis: 'paidAt',
+  });
+  assert.equal(reportDetailQuery.safeParse({ startDate: '2026-09-21' }).success, false);
+  assert.equal(reportDetailQuery.safeParse({ startDate: '2026-09-22', endDate: '2026-09-21' }).success, false);
+  assert.equal(reportDetailQuery.safeParse({ startDate: 'invalid', endDate: '2026-03-01' }).success, false);
+  for (const days of [0, 367]) assert.equal(reportDetailQuery.safeParse({ days }).success, false);
 });
 
 test('managers are labeled separately before their first attributed sale', () => {
@@ -64,18 +68,4 @@ test('referral drill respects event-affiliate precedence and groups referred cus
   assert.equal(refs.people.find((person) => person.id === 'promoter').customers, 1);
   assert.equal(refs.people.find((person) => person.id === 'staff').salesCents, 0);
   assert.equal(refs.customers[0].salesCents, 5000);
-});
-
-test('admin analytics rejects non-admin identity before reading report data', async () => {
-  let accessed = false;
-  const service = createAnalyticsService({ models: { Event: { findAll: async () => { accessed = true; } } }, permissions: { assertInternal: async () => { throw Object.assign(new Error('forbidden'), { code: 'FORBIDDEN' }); } } });
-  await assert.rejects(() => service.adminReport('customer', analyticsQuery.parse({})), { code: 'FORBIDDEN' });
-  assert.equal(accessed, false);
-});
-
-test('legacy analytics entrypoints retire without loading capped raw datasets', async () => {
-  const service = createAnalyticsService({ models: new Proxy({}, { get() { throw new Error('No legacy reads allowed'); } }),
-    permissions: { assertInternal: async () => {} } });
-  await assert.rejects(service.adminReport('admin', analyticsQuery.parse({})), { status: 410, code: 'LEGACY_REPORT_RETIRED' });
-  await assert.rejects(service.businessReport('manager', analyticsQuery.parse({})), { status: 410, code: 'LEGACY_REPORT_RETIRED' });
 });

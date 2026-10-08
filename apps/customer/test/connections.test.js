@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { connectionEvents, connectionLink, selectedConnection, toggleConnectionSelection, applyConnectionSelection } from '../src/lib/connections.js';
+import { connectionEvents, connectionLink, selectedConnection } from '../src/lib/connections.js';
 import { referralFromSearch, referralCodeForEvent } from '../src/lib/referral.js';
 const now = new Date('2026-09-22T12:00:00Z');
 const event = { id: 'event', title: 'Friday at La Rosa', startsAt: '2026-09-25T22:00:00Z', location: { city: 'Orlando', region: 'FL', timezone: 'America/New_York' } };
@@ -11,6 +11,7 @@ test('Connections deduplicates event cards while preserving every selectable ref
   assert.equal(groups.length, 1); assert.equal(groups[0].referrals.length, 2);
   assert.equal(selectedConnection(groups[0], 'sam').code, 'S-REF');
   assert.equal(selectedConnection(groups[0], 'removed').code, 'A-REF');
+  assert.equal(connectionEvents(entries, { people: [] }, now).length, 0);
 });
 test('person, city and search filters combine; stale/past/missing-code events never book', () => {
   assert.equal(connectionEvents(entries, { people: ['sam'], city: 'Orlando, FL', query: 'La Rosa Sam' }, now)[0].referrals.length, 1);
@@ -19,27 +20,20 @@ test('person, city and search filters combine; stale/past/missing-code events ne
   const group = connectionEvents(entries, { people: ['sam'] }, now)[0];
   assert.equal(selectedConnection(group, 'alex').referrer.id, 'sam');
 });
-test('multi-select drafts are immutable, apply only valid IDs, and combine connections without duplicate events', () => {
-  const applied = ['alex'];
-  const draft = toggleConnectionSelection(applied, 'sam');
-  assert.deepEqual(applied, ['alex']);
-  assert.deepEqual(draft, ['alex', 'sam']);
-  assert.equal(applyConnectionSelection(draft, ['alex', 'sam']), null);
-  assert.deepEqual(applyConnectionSelection(['sam', 'removed', 'sam'], ['alex', 'sam']), ['sam']);
-  assert.deepEqual(toggleConnectionSelection(draft, 'alex'), ['sam']);
-  assert.equal(connectionEvents(entries, { people: draft }, now).length, 1);
-  assert.equal(connectionEvents(entries, { people: [] }, now).length, 0);
-});
-test('multi-select applies explicitly and Booking with appears above the purchase action', async () => {
+test('multi-select applies explicitly and plain-text booking attribution precedes purchase confirmation', async () => {
   const filter = await readFile(new URL('../src/components/connection-filter.jsx', import.meta.url), 'utf8');
   assert.match(filter, /onApply\(all \? null : draft\)/);
   assert.match(filter, /onClick=\{\(\) => changeOpen\(false\)\}>Cancel/);
   assert.match(filter, /disabled=\{!all && !draft\.length\}/);
   const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../src/noir-theme.css', import.meta.url), 'utf8');
   const review = app.slice(app.indexOf('<div className="checkout-review">'));
+  assert.ok(review.indexOf('className="order-summary"') < review.indexOf('className="connection-context"'));
   assert.ok(review.indexOf('className="connection-context">Booking with') < review.indexOf('<StripeCheckout'));
   assert.ok(review.indexOf('className="connection-context">Booking with') < review.indexOf('onClick={completeDemo}'));
   assert.doesNotMatch(app, /Referred by/);
+  const context = css.match(/\.connection-context\s*\{([^}]+)\}/)[1];
+  for (const rule of ['margin: 12px 0', 'padding: 0', 'border: 0', 'background: none', 'box-shadow: none']) assert.ok(context.includes(rule), rule);
 });
 test('shared connection links round-trip the chosen referral and are scoped to the new event', () => {
   const link = new URL(connectionLink(entries[1], 'https://nitewide.example'));
@@ -70,16 +64,6 @@ test('multi-select filters only preserve codes for the chosen connections across
     assert.equal(referralCodeForEvent(referral, group.event.id), choice.code);
     assert.equal(referralCodeForEvent(referral, 'unrelated'), undefined);
   }
-});
-test('booking attribution is plain text with breathing room immediately before checkout confirmation', async () => {
-  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  const css = await readFile(new URL('../src/noir-theme.css', import.meta.url), 'utf8');
-  const checkout = app.slice(app.indexOf('className="checkout-review"'));
-  assert.ok(checkout.indexOf('className="order-summary"') < checkout.indexOf('className="connection-context"'));
-  assert.ok(checkout.indexOf('className="connection-context">Booking with') < checkout.indexOf('<StripeCheckout'));
-  assert.ok(checkout.indexOf('className="connection-context">Booking with') < checkout.indexOf('onClick={completeDemo}'));
-  const context = css.match(/\.connection-context\s*\{([^}]+)\}/)[1];
-  for (const rule of ['margin: 12px 0', 'padding: 0', 'border: 0', 'background: none', 'box-shadow: none']) assert.ok(context.includes(rule), rule);
 });
 test('main navigation requires authenticated server eligibility, supports four segments and shares referral flow', async () => {
   const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');

@@ -6,7 +6,6 @@ import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { MultiSelect } from './MultiSelect';
-import { MobileTableSort } from './MobileTableSort';
 import { ServerPager } from './ServerPager';
 import { LoadingState } from './LoadingState';
 import { ReportTableSurface } from './ReportTableSurface';

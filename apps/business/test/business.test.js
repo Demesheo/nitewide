@@ -11,8 +11,6 @@ import {
   zonedISO,
   editorDraft,
   eventPayload,
-  filterEvents,
-  slugify,
 } from "../src/lib/business.js";
 const savedOffering = { id: 'tier1', name: 'Custom admission', kind: 'ticket', priceCents: 1000,
   quantityTotal: 200, entriesPerUnit: 1, inventoryMode: 'finite', minPerOrder: 1, maxPerOrder: 10 };
@@ -75,23 +73,8 @@ test("unlimited inventory explicitly sends null", () => {
   d.offerings[0].inventoryMode = "unlimited";
   assert.equal(eventPayload(d).offerings[0].quantityTotal, null);
 });
-test("search and status filters combine without changing original events", () => {
-  const events = [
-    {
-      title: "Celine Friday",
-      status: "published",
-      location: { city: "Orlando" },
-    },
-    { title: "Celine Draft", status: "draft" },
-  ];
-  assert.equal(filterEvents(events, " ORLANDO ", "published").length, 1);
-  assert.equal(filterEvents(events, "celine", "draft").length, 1);
-  assert.equal(events.length, 2);
-});
 test("CSV escapes quotes and neutralizes spreadsheet formula injection", () =>
   assert.equal(
     csv([["=CMD()", 'A "B"', "line\nbreak"]]),
     '"\'=CMD()","A ""B""","line\nbreak"',
   ));
-test("slug generation produces URL-safe event names", () =>
-  assert.equal(slugify("  Friday / After Dark! "), "friday-after-dark"));

@@ -17,13 +17,6 @@ export function connectionEvents(entries, { people = null, city = 'all', query =
   return [...groups.values()].map((group) => ({ ...group, referrals: group.referrals.sort((a, b) => a.referrer.name.localeCompare(b.referrer.name)) }))
     .sort((a, b) => compareEventListings(a.event, b.event));
 }
-export function toggleConnectionSelection(selected, id) {
-  return selected.includes(id) ? selected.filter((value) => value !== id) : [...selected, id];
-}
-export function applyConnectionSelection(draft, availableIds) {
-  const selected = [...new Set(draft)].filter((id) => availableIds.includes(id));
-  return selected.length === availableIds.length ? null : selected;
-}
 export function connectionCity(event) {
   return [event.location?.city, event.location?.region].filter(Boolean).join(', ') || 'Location to be announced';
 }

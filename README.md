@@ -181,9 +181,9 @@ The API development process uses a normal Node process for compatibility with ma
 
 The assumptions, outputs, valuation sensitivities, and evidence gates behind the Florida model are documented in [docs/FLORIDA_50M_MODEL.md](docs/FLORIDA_50M_MODEL.md).
 
-`npm test` runs the unit/frontend tests and sixteen required real-PostgreSQL suites using Node's built-in test runner. Supertest exercises the Express HTTP boundary for authentication, permissions, customer/business/admin workflows, checkout replay/conflicts, admissions, uploads, CSV exports, and signed webhooks. Database suites also verify reporting, pagination, lifecycle protections, concurrent authorization/write behavior, database timeouts, and legacy/domain response contracts. Each receives a fresh generated database, migrations, and deterministic fixtures; the runner removes that database afterward. No development/demo seed is required or modified, and email delivery is disabled. Missing PostgreSQL/PostGIS prerequisites fail with setup guidance rather than skipping coverage. `test:api:unit` needs no database; `test:api:integration` runs all required database suites or a single named suite. GitHub's existing `npm test` verification includes this coverage automatically. See [Testing](docs/TESTING.md) for commands, conventions, local/CI setup, and the separate demo-only command.
+`npm test` runs the unit/frontend tests and all required real-PostgreSQL suites using Node's built-in test runner. Supertest exercises the Express HTTP boundary for authentication, permissions, customer/business/admin workflows, checkout replay/conflicts, admissions, uploads, CSV exports, and signed webhooks. Database suites also verify reporting, pagination, lifecycle protections, concurrent authorization/write behavior, database timeouts, and legacy/domain response contracts. Each receives a fresh generated database, migrations, and deterministic fixtures; the runner removes that database afterward. No development/demo seed is required or modified, and email delivery is disabled. Missing PostgreSQL/PostGIS prerequisites fail with setup guidance rather than skipping coverage. `test:api:unit` needs no database; `test:api:integration` runs all required database suites or a single named suite. GitHub's existing `npm test` verification includes this coverage automatically. See [Testing](docs/TESTING.md) for commands, conventions, local/CI setup, and the separate demo-only command.
 
-Business and Admin reports now share scoped SQL summaries and server-paginated tables; the legacy capped bulk report endpoints return `410`. CSV exports up to 1,000 rows download immediately from a stable snapshot. Larger exports prepare in a durable background queue, show progress and retry controls, and remain downloadable for 24 hours. Apply `npm run db:migrate` and restart the API; no reseed or new hosting service is required. See [SQL reporting and snapshot exports](docs/REPORTING_EXPORTS.md) for APIs, security, retention, measured EXPLAIN plans and the rollup decision.
+Business and Admin reports share scoped SQL summaries and server-paginated tables; the retired capped bulk-report endpoints have been removed. CSV exports up to 1,000 rows download immediately from a stable snapshot. Larger exports prepare in a durable background queue, show progress and retry controls, and remain downloadable for 24 hours. The reporting migration remains required on a new installation; retiring the unused endpoints adds no migration or environment setting. See [SQL reporting and snapshot exports](docs/REPORTING_EXPORTS.md) for APIs, security, retention, measured EXPLAIN plans and the rollup decision.
 
 The customer and business mocked email suites run automatically in `npm test`, including GitHub's build/deploy verification. They use isolated fixtures and mocked provider requests, so they consume **0 Resend sends**. The two simulated commands are separate manual actions; neither is invoked by `npm test`, `npm run build`, Docker, or deployment. See [docs/TRANSACTIONAL_EMAIL.md](docs/TRANSACTIONAL_EMAIL.md).
 
@@ -268,12 +268,12 @@ See [Business frontend, roles, reporting, tests, and styling](docs/BUSINESS_FRON
 | `POST` | `/api/auth/business/sign-in` | Sign in only with current Business access |
 | `POST` | `/api/business/access-requests` | Submit a pending application for manual Admin review; no access grant |
 | `GET` | `/api/auth/me` | Resolve the current bearer session and capabilities |
-| `GET` | `/api/business/workspace` | Role-scoped events and sales by event, tier, team member/promoter; `days` and `organizationId` filters |
+| `GET` | `/api/business/bootstrap` | Current role-scoped workspace capabilities and organizations |
+| `GET` | `/api/business/events` | Scoped, server-paginated event library |
 | `GET` | `/api/admin/workspace` | Admin-only platform records, operational counts, alerts, and period sales aggregates |
 | `POST` | `/api/admin/demo-users` | Admin-only creation of a role-ready demo identity and scoped memberships |
-| `PATCH` | `/api/admin/users/:id` | Audited admin update of supported user access/profile fields |
-| `PATCH` | `/api/admin/organizations/:id` | Audited admin update of organization plan, status, and profile fields |
-| `PATCH` | `/api/admin/events/:id` | Audited admin override of supported event operations fields |
+| `PATCH` | `/api/admin/management/:resource/:id` | Version-checked domain management edits with audited reasons |
+| `PUT` | `/api/admin/events/:id` | Shared versioned event editor with lifecycle and inventory protections |
 | `POST` | `/api/business/events` | Atomically create event, location, and offering tiers |
 | `PUT` | `/api/business/events/:eventId` | Role-enforced full event edit with optimistic version and sold-inventory protection |
 | `POST` | `/api/business/uploads/image` | Authenticated multipart image upload; optimized WebP asset |
@@ -295,8 +295,10 @@ See [Business frontend, roles, reporting, tests, and styling](docs/BUSINESS_FRON
 | `GET` | `/api/orders/:id` | Customer order detail (stored QR hashes are never returned) |
 | `POST` | `/api/check-ins` | Validate and consume a QR credential |
 | `GET` | `/api/business/events/:id/analytics` | Event sales and attendance snapshot |
-| `GET` | `/api/business/analytics` | Permission-scoped portfolio analytics and referral drill-downs |
-| `GET` | `/api/admin/analytics` | Internal region-to-customer analytics explorer |
+| `GET` | `/api/business/reports/summary` | Permission-scoped SQL portfolio summary |
+| `GET` | `/api/business/reports/:table` | Server-paginated reporting drill-downs |
+| `GET` | `/api/admin/reports/summary` | Internal SQL reporting summary |
+| `GET` | `/api/admin/reports/:table` | Internal server-paginated reporting drill-downs |
 | `GET` | `/api/admin/overview` | Internal platform counts |
 
 Example purchase using seeded data:

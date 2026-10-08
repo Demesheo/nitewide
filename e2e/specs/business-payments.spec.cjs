@@ -1,5 +1,6 @@
 const { test: baseTest, expect, loginViaApi, businessSection, expectNoOverflow } = require('../fixtures.cjs');
 const test = baseTest.extend({ fixtureRecipe: 'commerce' });
+const authTest = baseTest.extend({ fixtureRecipe: 'business-auth' });
 const { createStripeTestIdentity } = require('../test-data/stripe-connect/identity.cjs');
 
 function merchantOverview(organizationId) {
@@ -74,7 +75,7 @@ test('shared sandbox payments journey protects merchant choices and explains una
   await page.unrouteAll({behavior:'wait'});
 });
 
-test('merchant disconnect journey blocks unresolved obligations, disables safely and reconciles an uncertain retry',async({page,fixture},testInfo)=>{
+authTest('merchant disconnect journey blocks unresolved obligations, disables safely and reconciles an uncertain retry',async({page,fixture},testInfo)=>{
   await enableFinanceFixture(page);
   let account={id:'00000000-0000-4000-8000-000000000510',name:'Disconnect merchant',stripeAccountId:'acct_offline',
     lifecycleState:'active',disconnectStatus:'none',paymentsReady:true,detailsSubmitted:true,chargesEnabled:true,payoutsEnabled:true};
@@ -161,7 +162,7 @@ test('merchant disconnect journey blocks unresolved obligations, disables safely
   });
 });
 
-test('merchant setup journey names defaults, recovers hosted onboarding and verifies readiness on return', async ({ page, fixture }) => {
+authTest('merchant setup journey names defaults, recovers hosted onboarding and verifies readiness on return', async ({ page, fixture }) => {
   const identity = createStripeTestIdentity('setup-recovery');
   // Explicit finance delegation is isolated from the unchanged denial cases.
   await enableFinanceFixture(page, { canViewEarnings: true });
@@ -293,7 +294,7 @@ test('event merchant journey locks unresolved payments then changes future routi
   await page.unrouteAll({ behavior: 'wait' });
 });
 
-test('manager without finance or earnings permission does not see payments navigation or controls', async ({ page, fixture }) => {
+authTest('manager without finance or earnings permission does not see payments navigation or controls', async ({ page, fixture }) => {
   const paymentRequests = [];
   await page.route('**/api/business/bootstrap', async route => {
     const response = await route.fetch();
@@ -318,7 +319,7 @@ test('manager without finance or earnings permission does not see payments navig
   await page.unrouteAll({ behavior: 'wait' });
 });
 
-test('commission-only access shows personal earnings without merchant requests or payment accounts', async ({ page, fixture }) => {
+authTest('commission-only access shows personal earnings without merchant requests or payment accounts', async ({ page, fixture }) => {
   await page.route('**/api/business/bootstrap', async route => {
     const response = await route.fetch();
     const payload = await response.json();

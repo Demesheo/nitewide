@@ -1,4 +1,4 @@
-const { test, expect, login, expectNoOverflow } = require('../fixtures.cjs');
+const { test, expect, loginViaApi, expectNoOverflow } = require('../fixtures.cjs');
 const adminAccessTest = test.extend({ fixtureRecipe: 'admin-access' });
 const { urls } = require('../environment.cjs');
 
@@ -151,7 +151,7 @@ adminAccessTest('real API Admin approval queues secure onboarding but grants no 
   const contact = fixture.accounts.customer;
   const submitted = await request.post(`${urls.api}/api/business/access-requests`, { data: { displayName: contact.name, email: contact.email, phone: '(407) 555-0199', businessName: 'Playwright Reviewed Business', role: 'owner', details: 'We organize local events and need a reviewed business workspace.', confirmedAuthority: true } });
   expect(submitted.status()).toBe(202);
-  await login(page, fixture, 'admin');
+  await loginViaApi(page, fixture, 'admin');
   await test.step('Needs attention opens the exact real submitted request', async () => {
     const attention = page.locator('.management-record').filter({ has: page.getByRole('heading', { name: 'Business access requested: Playwright Reviewed Business', exact: true }) });
     await attention.getByRole('button', { name: 'Review', exact: true }).click();

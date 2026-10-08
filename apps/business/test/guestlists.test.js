@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { compactGuestlistSourceName, guestlistEventName, guestlistStatuses, guestlistStatusesForEvent, guestlistStatusQuery, recentAndUpcomingGuestlistEvents, reviewableGuestlistEvents } from '../src/lib/guestlists.js';
+import { compactGuestlistSourceName, guestlistStatuses, guestlistStatusesForEvent, guestlistStatusQuery, recentAndUpcomingGuestlistEvents, reviewableGuestlistEvents } from '../src/lib/guestlists.js';
 
 test('checked-in status is available during the early admission window', () => {
   const statuses = guestlistStatusesForEvent({ startsAt: '2026-09-26T02:00:00Z' }, Date.parse('2026-09-25T02:00:00Z')).map((s) => s.id);
@@ -17,11 +17,6 @@ test('guestlist details use the compact member dialog and put event context bene
   assert.match(view, /<strong>\{selected\?\.title \|\| 'Event'\}<\/strong><span>\{selected \? eventDateLabel\(selected\) : '—'\}<\/span>/);
   for (const label of ['Event', 'Referral code', 'Request ID']) assert.doesNotMatch(view, new RegExp(`<dt>${label}<\\/dt>`));
   assert.match(styles, /\.guestlist-detail-grid \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); gap: 8px;/);
-});
-
-test('guestlist event names are truncated only after 36 characters', () => {
-  assert.equal(guestlistEventName('A'.repeat(36)), 'A'.repeat(36));
-  assert.equal(guestlistEventName('A'.repeat(37)), `${'A'.repeat(36)}…`);
 });
 
 test('guest request cards abbreviate referrer names without changing direct sources', () => {

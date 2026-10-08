@@ -1,11 +1,9 @@
 const { asyncHandler } = require('./contract-router');
 const businessSchemas = require('../http/business-schemas');
 const adminSchemas = require('../http/admin-report-schemas');
-const { analyticsQuery } = require('../http/analytics-schemas');
 const { z } = require('zod');
 
-function registerReportingRoutes({ router, managementController, requireUser, permissions, businessRead, businessReports, adminReports, reportExports, analytics }) {
-  router.get('/admin/analytics', requireUser, asyncHandler(async (req, res) => res.json({ data: await analytics.adminReport(req.userId, analyticsQuery.parse(req.query)) })));
+function registerReportingRoutes({ router, managementController, requireUser, permissions, businessRead, businessReports, adminReports, reportExports }) {
   router.get('/admin/reports/bootstrap', requireUser, asyncHandler(async (req, res) => res.json({ data: await adminReports.bootstrap(req.userId) })));
   router.get('/admin/reports/summary', requireUser, asyncHandler(async (req, res) => res.json({ data: await adminReports.summary(req.userId, adminSchemas.reportDetailQuery.parse(req.query)) })));
   router.get('/admin/reports/export.csv', requireUser, asyncHandler(async (req, res) => {
@@ -18,8 +16,6 @@ function registerReportingRoutes({ router, managementController, requireUser, pe
   router.post('/admin/reports/exports/:id/retry', requireUser, asyncHandler(async (req, res) => { await permissions.assertInternalPermission(req.userId,'reports.view'); res.json({ data: await reportExports.retry(req.userId,z.uuid().parse(req.params.id)) }); }));
   router.get('/admin/reports/:table', requireUser, asyncHandler(async (req, res) => res.json({ data: await adminReports.table(req.userId,
     adminSchemas.reportTables.parse(req.params.table), adminSchemas.reportDetailQuery.parse(req.query)) })));
-  router.get('/business/analytics', requireUser, asyncHandler(async (req, res) => res.json({ data: await analytics.businessReport(req.userId, analyticsQuery.parse(req.query)) })));
-  router.get('/business/workspace', requireUser, asyncHandler(async () => { throw new (require('../domain/errors').DomainError)('Use /business/bootstrap, /business/overview and paginated /business/reports endpoints.', { status: 410, code: 'LEGACY_REPORT_RETIRED' }); }));
   router.get('/business/overview', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessRead.overview(req.userId, businessSchemas.reportQuery.parse(req.query)) })));
   router.get('/business/overview/needs-attention', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessRead.needsAttention(req.userId, businessSchemas.reportQuery.parse(req.query)) })));
   router.get('/business/reports/summary', requireUser, asyncHandler(async (req, res) => res.json({ data: await businessReports.summary(req.userId, businessSchemas.reportDetailQuery.parse(req.query)) })));

@@ -1,5 +1,5 @@
-const { QueryTypes, Op } = require('sequelize');
-const { forbidden, notFound } = require('../domain/errors');
+const { QueryTypes } = require('sequelize');
+const { forbidden } = require('../domain/errors');
 const { activeUser } = require('./lifecycle-service');
 const { venueOptions } = require('./venue-scope');
 const { eventFinished } = require('../domain/event-policy');

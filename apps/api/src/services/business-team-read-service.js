@@ -2,7 +2,6 @@ const { QueryTypes } = require('sequelize');
 const { pageResult } = require('./business-read-service');
 const { resolvePaidRange } = require('./business-report-period');
 const { notFound } = require('../domain/errors');
-const { commissionTerms } = require('../domain/commission-eligibility');
 const { persistedCommissionTerms } = require('./commission-profile-repository');
 const { shareableTeamInvitation } = require('../domain/team-invitation-token');
 const { netSubtotalSql, commissionExpenseSql: netCommissionSql, financialOrderSql } = require('./refund-report-policy');

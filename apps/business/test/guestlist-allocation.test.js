@@ -95,9 +95,10 @@ test('guest invitation stays in event details Share this event card without show
 
 test('saving an event allocation refreshes the invite pools without a page reload', () => {
   const eventDetailSource = readFileSync(new URL('../src/components/EventDetail.jsx', import.meta.url), 'utf8');
+  const pagedDetailSource = readFileSync(new URL('../src/components/PagedEventDetail.jsx', import.meta.url), 'utf8');
   assert.match(guestlistsSource, /setRevision\(\(v\) => v \+ 1\);\s*onChanged\?\.\(\);/);
-  assert.match(eventDetailSource, /onChanged=\{\(\) => setRevision\(\(value\) => value \+ 1\)\}/);
-  assert.match(eventDetailSource, /<ReferralLink event=\{event\} session=\{session\} revision=\{revision\}/);
+  assert.match(pagedDetailSource, /onChanged=\{\(\) => setRevision\(\(value\) => value \+ 1\)\}/);
+  assert.match(pagedDetailSource, /<ReferralLink event=\{event\} session=\{session\} revision=\{revision\}/);
   assert.match(eventDetailSource, /guestlist-invite-pools[\s\S]*?\}, \[event\.id, session, revision, linkRetry, invitePoolRevision\]\)/);
   assert.match(eventDetailSource, /setInvitePoolRevision\(\(value\) => value \+ 1\); setInviteOpen\(true\);/);
 });

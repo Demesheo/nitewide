@@ -4,12 +4,6 @@ export const money = (cents = 0) =>
     currency: "USD",
     maximumFractionDigits: 2,
   }).format(cents / 100);
-export const slugify = (text) =>
-  text
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
 export function eventDateLabel(event) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: event.location?.timezone || "UTC",
@@ -19,11 +13,6 @@ export function eventDateLabel(event) {
   }).formatToParts(new Date(event.startsAt));
   const get = (type) => parts.find((part) => part.type === type).value;
   return `${get("month")}/${get("day")}/${get("year")}`;
-}
-export function eventTimeLabel(event) {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: event.location?.timezone || 'UTC', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
-  }).format(new Date(event.startsAt));
 }
 export function dateInput(value, timezone = "America/New_York") {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -163,18 +152,6 @@ export function eventPayload(draft, version) {
         : null,
     })),
   };
-}
-export function filterEvents(events, search, status) {
-  const query = search.trim().toLowerCase();
-  return events.filter(
-    (e) =>
-      (status === "all" || e.status === status) &&
-      [e.title, e.location?.city, e.category]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(query),
-  );
 }
 export function csv(rows) {
   return rows

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import { teamInvitationUrl } from '@/lib/team-invitation-link';
 import { copyText } from '../../../shared/copy-text.js';

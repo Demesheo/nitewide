@@ -1,21 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Pencil, LockKeyhole, MapPin, CalendarDays, Users, Ticket, CircleDollarSign, Info, Mail } from 'lucide-react';
+import { Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Slider } from '@/components/ui/slider';
-import { Empty } from './controls';
 import { MultiSelect } from './MultiSelect';
 import { EventPromoterInvite } from './EventPromoterInvite';
 import { EventTable } from './EventTable';
-import { LoadingState } from './LoadingState';
-import { SalesMixPie } from './SalesMixPie';
 import { ShareEventCard } from './ShareEventCard';
 import { GuestlistInviteDialog } from './GuestlistInviteDialog';
-import { Guestlists } from './Guestlists';
-import { api, mediaSrc } from '@/lib/api';
-import { money, eventDateLabel } from '@/lib/business';
-import { eventPhase, saleLabels, eventTeamRoles, filterEventTeam, eventTeamSalesSlices } from '@/lib/events';
+import { api } from '@/lib/api';
+import { money } from '@/lib/business';
+import { eventTeamRoles, filterEventTeam } from '@/lib/events';
 import { customerLink } from '@/lib/customer-link';
 
 export function ReferralLink({ event, session, revision, onUnauthorized, onInvited }) {
@@ -46,10 +41,6 @@ export function ReferralLink({ event, session, revision, onUnauthorized, onInvit
   if (url) { url.searchParams.set('event', event.id); url.searchParams.set('ref', link.code); }
   const canInviteGuest = event.status === 'published' && invitePools?.open && (invitePools.direct || invitePools.own.length > 0);
   return <><ShareEventCard referralUrl={url?.toString() || ''} canInviteGuest={Boolean(canInviteGuest)} onInviteGuest={() => { setInvitePools(null); setInvitePoolRevision((value) => value + 1); setInviteOpen(true); }} referralError={linkError} onRetryReferral={() => setLinkRetry((value) => value + 1)}/><GuestlistInviteDialog open={inviteOpen} onOpenChange={setInviteOpen} eventId={event.id} invitePools={invitePools} session={session} onUnauthorized={onUnauthorized} onSuccess={onInvited}/></>;
-}
-
-function Metric({ label, value, detail, icon: Icon }) {
-  return <div className="event-metric"><div><span>{label}</span><Icon size={18}/></div><strong>{value}</strong>{detail && <small>{detail}</small>}</div>;
 }
 
 export function EventAttendees({ customers, onSelect, remote, footer }) {
@@ -113,71 +104,4 @@ export function EventPeople({ data, session, onSaved, onUnauthorized, remote }) 
       <DialogFooter><Button type="button" variant="outline" disabled={busy} onClick={() => setEditing(null)}>Close</Button></DialogFooter>
     </DialogContent></Dialog>
   </>;
-}
-
-export function EventDetail({ eventId, session, refreshToken, initialTab = null, initialGuestlistEntryId = null, onBack, onEdit, onUnauthorized }) {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [revision, setRevision] = useState(0);
-  const [notice, setNotice] = useState('');
-  const [customer, setCustomer] = useState(null);
-  const [instructionsOpen, setInstructionsOpen] = useState(false);
-  const [instructions, setInstructions] = useState('');
-  const [instructionsBusy, setInstructionsBusy] = useState(false);
-  const [instructionsError, setInstructionsError] = useState('');
-  async function sendInstructions(event) {
-    event.preventDefault();
-    setInstructionsBusy(true); setInstructionsError('');
-    try {
-      const result = await api(`/business/events/${eventId}/instructions`, session, { method: 'POST', body: JSON.stringify({ instructions }) });
-      setInstructionsOpen(false); setInstructions('');
-      setNotice(`Instructions queued for ${result.queued} ${result.queued === 1 ? 'attendee' : 'attendees'}.`);
-    } catch (failure) {
-      if (failure.status === 401) onUnauthorized();
-      else setInstructionsError(failure.message);
-    } finally {
-      setInstructionsBusy(false);
-    }
-  }
-  useEffect(() => {
-    let active = true; setLoading(true); setError('');
-    api(`/business/events/${eventId}/detail`, session).then((value) => { if (active) setData(value); }).catch((e) => { if (active) { if (e.status === 401) onUnauthorized(); else setError(e.message); } }).finally(() => {if (active) setLoading(false);});
-    return () => { active = false; };
-  }, [eventId, session, revision, refreshToken]);
-  const saved = (message) => {setNotice(message); setRevision((v) => v + 1);};
-  if (error) return <section className="panel"><Button variant="ghost" onClick={onBack}><ArrowLeft/> Events</Button><p className="error" role="alert">{error}</p><Button onClick={() => setRevision((v) => v + 1)}>Try again</Button></section>;
-  if (!data) return <LoadingState className="panel">Loading event performance…</LoadingState>;
-  const {event, summary:s, scope} = data;
-  const phase = eventPhase(event);
-  const ownOnly = scope === 'own';
-  const tiers = data.tiers.map((t) => ({...t, ...{saleState:event.offerings.find((o) => o.id === t.id)?.saleState}}));
-  return <div className="event-detail" aria-busy={loading}>
-    <div className="event-detail-nav"><Button variant="ghost" onClick={onBack}><ArrowLeft/> {ownOnly ? 'My events' : 'All events'}</Button><span>{ownOnly ? 'Your referrals and customers only' : 'Full event history · All sales channels'}</span></div>
-    <section className="event-detail-hero"><span className={`event-detail-status status-pill ${phase}`}>{phase === 'past' ? 'Past · read only' : phase}</span>{event.imageUrl ? <img className="event-detail-flyer" src={mediaSrc(event.imageUrl)} alt={`${event.title} flyer`}/> : <div className="event-detail-flyer event-art-placeholder"><CalendarDays size={35}/></div>}<div className="event-detail-heading"><h2>{event.title}</h2><p><CalendarDays size={16}/>{eventDateLabel(event)} · {new Date(event.startsAt).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:event.location?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'})}</p>{event.location?.name && <p className="event-detail-venue"><MapPin size={16}/>{event.location.name}</p>}{(event.location?.addressLine1 || event.location?.city) && <p className="event-detail-address">{[event.location?.addressLine1, [event.location?.city, event.location?.region, event.location?.postalCode].filter(Boolean).join(', ')].filter(Boolean).join(', ')}</p>}</div>{event.canEdit ? <Button variant="outline" onClick={() => onEdit(event)}><Pencil/> Edit event</Button> : phase === 'past' && <span className="event-readonly"><LockKeyhole size={16}/> Event closed</span>}{event.summary && <p className="event-detail-summary">{event.summary}</p>}</section>
-    {notice && <p className="notice" role="status">{notice}</p>}
-    {event.canEdit && event.status === 'published' && <div className="event-update-action"><Button variant="outline" onClick={() => setInstructionsOpen(true)}><Mail size={16}/> Send attendee instructions</Button></div>}
-    {phase !== 'past' && <ReferralLink event={event} session={session} revision={revision} onUnauthorized={onUnauthorized} onInvited={() => saved('Guestlist invitation created.')}/>}
-    <div className="event-metrics">{ownOnly ? <><Metric icon={CircleDollarSign} label="Your referred sales" value={money(s.salesCents)} detail="Ticket and package value before fees"/><Metric icon={Ticket} label="Your paid orders" value={s.orders.toLocaleString()}/><Metric icon={Users} label="Your admissions" value={s.admissions.toLocaleString()} detail="From your credited purchases"/><Metric icon={CircleDollarSign} label="Your commission" value={money(s.commissionCents)} detail="Recorded earnings · not payout status"/></> : <><Metric icon={CircleDollarSign} label="Total sales" value={money(s.salesCents)}/><Metric icon={CircleDollarSign} label="Commissions" value={money(s.commissionCents)}/><Metric icon={Ticket} label="Paid orders" value={s.orders.toLocaleString()}/><Metric icon={Users} label="Check-ins / expected" value={`${s.checkedIn.toLocaleString()} / ${(s.admissions + s.guestlistPlaces).toLocaleString()}`}/></>}</div>
-    <Tabs defaultValue={initialTab || 'sales'} className="event-detail-tabs"><TabsList aria-label="Event detail sections"><TabsTrigger value="sales">Sales</TabsTrigger><TabsTrigger value="tickets">Offerings</TabsTrigger><TabsTrigger value="people">Team</TabsTrigger><TabsTrigger value="guestlist">Guestlist</TabsTrigger></TabsList>
-    <TabsContent value="sales"><div className="event-chart-grid"><section className="panel"><span className="eyebrow">WHAT SELLS</span><h3>{ownOnly ? 'Your sales by ticket & package' : 'Sales by ticket & package'}</h3>{s.salesCents ? <SalesMixPie slices={data.tiers.filter((t) => t.salesCents > 0)}/> : <Empty title="Sales start here">Your ticket and package mix will appear after the first purchase.</Empty>}</section>{!ownOnly && <section className="panel"><span className="eyebrow">WHO BRINGS THE CROWD</span><h3>Sales by referral channel</h3>{s.salesCents ? <SalesMixPie slices={data.channels.map((c) => ({...c,id:c.name}))}/> : <Empty title="No sales yet">Direct and referred purchases will appear here.</Empty>}</section>}</div><EventAttendees customers={data.customers} onSelect={setCustomer}/></TabsContent>
-      <TabsContent value="tickets"><section className="panel"><div className="section-heading"><div><h3>Every tier, accounted for</h3><p>Sales retain the price paid at purchase, even when a tier’s current price changes.</p></div>{event.canEdit && <Button variant="outline" onClick={() => onEdit(event, 2)}>Manage tiers</Button>}</div><EventTable rows={tiers} defaultSort="salesCents" defaultDescending columns={[
-        {key:'name',label:'Tier'}, {key:'kind',label:'Type'}, {key:'saleState',label:'Availability',render:(t) => phase === 'past' ? 'Event ended' : saleLabels[t.saleState] || 'Archived'}, {key:'units',label:'Units sold',numeric:true},{key:'admissions',label:'Active admissions',numeric:true},{key:'salesCents',label:'Sales',numeric:true,render:(t) => money(t.salesCents)},
-      ]}/>{!ownOnly && <div className="tier-schedule-list">{event.offerings.map((o) => <div key={o.id}><strong>{o.name}</strong><span>{money(o.priceCents)} · {o.entriesPerUnit} admissions per unit</span><small>{!o.isActive ? 'Closed manually. ' : ''}{o.releaseAfterOfferingId ? `Opens when ${event.offerings.find((t) => t.id === o.releaseAfterOfferingId)?.name || 'previous tier'} sells out or closes. ` : ''}{o.salesStartAt ? `From ${new Date(o.salesStartAt).toLocaleString('en-US',{timeZone:event.location?.timezone || 'UTC'})}. ` : ''}{o.salesEndAt ? `Until ${new Date(o.salesEndAt).toLocaleString('en-US',{timeZone:event.location?.timezone || 'UTC'})}. ` : ''}{!o.releaseAfterOfferingId && !o.salesStartAt && !o.salesEndAt && o.isActive ? 'Available while the event is on sale.' : ''}</small></div>)}</div>}</section></TabsContent>
-      <TabsContent value="people">{!ownOnly && <section className="panel event-team-sales-mix" aria-label="Sales by team member"><div className="event-team-sales-heading"><h3>Sales by team member</h3><p>Ticket and package sales before fees, including direct purchases.</p></div>{s.salesCents > 0 ? <SalesMixPie slices={eventTeamSalesSlices(data)}/> : <Empty title="No sales yet">Team and direct sales will appear after the first purchase.</Empty>}</section>}<section className="panel"><EventPeople data={data} session={session} onSaved={saved} onUnauthorized={onUnauthorized}/></section></TabsContent>
-      <TabsContent value="guestlist"><Guestlists event={event} initialEntryId={initialGuestlistEntryId} refreshToken={revision} onChanged={() => setRevision((value) => value + 1)} session={session} expire={onUnauthorized}/></TabsContent>
-    </Tabs>
-    <Dialog open={Boolean(customer)} onOpenChange={(v) => {if (!v) setCustomer(null);}}><DialogContent className="event-customer-dialog"><DialogHeader><DialogTitle>{customer?.name}</DialogTitle><DialogDescription>{customer?.email}</DialogDescription></DialogHeader>{customer && <><div className="event-financials"><div><span>Event spending</span><strong>{money(customer.salesCents)}</strong></div><div><span>Guestlist status</span><strong>{customer.guestlistStatuses.map((v) => v.replaceAll('_',' ')).join(', ') || 'No request'}</strong></div></div><div className="event-customer-purchases"><EventTable rows={customer.purchases.map((p,i) => ({...p,id:String(i)}))} defaultSort="salesCents" defaultDescending empty="No purchases for this event" columns={[{key:'name',label:'Purchased'},{key:'quantity',label:'Quantity',numeric:true},{key:'salesCents',label:'Amount',numeric:true,render:(p) => money(p.salesCents)},{key:'referredBy',label:'Source'}]}/></div></>}</DialogContent></Dialog>
-    <Dialog open={instructionsOpen} onOpenChange={(open) => { if (!instructionsBusy) { setInstructionsOpen(open); setInstructionsError(''); } }}>
-      <DialogContent className="event-instructions-dialog sm:max-w-lg">
-        <DialogHeader><DialogTitle>Send attendee instructions</DialogTitle><DialogDescription>Email everyone with a paid order or active guestlist entry for this event. This cannot be recalled.</DialogDescription></DialogHeader>
-        <form onSubmit={sendInstructions}>
-          <label htmlFor="attendee-instructions">Instructions</label>
-          <textarea id="attendee-instructions" value={instructions} onChange={(event) => setInstructions(event.target.value)} minLength={3} maxLength={1800} required rows={5} placeholder="Arrival time, entrance, dress code, or other event-specific details" />
-          {instructionsError && <p className="error" role="alert">{instructionsError}</p>}
-          <DialogFooter><Button type="button" variant="outline" disabled={instructionsBusy} onClick={() => setInstructionsOpen(false)}>Cancel</Button><Button type="submit" disabled={instructionsBusy || instructions.trim().length < 3}>{instructionsBusy ? 'Queueing…' : 'Send email'}</Button></DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  </div>;
 }

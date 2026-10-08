@@ -6,7 +6,6 @@ import PersonPicker from '../../../business/src/components/venue-workspace/Perso
 import SubmittedSearch from '../../../business/src/components/SubmittedSearch';
 import { ResourceState, Pager } from './ResourceState';
 import { Button } from '../../../business/src/components/ui/button';
-import { Input } from '../../../business/src/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../../business/src/components/ui/dialog';
 
 function AssignmentForm({ venue, record, onClose, onSaved, request, basePath, audience, canGrantManager }) {

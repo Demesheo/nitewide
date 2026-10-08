@@ -1,4 +1,4 @@
-const { DomainError, notFound } = require('../domain/errors');
+const { DomainError } = require('../domain/errors');
 const { mutationTransaction } = require('./mutation-transaction');
 
 function createStripeWebhookService({ sequelize, models, stripe, paymentCheckouts, paymentAccounts, refunds, disputes, individualCommissionProfiles, commissionPayments, now = () => new Date() }) {

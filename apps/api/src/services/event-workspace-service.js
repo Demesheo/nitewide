@@ -10,7 +10,7 @@ const { employeeReferralCode, leaderReferralCode } = require('./affiliate-servic
 const { queueEventTermsChanged, percent } = require('./business-email-events');
 const { accessScope, accessWindowCurrent, currentOrganizationMembership } = require('./event-affiliate-access');
 const { currentVenueMembership } = require('./venue-access-policy');
-const { commissionTerms, assertCommissionEligible } = require('../domain/commission-eligibility');
+const { assertCommissionEligible } = require('../domain/commission-eligibility');
 const { individualCommissionContext, persistedCommissionTerms } = require('./commission-profile-repository');
 
 function summarizeEvent({ orders, offerings, people, guests }) {

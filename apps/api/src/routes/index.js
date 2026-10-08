@@ -1,7 +1,6 @@
 const express = require('express');
 const { createBusinessService } = require('../services/business-service');
 const { createAdminService } = require('../services/admin-service');
-const { createAnalyticsService } = require('../services/analytics-service');
 const { createTeamService } = require('../services/team-service');
 const { createEventWorkspaceService } = require('../services/event-workspace-service');
 const { createReferralLinkService } = require('../services/referral-link-service');
@@ -34,9 +33,8 @@ function createRouter(options) {
   const businessEventReuse = createBusinessEventReuseService({ models, permissions });
   const businessEventRead = createBusinessEventReadService({ models });
   const businessInstructionsRead = createBusinessInstructionsReadService({ models, permissions, email, deliveryTrackingConfigured });
-  const admin = createAdminService({ models, permissions, email, customerAppUrl });
+  const admin = createAdminService({ models, permissions });
   const adminSupport = require('../services/admin-support-service').createAdminSupportService({ models, permissions,notifications });
-  const analytics = createAnalyticsService({ models, permissions });
   const team = createTeamService({ models, permissions, email, businessAppUrl });
   const eventWorkspace = createEventWorkspaceService({ models, permissions, email, businessAppUrl });
   const referralLinks = createReferralLinkService({ models });
@@ -50,7 +48,7 @@ function createRouter(options) {
   const saved = createCustomerSavedService({ models });
   const admissions = createAdmissionsService({ models, permissions });
   const organizerMessages = require('../services/organizer-message-service').createOrganizerMessageService({ models, notifications, refunds: options.refunds });
-  const context = { router, publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl, businessAppUrl, qrTokenSecret, deliveryTrackingConfigured, business, businessRead, businessReports, adminReports, reportExports, businessTeamRead, businessEventReuse, businessEventRead, businessInstructionsRead, admin, adminSupport, analytics, team, eventWorkspace, referralLinks, myEvents, account, saved, admissions, stripe, paymentAccounts, paymentController };
+  const context = { router, publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl, businessAppUrl, qrTokenSecret, deliveryTrackingConfigured, business, businessRead, businessReports, adminReports, reportExports, businessTeamRead, businessEventReuse, businessEventRead, businessInstructionsRead, admin, adminSupport, team, eventWorkspace, referralLinks, myEvents, account, saved, admissions, stripe, paymentAccounts, paymentController };
   require('./public').registerPublicRoutes(context);
   require('./account').registerAccountRoutes(context);
   require('./business-access').registerBusinessAccessRoutes(context);

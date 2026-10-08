@@ -3,23 +3,26 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const eventDetail = readFileSync(new URL('../src/components/EventDetail.jsx', import.meta.url), 'utf8');
+const pagedDetail = readFileSync(new URL('../src/components/PagedEventDetail.jsx', import.meta.url), 'utf8');
+const eventSales = readFileSync(new URL('../src/components/EventSales.jsx', import.meta.url), 'utf8');
+const eventTeam = readFileSync(new URL('../src/components/EventTeam.jsx', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 const mobileStyles = readFileSync(new URL('../src/mobile.css', import.meta.url), 'utf8');
 
 test('event sales overview keeps attendee details without a separate recorded purchases list', () => {
-  assert.match(eventDetail, /<EventAttendees customers=\{data\.customers\} onSelect=\{setCustomer\}\/>/);
-  assert.doesNotMatch(eventDetail, /<h3>Recorded purchases<\/h3>/);
-  assert.doesNotMatch(eventDetail, /data\.purchases \|\| \[\]/);
+  assert.match(eventSales, /<EventAttendees customers=\{attendees\.result\?\.items \|\| \[\]\} onSelect=/);
+  assert.doesNotMatch(eventSales, /<h3>Recorded purchases<\/h3>/);
+  assert.doesNotMatch(eventSales, /data\.purchases \|\| \[\]/);
 });
 
 test('event summary metrics use concise labels and omit requested sublabels', () => {
-  assert.match(eventDetail, /label="Total sales" value=\{money\(s\.salesCents\)\}\/\>/);
-  assert.match(eventDetail, /label="Commissions" value=\{money\(s\.commissionCents\)\}\/\>/);
-  assert.doesNotMatch(eventDetail, /Revenue at a glance|Customer payments, including fees|Customer platform fees|customerPaidCents|platformFeeCents/);
-  assert.match(eventDetail, /label="Check-ins \/ expected" value=\{`\$\{s\.checkedIn\.toLocaleString\(\)\} \/ \$\{\(s\.admissions \+ s\.guestlistPlaces\)\.toLocaleString\(\)\}`\}\/\>/);
-  assert.match(eventDetail, /label="Paid orders" value=\{s\.orders\.toLocaleString\(\)\}\/\>/);
-  assert.doesNotMatch(eventDetail, /label="Checked in"/);
-  assert.match(eventDetail, /\{detail && <small>\{detail\}<\/small>\}/);
+  assert.match(pagedDetail, /label="Total sales" value=\{money\(summary\.salesCents\)\}\/\>/);
+  assert.match(pagedDetail, /label="Commissions" value=\{money\(summary\.commissionCents\)\}\/\>/);
+  assert.doesNotMatch(pagedDetail, /Revenue at a glance|Customer payments, including fees|Customer platform fees|customerPaidCents|platformFeeCents/);
+  assert.match(pagedDetail, /label="Check-ins \/ expected" value=\{`\$\{summary\.checkedIn\.toLocaleString\(\)\} \/ \$\{\(summary\.admissions \+ summary\.guestlistPlaces\)\.toLocaleString\(\)\}`\}\/\>/);
+  assert.match(pagedDetail, /label="Paid orders" value=\{summary\.orders\.toLocaleString\(\)\}\/\>/);
+  assert.doesNotMatch(pagedDetail, /label="Checked in"/);
+  assert.match(pagedDetail, /\{detail && <small>\{detail\}<\/small>\}/);
 });
 
 test('attendee table uses concise admission labels and aligns the three entry counts in one mobile row', () => {
@@ -42,7 +45,7 @@ test('attendee table uses concise admission labels and aligns the three entry co
 });
 
 test('attendee purchase details align their values beneath labels in a compact mobile card', () => {
-  assert.match(eventDetail, /className="event-customer-purchases"><EventTable/);
+  assert.match(eventSales, /className="event-customer-purchases"><EventTable/);
   assert.match(mobileStyles, /\.event-customer-purchases \.responsive-event-table tbody tr \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
   assert.match(mobileStyles, /\.event-customer-purchases \.responsive-event-table td:first-child \{ grid-column: 1 \/ -1;/);
   assert.match(mobileStyles, /\.event-customer-purchases \.responsive-event-table td:not\(:first-child\) \{ display: grid; grid-template-columns: minmax\(0, 1fr\); justify-items: center;/);
@@ -58,7 +61,7 @@ test('event detail tabs have a consistent segmented layout on desktop and mobile
 test('event details expose concise tabs and scope guestlist controls to this event', () => {
   const guestlists = readFileSync(new URL('../src/components/Guestlists.jsx', import.meta.url), 'utf8');
   const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  assert.match(eventDetail, /<Guestlists event=\{event\} initialEntryId=\{initialGuestlistEntryId\}/);
+  assert.match(pagedDetail, /<Guestlists event=\{event\}[^\n]*initialEntryId=\{initialGuestlistEntryId\}/);
   assert.match(guestlists, /const eventId = event.id/);
   assert.doesNotMatch(guestlists, /Guestlist event|<ShareEventCard/);
   assert.match(guestlists, /className="panel guest-experience-panel"/);
@@ -71,7 +74,7 @@ test('event Guestlist content uses the same panel inset as the other detail tabs
 });
 
 test('redundant tier schedule cards stay available on desktop but are hidden on mobile', () => {
-  assert.match(eventDetail, /className="tier-schedule-list"/);
+  assert.match(pagedDetail, /className="tier-schedule-list"/);
   assert.match(styles, /\.tier-schedule-list \{ display: grid;/);
   assert.match(mobileStyles, /@media \(max-width: 850px\) \{\s*\.event-detail \.tier-schedule-list \{ display: none; \}/);
 });
@@ -92,23 +95,22 @@ test('event Team places Add promoter beside its title and left-aligns the role f
 });
 
 test('event Team includes a sales donut for managers without exposing event-wide sales to own-only referrers', () => {
-  assert.match(eventDetail, /!ownOnly && <section className="panel event-team-sales-mix"/);
-  assert.match(eventDetail, /<SalesMixPie slices=\{eventTeamSalesSlices\(data\)\}\/>/);
-  assert.match(eventDetail, /<\/section>\}<section className="panel"><EventPeople/);
+  assert.match(eventTeam, /scope !== 'own' && <section className="panel event-team-sales-mix"/);
+  assert.match(eventTeam, /<SalesMixPie slices=\{teamSales\}\/>/);
+  assert.match(eventTeam, /<EventPeople data=\{\{ event, scope, people:/);
 });
 
 test('standalone Guestlists navigation is removed while notifications deep-link to event guest requests', () => {
   const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  const events = readFileSync(new URL('../src/components/Events.jsx', import.meta.url), 'utf8');
+  const events = readFileSync(new URL('../src/components/PagedEvents.jsx', import.meta.url), 'utf8');
   const notifications = readFileSync(new URL('../src/components/Notifications.jsx', import.meta.url), 'utf8');
   const guestlists = readFileSync(new URL('../src/components/Guestlists.jsx', import.meta.url), 'utf8');
   assert.doesNotMatch(app, /\["guestlists", Users, "Guestlists"\]|visiblePage === "guestlists"/);
   assert.match(app, /initialGuestlistEntryId=\{guestlistEntryToOpen\}/);
   assert.match(app, /key=\{`\$\{organizationScope.selection\}:\$\{eventNavigationRevision\}`\}/);
   assert.match(events, /initialGuestlistEntryId=\{selectedId === initialEventId \? initialGuestlistEntryId : null\}/);
-  assert.match(events, /selectedId !== initialEventId && !data.events.some/);
   assert.match(notifications, /onNavigate\('events', item.eventId, item.metadata\?\.entryId,\s*item.kind === 'guestlist_request' \? 'guestlist' : null\)/);
-  assert.match(eventDetail, /defaultValue=\{initialTab \|\| 'sales'\}/);
+  assert.match(pagedDetail, /useState\(\['sales', 'tickets', 'people', 'guestlist'\]\.includes\(initialTab\) \? initialTab : 'sales'\)/);
   assert.match(guestlists, /!initialEntryHandledRef.current && initialEntryId && entries.some\(\(entry\) => entry.id === initialEntryId\)/);
   assert.match(guestlists, /initialEntryHandledRef.current = true;/);
 });
@@ -143,11 +145,11 @@ test('event Team pagination keeps its heading-specific scroll target', () => {
 });
 
 test('event detail card separates status, venue identity, address and full-width description', () => {
-  assert.match(eventDetail, /<section className="event-detail-hero"><span className=\{`event-detail-status status-pill \$\{phase\}`}\>/);
-  assert.match(eventDetail, /<div className="event-detail-heading"><h2>\{event\.title\}<\/h2>/);
-  assert.match(eventDetail, /className="event-detail-venue"><MapPin size=\{16\}\/>{event\.location\.name}/);
-  assert.match(eventDetail, /className="event-detail-address">\{\[event\.location\?\.addressLine1/);
-  assert.match(eventDetail, /className="event-detail-summary">\{event\.summary\}/);
+  assert.match(pagedDetail, /<section className="event-detail-hero"><span className=\{`event-detail-status status-pill \$\{phase\}`}\>/);
+  assert.match(pagedDetail, /<div className="event-detail-heading"><h2>\{event\.title\}<\/h2>/);
+  assert.match(pagedDetail, /className="event-detail-venue"><MapPin size=\{16\}\/>{event\.location\.name}/);
+  assert.match(pagedDetail, /className="event-detail-address">\{\[event\.location\?\.addressLine1/);
+  assert.match(pagedDetail, /className="event-detail-summary">\{event\.summary\}/);
   assert.match(styles, /\.event-detail-summary \{ grid-column: 1 \/ -1; width: 100%;/);
   assert.match(styles, /\.event-detail-status \{ position: absolute; top: 14px; right: 18px; \}/);
   assert.match(mobileStyles, /\.event-detail-hero > \.event-detail-heading \{ grid-column: 2; grid-row: 1; padding-top: 23px; \}/);

@@ -120,6 +120,58 @@ test('customer header reads follow navigation and explicit inbox actions without
       view.unmount(); view = null;
     });
 
+    await t.test('Clear all keeps unread notifications after failure and clears the list and badge after a successful retry', async () => {
+      dom.window.document.body.innerHTML = '<div id="root"></div>';
+      calls.length = 0;
+      const items = ['first', 'second'].map(id => ({ id, title: `Update ${id}`, message: `Details ${id}`, createdAt: '2026-10-01', readAt: null }));
+      let clears = 0;
+      globalThis.fetch = async (path, options = {}) => {
+        calls.push({ path, options });
+        if (path === notifications) return response({ items, unreadCount: 2, hasMore: true });
+        if (path === '/api/notifications' && options.method === 'DELETE') {
+          clears += 1;
+          return clears === 1
+            ? new Response(JSON.stringify({ error: { message: 'Notifications could not be cleared yet.' } }), { status: 503, headers: { 'content-type': 'application/json' } })
+            : response({});
+        }
+        throw new Error(`Unexpected request: ${path}`);
+      };
+      const opened = [];
+      view = render(React.createElement(Notifications, { session, refreshKey: 'discover', onNotification: item => opened.push(item) }), { container: dom.window.document.getElementById('root') });
+      await user.click(await screen.findByRole('button', { name: 'Notifications, 2 unread' }));
+      await screen.findByText('Update first');
+      await screen.findByText('Update second');
+      await waitFor(() => assert.equal(count(notifications), 2));
+      await user.click(screen.getByRole('button', { name: 'Clear all', exact: true }));
+      await screen.findByRole('alert');
+      assert.match(screen.getByRole('alert').textContent, /Notifications could not be cleared yet/);
+      for (const item of items) assert.ok(screen.getByRole('button', { name: new RegExp(item.title) }));
+      assert.ok(dom.window.document.querySelector('button[aria-label="Notifications, 2 unread"]'), 'the failed clear preserves the unread badge');
+      assert.equal(screen.getByRole('button', { name: 'Clear all', exact: true }).disabled, false);
+      assert.ok(screen.getByRole('button', { name: 'More notifications' }));
+      await user.click(screen.getByRole('button', { name: 'Clear all', exact: true }));
+      await screen.findByText('No notifications yet.');
+      assert.equal(screen.getByRole('button', { name: 'Clear all', exact: true }).disabled, true);
+      assert.equal(screen.queryByRole('button', { name: 'More notifications' }), null);
+      for (const item of items) assert.equal(screen.queryByText(item.title), null);
+      const clearRequests = calls.filter(call => call.path === '/api/notifications');
+      assert.equal(clearRequests.length, 2);
+      for (const { options } of clearRequests) {
+        assert.equal(options.method, 'DELETE');
+        assert.equal(options.headers.Authorization, 'Bearer header-account');
+        assert.equal(options.body, undefined);
+      }
+      assert.equal(count(notifications), 2, 'clearing does not refetch or reopen individual updates');
+      assert.deepEqual(opened, []);
+      await user.click(screen.getByRole('button', { name: 'Close notifications' }));
+      await screen.findByRole('button', { name: 'Notifications', exact: true });
+      assert.equal(screen.queryByRole('button', { name: 'Notifications, 2 unread' }), null);
+      const before = calls.length;
+      await passiveEvents();
+      assert.equal(calls.length, before, 'the cleared inbox still ignores passive events');
+      view.unmount(); view = null;
+    });
+
     await t.test('changing accounts aborts header reads and prevents old replies from starting new-account follow-up requests', async () => {
       dom.window.document.body.innerHTML = '<div id="root"></div>';
       const pending = [], received = [];

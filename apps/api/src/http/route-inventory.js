@@ -112,21 +112,11 @@ const routeInventory = [
   { method: 'patch', path: '/admin/support/cases/:id', successStatuses: [200] },
   { method: 'get', path: '/admin/overview/needs-attention', successStatuses: [200] },
   {
-    "method": "get",
-    "path": "/admin/analytics",
-    "successStatuses": []
-  },
-  {
     "method": "post",
     "path": "/admin/demo-users",
     "successStatuses": [
       201
     ]
-  },
-  {
-    "method": "patch",
-    "path": "/admin/events/:id",
-    "successStatuses": []
   },
   {
     "method": "get",
@@ -206,11 +196,6 @@ const routeInventory = [
     ]
   },
   {
-    "method": "patch",
-    "path": "/admin/organizations/:id",
-    "successStatuses": []
-  },
-  {
     "method": "get",
     "path": "/admin/overview",
     "successStatuses": [
@@ -245,11 +230,6 @@ const routeInventory = [
     "successStatuses": [
       200
     ]
-  },
-  {
-    "method": "patch",
-    "path": "/admin/users/:id",
-    "successStatuses": []
   },
   {
     "method": "get",
@@ -388,11 +368,6 @@ const routeInventory = [
     "successStatuses": [
       200
     ]
-  },
-  {
-    "method": "get",
-    "path": "/business/analytics",
-    "successStatuses": []
   },
   {
     "method": "get",
@@ -723,11 +698,6 @@ const routeInventory = [
     "successStatuses": [
       200
     ]
-  },
-  {
-    "method": "get",
-    "path": "/business/workspace",
-    "successStatuses": []
   },
   {
     "method": "post",

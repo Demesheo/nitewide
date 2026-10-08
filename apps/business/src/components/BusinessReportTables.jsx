@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowRight, ChevronRight } from 'lucide-react';
+import { ArrowDownToLine, ChevronRight } from 'lucide-react';
 import { api } from '@/lib/api';
 import { eventDateLabel, money } from '@/lib/business';
 import { reportQuery, downloadBusinessReport } from '@/lib/report-client';

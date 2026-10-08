@@ -189,6 +189,40 @@ Related frontend cases now share only their Vite transformation server: payment 
 
 Business-read integration keeps a full 503-event owner traversal with unique stable ordering. Manager, employee and suspended-former-owner/promoter roles compare exact first/final IDs, totals, page/hasMore and management/edit permissions; independent scope, own-sales sorting, aggregates and attention remain. Twelve duplicate intermediate-page requests and six repeated schema-invalid requests are removed. All 31 required database suites remain active; optional query-plan profiling is described above.
 
+## October 8 production-candidate cleanup
+
+Current browser discovery selects **166 cases: 160 runnable and the same six
+intentional cross-app skips**, down from 170/164 immediately before this pass.
+Both devices remain required: Customer 31, Business 30, and Admin 22 selections
+per device. The four CI lanes and all six browser projects are unchanged.
+
+- The standalone Customer Clear all browser journey is retired. Rendered
+  Customer interactions cover the exact clear request, failed-clear retention,
+  and successful inbox/badge clearing. The required customer-experience database
+  suite covers authenticated, user-scoped, idempotent dismissal persistence,
+  unread counts, other users, and retained booking records. These complementary
+  checks do not claim the removed browser's click-and-reload path is still run.
+- The mocked Admin business-venue mutation journey is retired. The surviving
+  real Business shared-dialog journey checks create, rename, promoter grant,
+  and revocation, including versions, audit reasons, persisted results, and
+  mobile layout. Required venue API permission/history checks remain. The Admin
+  parent wrapper's mocked submission path is deliberately not retained.
+- Four merchant-screen journeys with mocked payment data use the smaller
+  `business-auth` recipe, not unnecessary event/order fixtures. Actual event
+  merchant routing and shared-sandbox journeys retain their commerce fixtures.
+- Customer-only My events denial and real Admin approval create fresh real API
+  sessions rather than replaying login forms. Dedicated UI login/session,
+  customer access denial, and no-access-before-acceptance coverage remain.
+
+Tests for unreachable legacy Admin tables/operations and Business
+Team/Events/EventDetail/Analytics implementations were removed with that code.
+Current paginated interfaces, rendered interactions, and independent payment,
+authorization, invitation, referral, QR, checkout-race, and export boundaries
+remain. SQL reconciliation oracles and financial policy variants are retained.
+No timeout/retry increases, mandatory database suite removal, or claimed hosted
+CI speedup accompanies this reduction. Complete release verification is still
+required on the final tree.
+
 ## Selectors and HTML conventions
 
 Prefer `getByRole` and `getByLabel` with exact accessible names. Scope repeated buttons to their card, table, dialog or pagination group. Stable `data-testid` attributes identify record/card surfaces where names are duplicated: `customer-event-card`, `customer-event-details`, `offering-editor`, `admission-credential`, `admin-record`. Record IDs are in `data-event-id`, `data-offering-id`, `data-credential-id` and `data-record-id`.

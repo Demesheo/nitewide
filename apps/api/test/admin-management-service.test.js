@@ -370,13 +370,6 @@ test('guestlist hard deletion is disabled and checked-in admissions cannot be ca
   await assert.rejects(() => admitted.service.action(ADMIN, 'guestlist', EVENT, 'cancel', { reason: WHY }), { code: 'GUESTLIST_NOT_CANCELLABLE' });
 });
 
-test('hard-delete attempts never remove financial history, even when a user has orders', async () => {
-  const user = record(USER, { displayName: 'User', email: 'user@example.test' });
-  const context = fixture({ rows: { User: [user] }, related: { [`Order.buyerUserId.${USER}`]: 1 } });
-  await assert.rejects(() => context.service.remove(ADMIN, 'users', USER, { reason: WHY }), { code: 'HARD_DELETE_DISABLED' });
-  assert.equal(user.destroyed, undefined);
-});
-
 test('a user with only security children is still retained by the admin surface', async () => {
   const target = record(USER, { displayName: 'No-history user', email: 'clean@example.test' });
   const context = fixture({

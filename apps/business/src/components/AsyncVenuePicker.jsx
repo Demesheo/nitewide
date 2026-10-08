@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
 import './venue-workspace/venues.css';
 import SubmittedSearch from './SubmittedSearch';
 

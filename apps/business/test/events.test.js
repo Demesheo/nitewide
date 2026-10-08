@@ -15,11 +15,6 @@ test('removing an offering unlinks only its dependents and preserves the origina
   assert.deepEqual(removeOffering([{id:'last'}],'last'),[]);
 });
 
-test('event collection defaults to the earliest event date and time first', () => {
-  const component = readFileSync(new URL('../src/components/Events.jsx', import.meta.url), 'utf8');
-  assert.match(component, /<EventTable searchable=\{false\} rows=\{rows\} onSelect=\{\(e\) => setSelectedId\(e\.id\)\} onPageChange=\{scrollToCollection\} defaultSort="date" defaultDescending=\{false\}/);
-});
-
 test('event team multiselect offers only present roles and combines selected roles', () => {
   const people = [{role:'Owner'},{role:'Employee'},{role:'Employee'},{role:'Manager'}];
   assert.deepEqual(eventTeamRoles(people).map((r)=>r.id),['Employee','Manager','Owner']);

@@ -12,16 +12,6 @@ const venueGroupExpression = `CONCAT_WS('|', COALESCE(e.organization_id::text, '
   ${cleanSql('loc.name')}, ${cleanSql('loc.address_line1')}, ${cleanSql('loc.city')},
   ${cleanSql('loc.region')}, ${cleanSql('loc.country_code')})`;
 
-function topWithOther(rows, limit = 12) {
-  if (rows.length <= limit) return rows;
-  const top = rows.slice(0, limit);
-  const other = rows.slice(limit).reduce((result, row) => ({ ...result,
-    salesCents: result.salesCents + number(row.salesCents),
-    orders: result.orders + number(row.orders), units: result.units + number(row.units) }),
-  { id: 'other', label: 'Other', salesCents: 0, orders: 0, units: 0 });
-  return [...top, other];
-}
-
 function csvRow(values) {
   return values.map((value) => {
     let text = String(value ?? '');
@@ -402,4 +392,4 @@ function createBusinessReportService({ models, businessRead, now = () => new Dat
   return { summary, summaryQuery, table, prepareTable, source, tableSql };
 }
 
-module.exports = { createBusinessReportService, period, topWithOther, csvRow };
+module.exports = { createBusinessReportService, period, csvRow };

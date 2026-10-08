@@ -1,23 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { TermsLink } from '../../shared/terms-and-conditions.jsx';
-import {
-  ArrowUpRight,
-  ArrowRight,
-  MapPin,
-  CalendarDays,
-  Search,
-  Ticket,
-  Users,
-  Minus,
-  Plus,
-  Check,
-  LoaderCircle,
-  Compass,
-  X,
-  Share,
-  Heart,
-  LogIn,
-} from "lucide-react";
+import { ArrowUpRight, ArrowRight, MapPin, Search, Ticket, Users, Minus, Plus, Check, Compass, X, Share, Heart, LogIn } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Badge } from "./components/ui/badge";
 import {

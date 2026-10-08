@@ -18,7 +18,7 @@ test('sensitive endpoint classification covers uploads, exports, invitations and
     ['GET', '/guestlist-invitations/token/pass', 'guestlist_link'],
     ['POST', '/admin/onboarding', 'invitation'], ['POST', '/auth/onboarding/accept', 'recovery'],
     ['POST', '/business/uploads/image', 'upload'], ['GET', '/business/reports/export.csv', 'export'],
-    ['GET', '/business/reports/events', 'report'], ['GET', '/admin/analytics', 'report'],
+    ['GET', '/business/reports/events', 'report'], ['GET', '/admin/reports/summary', 'report'],
     ['GET', '/auth/sessions', 'session'], ['GET', '/media/images/123', null],
     ['POST', '/AUTH/SIGN-IN/', 'login'], ['HEAD', '/business/reports/export.csv', 'export'],
     ['POST', '/admin/management/team_invitations', 'invitation'],

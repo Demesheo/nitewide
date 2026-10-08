@@ -6,10 +6,6 @@ export const guestlistStatuses = [
   { id: 'no_show', label: 'No-show' },
 ];
 
-export function guestlistEventName(title, maxLength = 36) {
-  return title.length > maxLength ? `${title.slice(0, maxLength)}…` : title;
-}
-
 export function compactGuestlistSourceName(name) {
   if (name === 'Direct' || name === 'Unknown referrer') return name;
   const parts = name.trim().split(/\s+/);
