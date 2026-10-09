@@ -42,7 +42,12 @@ function DirectoryRecords({ section, resourceKey, params, onUpdate, onOpenRecord
   const result = useAdminResource(`/admin/management/${key}?${listQuery(params)}`, refresh);
   const resource = metadata.data?.find((item) => item.key === key);
   const change = (values) => onUpdate({ ...values, page: 1 });
-  const changed = (record) => { setCreating(false); setOnboarding(false); setRefresh((value) => value + 1); if (record?.id) onOpenRecord(key, record.id); };
+  const changed = (record) => {
+    setCreating(false); setOnboarding(false); setRefresh((value) => value + 1);
+    // Inviting a person returns an invitation; its id is not the person's id.
+    const id = key === 'users' ? record?.userId : record?.id;
+    if (id) onOpenRecord(key, id);
+  };
   const searchLabel = { users: 'Search people', organizations: 'Search businesses', events: 'Search events', audit: 'Search change history' }[key];
   const placeholder = { users: 'Name, phone, email or ID', organizations: 'Business name', events: 'Event title', audit: 'Action or description' }[key];
   const selected = selectedStatuses(params);

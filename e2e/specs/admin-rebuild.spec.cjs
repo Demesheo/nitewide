@@ -119,7 +119,12 @@ async function mockAdmin(page, { role = 'platform_owner' } = {}) {
       const [, , , resource, id, actions, action] = path.split('/');
       let rows = state.relatedRows[resource] || (resource === 'users' ? people : resource === 'organizations' ? [state.business] : resource === 'locations' ? state.venues : resource === 'events' ? [state.event] : resource === 'offerings' ? event.offerings : resource === 'orders' ? [{ id: uuid(5), totalCents: 1700, status: 'paid', eventId: event.id }] : []);
       const record = rows.find((item) => item.id === id);
-      if (id && method === 'PATCH') { Object.assign(record, body, { version: record.version + 1 }); data = record; }
+      if (!id && resource === 'users' && method === 'POST') {
+        const person = { ...body, id: uuid(900), isActive: true, lifecycleState: 'active', onboardingPending: true, version: 0, createdAt: '2026-10-01T12:00:00Z' };
+        people.push(person);
+        data = { id: uuid(901), userId: person.id, email: person.email, accountMode: 'new', delivery: 'queued' };
+      }
+      else if (id && method === 'PATCH') { Object.assign(record, body, { version: record.version + 1 }); data = record; }
       else if (actions === 'actions') { record.lifecycleState = action === 'restore' ? 'active' : action === 'archive' ? 'archived' : 'suspended'; record.version++; data = record; }
       else if (id) data = record;
       else { const needle = (url.searchParams.get('search') || '').toLowerCase(); rows = rows.filter((item) => [item.displayName, item.name, item.title, item.email, item.phone, item.organization?.name, item.location?.name, item.id].join(' ').toLowerCase().includes(needle)); if (url.searchParams.getAll('statuses').length) rows = rows.filter((item) => url.searchParams.getAll('statuses').some((status) => matchesStatus(item, status, resource))); if (url.searchParams.get('userId')) { const userId = url.searchParams.get('userId'); if (['team_invitations', 'guestlist_invitations'].includes(resource)) rows = rows.filter((item) => url.searchParams.get('relation') === 'sent' ? item.invitedByUserId === userId : item.acceptedByUserId === userId || item.email === people.find((person) => person.id === userId)?.email); else if (resource !== 'audit') rows = rows.filter((item) => (item.userId || item.buyerUserId || item.holderUserId) === userId); } if (resource === 'events' && (url.searchParams.get('startDate') || url.searchParams.get('endDate'))) rows = rows.filter((item) => { const day = new Intl.DateTimeFormat('en-CA', { timeZone: url.searchParams.get('timezone') || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(item.startsAt)); return (!url.searchParams.get('startDate') || day >= url.searchParams.get('startDate')) && (!url.searchParams.get('endDate') || day <= url.searchParams.get('endDate')); }); data = paged(rows, url.searchParams); }
@@ -484,6 +489,28 @@ test('People search, status filters, audited edits and scoped activity retain th
   });
   await test.step('returning restores page two with the persisted edit', async () => {
     await page.getByRole('button', { name: 'Back to results' }).click(); await expect(page.getByText('Page 2 of 2')).toBeVisible(); await expect(page.getByTestId('admin-record').first()).toContainText('Person Updated');
+  });
+  await test.step('invitation completion opens the person, not the invitation, and preserves the directory return', async () => {
+    const origin = page.url();
+    await page.getByRole('button', { name: 'Invite person', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Create person', exact: true });
+    await dialog.getByLabel(/^Display name/).fill('Invited Person');
+    await dialog.getByLabel(/^Email/).fill('invited@example.test');
+    await dialog.getByLabel('Required audit reason').fill('Verified account invitation');
+    await dialog.getByRole('button', { name: 'Create record', exact: true }).click();
+    await expect(dialog).toContainText('Account setup email is queued, not yet confirmed delivered.');
+    await expect(page).toHaveURL(origin);
+    expect(state.requests.filter((item) => item.method === 'POST' && item.path === '/admin/management/users')).toHaveLength(1);
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`resource=users&record=${uuid(900)}&`));
+    await expect(page.getByRole('heading', { name: 'Invited Person', exact: true })).toBeVisible();
+    await expect(page.getByText('Waiting for the person to accept their secure invitation', { exact: true })).toBeVisible();
+    expect(state.requests.some((item) => item.path === `/admin/management/users/${uuid(901)}`)).toBe(false);
+    await expectNoOverflow(page);
+    await page.getByRole('button', { name: 'Back to results' }).click();
+    await expect(page).toHaveURL(origin);
+    await expect(page.getByText('31 people', { exact: true })).toBeVisible();
+    await expect(page.getByText('Page 2 of 2')).toBeVisible();
   });
 });
 
