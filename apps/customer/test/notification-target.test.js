@@ -47,6 +47,16 @@ test('non-booking navigation preserves existing mark-as-read behavior', async ()
   await activateNotification({ id: 'notice' }, async () => false, async (path, options) => { assert.equal(path, '/notifications/notice/read'); assert.equal(options.method, 'POST'); });
   await activateNotification({ id: 'notice', readAt: 'yesterday' }, async () => false, () => assert.fail('already read'));
 });
+test('schedule updates open the event details and are marked read without exposing booking credentials', async () => {
+  const item = { id: 'schedule-notice', kind: 'event_time_changed', eventId: 'event', metadata: { eventVersion: 2 } };
+  assert.deepEqual(notificationTarget(item), { type: 'event', id: 'event' });
+  await activateNotification(item, async notice => {
+    assert.deepEqual(notificationTarget(notice), { type: 'event', id: 'event' });
+    return false;
+  }, async (path, options) => {
+    assert.equal(path, '/notifications/schedule-notice/read'); assert.equal(options.method, 'POST');
+  });
+});
 test('unfinished purchases resume the original order and keep their reminder until payment is terminal', async () => {
   const item = { id: 'order', kind: 'checkout_pending', eventId: 'event', metadata: { orderId: 'order' } };
   assert.deepEqual(notificationTarget(item), { type: 'checkout', id: 'order' });

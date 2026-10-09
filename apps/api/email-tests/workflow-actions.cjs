@@ -150,6 +150,7 @@ async function collectWorkflowMessages(runLabel) {
   }
 
   function eventFixture(kind) {
+    const notifications = [];
     const buyer = { id: `event-user-${kind}-${runLabel}`, email: recipient(`event-${kind}`, runLabel), displayName: 'Nitewide Test', isActive: true };
     const oldLocation = { id: `old-location-${kind}-${runLabel}`, name: 'Test venue', addressLine1: '100 First St', city: 'Orlando', region: 'FL', timezone: 'America/New_York' };
     const locations = new Map([[oldLocation.id, oldLocation]]);
@@ -173,6 +174,7 @@ async function collectWorkflowMessages(runLabel) {
       Ticket: { count: async () => 0 },
       Order: { findAll: async () => [{ id: `event-order-${kind}-${runLabel}`, buyerUserId: buyer.id }] },
       User: { findAll: async () => [buyer], findByPk: async () => buyer },
+      Notification: { create: async (values) => { notifications.push(values); return values; } },
       AuditLog: { create: async () => ({ id: `audit-${kind}-${runLabel}` }) },
     };
     const permissions = { assertManageEvent: async () => event };
@@ -181,7 +183,7 @@ async function collectWorkflowMessages(runLabel) {
       guestlistCapacity: 10, capacity: 20, location: { name: oldLocation.name, addressLine1: oldLocation.addressLine1,
         city: oldLocation.city, region: oldLocation.region, postalCode: '32801', countryCode: 'US', timezone: oldLocation.timezone,
         privacy: 'public' }, offerings: [] };
-    return { event, models, permissions, input };
+    return { event, models, permissions, input, notifications };
   }
 
   for (const [kind, name, template, mutate] of [
@@ -193,6 +195,8 @@ async function collectWorkflowMessages(runLabel) {
     mutate(fixture.input);
     const business = createBusinessService({ models: fixture.models, permissions: fixture.permissions, email, customerAppUrl: APP_URL });
     await action(name, template, () => business.saveEvent('manager', fixture.event.id, fixture.input));
+    assert.equal(fixture.notifications.length, kind === 'time' ? 1 : 0);
+    if (kind === 'time') assert.equal(fixture.notifications[0].kind, 'event_time_changed');
   }
 
   {

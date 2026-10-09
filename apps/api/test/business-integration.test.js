@@ -1018,6 +1018,74 @@ test(
       assert.equal(sold.status, 201, JSON.stringify(sold.body));
       await require('../src/services/notification-job-service').createNotificationJobService({ sequelize, models: m }).drain({ maxJobs: 100 });
       assert.ok((await req('/notifications', ids.owner)).body.data.items.some((item) => item.kind === 'offering_sold_out' && item.eventId === selloutEvent.body.data.id));
+      await t.test('schedule changes reach the attendee inbox without email, deduplicate bookings and roll back with failed saves', async () => {
+        assert.equal(app.locals.emailService.enabled, false, 'ordinary tests never enable email delivery');
+        const extra = { unverified: randomUUID(), inactive: randomUUID(), rejected: randomUUID(), refunded: randomUUID(), admin: randomUUID() };
+        users.push(...Object.values(extra));
+        await m.User.bulkCreate(Object.entries(extra).map(([key, id]) => ({ id, displayName: `Schedule ${key}`,
+          email: `${id}@integration.nitewide.test`, isActive: key !== 'inactive',
+          isInternalAdmin: key === 'admin', internalAdminRole: key === 'admin' ? 'platform_owner' : null })));
+        const created = await req('/business/events', ids.owner, 'POST', { ...input, title: 'Schedule inbox fixture', offerings: [] });
+        assert.equal(created.status, 201, JSON.stringify(created.body));
+        const event = created.body.data;
+        events.push(event.id); locations.add(event.locationId);
+        await m.Order.bulkCreate([
+          { buyerUserId: ids.outsider, status: 'paid' }, { buyerUserId: ids.outsider, status: 'paid' },
+          { buyerUserId: extra.inactive, status: 'paid' }, { buyerUserId: extra.refunded, status: 'refunded' },
+          { buyerUserId: ids.promoter, status: 'pending' },
+        ].map(row => ({ ...row, eventId: event.id, idempotencyKey: randomUUID() })));
+        await m.GuestlistEntry.bulkCreate([
+          { userId: ids.outsider, status: 'confirmed' }, { userId: ids.invitedDirect, status: 'pending' },
+          { userId: ids.invitedEmployee, status: 'checked_in' }, { userId: extra.unverified, status: 'confirmed' },
+          { userId: extra.rejected, status: 'rejected' }, { userId: null, guestName: 'Anonymous fixture', status: 'confirmed' },
+        ].map(row => ({ ...row, eventId: event.id, source: 'event', partySize: 1 })));
+        await m.User.update({ notificationPreferences: { reviewRequests: false, salesActivity: false, inventoryAlerts: false } }, { where: { id: ids.outsider } });
+        const edit = { ...input, version: event.version, title: event.title, offerings: [],
+          startsAt: new Date(Date.parse(event.startsAt) - 3600000).toISOString(),
+          endsAt: new Date(Date.parse(event.endsAt) - 3600000).toISOString() };
+        const notices = () => m.Notification.findAll({ where: { eventId: event.id, kind: 'event_time_changed' } });
+        assert.equal((await req(`/business/events/${event.id}`, ids.employee, 'PUT', edit)).status, 403);
+        assert.equal((await notices()).length, 0);
+        const auditCount = await m.AuditLog.count({ where: { entityType: 'Event', entityId: event.id } });
+        const createNotification = m.Notification.create;
+        let attempts = 0;
+        try {
+          m.Notification.create = function (values, options) {
+            if (values.kind === 'event_time_changed' && ++attempts === 2) throw new Error('Simulated inbox write failure');
+            return createNotification.call(this, values, options);
+          };
+          assert.equal((await req(`/business/events/${event.id}`, ids.owner, 'PUT', edit)).status, 500);
+        } finally { m.Notification.create = createNotification; }
+        assert.equal(attempts, 2);
+        assert.equal((await notices()).length, 0, 'rollback removes the first inbox write too');
+        const unchanged = await m.Event.findByPk(event.id);
+        assert.equal(unchanged.version, event.version); assert.equal(unchanged.startsAt.toISOString(), event.startsAt);
+        assert.equal(await m.AuditLog.count({ where: { entityType: 'Event', entityId: event.id } }), auditCount);
+        const saved = await req(`/business/events/${event.id}`, ids.owner, 'PUT', edit);
+        assert.equal(saved.status, 200, JSON.stringify(saved.body)); locations.add(saved.body.data.locationId);
+        const expected = [ids.outsider, ids.invitedDirect, ids.invitedEmployee, extra.unverified].sort();
+        assert.deepEqual((await notices()).map(row => row.userId).sort(), expected);
+        for (const userId of expected) {
+          const inbox = (await req('/notifications', userId)).body.data;
+          const notice = inbox.items.find(row => row.eventId === event.id && row.kind === 'event_time_changed');
+          assert.ok(notice); assert.equal(notice.readAt, null); assert.ok(inbox.unreadCount > 0);
+          assert.equal(notice.metadata.eventVersion, saved.body.data.version);
+          assert.match(notice.message, /Schedule inbox fixture.*changed from/);
+        }
+        assert.equal((await req(`/business/events/${event.id}`, ids.owner, 'PUT', edit)).status, 409);
+        assert.equal((await notices()).length, 4, 'retrying the old version cannot duplicate updates');
+        const unchangedSchedule = await req(`/business/events/${event.id}`, ids.owner, 'PUT', { ...edit, version: saved.body.data.version, title: 'Unrelated title edit' });
+        assert.equal(unchangedSchedule.status, 200, JSON.stringify(unchangedSchedule.body)); locations.add(unchangedSchedule.body.data.locationId);
+        assert.equal((await notices()).length, 4, 'unrelated edits do not notify attendees again');
+        const preview = await req(`/admin/events/${event.id}/notification-preview`, extra.admin);
+        assert.equal(preview.status, 200, JSON.stringify(preview.body)); assert.equal(preview.body.data.recipients, 4);
+        const adminChange = await req(`/admin/events/${event.id}`, extra.admin, 'PUT', { ...edit,
+          version: unchangedSchedule.body.data.version, title: unchangedSchedule.body.data.title,
+          endsAt: new Date(Date.parse(edit.endsAt) + 3600000).toISOString(), adminReason: 'Corrected end time after organizer confirmation' });
+        assert.equal(adminChange.status, 200, JSON.stringify(adminChange.body)); locations.add(adminChange.body.data.locationId);
+        const adminNotices = (await notices()).filter(row => row.metadata.eventVersion === adminChange.body.data.version);
+        assert.deepEqual(adminNotices.map(row => row.userId).sort(), expected, 'Admin edits use the same attendee delivery path');
+      });
     } finally {
       if (server) await new Promise((resolve) => server.close(resolve));
       // Resolve all fixture locations, including any created just before a failed assertion.

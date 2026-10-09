@@ -143,6 +143,43 @@ paginationTest('booking pagination, guestlist passes and notifications navigate 
     await page.getByRole('button', { name: /^Notifications/ }).click();
     await expect(page.getByText('No notifications yet.', { exact: true })).toBeVisible();
   });
+  await test.step('a real schedule edit appears on navigation and opens the updated event from the inbox', async () => {
+    await page.getByRole('button', { name: 'Close notifications', exact: true }).click();
+    const signedIn = await page.request.post(`${urls.api}/api/auth/business/sign-in`, {
+      data: { email: fixture.accounts.business.email, password: fixture.password },
+    });
+    expect(signedIn.ok()).toBeTruthy();
+    const headers = { Authorization: `Bearer ${(await signedIn.json()).data.accessToken}` };
+    const summary = await page.request.get(`${urls.api}/api/business/events/${fixture.ids.event}/summary`, { headers });
+    expect(summary.ok()).toBeTruthy();
+    const event = (await summary.json()).data.event;
+    const startsAt = new Date(Date.parse(event.startsAt) + 3600000).toISOString();
+    const changed = await page.request.put(`${urls.api}/api/business/events/${event.id}`, { headers, data: {
+      ...event, summary: event.summary || '', description: event.description || '',
+      startsAt, endsAt: new Date(Date.parse(event.endsAt) + 3600000).toISOString(),
+      offerings: event.offerings.map(tier => ({ ...tier, description: tier.description || '', releaseAfterIndex: null })),
+    } });
+    expect(changed.ok(), JSON.stringify(await changed.json())).toBeTruthy();
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Discover', exact: true }).click();
+    await page.getByRole('button', { name: 'Notifications, 1 unread', exact: true }).click();
+    const notice = page.getByRole('button', { name: /Event schedule changed/ });
+    await expect(notice).toContainText('Playwright Friday Night');
+    await expect(notice).toContainText('changed from');
+    await expectNoOverflow(page);
+    const read = page.waitForResponse(response => /\/notifications\/[^/]+\/read$/.test(new URL(response.url()).pathname) && response.request().method() === 'POST');
+    const fetchedEvent = page.waitForResponse(response => new URL(response.url()).pathname === `/api/events/${event.id}` && response.request().method() === 'GET');
+    await notice.click();
+    expect((await read).ok()).toBeTruthy();
+    expect((await (await fetchedEvent).json()).data.startsAt).toBe(startsAt);
+    const details = page.getByTestId('customer-event-details');
+    await expect(details.getByRole('heading', { name: event.title, exact: true })).toBeVisible();
+    await details.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.getByRole('button', { name: 'Notifications', exact: true }).click();
+    await expect(page.getByRole('button', { name: /Event schedule changed/ })).not.toContainText('Unread');
+    await page.reload();
+    await page.getByRole('button', { name: 'Notifications', exact: true }).click();
+    await expect(page.getByRole('button', { name: /Event schedule changed/ })).not.toContainText('Unread');
+  });
 });
 
 test('pending guest can edit party size and withdraw without an admission QR', async ({ page, fixture }) => {

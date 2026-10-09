@@ -2,6 +2,8 @@ const { conflict, forbidden } = require('../domain/errors');
 const { assertEventEditable } = require('../domain/event-policy');
 const { activeUser, assertActiveEvent, assertActiveOrganization } = require('./lifecycle-service');
 const { queueEventEmail, formatTime, venueName } = require('./email-events');
+const { audienceForEvent } = require('./event-attendee-audience');
+const { createNotificationService } = require('./notification-service');
 const { queueBusinessEventStatus } = require('./business-email-events');
 const { assertEditorPricing } = require('../domain/editor-pricing-policy');
 const { assertPaidPublication } = require('./payment-readiness-service');
@@ -72,7 +74,17 @@ async function recordEventMutation({ models, email, userId, saved, before, offer
     await queueBusinessEventStatus({ email, models, event: saved, change: 'Cancelled', details: 'Sales have stopped. Refunds are not automatic; coordinate them separately.', actionId: `cancelled-${saved.version}`, businessAppUrl, transaction });
   } else if (saved.status === 'published') {
     if (Math.abs(+new Date(before.startsAt) - +new Date(saved.startsAt)) >= 15 * 60 * 1000 || Math.abs(+new Date(before.endsAt) - +new Date(saved.endsAt)) >= 15 * 60 * 1000) {
-      await queueEventEmail({ email, models, event: saved, kind: 'timeChange', variables: { OLD_TIME: `${formatTime(before.startsAt, previousLocation?.timezone)} – ${formatTime(before.endsAt, previousLocation?.timezone)}`, NEW_TIME: `${formatTime(saved.startsAt, location?.timezone)} – ${formatTime(saved.endsAt, location?.timezone)}` }, customerAppUrl, transaction, key: `time-${saved.version}` });
+      const variables = { OLD_TIME: `${formatTime(before.startsAt, previousLocation?.timezone)} – ${formatTime(before.endsAt, previousLocation?.timezone)}`, NEW_TIME: `${formatTime(saved.startsAt, location?.timezone)} – ${formatTime(saved.endsAt, location?.timezone)}` };
+      const audience = await audienceForEvent(models, saved.id, transaction);
+      const notifications = createNotificationService(models);
+      // Save the inbox update and email outbox with the event. A rejected or
+      // rolled-back edit cannot send; a stale-version retry cannot duplicate it.
+      for (const { user } of audience) await notifications.emit({ userId: user.id, eventId: saved.id,
+        kind: 'event_time_changed', title: 'Event schedule changed',
+        message: `The schedule for ${saved.title} changed from ${variables.OLD_TIME} to ${variables.NEW_TIME}. Please review your plans before attending.`.slice(0, 500),
+        metadata: { eventVersion: saved.version, oldTime: variables.OLD_TIME, newTime: variables.NEW_TIME },
+      }, transaction);
+      await queueEventEmail({ email, models, event: saved, kind: 'timeChange', variables, customerAppUrl, transaction, key: `time-${saved.version}`, audience });
       await queueBusinessEventStatus({ email, models, event: saved, change: 'Time changed', details: `${formatTime(before.startsAt, previousLocation?.timezone)} → ${formatTime(saved.startsAt, location?.timezone)}`, actionId: `time-${saved.version}`, businessAppUrl, transaction });
     }
     if (previousLocation && venueName(previousLocation) !== venueName(location)) {

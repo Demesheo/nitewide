@@ -1,4 +1,5 @@
 const { TEMPLATES } = require('./email-templates');
+const { audienceForEvent } = require('./event-attendee-audience');
 
 const money = (cents) => `$${(Number(cents || 0) / 100).toFixed(2)}`;
 const firstName = (user) => user?.displayName?.trim() || 'there';
@@ -70,22 +71,9 @@ async function queueGuestlistEmail({ email, models, entry, event, kind, customer
   }, transaction);
 }
 
-async function audienceForEvent(models, eventId, transaction) {
-  const orders = await models.Order.findAll({ where: { eventId, status: 'paid' }, attributes: ['id', 'buyerUserId'], transaction });
-  const entries = await models.GuestlistEntry.findAll({ where: { eventId, status: ['pending', 'confirmed', 'checked_in'] }, attributes: ['id', 'userId'], transaction });
-  const userIds = [...new Set([...orders.map((row) => row.buyerUserId), ...entries.map((row) => row.userId)].filter(Boolean))];
-  if (!userIds.length) return [];
-  const users = await models.User.findAll({ where: { id: userIds, isActive: true }, attributes: ['id', 'email', 'displayName'], transaction });
-  return users.map((user) => {
-    const order = orders.find((row) => row.buyerUserId === user.id);
-    const entry = entries.find((row) => row.userId === user.id);
-    return { user, booking: order ? { kind: 'purchase', id: order.id } : { kind: 'guestlist', id: entry.id } };
-  });
-}
-
-async function queueEventEmail({ email, models, event, kind, variables, customerAppUrl, transaction, key }) {
+async function queueEventEmail({ email, models, event, kind, variables, customerAppUrl, transaction, key, audience }) {
   if (!email?.enabled) return 0;
-  const users = await audienceForEvent(models, event.id, transaction);
+  const users = audience || await audienceForEvent(models, event.id, transaction);
   const timezone = await timezoneForEvent(models, event, transaction);
   const template = {
     cancelled: TEMPLATES.eventCancelled,
