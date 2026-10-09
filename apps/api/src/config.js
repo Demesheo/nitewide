@@ -1,7 +1,7 @@
 const { z } = require('zod');
 const { assertPublicAppUrl: assertPublicStripeReturnUrl, subdomainApps } = require('./domain/app-routing');
 const { databaseConnectionConfig } = require('./db/connection-config');
-const { sharedSandboxAccountId } = require('./domain/shared-sandbox-merchant');
+const { validateStripeSettings } = require('./payments/stripe-settings');
 const { releaseRevision } = require('./diagnostics/payment-runtime');
 const { emailDeliveryPolicy } = require('./services/email-delivery-policy');
 
@@ -49,7 +49,7 @@ const schema = z.object({
   QR_TOKEN_SECRET: z.string().min(32).optional(),
   EMAIL_ENCRYPTION_KEY: z.string().min(32).optional(),
   HOSTED_DEMO: z.enum(['true', 'false']).default('false'),
-  STRIPE_MODE: z.enum(['disabled', 'test']).default('disabled'),
+  STRIPE_MODE: z.enum(['disabled', 'test', 'live']).default('disabled'),
   STRIPE_SECRET_KEY: optionalR2(z.string()),
   STRIPE_PUBLISHABLE_KEY: optionalR2(z.string()),
   STRIPE_WEBHOOK_SECRET: optionalR2(z.string()),
@@ -81,9 +81,7 @@ function getConfig(environment = process.env) {
   // Guard every hosted Stripe runtime, not only paid checkout or email setup.
   // Validate the explicit environment values before defaults or demo derivation
   // can turn missing deployment URLs into a local callback.
-  if (environment.STRIPE_MODE === 'test' && (environment.NODE_ENV === 'production' || environment.HOSTED_DEMO === 'true')) {
-    for (const name of ['CUSTOMER_APP_URL', 'BUSINESS_APP_URL']) assertPublicStripeReturnUrl(environment[name], name);
-  }
+  validateStripeSettings(environment);
   const values = schema.parse(environment);
   values.EMAIL_DELIVERY_POLICY = emailDeliveryPolicy(values);
   // Public-address matching is automatic in approved release environments only.
@@ -95,21 +93,6 @@ function getConfig(environment = process.env) {
     if (values.NODE_ENV !== 'production' || !values.APP_ENVIRONMENT || values.HOSTED_DEMO !== 'false') {
       throw new Error('Cloudflare/Render proxy trust requires an explicit non-demo staging/production deployment');
     }
-  }
-  sharedSandboxAccountId(values);
-  // Live mode is deliberately not a configuration option in this integration.
-  // Validate even disabled credentials so a live key cannot slip in unnoticed.
-  if (values.STRIPE_SECRET_KEY && !/^sk_test_[A-Za-z0-9]+$/.test(values.STRIPE_SECRET_KEY)) {
-    throw new Error('STRIPE_SECRET_KEY must be a sandbox sk_test_ key; live payments are disabled');
-  }
-  if (values.STRIPE_PUBLISHABLE_KEY && !/^pk_test_[A-Za-z0-9]+$/.test(values.STRIPE_PUBLISHABLE_KEY)) {
-    throw new Error('STRIPE_PUBLISHABLE_KEY must be a sandbox pk_test_ key');
-  }
-  for (const name of ['STRIPE_WEBHOOK_SECRET', 'STRIPE_ACCOUNT_WEBHOOK_SECRET']) {
-    if (values[name] && !/^whsec_[A-Za-z0-9]+$/.test(values[name])) throw new Error(`${name} must be a Stripe webhook signing secret`);
-  }
-  if (values.STRIPE_MODE === 'test' && !values.STRIPE_SECRET_KEY) {
-    throw new Error('Stripe test mode requires STRIPE_SECRET_KEY');
   }
   if (values.MEDIA_STORAGE_DRIVER === 'r2') {
     for (const key of ['R2_ACCOUNT_ID', 'R2_BUCKET', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY']) {

@@ -98,7 +98,7 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   const notificationJobs = services.notificationJobs || createNotificationJobService({ sequelize, models });
   const email = services.email || createEmailService({ sequelize, models, apiKey: config.RESEND_API_KEY, from: config.RESEND_FROM_EMAIL, encryptionKey: config.EMAIL_ENCRYPTION_KEY, testMode: config.resendTestMode, deliveryPolicy: emailDeliveryPolicy(config) });
   const checkout = services.checkout || createCheckoutService({ sequelize, models, notificationJobs, environment: config.NODE_ENV, hostedDemo: config.hostedDemo, email, customerAppUrl: config.CUSTOMER_APP_URL });
-  const payments = createPaymentServices({ sequelize, models, config, permissions, notificationJobs, checkout, services });
+  const payments = createPaymentServices({ sequelize, models, config, permissions, notificationJobs, checkout, email, services });
   app.locals.payments = payments;
   const paymentPreflight = services.paymentPreflight || createPaymentPreflight({ sequelize, models, config, stripe: payments.stripe });
   app.locals.paymentPreflight = paymentPreflight;
@@ -146,6 +146,7 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   };
   const router = createRouter({ sequelize,publicController: createPublicController(dependencies), managementController: createManagementController({ ...dependencies, businessAppUrl: config.businessAppUrl }), commerceController: createCommerceController(dependencies), authController: createAuthController(dependencies),
     paymentController: createPaymentController(payments), paymentAccounts: payments.paymentAccounts, refunds: payments.refunds, commissionPayments: payments.commissionPayments, individualCommissionProfiles: payments.individualCommissionProfiles, stripe: payments.stripe, paymentConfiguration: stripeConfiguration(config),
+    paymentMode: ['test', 'live'].includes(config.STRIPE_MODE) ? config.STRIPE_MODE : config.APP_ENVIRONMENT === 'production' ? 'live' : 'test',
     auth, requireUser, models, permissions, invitations, notifications, email, reviewGuestlist: dependencies.reviewGuestlist, environment: config.NODE_ENV, hostedDemo: config.hostedDemo, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl, qrTokenSecret: config.QR_TOKEN_SECRET, deliveryTrackingConfigured: Boolean(config.RESEND_WEBHOOK_SECRET) });
   app.locals.reportExports = router.reportExports;
   app.use('/api', router);

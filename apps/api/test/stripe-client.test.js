@@ -5,10 +5,11 @@ const { getConfig } = require('../src/config');
 const { offlineEnvironment } = require('../scripts/test-database.cjs');
 const { stripeApplicationFee } = require('../src/domain/stripe-pricing');
 const { calculatePricing } = require('../src/domain/pricing');
+const { isStripeMode, stripeLivemode, matchesStripeLivemode } = require('../src/payments/stripe-mode');
 
 const config = { NODE_ENV: 'development', STRIPE_MODE: 'test', STRIPE_SECRET_KEY: 'sk_test_mock',
   STRIPE_PUBLISHABLE_KEY: 'pk_test_mock', STRIPE_WEBHOOK_SECRET: 'whsec_mock', STRIPE_ACCOUNT_WEBHOOK_SECRET: 'whsec_accountmock', hostedDemo: false };
-test('Stripe configuration rejects live keys/modes and does not expose secret credentials', () => {
+test('Stripe configuration rejects live credentials outside production and does not expose secret credentials', () => {
   for (const changes of [{ STRIPE_SECRET_KEY: 'sk_live_mock' }, { STRIPE_PUBLISHABLE_KEY: 'pk_live_mock' }, { STRIPE_MODE: 'live' }]) {
     assert.throws(() => getConfig({ ...config, ...changes, DATABASE_URL: 'postgres://test:test@localhost:5433/db' }));
   }
@@ -30,10 +31,55 @@ test('onboarding is available before webhook setup, but paid operations fail clo
   }
 });
 test('explicit sandbox configuration works on the hosted demo without falling back to fake payment success', () => {
-  assert.deepEqual(stripeConfiguration({ ...config, hostedDemo: true, NODE_ENV: 'production' }), {
+  assert.deepEqual(stripeConfiguration({ ...config, hostedDemo: true, NODE_ENV: 'production',
+    CUSTOMER_APP_URL: 'https://demo.example.test', BUSINESS_APP_URL: 'https://demo.example.test/app' }), {
     configured: true, enabled: true, mode: 'test', publishableKey: 'pk_test_mock', demoEnabled: false,
   });
   assert.equal(stripeConfiguration({ STRIPE_MODE: 'disabled', hostedDemo: true, NODE_ENV: 'production' }).demoEnabled, true);
+});
+test('live clients require explicit production, complete matching credentials and public callbacks before any SDK operation', () => {
+  const live = { ...config, NODE_ENV: 'production', APP_ENVIRONMENT: 'production', HOSTED_DEMO: 'false',
+    STRIPE_MODE: 'live', STRIPE_SECRET_KEY: 'sk_live_mock', STRIPE_PUBLISHABLE_KEY: 'pk_live_mock',
+    CUSTOMER_APP_URL: 'https://production.example.test', BUSINESS_APP_URL: 'https://production.example.test/app' };
+  let calls = 0;
+  const sdk = { checkout: { sessions: { create: () => ++calls } } };
+  assert.deepEqual(stripeConfiguration(live), { configured: true, enabled: true, mode: 'live', publishableKey: 'pk_live_mock', demoEnabled: false });
+  const client = createStripeClient(live, { sdk });
+  assert.equal(client.mode, 'live');
+  assert.equal(client.createCheckoutSession({}, { stripeAccount: 'acct_live' }), 1);
+  assert.equal(createStripeClient({ ...live, STRIPE_MODE: 'disabled' }, { sdk }), null);
+  assert.deepEqual(stripeConfiguration({ ...live, STRIPE_MODE: 'disabled' }), {
+    configured: false, enabled: false, mode: 'disabled', publishableKey: null, demoEnabled: false,
+  });
+  for (const changes of [
+    { NODE_ENV: 'development' }, { APP_ENVIRONMENT: 'staging' }, { APP_ENVIRONMENT: undefined },
+    { HOSTED_DEMO: undefined }, { HOSTED_DEMO: 'true' }, { hostedDemo: true },
+    { STRIPE_SECRET_KEY: 'sk_test_mock' }, { STRIPE_PUBLISHABLE_KEY: 'pk_test_mock' },
+    { STRIPE_WEBHOOK_SECRET: '' }, { STRIPE_ACCOUNT_WEBHOOK_SECRET: '' }, { STRIPE_PUBLISHABLE_KEY: '' },
+    { STRIPE_ACCOUNT_WEBHOOK_SECRET: live.STRIPE_WEBHOOK_SECRET },
+    { CUSTOMER_APP_URL: undefined }, { BUSINESS_APP_URL: 'http://localhost:5174/app' },
+    { STRIPE_SANDBOX_SHARED_ACCOUNT_ID: 'acct_shared' }, { STRIPE_MODE: '[' },
+  ]) {
+    assert.throws(() => createStripeClient({ ...live, ...changes }, { sdk }));
+    assert.equal(stripeConfiguration({ ...live, ...changes }).enabled, false);
+    assert.equal(stripeConfiguration({ ...live, ...changes }).demoEnabled, false);
+  }
+  assert.equal(calls, 1, 'invalid or disabled settings never reach the supplied SDK');
+});
+test('provider mode checks accept only exact booleans in known modes', () => {
+  for (const [mode, expected] of [['test', false], ['live', true]]) {
+    assert.equal(isStripeMode(mode), true); assert.equal(stripeLivemode(mode), expected);
+    assert.equal(matchesStripeLivemode({ livemode: expected }, mode), true);
+    for (const value of [undefined, null, !expected, String(expected), Number(expected)]) {
+      assert.equal(matchesStripeLivemode({ livemode: value }, mode), false);
+    }
+  }
+  for (const mode of ['disabled', undefined, null, 'LIVE', true]) {
+    assert.equal(isStripeMode(mode), false); assert.equal(stripeLivemode(mode), null);
+    assert.equal(matchesStripeLivemode({ livemode: true }, mode), false);
+    assert.equal(matchesStripeLivemode({ livemode: false }, mode), false);
+  }
+  assert.equal(matchesStripeLivemode(null, 'live'), false);
 });
 test('Dahlia account operations use v2 includes, hosted onboarding links and a separate thin signing secret', () => {
   const calls = [], raw = Buffer.from('{"id":"evt_mock"}');
@@ -83,6 +129,8 @@ test('direct-charge fees exclude modeled Stripe processing and retain commission
     assert.equal(result.commissionCents, 1000);
     assert.equal(result.commissionSettlement, 'merchant_obligation');
     assert.equal(result.economicsBasis, 'modeled_sandbox_costs');
+    assert.deepEqual(stripeApplicationFee(pricing, 'live'), { ...result, economicsBasis: 'modeled_provider_costs' }, 'live mode preserves customer prices and application fees');
+    assert.throws(() => stripeApplicationFee(pricing, 'unknown'), { code: 'PRICING_UNAVAILABLE' });
   }
   assert.equal(stripeApplicationFee(calculatePricing({ subtotalCents: 0 })).applicationFeeCents, 0);
   assert.throws(() => stripeApplicationFee({ totalCents: 1000 }), { code: 'PRICING_UNAVAILABLE' });

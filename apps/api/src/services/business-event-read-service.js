@@ -9,7 +9,7 @@ const { persistedCommissionTerms, commissionEligibilitySql } = require('./commis
 const { unsettledMerchantSql } = require('../domain/payment-merchant-policy');
 const { netSubtotalSql, commissionExpenseSql: netCommissionSql, financialOrderSql, netItemSql } = require('./refund-report-policy');
 
-function createBusinessEventReadService({ models, now = () => new Date() }) {
+function createBusinessEventReadService({ models, stripe = null, now = () => new Date() }) {
   const select = (sql, replacements) => models.Event.sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
   async function scope(userId, eventId) {
     const user = await models.User.findByPk(userId);
@@ -230,7 +230,7 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
     const [count] = await select(`${cte} SELECT COUNT(*)::integer AS total FROM members m ${predicate}`, values);
     const rows = await select(`${cte} SELECT m.id AS "userId", m."assignmentId" AS id, m.name, m.email, m.role,
       CASE WHEN m.status IS NOT NULL THEN m.status ELSE 'default' END AS status,
-      m.code, m."configuredCommissionBps", CASE WHEN ${commissionEligibilitySql('cp')} THEN m."configuredCommissionBps" ELSE 0 END::integer AS "commissionBps", m."orgAffiliateId", m."isCurrentMember",
+      m.code, m."configuredCommissionBps", CASE WHEN ${commissionEligibilitySql('cp', ':commissionNow', stripe?.mode || 'disabled')} THEN m."configuredCommissionBps" ELSE 0 END::integer AS "commissionBps", m."orgAffiliateId", m."isCurrentMember",
       COALESCE((SELECT SUM(vo.subtotal_cents) FROM visible_orders vo WHERE vo.event_affiliate_id = m."assignmentId"
         OR (vo.event_affiliate_id IS NULL AND vo.org_affiliate_id = m."orgAffiliateId")),0)::bigint AS "salesCents",
       (SELECT COUNT(*) FILTER (WHERE vo.status='paid')::integer FROM visible_orders vo WHERE vo.event_affiliate_id = m."assignmentId"
@@ -244,7 +244,7 @@ function createBusinessEventReadService({ models, now = () => new Date() }) {
       COALESCE((SELECT SUM(g.party_size) FROM visible_guests g WHERE g.event_affiliate_id = m."assignmentId" AND g.status IN ('confirmed','checked_in')),0)::integer AS "approvedGuestlistPlaces"
       FROM members m LEFT JOIN individual_commission_profiles cp ON cp.user_id=m.id ${predicate} ORDER BY ${({name: 'm.name', role: 'm.role', commissionBps: '"commissionBps"', salesCents: '"salesCents"', orders: 'orders', customers: 'customers', guestlistPlaces: '"guestlistPlaces"', approvedGuestlistPlaces: '"approvedGuestlistPlaces"', commissionCents: '"commissionCents"'})[sortKey] || '"salesCents"'} ${descending === 'false' ? 'ASC' : 'DESC'}, m.name ASC, m.id ASC LIMIT :pageSize OFFSET :offset`, { ...values, commissionNow: now() });
     return pageResult(await Promise.all(rows.map(async (r) => {
-      const terms = await persistedCommissionTerms(models, r.userId, Number(r.configuredCommissionBps || 0), { now: now() });
+      const terms = await persistedCommissionTerms(models, r.userId, Number(r.configuredCommissionBps || 0), { now: now(), mode: stripe?.mode || 'disabled' });
       return { ...r, ...terms, commissionBps: terms.effectiveCommissionBps, id: r.id || r.userId,
         salesCents: Number(r.salesCents), commissionCents: Number(r.commissionCents) };
     })), count.total, page, pageSize);

@@ -4,7 +4,7 @@ const { randomUUID } = require('node:crypto');
 const { createBusinessPaymentAccountService,resolvePaymentAccount,paymentsReady,providerState,RESPONSIBILITIES } = require('../src/services/business-payment-account-service');
 const readyRemote = (id='acct_test')=>({id,object:'v2.core.account',livemode:false,applied_configurations:['merchant'],dashboard:'full',defaults:{responsibilities:{...RESPONSIBILITIES,requirements_collector:'stripe'}},configuration:{merchant:{applied:true,capabilities:{card_payments:{status:'active'},stripe_balance:{payouts:{status:'active'}}}}},requirements:{entries:[]}});
 const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve};};
-function fixture({role='owner',financeAuthorized=false,active=true}={}) {
+function fixture({role='owner',financeAuthorized=false,active=true,mode='test'}={}) {
   const profiles = new Map(); const calls=[]; const organization = { id:'org',status:'active',defaultPaymentAccountId:null,update:async function(v){Object.assign(this,v);} };
   const transaction = { LOCK:{UPDATE:'UPDATE',SHARE:'SHARE'} };
   const models = { Organization:{sequelize:{transaction:async (_opts,fn)=>fn(transaction)},findByPk:async()=>organization},
@@ -12,8 +12,8 @@ function fixture({role='owner',financeAuthorized=false,active=true}={}) {
     PaymentAccount:{findByPk:async id=>profiles.get(id),findOne:async ({where})=>{const a=where.id?profiles.get(where.id):[...profiles.values()].find(p=>p.stripeAccountId===where.stripeAccountId);return a && (!where.organizationId || a.organizationId===where.organizationId) && (!where.lifecycleState || a.lifecycleState===where.lifecycleState)?a:null;},
       create:async v=>{const a={...v,lifecycleState:'active',disconnectStatus:'none',update:async function(values){Object.assign(this,values);},toJSON:function(){const {update,toJSON,...values}=this;return values;}};profiles.set(a.id,a);return a;},
       count:async()=>profiles.size,findAll:async()=>[...profiles.values()]},Event:{findAll:async()=>[],findByPk:async()=>null},Order:{count:async()=>0} };
-  let remote = readyRemote();
-  const stripe = {mode:'test',createAccount:async (params,options)=>{calls.push({params,options});return remote;},retrieveAccount:async ()=>remote,createAccountLink:async params=>{calls.push(params);return {object:'v2.core.account_link',account:params.account,livemode:false,url:'https://connect.stripe.test/single-use',expires_at:'2033-05-18T03:33:20.000Z'};}};
+  let remote = {...readyRemote(),livemode:mode === 'live'};
+  const stripe = {mode,createAccount:async (params,options)=>{calls.push({params,options});return remote;},retrieveAccount:async ()=>remote,createAccountLink:async params=>{calls.push(params);return {object:'v2.core.account_link',account:params.account,livemode:mode === 'live',url:'https://connect.stripe.test/single-use',expires_at:'2033-05-18T03:33:20.000Z'};}};
   return {models,stripe,profiles,calls,organization,service:createBusinessPaymentAccountService({models,stripe,businessAppUrl:'https://business.example/app'}),setRemote:r=>remote=r};
 }
 test('named profile persists before provider creation and stable retries reuse controller account',async()=>{
@@ -38,10 +38,33 @@ test('hosted onboarding returns one-time URL but never grants readiness',async()
 test('provider synchronization and exact scoped profile enable sandbox readiness',async()=>{
   const f=fixture();const a=await f.service.create('user','org',{name:'Nightclub',idempotencyKey:randomUUID()});await f.service.synchronize('user','org',a.id);
   f.organization.defaultPaymentAccountId=a.id;
-  const account=await resolvePaymentAccount({models:f.models,event:{organizationId:'org'},refresh:false});assert.equal(paymentsReady(account),true);
-  await assert.rejects(resolvePaymentAccount({models:f.models,event:{organizationId:'other',paymentAccountId:a.id},refresh:false}),{code:'PAYMENTS_NOT_READY'});
+  const account=await resolvePaymentAccount({models:f.models,event:{organizationId:'org'},stripe:f.stripe,refresh:false});assert.equal(paymentsReady(account),true);
+  await assert.rejects(resolvePaymentAccount({models:f.models,event:{organizationId:'other',paymentAccountId:a.id},stripe:f.stripe,refresh:false}),{code:'PAYMENTS_NOT_READY'});
   account.synchronizedAt=new Date(Date.now()-300001);assert.equal(paymentsReady(account),false);
-  await assert.rejects(resolvePaymentAccount({models:f.models,event:{organizationId:'org'},refresh:false}),{code:'PAYMENTS_NOT_READY'});
+  await assert.rejects(resolvePaymentAccount({models:f.models,event:{organizationId:'org'},stripe:f.stripe,refresh:false}),{code:'PAYMENTS_NOT_READY'});
+});
+test('live merchant onboarding and cached publication require the current provider mode',async()=>{
+  const f=fixture({mode:'live'}),id=randomUUID();
+  const created=await f.service.create('user','org',{name:'Live merchant',idempotencyKey:id});
+  assert.equal(created.mode,'live');assert.equal(created.paymentsReady,false);
+  await f.service.onboarding('user','org',id);
+  const verified=await f.service.synchronize('user','org',id);assert.equal(verified.paymentsReady,true);
+  f.organization.defaultPaymentAccountId=id;
+  const selected=await resolvePaymentAccount({models:f.models,event:{organizationId:'org'},stripe:f.stripe,refresh:false});
+  assert.equal(paymentsReady(selected,new Date(),'live'),true);
+  assert.equal(paymentsReady(selected,new Date(),'test'),false);
+  assert.equal(paymentsReady(selected,new Date(),'disabled'),false);
+  let providerCalls=0;const testStripe={...f.stripe,mode:'test',retrieveAccount:async()=>{providerCalls++;throw new Error('Wrong mode must not query Stripe');}};
+  const other=createBusinessPaymentAccountService({models:f.models,stripe:testStripe});
+  await assert.rejects(resolvePaymentAccount({models:f.models,event:{organizationId:'org'},stripe:testStripe}),{code:'PAYMENTS_NOT_READY'});
+  await assert.rejects(other.synchronize('user','org',id),{code:'PAYMENTS_NOT_READY'});
+  await assert.rejects(other.synchronizeTrusted(selected.stripeAccountId),{code:'NOT_FOUND'});
+  await assert.rejects(other.onboarding('user','org',id),{code:'PAYMENTS_NOT_READY'});
+  await assert.rejects(other.create('user','org',{name:'Live merchant',idempotencyKey:id}),{code:'IDEMPOTENCY_CONFLICT'});
+  await assert.rejects(other.selectDefault('user','org',id),{code:'PAYMENTS_NOT_READY'});
+  assert.equal((await other.list('user','org')).items[0].paymentsReady,false);assert.equal(providerCalls,0);
+  f.setRemote({...readyRemote(),livemode:false});
+  assert.equal((await f.service.synchronize('user','org',id)).paymentsReady,false);
 });
 test('live/controller/capability mismatch cannot become provider-confirmed readiness',async()=>{
   const f=fixture();const a=await f.service.create('user','org',{name:'Nightclub',idempotencyKey:randomUUID()});

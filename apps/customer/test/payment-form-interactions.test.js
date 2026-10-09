@@ -32,6 +32,11 @@ test('secure form handles provider errors and verifies confirmation independentl
     assert.equal(screen.queryByText('Mock secure fields'), null);
     await React.act(submit);
     view.rerender(React.createElement(PaymentCheckoutForm, props));
+    assert.equal(screen.queryByText(/Sandbox payment/), null, 'unknown payment mode must not claim the purchase uses test funds');
+    view.rerender(React.createElement(PaymentCheckoutForm, { ...props, mode: 'test' }));
+    assert.ok(screen.getByText('Sandbox payment · use test payment details only.'));
+    view.rerender(React.createElement(PaymentCheckoutForm, { ...props, mode: 'live' }));
+    assert.equal(screen.queryByText(/Sandbox payment/), null, 'real payments must never show a sandbox disclaimer');
     assert.ok(screen.getByText('Mock secure fields'));
     assert.ok(screen.getByText('Loading secure payment form…'));
     assert.equal(screen.queryByRole('button', {name:/^Pay /}), null);

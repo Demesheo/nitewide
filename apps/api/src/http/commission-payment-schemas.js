@@ -10,7 +10,7 @@ const commissionFeeReviewInput = z.object({ invoicingFeeCents: z.number().int().
 const time = z.iso.datetime({ offset: true }), cents = z.number().int().nonnegative(), uuid = z.uuid();
 const eligibility = z.object({ eligible: z.boolean(), status: z.string(), reasonCode: z.string().nullable(), reason: z.string().nullable(), effectiveCommissionBps: cents.nullable() }).strict();
 const commissionProfileResponse = z.object({ id: uuid.optional(), userId: uuid.optional(), displayName: z.string().optional(), creationRequestId: uuid.optional(), status: z.enum(['not_connected', 'active', 'inactive']),
-  providerMode: z.literal('test'), stripeAccountId: z.string().nullable().optional(), verifiedAt: time.nullable().optional(),
+  providerMode: z.enum(['disabled', 'test', 'live']), stripeAccountId: z.string().nullable().optional(), verifiedAt: time.nullable().optional(),
   paymentsDisabledAt: time.nullable().optional(), deauthorizedAt: time.nullable().optional(), disconnectStatus: z.enum(['none', 'pending', 'disconnected']).optional(),
   eligibility, cardReady: z.boolean(), bankReady: z.boolean(), disconnectAvailable: z.boolean(), canAccessCommissions: z.boolean() }).strict();
 const commissionOnboardingResponse = z.object({ url: z.url(), expiresAt: time }).strict();
@@ -24,7 +24,7 @@ const commissionStatementResponse = z.object({ id: uuid, organizationId: uuid, e
 const commissionStatementPageResponse = z.object({ items: z.array(commissionStatementResponse), total: cents, page: z.number().int().positive(), pageSize: z.number().int().positive(), hasMore: z.boolean() }).strict();
 const commissionInvoiceStatement = z.object({ id: uuid, eventId: uuid, eventTitle: z.string(), currency: z.string().length(3), amountCents: cents }).strict();
 const commissionQuoteResponse = z.object({ recipientUserId: uuid, currency: z.string().length(3), statements: z.array(commissionInvoiceStatement), statementIds: z.array(uuid), installmentFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-  commissionCents: cents, estimatedFeeCents: cents, totalCents: cents, feeEstimateBasis: z.literal('sandbox_estimate'), feeReconciliationRequired: z.literal(true), paymentMethod: z.enum(['card', 'us_bank_account']) }).strict();
+  commissionCents: cents, estimatedFeeCents: cents, totalCents: cents, feeEstimateBasis: z.enum(['sandbox_estimate', 'estimated_provider_fees']), feeReconciliationRequired: z.literal(true), paymentMethod: z.enum(['card', 'us_bank_account']) }).strict();
 const commissionPaymentResponse = z.object({ paymentId: uuid, organizationId: uuid, recipientUserId: uuid, currency: z.string().length(3),
   status: z.enum(['creating', 'awaiting_payment', 'processing', 'payment_failed', 'paid_fee_review', 'paid', 'failed', 'review', 'disputed', 'reversed']),
   paymentMethod: z.enum(['card', 'us_bank_account']), hostedInvoiceUrl: z.url().nullable(), commissionCents: cents, estimatedFeeCents: cents, totalCents: cents,

@@ -12,7 +12,7 @@ const paymentAccountQuery = z.object({
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
 });
 const time = z.iso.datetime({ offset: true });
-const paymentConfiguration = z.object({ configured: z.boolean(), enabled: z.boolean(), mode: z.enum(['disabled', 'test']),
+const paymentConfiguration = z.object({ configured: z.boolean(), enabled: z.boolean(), mode: z.enum(['disabled', 'test', 'live']),
   publishableKey: z.string().nullable(), demoEnabled: z.boolean() }).strict();
 const checkoutSummary = z.object({ orderId: z.uuid(), status: z.string(), verificationStatus: z.string().nullable().optional(),
   retryable: z.boolean().optional() }).strict();
@@ -25,7 +25,7 @@ const checkoutResumption = checkoutPreparation.extend({ booking: z.object({
 }).strict() }).strict();
 const refundSummary = z.object({ refundId: z.uuid(), orderId: z.uuid(), status: z.string(), retryable: z.boolean().optional() }).strict();
 const paymentAccount = z.object({ id: z.uuid(), organizationId: z.uuid(), name: z.string(), stripeAccountId: z.string().nullable(),
-  mode: z.literal('test'), chargesEnabled: z.boolean(), payoutsEnabled: z.boolean(), detailsSubmitted: z.boolean(),
+  mode: z.enum(['test', 'live']), chargesEnabled: z.boolean(), payoutsEnabled: z.boolean(), detailsSubmitted: z.boolean(),
   cardPaymentsActive: z.boolean(), controllerMatches: z.boolean(), synchronizedAt: time.nullable(),
   lifecycleState: z.enum(['active', 'suspended', 'archived']), createdAt: time, updatedAt: time,
   requirements: z.object({ currentlyDue: z.array(z.string()), disabledReason: z.string().nullable() }).strict(),
@@ -43,11 +43,11 @@ const disconnectImpact = z.object({account:paymentAccount,pendingPayments:count,
   providerDisconnectConfigured:z.boolean(),canDisconnect:z.boolean()}).strict();
 const disconnectResult = z.object({account:paymentAccount,retryable:z.boolean()}).strict();
 const paymentOverviewCurrency = z.object({ currency: z.string().length(3),
-  collectedCents: count.describe('All-time verified sandbox customer payment totals, including subsequently refunded orders.'),
-  refundedCents: count.describe('Cumulative provider-verified full and partial sandbox refunds.'),
+  collectedCents: count.describe('All-time verified customer payment totals for the selected Stripe mode, including subsequently refunded orders.'),
+  refundedCents: count.describe('Cumulative provider-verified full and partial refunds for the selected Stripe mode.'),
   netCollectedCents: count.describe('Collected customer payments less verified refunds. This is not the merchant Stripe balance or net proceeds.'),
   paidOrders: count, refundedOrders: count, pendingOrders: count, reviewOrders: count }).strict();
-const paymentOverview = z.object({ organizationId: z.uuid(), period: z.literal('all_time'), mode: z.literal('test'),
+const paymentOverview = z.object({ organizationId: z.uuid(), period: z.literal('all_time'), mode: z.enum(['test', 'live']),
   currencies: z.array(paymentOverviewCurrency), pendingOrders: count, reviewOrders: count,
   merchantBalance: z.null().describe('Unavailable: merchant balances are owned by Stripe and are not tracked here.'),
   payouts: z.null().describe('Unavailable: merchant payouts are owned by Stripe and are not tracked here.') }).strict();
@@ -55,7 +55,7 @@ const earningsCurrency = z.object({ currency: z.string().length(3), verifiedEarn
   demoEarnedCents: count, demoRefundedCents: count, verifiedPaidOrders: count, verifiedRefundedOrders: count,
   demoPaidOrders: count, demoRefundedOrders: count, unpaidCommissionCents: count, heldCommissionCents: count,
   payableCommissionCents: count, reservedCommissionCents: count, paidCommissionCents: count, businessLossCents: count }).strict();
-const paymentEarnings = z.object({ period: z.literal('all_time'), scope: z.literal('own'), currencies: z.array(earningsCurrency),
+const paymentEarnings = z.object({ period: z.literal('all_time'), scope: z.literal('own'), mode: z.enum(['test', 'live']), currencies: z.array(earningsCurrency),
   receivedPayouts: z.object({ currencies: z.array(z.object({currency:z.string().length(3),creditedCents:count,verifiedNetCents:count,merchantReviewedNetCents:count,feeReviewPayments:count}).strict()),bankPayouts:z.null() }).strict(),
   dashboardConnected: z.null().describe('Unavailable until individual Stripe onboarding and recipient connectivity are implemented.'),
   dashboardUrl: z.null(), payoutsUnavailableReason: z.literal('bank_payouts_not_tracked') }).strict();

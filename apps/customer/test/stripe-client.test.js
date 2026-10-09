@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestServer } from '../../business/test/helpers/vite-server.js';
 
-test('Stripe initialization disables the sandbox assistant and preserves merchant-scoped caching', async () => {
+test('Stripe initialization binds keys to runtime mode and preserves merchant-scoped caching', async () => {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const vite = await createTestServer({ root, configFile: resolve(root, 'vite.config.js'), logLevel: 'silent', server: { middlewareMode: true }, appType: 'custom' });
   try {
@@ -24,5 +24,14 @@ test('Stripe initialization disables the sandbox assistant and preserves merchan
     assert.equal(await stripeClient('pk_live_fixture', 'acct_fixture_one', initialize), null);
     assert.equal(await stripeClient('pk_test_fixture', '', initialize), null);
     assert.equal(calls.length, 2);
+    const live = stripeClient('pk_live_fixture', 'acct_fixture_one', initialize, 'live');
+    assert.equal(stripeClient('pk_live_fixture', 'acct_fixture_one', initialize, 'live'), live);
+    assert.notEqual(live, first);
+    assert.deepEqual(await live, { fixture: 'acct_fixture_one' });
+    assert.equal(calls.at(-1).key, 'pk_live_fixture');
+    assert.equal(await stripeClient('pk_test_fixture', 'acct_fixture_one', initialize, 'live'), null);
+    assert.equal(await stripeClient('pk_live_fixture', 'acct_fixture_one', initialize, 'test'), null);
+    assert.equal(await stripeClient('pk_live_fixture', 'acct_fixture_one', initialize, 'disabled'), null);
+    assert.equal(calls.length, 3, 'mode mismatches do not initialize a provider client or reuse a cached one');
   } finally { await vite.close(); }
 });

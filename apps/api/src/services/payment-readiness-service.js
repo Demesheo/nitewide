@@ -1,4 +1,5 @@
 const { conflict, DomainError } = require('../domain/errors');
+const { isStripeMode } = require('../payments/stripe-mode');
 
 // This is server runtime policy, never a value accepted from an event draft.
 function isSimulatedPaymentsRuntime({ environment, hostedDemo = false } = {}) {
@@ -10,12 +11,12 @@ function hasPaidOfferings(offerings = []) {
 }
 
 function shouldRefreshPaidPublication({ event, offerings, stripe }) {
-  return event.status === 'published' && hasPaidOfferings(offerings) && stripe?.enabled === true && stripe.mode === 'test';
+  return event.status === 'published' && hasPaidOfferings(offerings) && stripe?.enabled === true && isStripeMode(stripe.mode);
 }
 
 async function selectedPublicationAccount({ models, event, stripe, transaction }) {
   const account = await require('./business-payment-account-service').resolveSelectedPaymentAccount({ models, event, stripe, transaction });
-  if (account.paymentsDisabledAt || account.disconnectStatus && account.disconnectStatus !== 'none' || account.mode !== 'test' || !account.stripeAccountId) {
+  if (account.paymentsDisabledAt || account.disconnectStatus && account.disconnectStatus !== 'none' || !isStripeMode(stripe?.mode) || account.mode !== stripe.mode || !account.stripeAccountId) {
     throw conflict('The selected payment account is disabled or disconnected. Ask a business owner to connect an available account before publishing paid tiers.', 'PAYMENTS_NOT_READY');
   }
   return { id: account.id, stripeAccountId: account.stripeAccountId };
@@ -30,7 +31,7 @@ async function refreshPublicationAccount({ models, account, stripe, now }) {
 
 async function assertPaidPublication({ models, event, offerings, environment, hostedDemo, stripe, transaction, now, expectedAccount }) {
   if (event.status !== 'published' || !hasPaidOfferings(offerings) || (!stripe && isSimulatedPaymentsRuntime({ environment, hostedDemo }))) return;
-  if (stripe?.enabled === true && stripe.mode === 'test') return require('./business-payment-account-service').resolvePaymentAccount({ models,event,stripe,transaction,refresh:false,now,expectedAccount,
+  if (stripe?.enabled === true && isStripeMode(stripe.mode)) return require('./business-payment-account-service').resolvePaymentAccount({ models,event,stripe,transaction,refresh:false,now,expectedAccount,
     ...(expectedAccount ? { notReadyMessage: 'The selected account is not ready for paid sales. If you already completed Stripe onboarding, check your email for Stripe verification instructions, then try saving again here.' } : {}),
   });
   // Explicitly configured Stripe cannot fall back to simulation, including on

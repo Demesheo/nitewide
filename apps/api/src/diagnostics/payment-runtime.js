@@ -24,8 +24,9 @@ function paymentRuntimeEvidence(config = {}) {
   }
   const origins = [...new Set(config.corsOrigins || (config.CORS_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean))].sort();
   const settings = {
-    version: 5, apiVersion: STRIPE_API_VERSION,
-    environment: config.NODE_ENV || null, hostedDemo: config.hostedDemo === true || config.HOSTED_DEMO === 'true',
+    version: 6, apiVersion: STRIPE_API_VERSION,
+    environment: config.NODE_ENV || null, appEnvironment: config.APP_ENVIRONMENT || null,
+    hostedDemo: config.hostedDemo === true || config.HOSTED_DEMO === 'true',
     mode: config.STRIPE_MODE || 'disabled',
     secretKey: config.STRIPE_SECRET_KEY || null, publishableKey: config.STRIPE_PUBLISHABLE_KEY || null,
     paymentWebhookSecret: config.STRIPE_WEBHOOK_SECRET || null, accountWebhookSecret: config.STRIPE_ACCOUNT_WEBHOOK_SECRET || null,

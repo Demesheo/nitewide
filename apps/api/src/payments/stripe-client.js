@@ -1,35 +1,42 @@
 const { DomainError } = require('../domain/errors');
 const { sharedSandboxAccountId } = require('../domain/shared-sandbox-merchant');
+const { validateStripeSettings } = require('./stripe-settings');
+const { isStripeMode } = require('./stripe-mode');
 
-// Match the sandbox's dated API and stripe-node 22.6.0. Accounts v2 is
+// Match the dated API and stripe-node 22.6.0. Accounts v2 is
 // available in this stable release; no preview-version override is needed.
 const STRIPE_API_VERSION = '2026-08-26.dahlia';
-const unavailable = () => new DomainError('Sandbox payment processing is not configured', { code: 'PAYMENTS_NOT_ENABLED', status: 503 });
+const unavailable = () => new DomainError('Payment processing is not configured', { code: 'PAYMENTS_NOT_ENABLED', status: 503 });
 
 function stripeConfiguration(config = {}) {
-  const configured = config.STRIPE_MODE === 'test' && /^sk_test_[A-Za-z0-9]+$/.test(config.STRIPE_SECRET_KEY || '');
-  const enabled = configured && /^pk_test_[A-Za-z0-9]+$/.test(config.STRIPE_PUBLISHABLE_KEY || '')
+  let valid = true;
+  try { validateStripeSettings(config); } catch { valid = false; }
+  const configured = valid && isStripeMode(config.STRIPE_MODE);
+  const publishableKeyMatches = isStripeMode(config.STRIPE_MODE)
+    && new RegExp(`^pk_${config.STRIPE_MODE}_[A-Za-z0-9]+$`).test(config.STRIPE_PUBLISHABLE_KEY || '');
+  const enabled = configured && publishableKeyMatches
     && /^whsec_[A-Za-z0-9]+$/.test(config.STRIPE_WEBHOOK_SECRET || '')
     && /^whsec_[A-Za-z0-9]+$/.test(config.STRIPE_ACCOUNT_WEBHOOK_SECRET || '');
-  return { configured, enabled, mode: configured ? 'test' : 'disabled',
-    publishableKey: configured && /^pk_test_[A-Za-z0-9]+$/.test(config.STRIPE_PUBLISHABLE_KEY || '') ? config.STRIPE_PUBLISHABLE_KEY : null,
-    demoEnabled: !configured && (config.hostedDemo === true || ['development', 'test'].includes(config.NODE_ENV)) };
+  return { configured, enabled, mode: configured ? config.STRIPE_MODE : 'disabled',
+    publishableKey: configured && publishableKeyMatches ? config.STRIPE_PUBLISHABLE_KEY : null,
+    demoEnabled: valid && (config.STRIPE_MODE ?? 'disabled') === 'disabled'
+      && (config.hostedDemo === true || ['development', 'test'].includes(config.NODE_ENV)) };
 }
 
 function createStripeClient(config = {}, { sdk } = {}) {
   const sandboxSharedAccountId = sharedSandboxAccountId(config);
-  if (config.STRIPE_SECRET_KEY && !/^sk_test_[A-Za-z0-9]+$/.test(config.STRIPE_SECRET_KEY)) throw unavailable();
+  try { validateStripeSettings(config); } catch { throw unavailable(); }
   const configuration = stripeConfiguration(config);
   if (!configuration.configured) return null;
   const stripe = sdk || new (require('stripe'))(config.STRIPE_SECRET_KEY, { apiVersion: STRIPE_API_VERSION, timeout: 12000, maxNetworkRetries: 1 });
-  const disconnect = require('./stripe-disconnect').createStripeDisconnect(stripe, config.STRIPE_CONNECT_CLIENT_ID);
+  const disconnect = require('./stripe-disconnect').createStripeDisconnect(stripe, config.STRIPE_CONNECT_CLIENT_ID, configuration.mode);
   const paymentGuard = () => { if (!configuration.enabled) throw unavailable(); };
   const scope = options => {
     if (!/^acct_[A-Za-z0-9]+$/.test(options?.stripeAccount || '')) throw new DomainError('A verified merchant account is required', { code: 'PAYMENTS_NOT_READY', status: 409 });
     return options;
   };
   return {
-    mode: 'test', enabled: configuration.enabled, apiVersion: STRIPE_API_VERSION, sandboxSharedAccountId,
+    mode: configuration.mode, enabled: configuration.enabled, apiVersion: STRIPE_API_VERSION, sandboxSharedAccountId,
     disconnectEnabled: disconnect.enabled, disconnectAccount: disconnect.disconnect,
     // Explicit allowlist: cards (including Apple Pay/Google Pay) plus Link.
     // Link controls funding choices internally; no separate bank/BNPL method.

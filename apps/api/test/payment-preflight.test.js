@@ -19,11 +19,13 @@ const config = {
   AUTH_TOKEN_SECRET: 'offline-test-auth-key-with-32-characters', RELEASE_REVISION: 'a'.repeat(40),
 };
 const stripe = { mode: 'test', enabled: true };
+const liveConfig = { ...config, NODE_ENV: 'production', APP_ENVIRONMENT: 'production', HOSTED_DEMO: 'false',
+  STRIPE_MODE: 'live', STRIPE_SECRET_KEY: 'sk_live_offlineprivate', STRIPE_PUBLISHABLE_KEY: 'pk_live_offlinepublic' };
 const hasCheck = (report, code, status) => report.checks.some(value => value.code === code && value.status === status);
 const catalog = () => Object.entries(requiredPaymentSchema()).flatMap(([table_name, names]) => names.map(column_name => ({ table_name, column_name })));
 const group = (changes = {}) => ({
   source: 'default', organization_active: true, account_present: true, account_owned: true, account_owner_active: true,
-  api_v2: true, lifecycle_active: true, mode_test: true, stripe_present: true, details_submitted: true,
+  api_v2: true, lifecycle_active: true, mode_matches: true, stripe_present: true, details_submitted: true,
   charges_enabled: true, card_payments_active: true, controller_matches: true, disabled: false,
   disconnect_clear: true, freshness: 'current', event_count: 5, total_event_count: 5, ...changes,
 });
@@ -67,7 +69,7 @@ test('disabled payment diagnostics skip database and provider operations while s
   assert.equal(fixture.calls.length, 0);
 });
 
-test('missing, malformed and live credentials report fixed failures without echoing configured values', () => {
+test('missing, malformed and mismatched credentials report fixed failures without echoing configured values', () => {
   for (const name of ['STRIPE_SECRET_KEY', 'STRIPE_PUBLISHABLE_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_ACCOUNT_WEBHOOK_SECRET']) {
     for (const value of [undefined, '', 'private value with spaces', 'bad_value/secret']) {
       const report = inspectPaymentConfiguration({ ...config, [name]: value });
@@ -76,16 +78,44 @@ test('missing, malformed and live credentials report fixed failures without echo
       if (value) assert.ok(!JSON.stringify(report).includes(value));
     }
   }
-  for (const changes of [{ STRIPE_MODE: 'live' }, { STRIPE_SECRET_KEY: 'sk_live_offlinefixture' },
-    { STRIPE_PUBLISHABLE_KEY: 'pk_live_offlinefixture' }, { STRIPE_MODE: 'disabled', STRIPE_SECRET_KEY: 'sk_live_offlinefixture' }]) {
+  for (const [changes, code] of [[{ STRIPE_MODE: 'live' }, 'STRIPE_SECRET_KEY_INVALID'],
+    [{ STRIPE_SECRET_KEY: 'sk_live_offlinefixture' }, 'STRIPE_SECRET_KEY_INVALID'],
+    [{ STRIPE_PUBLISHABLE_KEY: 'pk_live_offlinefixture' }, 'STRIPE_PUBLISHABLE_KEY_INVALID'],
+    [{ STRIPE_MODE: 'disabled', STRIPE_SECRET_KEY: 'sk_live_offlinefixture' }, 'STRIPE_CONFIGURATION_INVALID']]) {
     const report = inspectPaymentConfiguration({ ...config, ...changes });
     assert.equal(report.mode, 'configuration-blocked');
-    assert.ok(hasCheck(report, 'LIVE_PAYMENTS_UNSUPPORTED', 'fail'));
+    assert.ok(hasCheck(report, code, 'fail'));
   }
   for (const STRIPE_MODE of ['unknown', 'Test', 'false']) assert.ok(hasCheck(inspectPaymentConfiguration({ ...config, STRIPE_MODE }), 'STRIPE_MODE_INVALID', 'fail'));
   const sharedSecrets = inspectPaymentConfiguration({ ...config, STRIPE_ACCOUNT_WEBHOOK_SECRET: config.STRIPE_WEBHOOK_SECRET });
   assert.ok(hasCheck(sharedSecrets, 'STRIPE_WEBHOOK_SECRETS_NOT_DISTINCT', 'fail'));
   assert.equal(inspectPaymentConfiguration(config).mode, 'sandbox-ready');
+});
+
+test('live preflight requires production isolation, mode-matched routes and workers while staged credentials remain disabled', async () => {
+  assert.equal(inspectPaymentConfiguration(liveConfig).mode, 'live-ready');
+  for (const changes of [{ NODE_ENV: 'test' }, { APP_ENVIRONMENT: 'staging' }, { APP_ENVIRONMENT: undefined },
+    { HOSTED_DEMO: undefined }, { HOSTED_DEMO: 'true' }, { hostedDemo: true }]) {
+    const report = inspectPaymentConfiguration({ ...liveConfig, ...changes });
+    assert.equal(report.mode, 'configuration-blocked');
+    assert.ok(report.checks.some(item => item.status === 'fail'));
+  }
+  const fixture = databaseFixture();
+  const report = await inspectPaymentPreflight(dependencies(fixture, { config: liveConfig, stripe: { mode: 'live', enabled: true } }), { requirePaid: true });
+  paymentPreflightReport.parse(report);
+  assert.equal(report.mode, 'live-ready'); assert.equal(report.routing.readyEventCount, 5);
+  const routeQuery = fixture.calls.find(call => call.sql.startsWith('WITH routes AS'));
+  assert.equal(routeQuery.options.replacements.mode, 'live');
+  assert.match(routeQuery.sql, /a\.mode=:mode/);
+  for (const changes of [{ stripe }, { sequelize: databaseFixture({ groups: [group({ mode_matches: false })] }).sequelize }]) {
+    const mismatch = await inspectPaymentPreflight(dependencies(databaseFixture(), { config: liveConfig, stripe: { mode: 'live', enabled: true }, ...changes }));
+    assert.equal(mismatch.mode, 'configuration-blocked');
+  }
+  const disabledFixture = databaseFixture();
+  const disabled = createPaymentPreflight(dependencies(disabledFixture, { config: { ...liveConfig, STRIPE_MODE: 'disabled' }, stripe: null }));
+  assert.equal((await disabled.inspect()).mode, 'disabled');
+  assert.equal((await disabled.inspect({ requirePaid: true })).mode, 'configuration-blocked');
+  assert.equal(disabledFixture.calls.length, 0);
 });
 
 test('hosted callbacks require explicit public HTTPS origins without credentials, query, fragments or CORS drift', () => {
@@ -203,7 +233,7 @@ test('provider runtime mismatches and unresolved normalized merchant facts canno
   }));
   assert.ok(hasCheck(sharedMismatch, 'PAYMENT_RUNTIME_UNAVAILABLE', 'fail'));
   for (const changes of [{ organization_active: false }, { account_present: false }, { account_owned: false }, { account_owner_active: false },
-    { api_v2: false }, { lifecycle_active: false }, { mode_test: false }, { stripe_present: false }, { details_submitted: false },
+    { api_v2: false }, { lifecycle_active: false }, { mode_matches: false }, { stripe_present: false }, { details_submitted: false },
     { charges_enabled: false }, { card_payments_active: false }, { controller_matches: false }, { disabled: true },
     { disconnect_clear: false }, { freshness: 'missing' }, { freshness: 'stale' }, { freshness: 'future' }]) {
     const report = await inspectPaymentPreflight(dependencies(databaseFixture({ groups: [group(changes)] })));

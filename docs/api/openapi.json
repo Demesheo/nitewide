@@ -8366,7 +8366,8 @@
                           "type": "string",
                           "enum": [
                             "disabled",
-                            "test"
+                            "test",
+                            "live"
                           ]
                         },
                         "publishableKey": {
@@ -9385,6 +9386,11 @@
                               "minimum": 0,
                               "maximum": 9007199254740991
                             },
+                            "liveCommissionCents": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
                             "unverifiedCommissionCents": {
                               "type": "integer",
                               "minimum": 0,
@@ -9403,6 +9409,7 @@
                             "earnedCommissionCents",
                             "demoCommissionCents",
                             "sandboxCommissionCents",
+                            "liveCommissionCents",
                             "unverifiedCommissionCents",
                             "receivedPayouts",
                             "payoutsTracked"
@@ -30640,7 +30647,10 @@
                         },
                         "mode": {
                           "type": "string",
-                          "const": "test"
+                          "enum": [
+                            "test",
+                            "live"
+                          ]
                         },
                         "currencies": {
                           "type": "array",
@@ -30656,13 +30666,13 @@
                                 "type": "integer",
                                 "minimum": 0,
                                 "maximum": 9007199254740991,
-                                "description": "All-time verified sandbox customer payment totals, including subsequently refunded orders."
+                                "description": "All-time verified customer payment totals for the selected Stripe mode, including subsequently refunded orders."
                               },
                               "refundedCents": {
                                 "type": "integer",
                                 "minimum": 0,
                                 "maximum": 9007199254740991,
-                                "description": "Cumulative provider-verified full and partial sandbox refunds."
+                                "description": "Cumulative provider-verified full and partial refunds for the selected Stripe mode."
                               },
                               "netCollectedCents": {
                                 "type": "integer",
@@ -30919,6 +30929,13 @@
                           "type": "string",
                           "const": "own"
                         },
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "test",
+                            "live"
+                          ]
+                        },
                         "currencies": {
                           "type": "array",
                           "items": {
@@ -31089,6 +31106,7 @@
                       "required": [
                         "period",
                         "scope",
+                        "mode",
                         "currencies",
                         "receivedPayouts",
                         "dashboardConnected",
@@ -31336,7 +31354,10 @@
                               },
                               "mode": {
                                 "type": "string",
-                                "const": "test"
+                                "enum": [
+                                  "test",
+                                  "live"
+                                ]
                               },
                               "chargesEnabled": {
                                 "type": "boolean"
@@ -31758,7 +31779,10 @@
                         },
                         "mode": {
                           "type": "string",
-                          "const": "test"
+                          "enum": [
+                            "test",
+                            "live"
+                          ]
                         },
                         "chargesEnabled": {
                           "type": "boolean"
@@ -32154,7 +32178,10 @@
                             },
                             "mode": {
                               "type": "string",
-                              "const": "test"
+                              "enum": [
+                                "test",
+                                "live"
+                              ]
                             },
                             "chargesEnabled": {
                               "type": "boolean"
@@ -32577,7 +32604,10 @@
                         },
                         "mode": {
                           "type": "string",
-                          "const": "test"
+                          "enum": [
+                            "test",
+                            "live"
+                          ]
                         },
                         "chargesEnabled": {
                           "type": "boolean"
@@ -32975,7 +33005,10 @@
                         },
                         "mode": {
                           "type": "string",
-                          "const": "test"
+                          "enum": [
+                            "test",
+                            "live"
+                          ]
                         },
                         "chargesEnabled": {
                           "type": "boolean"
@@ -33376,7 +33409,10 @@
                             },
                             "mode": {
                               "type": "string",
-                              "const": "test"
+                              "enum": [
+                                "test",
+                                "live"
+                              ]
                             },
                             "chargesEnabled": {
                               "type": "boolean"
@@ -34240,7 +34276,10 @@
                         },
                         "mode": {
                           "type": "string",
-                          "const": "test"
+                          "enum": [
+                            "test",
+                            "live"
+                          ]
                         },
                         "chargesEnabled": {
                           "type": "boolean"
@@ -35058,7 +35097,11 @@
                         },
                         "providerMode": {
                           "type": "string",
-                          "const": "test"
+                          "enum": [
+                            "disabled",
+                            "test",
+                            "live"
+                          ]
                         },
                         "stripeAccountId": {
                           "type": [
@@ -35379,7 +35422,11 @@
                         },
                         "providerMode": {
                           "type": "string",
-                          "const": "test"
+                          "enum": [
+                            "disabled",
+                            "test",
+                            "live"
+                          ]
                         },
                         "stripeAccountId": {
                           "type": [
@@ -35942,7 +35989,11 @@
                         },
                         "providerMode": {
                           "type": "string",
-                          "const": "test"
+                          "enum": [
+                            "disabled",
+                            "test",
+                            "live"
+                          ]
                         },
                         "stripeAccountId": {
                           "type": [
@@ -36277,7 +36328,11 @@
                         },
                         "providerMode": {
                           "type": "string",
-                          "const": "test"
+                          "enum": [
+                            "disabled",
+                            "test",
+                            "live"
+                          ]
                         },
                         "stripeAccountId": {
                           "type": [
@@ -36612,7 +36667,11 @@
                         },
                         "providerMode": {
                           "type": "string",
-                          "const": "test"
+                          "enum": [
+                            "disabled",
+                            "test",
+                            "live"
+                          ]
                         },
                         "stripeAccountId": {
                           "type": [
@@ -36947,7 +37006,11 @@
                         },
                         "providerMode": {
                           "type": "string",
-                          "const": "test"
+                          "enum": [
+                            "disabled",
+                            "test",
+                            "live"
+                          ]
                         },
                         "stripeAccountId": {
                           "type": [
@@ -38948,7 +39011,10 @@
                         },
                         "feeEstimateBasis": {
                           "type": "string",
-                          "const": "sandbox_estimate"
+                          "enum": [
+                            "sandbox_estimate",
+                            "estimated_provider_fees"
+                          ]
                         },
                         "feeReconciliationRequired": {
                           "type": "boolean",
@@ -41208,6 +41274,13 @@
                           "type": "string",
                           "const": "own"
                         },
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "test",
+                            "live"
+                          ]
+                        },
                         "currencies": {
                           "type": "array",
                           "items": {
@@ -41378,6 +41451,7 @@
                       "required": [
                         "period",
                         "scope",
+                        "mode",
                         "currencies",
                         "receivedPayouts",
                         "dashboardConnected",
@@ -79624,6 +79698,7 @@
                           "enum": [
                             "disabled",
                             "sandbox-ready",
+                            "live-ready",
                             "configuration-blocked"
                           ]
                         },
@@ -79642,7 +79717,7 @@
                                 "type": "string",
                                 "enum": [
                                   "PAYMENTS_DISABLED",
-                                  "LIVE_PAYMENTS_UNSUPPORTED",
+                                  "STRIPE_CONFIGURATION_INVALID",
                                   "STRIPE_MODE_INVALID",
                                   "STRIPE_SECRET_KEY_MISSING",
                                   "STRIPE_SECRET_KEY_INVALID",
@@ -79695,18 +79770,18 @@
                                 "type": "string",
                                 "enum": [
                                   "Stripe payments are disabled. Free events and guestlists remain independent of this diagnostic.",
-                                  "Live payments are unsupported by this release. Use disabled or test mode; do not replace sandbox credentials with live credentials.",
-                                  "Set STRIPE_MODE to disabled or test.",
-                                  "Test mode requires STRIPE_SECRET_KEY in both API and worker environments.",
-                                  "STRIPE_SECRET_KEY must have the sandbox secret-key format.",
-                                  "Test mode requires STRIPE_PUBLISHABLE_KEY in both API and worker environments.",
-                                  "STRIPE_PUBLISHABLE_KEY must have the sandbox publishable-key format.",
+                                  "Stripe settings must satisfy the runtime policy: matching key modes, with live credentials confined to an explicit production, non-demo deployment.",
+                                  "Set STRIPE_MODE to disabled, test or live.",
+                                  "Enabled payments require STRIPE_SECRET_KEY in both API and worker environments.",
+                                  "STRIPE_SECRET_KEY must have the secret-key format matching STRIPE_MODE.",
+                                  "Enabled payments require STRIPE_PUBLISHABLE_KEY in both API and worker environments.",
+                                  "STRIPE_PUBLISHABLE_KEY must have the publishable-key format matching STRIPE_MODE.",
                                   "Set STRIPE_WEBHOOK_SECRET for the connected-account snapshot webhook in both API and worker environments.",
                                   "STRIPE_WEBHOOK_SECRET must have the Stripe signing-secret format.",
                                   "Set STRIPE_ACCOUNT_WEBHOOK_SECRET for the Accounts v2 notification webhook in both API and worker environments.",
                                   "STRIPE_ACCOUNT_WEBHOOK_SECRET must have the Stripe signing-secret format.",
                                   "The snapshot and Accounts v2 webhook destinations require separate signing secrets.",
-                                  "Sandbox credential and separate webhook-secret formats are configured. Their provider identity has not been verified.",
+                                  "Matching-mode credential and separate webhook-secret formats are configured. Their provider identity has not been verified.",
                                   "Set an explicit valid CUSTOMER_APP_URL. Hosted payments require a public HTTPS URL without credentials, query or fragment.",
                                   "Set an explicit valid BUSINESS_APP_URL. Hosted payments require a public HTTPS URL without credentials, query or fragment.",
                                   "Customer and business callback URL configuration passed the deployment-format checks.",
@@ -79715,8 +79790,8 @@
                                   "Subdomain routing requires distinct public HTTPS customer, business and admin URLs at their expected paths, with all three origins in CORS.",
                                   "Shared sandbox merchant routing overrides event and business selection. It is permitted only for development, test or an explicitly hosted demo and must be removed before production payments.",
                                   "Remove STRIPE_SANDBOX_SHARED_ACCOUNT_ID: shared routing is allowed only in a development, test or explicitly hosted-demo sandbox runtime.",
-                                  "The payment runtime does not match the configured enabled sandbox mode.",
-                                  "Key formats do not prove that the secret and publishable keys belong to the same Stripe sandbox. Verify that identity separately.",
+                                  "The payment runtime does not match the configured enabled Stripe mode.",
+                                  "Key formats do not prove that the secret and publishable keys belong to the same Stripe account and mode. Verify that identity separately.",
                                   "Configured secrets do not prove that Stripe delivers to both deployed webhook destinations. Verify delivery separately in Stripe Workbench.",
                                   "Merchant readiness uses stored provider observations with the checkout policy freshness window. This diagnostic does not refresh Stripe or prove a future checkout will succeed.",
                                   "Required payment tables, columns and migration ledger entries are present.",
@@ -79730,7 +79805,7 @@
                                   "Fresh running payment workers match this API release and payment configuration.",
                                   "No fresh running worker has matching payment reconciliation, release and configuration evidence. Check the worker release, environment settings and heartbeat.",
                                   "A fresh running worker has different or missing payment configuration, release or reconciliation evidence. Deploy the matching reviewed API and worker release and environment settings.",
-                                  "This runtime has no valid release revision evidence. Hosted sandbox readiness requires a known API and worker release.",
+                                  "This runtime has no valid release revision evidence. Hosted payment readiness requires a known API and worker release.",
                                   "The runtime release does not match the requested release revision.",
                                   "The runtime release matches the requested release revision."
                                 ]
@@ -80057,7 +80132,7 @@
             }
           }
         },
-        "description": "Internal administrators only. Read-only sandbox configuration, schema, stored merchant readiness and API/worker parity diagnostic; no provider requests. HTTP 200 includes blocked/disabled outcomes. Key-pair identity and actual webhook delivery remain unverified. Independent of general service readiness."
+        "description": "Internal administrators only. Read-only payment configuration, schema, stored merchant readiness and API/worker parity diagnostic; no provider requests. HTTP 200 includes blocked/disabled outcomes. Key-pair identity and actual webhook delivery remain unverified. Independent of general service readiness."
       }
     },
     "/business/uploads/image": {
@@ -80794,7 +80869,7 @@
             }
           }
         },
-        "description": "Verify raw connected-account snapshot bytes with STRIPE_WEBHOOK_SECRET, then independently retrieve scoped sandbox checkout/refund evidence before fulfillment. Connected accounts event source; no bearer session.",
+        "description": "Verify raw connected-account snapshot bytes with STRIPE_WEBHOOK_SECRET, then independently retrieve scoped matching-mode checkout/refund evidence before fulfillment. Connected accounts event source; no bearer session.",
         "requestBody": {
           "required": true,
           "content": {
@@ -80810,7 +80885,7 @@
                     "type": "string"
                   },
                   "livemode": {
-                    "const": false
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": true
@@ -80986,7 +81061,7 @@
             }
           }
         },
-        "description": "Verify raw thin Accounts v2 notification bytes with STRIPE_ACCOUNT_WEBHOOK_SECRET, then independently retrieve the sandbox event and account. Your account event source; no bearer session.",
+        "description": "Verify raw thin Accounts v2 notification bytes with STRIPE_ACCOUNT_WEBHOOK_SECRET, then independently retrieve the matching-mode event and account. Your account event source; no bearer session.",
         "requestBody": {
           "required": true,
           "content": {
@@ -81002,7 +81077,7 @@
                     "type": "string"
                   },
                   "livemode": {
-                    "const": false
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": true

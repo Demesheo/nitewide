@@ -13,13 +13,19 @@ const config = { NODE_ENV: 'test', corsOrigins: [], AUTH_TOKEN_SECRET: 'developm
   STRIPE_MODE: 'test', STRIPE_SECRET_KEY: 'sk_test_mock', STRIPE_PUBLISHABLE_KEY: 'pk_test_mock',
   STRIPE_WEBHOOK_SECRET: 'whsec_paymentmock', STRIPE_ACCOUNT_WEBHOOK_SECRET: 'whsec_accountmock' };
 function fixture(changes = {}) {
-  const calls = [], event = { id: 'evt_accountmock', object: 'v2.core.event', type: 'v2.core.account.updated', livemode: false,
+  const calls = [], modelCalls = [], event = { id: 'evt_accountmock', object: 'v2.core.event', type: 'v2.core.account.updated', livemode: false,
     related_object: { id: 'acct_unknown', type: 'v2.core.account' } };
   // Only local SDK signature functions are real. Every provider retrieval and
   // domain mutation is stubbed; no ambient environment/key or network is used.
-  const stripe = { ...createStripeClient(config), retrieveAccountNotification: async id => { calls.push(['retrieve-event', id]); return event; } };
+  const stripe = { ...createStripeClient(config) };
+  for (const [name, value] of Object.entries(stripe)) {
+    if (typeof value === 'function' && !['constructWebhookEvent', 'constructAccountNotification'].includes(name)) {
+      stripe[name] = async () => { calls.push(['unexpected-provider-call', name]); assert.fail(`Provider method ${name} must be explicitly stubbed in this HTTP fixture`); };
+    }
+  }
+  stripe.retrieveAccountNotification = async id => { calls.push(['retrieve-event', id]); return event; };
   const result = { orderId, status: 'pending', verificationStatus: 'pending' };
-  const app = createApp({ sequelize: {}, models: { PaymentAccount: { findOne: async () => null } }, config: { ...config, ...changes }, healthCheck: async () => {},
+  const app = createApp({ sequelize: {}, models: { PaymentAccount: { findOne: async options => { modelCalls.push(['payment-account', options]); return null; } } }, config: { ...config, ...changes }, healthCheck: async () => {},
     services: { stripe, email: { enabled: false }, permissions: { assertInternal: async () => {}, assertBusinessAccess: async () => {} },
       auth: { authenticate: async token => { if (token !== 'local-mock-session') throw new DomainError('Sign in required', { code: 'UNAUTHENTICATED', status: 401 }); return { id: buyerId }; } },
       abuse: { before: async () => {}, authenticated: async () => {} },
@@ -34,7 +40,7 @@ function fixture(changes = {}) {
         lookup: async (...input) => { calls.push(['lookup', ...input]); return result; },
       },
     } });
-  return { app, calls, event };
+  return { app, calls, modelCalls, event, stripe };
 }
 const signed = (payload, secret) => Stripe.webhooks.generateTestHeaderString({ payload, secret });
 const authorized = pending => pending.set('Authorization', 'Bearer local-mock-session');
@@ -73,16 +79,32 @@ test('buyer payment operations require a session and reject caller-supplied paym
   schemas.checkoutSummary.parse((await authorized(request(app).get('/api/customer/checkout-attempts/stable-checkout-key')).expect(200)).body.data);
 });
 test('snapshot webhook verifies the original bytes before acknowledging an unknown sandbox account', async () => {
-  const { app } = fixture();
+  const { app, calls, modelCalls } = fixture();
   const payload = '{ "id": "evt_paymentmock", "livemode": false, "account": "acct_unknown", "type": "checkout.session.completed" }';
   const signature = signed(payload, config.STRIPE_WEBHOOK_SECRET);
   const response = await request(app).post('/api/webhooks/stripe').set('Content-Type', 'application/json').set('Stripe-Signature', signature).send(payload).expect(200);
   assert.deepEqual(response.body, { received: true, ignored: true }); schemas.webhookAcknowledgment.parse(response.body);
+  assert.equal(modelCalls.length, 1); modelCalls.length = 0;
   await request(app).post('/api/webhooks/stripe').set('Content-Type', 'application/json').set('Stripe-Signature', signature).send(`${payload} `).expect(400);
   await request(app).post('/api/webhooks/stripe').send({ id: 'forged', livemode: false }).expect(400);
-  for (const value of [{ id: 'evt_live', account: 'acct_unknown', type: 'account.updated', livemode: true }, { id: 'evt_unscoped', livemode: false }]) {
+  for (const value of [{ id: 'evt_unscoped', livemode: false }, ...[undefined, null, 'false', 0].map(livemode => ({ id: 'evt_malformed', account: 'acct_unknown', type: 'account.updated', livemode }))]) {
     const raw = JSON.stringify(value);
     await request(app).post('/api/webhooks/stripe').set('Content-Type', 'application/json').set('Stripe-Signature', signed(raw, config.STRIPE_WEBHOOK_SECRET)).send(raw).expect(400);
+  }
+  assert.deepEqual(calls, []); assert.deepEqual(modelCalls, []);
+});
+test('validly signed opposite-mode snapshots acknowledge ignored before any model or provider calls', async () => {
+  for (const [configuredMode, livemode] of [['test', true], ['live', false]]) {
+    const { app, calls, modelCalls, stripe } = fixture();
+    // The route uses the shared injected adapter; signature verification is
+    // still the SDK's real local verifier for both adapter-mode cases.
+    stripe.mode = configuredMode;
+    const raw = JSON.stringify({ id: 'evt_opposite_mode', account: 'acct_unknown', type: 'checkout.session.completed', livemode, data: { object: { id: 'cs_opposite_mode' } } });
+    await request(app).post('/api/webhooks/stripe').set('Content-Type', 'application/json').set('Stripe-Signature', signed(raw, 'whsec_wrong')).send(raw).expect(400);
+    const response = await request(app).post('/api/webhooks/stripe').set('Content-Type', 'application/json').set('Stripe-Signature', signed(raw, config.STRIPE_WEBHOOK_SECRET)).send(raw).expect(200);
+    assert.deepEqual(response.body, { received: true, ignored: true });
+    schemas.webhookAcknowledgment.parse(response.body);
+    assert.deepEqual(calls, []); assert.deepEqual(modelCalls, []);
   }
 });
 test('thin account webhook requires its own signing secret and retrieves the event independently', async () => {

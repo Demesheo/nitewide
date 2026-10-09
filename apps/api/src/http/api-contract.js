@@ -65,7 +65,7 @@ const envelope = (data) => z.object({ data });
 const error = z.object({ error: z.object({ code: z.string(), message: z.string(), requestId: z.string().optional(), details: z.json().optional() }) });
 const myEventCapabilities = z.object({ readOnly: z.boolean(), canShareReferral: z.boolean(), canInviteGuestlist: z.boolean(), canReviewGuestlist: z.boolean() });
 const personalEarnings = z.object({ currency: z.literal('USD'), earnedCommissionCents: count, demoCommissionCents: count,
-  sandboxCommissionCents: count, unverifiedCommissionCents: count, receivedPayouts: z.null(), payoutsTracked: z.literal(false) });
+  sandboxCommissionCents: count, liveCommissionCents: count, unverifiedCommissionCents: count, receivedPayouts: z.null(), payoutsTracked: z.literal(false) });
 const eventSummary = z.object({ salesCents: count, commissionCents: count, orders: count, customers: count,
   admissions: count, checkedIn: count, guestlistPlaces: count });
 const myEvent = event.extend({ canManage: z.boolean(), capabilities: myEventCapabilities, scope: z.enum(['event', 'own']) });

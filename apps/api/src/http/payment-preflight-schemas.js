@@ -7,7 +7,7 @@ const inspectionStatus = z.enum(['ready', 'blocked', 'unavailable', 'not-checked
 // malformed remote response cannot introduce secret-bearing free text.
 const paymentPreflightReport = z.object({
   scope: z.literal('payment-preflight'),
-  mode: z.enum(['disabled', 'sandbox-ready', 'configuration-blocked']),
+  mode: z.enum(['disabled', 'sandbox-ready', 'live-ready', 'configuration-blocked']),
   checkedAt: z.iso.datetime({ offset: true }),
   checks: z.array(z.object({ code: z.enum(Object.keys(CHECK_MESSAGES)),
     status: z.enum(['pass', 'warn', 'fail', 'not-checked']), message: z.enum(Object.values(CHECK_MESSAGES)) }).strict()).max(100),

@@ -4,17 +4,17 @@ const { accessScopeSql } = require('./event-affiliate-access');
 // matching payment record. EXISTS keeps duplicate evidence from multiplying sums.
 // Cross-business sandbox history additionally requires the immutable server
 // snapshot's strict boolean marker and original event/account bindings.
-const verifiedStripeOrderSql = (o = 'o') => `(${o}.provider_mode = 'test' AND (${o}.provider_verification_status = 'verified'
+const verifiedStripeOrderSql = (o = 'o') => `(${o}.provider_mode IN ('test','live') AND (${o}.provider_verification_status = 'verified'
   OR (${o}.provider_verification_status='review' AND ${o}.refunded_total_cents>0 AND ${o}.status='paid'))
   AND ${o}.payment_account_id IS NOT NULL AND ${o}.stripe_account_id ~ '^acct_[A-Za-z0-9]+$'
   AND ${o}.stripe_payment_intent_id ~ '^pi_[A-Za-z0-9]+$' AND ${o}.stripe_charge_id ~ '^ch_[A-Za-z0-9]+$'
   AND EXISTS (SELECT 1 FROM payment_accounts pa JOIN events merchant_event ON merchant_event.id=${o}.event_id
     WHERE pa.id=${o}.payment_account_id AND (pa.organization_id=merchant_event.organization_id
-      OR (${o}.pricing_plan_snapshot #> '{merchant,sharedSandbox}' = 'true'::jsonb
+      OR (${o}.provider_mode='test' AND ${o}.pricing_plan_snapshot #> '{merchant,sharedSandbox}' = 'true'::jsonb
         AND ${o}.pricing_plan_snapshot #>> '{merchant,organizationId}' = merchant_event.organization_id::text
         AND ${o}.pricing_plan_snapshot #>> '{merchant,paymentAccountId}' = pa.id::text
         AND ${o}.pricing_plan_snapshot #>> '{merchant,stripeAccountId}' = pa.stripe_account_id))
-      AND pa.mode='test' AND pa.stripe_account_id=${o}.stripe_account_id)
+      AND pa.mode=${o}.provider_mode AND pa.stripe_account_id=${o}.stripe_account_id)
   AND EXISTS (SELECT 1 FROM payments p WHERE p.order_id=${o}.id AND p.provider='stripe'
     AND p.provider_reference=${o}.stripe_payment_intent_id AND p.amount_cents=${o}.total_cents
     AND UPPER(p.currency)=UPPER(${o}.currency) AND p.metadata->>'stripeAccountId'=${o}.stripe_account_id

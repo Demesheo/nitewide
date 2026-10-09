@@ -41,7 +41,7 @@ test('commission approval, funding retry, personal setup and booking conversatio
       const request = async (path, identity, options = {}) => {
         assert.equal(identity, session); const body = options.body ? JSON.parse(options.body) : null; calls.push({ path, body, method: options.method });
         if (path.endsWith('/approve')) { const found = rows.find(r => path.includes(`/${r.id}/`)); found.status = 'approved'; return found; }
-        if (path.endsWith('/quote')) return { currency: 'USD', commissionCents: 2400, estimatedFeeCents: 150, totalCents: 2550, statementIds: body.statementIds };
+        if (path.endsWith('/quote')) return { currency: 'USD', commissionCents: 2400, estimatedFeeCents: 150, totalCents: 2550, statementIds: body.statementIds, feeEstimateBasis: 'estimated_provider_fees' };
         if (path.endsWith('/commission-payments')) { if (fail) throw new Error('Response lost. Retry the same approved payment.'); return { paymentId: 'payment', status: 'paid_fee_review', netSettlementStatus: 'invoicing_fee_unknown', currency: 'USD', commissionCents: 2400, totalCents: 2550, actualFeeCents: null, verifiedNetCents: null }; }
         return { items: rows, total: 3, page: 1, pageSize: 10 };
       };
@@ -63,6 +63,7 @@ test('commission approval, funding retry, personal setup and booking conversatio
       await user.click(screen.getByRole('button', { name: 'Pay 2 selected statements' }));
       const modal = await screen.findByRole('dialog', { name: 'Confirm commission payment' });
       await within(modal).findByText('$25.50');
+      assert.equal(within(modal).queryByText('Sandbox payment · Test funds only.'), null);
       assert.equal(within(modal).getByRole('button', { name: 'Create approved Stripe payment' }).disabled, true);
       await user.click(within(modal).getByRole('checkbox'));
       await user.click(within(modal).getByRole('button', { name: 'Create approved Stripe payment' }));
@@ -86,7 +87,7 @@ test('commission approval, funding retry, personal setup and booking conversatio
       const calls = []; let marker = 'old-paid-attempt', fail = true;
       const request = async (path, identity, options = {}) => {
         const body = options.body ? JSON.parse(options.body) : null;
-        if (path.endsWith('/quote')) return { currency: 'USD', commissionCents: 500, totalCents: 600, estimatedFeeCents: 100, installmentFingerprint: marker };
+        if (path.endsWith('/quote')) return { currency: 'USD', commissionCents: 500, totalCents: 600, estimatedFeeCents: 100, installmentFingerprint: marker, feeEstimateBasis: 'sandbox_estimate' };
         if (path.endsWith('/commission-payments')) { calls.push(body); if (fail) throw new Error('Unknown result. Retry the same payment.'); return { paymentId: 'first-new', currency: 'USD', status: 'paid', netSettlementStatus: 'net_settled', feeEvidence: 'provider_verified', commissionCents: 500, totalCents: 600, actualFeeCents: 100, verifiedNetCents: 500 }; }
         return { items: rows, total: rows.length };
       };
@@ -98,6 +99,7 @@ test('commission approval, funding retry, personal setup and booking conversatio
         assert.equal(screen.getByRole('checkbox', { name: /Reserved balance/ }).disabled, true);
         await user.click(screen.getByRole('checkbox', { name: /Another balance/ })); await user.click(screen.getByRole('button', { name: 'Pay 1 selected statement' }));
         const modal = await screen.findByRole('dialog', { name: 'Confirm commission payment' }); await within(modal).findByText('$6.00');
+        assert.ok(within(modal).getByText('Sandbox payment · Test funds only.'));
         await user.click(within(modal).getByRole('checkbox')); await user.click(within(modal).getByRole('button', { name: 'Create approved Stripe payment' }));
       }
       await fund(); await screen.findByText('Unknown result. Retry the same payment.');

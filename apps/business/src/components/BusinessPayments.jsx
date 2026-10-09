@@ -42,7 +42,7 @@ function PaymentOverview({ session, organization, request }) {
     return () => controller.abort();
   }, [path, session.accessToken, revision, request]);
   return <section className="panel payment-overview" aria-busy={loading}>
-    <div className="section-heading"><div><span className="eyebrow">PAYMENT ACTIVITY</span><h2>Business payments</h2><p>{organization.name} · All-time verified Stripe sandbox bookings.</p></div><Button variant="outline" disabled={loading} onClick={() => setRevision(value => value + 1)}><RefreshCw size={16} />Refresh payments</Button></div>
+    <div className="section-heading"><div><span className="eyebrow">PAYMENT ACTIVITY</span><h2>Business payments</h2><p>{organization.name} · All-time verified Stripe{result?.mode === 'test' ? ' sandbox' : ''} bookings.</p></div><Button variant="outline" disabled={loading} onClick={() => setRevision(value => value + 1)}><RefreshCw size={16} />Refresh payments</Button></div>
     {error ? <p className="error" role="alert">{error}</p> : !result ? <LoadingState>Loading payments…</LoadingState> : <>
       <PaymentStats currencies={result.currencies} />
       <div className="payment-payout-note"><p>{result.pendingOrders} pending bookings · {result.reviewOrders} payments needing review</p><p>Stripe manages balances, processing fees and bank payouts. View those in your Stripe dashboard; the booking totals above are not available funds. Legacy mock purchases are excluded.</p></div>

@@ -11,6 +11,7 @@ const schemas = require('../src/http/commission-payment-schemas');
 const raw = value => JSON.parse(JSON.stringify(value));
 
 function fakeStripe(account) {
+  const livemode = account.livemode;
   const caches = new Map(), customers = new Map(), invoices = new Map(), intents = new Map(), charges = new Map(), balances = new Map(), calls = [];
   let loseInvoiceResponse = false, loseVoidResponse = false;
   function checked(options) { assert.equal(options.stripeAccount, account.id, 'Every customer, invoice and payment lookup belongs to the person’s account'); }
@@ -21,15 +22,15 @@ function fakeStripe(account) {
     if (name === 'invoice' && loseInvoiceResponse) { loseInvoiceResponse = false; throw new Error('Provider succeeded but response was lost'); }
     return raw(result);
   }
-  const stripe = { enabled: true, mode: 'test', sandboxSharedAccountId: 'acct_business_never_used', disconnectEnabled: true,
+  const stripe = { enabled: true, mode: livemode ? 'live' : 'test', ...(livemode ? {} : { sandboxSharedAccountId: 'acct_business_never_used' }), disconnectEnabled: true,
     retrieveIndividualAccount: async id => { assert.equal(id, account.id); return raw(account); },
-    createAccountLink: async input => ({ object: 'v2.core.account_link', account: input.account, livemode: false, url: 'https://connect.stripe.com/mock-only', expires_at: '2026-10-03T12:00:00Z' }),
+    createAccountLink: async input => ({ object: 'v2.core.account_link', account: input.account, livemode, url: 'https://connect.stripe.com/mock-only', expires_at: '2026-10-03T12:00:00Z' }),
     disconnectAccount: async id => { assert.equal(id, account.id); return { disconnected: true }; },
-    createCommissionCustomer: (params, options) => idempotent('customer', params, options, () => { const customer = { id: `cus_${randomUUID().replaceAll('-', '')}`, object: 'customer', livemode: false, ...params }; customers.set(customer.id, customer); return customer; }),
+    createCommissionCustomer: (params, options) => idempotent('customer', params, options, () => { const customer = { id: `cus_${randomUUID().replaceAll('-', '')}`, object: 'customer', livemode, ...params }; customers.set(customer.id, customer); return customer; }),
     retrieveCommissionCustomer: async (id, options) => { checked(options); return raw(customers.get(id)); },
-    createCommissionInvoice: (params, options) => idempotent('invoice', params, options, () => { const invoice = { id: `in_${randomUUID().replaceAll('-', '')}`, object: 'invoice', livemode: false, status: 'draft', ...params,
+    createCommissionInvoice: (params, options) => idempotent('invoice', params, options, () => { const invoice = { id: `in_${randomUUID().replaceAll('-', '')}`, object: 'invoice', livemode, status: 'draft', ...params,
       subtotal: 0, total: 0, amount_due: 0, amount_paid: 0, amount_remaining: 0, lines: [], payments: [] }; invoices.set(invoice.id, invoice); return invoice; }),
-    createCommissionInvoiceItem: (params, options) => idempotent('item', params, options, () => { const invoice = invoices.get(params.invoice), item = { id: `ii_${randomUUID().replaceAll('-', '')}`, object: 'invoiceitem', livemode: false, ...params }; invoice.lines.push(item); return item; }),
+    createCommissionInvoiceItem: (params, options) => idempotent('item', params, options, () => { const invoice = invoices.get(params.invoice), item = { id: `ii_${randomUUID().replaceAll('-', '')}`, object: 'invoiceitem', livemode, ...params }; invoice.lines.push(item); return item; }),
     finalizeCommissionInvoice: (id, params, options) => idempotent('finalize', params, options, () => { const invoice = invoices.get(id); invoice.total = invoice.subtotal = invoice.amount_due = invoice.amount_remaining = invoice.lines.reduce((sum, line) => sum + line.amount, 0); invoice.status = 'open'; invoice.hosted_invoice_url = `https://invoice.stripe.com/i/${id}`; return invoice; }),
     voidCommissionInvoice: async (id, options) => {
       checked(options); const invoice = invoices.get(id); assert.notEqual(invoice.status, 'paid');
@@ -49,9 +50,9 @@ function fakeStripe(account) {
   function succeed(payment, fee = 50) {
     const invoice = invoices.get(payment.providerInvoiceId), intentId = `pi_${randomUUID().replaceAll('-', '')}`, chargeId = `ch_${randomUUID().replaceAll('-', '')}`, balanceId = `txn_${randomUUID().replaceAll('-', '')}`;
     invoice.status = 'paid'; invoice.amount_paid = invoice.total; invoice.amount_remaining = 0;
-    invoice.payments = [{ id: `inpay_${randomUUID().replaceAll('-', '')}`, livemode: false, invoice: invoice.id, currency: invoice.currency, amount_requested: invoice.total, amount_paid: invoice.total, status: 'paid', is_default: true, payment: { type: 'payment_intent', payment_intent: intentId } }];
-    intents.set(intentId, { id: intentId, object: 'payment_intent', livemode: false, status: 'succeeded', amount: invoice.total, amount_received: invoice.total, currency: invoice.currency, customer: invoice.customer, latest_charge: chargeId });
-    charges.set(chargeId, { id: chargeId, object: 'charge', livemode: false, amount: invoice.total, amount_captured: invoice.total, paid: true, captured: true, disputed: false, refunded: false, amount_refunded: 0, currency: invoice.currency, customer: invoice.customer, payment_intent: intentId, balance_transaction: balanceId, payment_method_details: { type: payment.paymentMethod } });
+    invoice.payments = [{ id: `inpay_${randomUUID().replaceAll('-', '')}`, livemode, invoice: invoice.id, currency: invoice.currency, amount_requested: invoice.total, amount_paid: invoice.total, status: 'paid', is_default: true, payment: { type: 'payment_intent', payment_intent: intentId } }];
+    intents.set(intentId, { id: intentId, object: 'payment_intent', livemode, status: 'succeeded', amount: invoice.total, amount_received: invoice.total, currency: invoice.currency, customer: invoice.customer, latest_charge: chargeId });
+    charges.set(chargeId, { id: chargeId, object: 'charge', livemode, amount: invoice.total, amount_captured: invoice.total, paid: true, captured: true, disputed: false, refunded: false, amount_refunded: 0, currency: invoice.currency, customer: invoice.customer, payment_intent: intentId, balance_transaction: balanceId, payment_method_details: { type: payment.paymentMethod } });
     balances.set(balanceId, { id: balanceId, object: 'balance_transaction', type: 'charge', source: chargeId, amount: invoice.total, fee, net: invoice.total - fee, currency: invoice.currency, fee_details: [{ type: 'stripe_fee', amount: fee, currency: invoice.currency }] });
     return { invoice, intent: intents.get(intentId), charge: charges.get(chargeId), balance: balances.get(balanceId) };
   }
@@ -231,5 +232,62 @@ test('commission execution is scoped, individually approved, idempotent, provide
       await saved.reload(); await assert.rejects(saved.update({ stripeAccountId: 'acct_wrong' }), /Commission approval terms are immutable/);
       await saved.reload(); assert.equal(saved.stripeAccountId, account.id);
     });
+  } finally { await db.close(); }
+});
+
+test('live commission approval rejects mixed-mode earnings and recovers one invoice before verified net settlement', { timeout: 30000 }, async () => {
+  assertManagedTestDatabase();
+  const db = require('../src/db/sequelize').createSequelize(require('../src/config').getConfig()), m = require('../src/db/models').initModels(db);
+  try {
+    const owner = await m.User.create({ displayName: 'Live commission owner', email: `${randomUUID()}@offline.nitewide.test` });
+    const recipient = await m.User.create({ displayName: 'Live commission recipient', email: `${randomUUID()}@offline.nitewide.test` });
+    const business = await m.Organization.create({ name: 'Live commission business', slug: randomUUID(), onboardingEstablished: true });
+    await m.OrganizationOwner.create({ userId: owner.id, organizationId: business.id, role: 'owner' });
+    const account = { id: `acct_${randomUUID().replaceAll('-', '')}`, object: 'v2.core.account', livemode: true, identity: { entity_type: 'individual' }, dashboard: 'full', applied_configurations: ['merchant'],
+      defaults: { responsibilities: { fees_collector: 'stripe', losses_collector: 'stripe', requirements_collector: 'stripe' } },
+      configuration: { merchant: { applied: true, capabilities: { card_payments: { status: 'active' }, ach_debit_payments: { status: 'active' }, stripe_balance: { payouts: { status: 'active' } } } } }, requirements: { entries: [] } };
+    await m.IndividualCommissionProfile.create({ userId: recipient.id, name: recipient.displayName, providerMode: 'live', creationRequestId: randomUUID(), stripeAccountId: account.id, verifiedAt: new Date(), verifiedStripeAccount: account });
+    const provider = fakeStripe(account), ledger = createCommissionLedgerService({ sequelize: db, models: m });
+    const individuals = createIndividualCommissionProfileService({ sequelize: db, models: m, stripe: provider.stripe });
+    const service = createCommissionPaymentService({ sequelize: db, models: m, stripe: provider.stripe, ledger, individualProfiles: individuals });
+    async function createStatement(modes) {
+      const event = await m.Event.create({ organizationId: business.id, creatorUserId: owner.id, title: 'Live commission event', slug: randomUUID(), startsAt: new Date(Date.now() - 72 * 3600000), endsAt: new Date(Date.now() - 70 * 3600000) });
+      const statement = await m.CommissionStatement.create({ organizationId: business.id, eventId: event.id, eventTitle: event.title, recipientUserId: recipient.id, currency: 'USD', availableAt: new Date(Date.now() - 22 * 3600000) });
+      for (const mode of modes) {
+        const order = await m.Order.create({ buyerUserId: owner.id, eventId: event.id, status: 'paid', providerMode: mode, providerVerificationStatus: 'verified', subtotalCents: 10_000, totalCents: 10_000, affiliateCommissionCents: 1000, idempotencyKey: randomUUID() });
+        await m.CommissionEarning.create({ orderId: order.id, eventId: event.id, organizationId: business.id, statementId: statement.id, recipientUserId: recipient.id, currency: 'USD', originalCommissionCents: 1000, unpaidCommissionCents: 1000, snapshot: { version: 1 } });
+      }
+      await service.approveStatement(owner.id, business.id, statement.id);
+      return statement;
+    }
+    const mixed = await createStatement(['test', 'live']);
+    await assert.rejects(service.quote(owner.id, business.id, { statementIds: [mixed.id], paymentMethod: 'card' }), { code: 'COMMISSION_MODE_MISMATCH' });
+    assert.equal(provider.calls.length, 0, 'mixed-mode historical earnings never initiate real provider work');
+    const statement = await createStatement(['live']);
+    const quote = await service.quote(owner.id, business.id, { statementIds: [statement.id], paymentMethod: 'card' });
+    assert.equal(quote.feeEstimateBasis, 'estimated_provider_fees');
+    assert.equal(schemas.commissionQuoteResponse.safeParse(raw(quote)).success, true);
+    const input = { statementIds: [statement.id], paymentMethod: 'card', approvedTotalCents: quote.totalCents, feeEstimateAcknowledged: true, idempotencyKey: randomUUID() };
+    provider.loseNextInvoice();
+    const uncertain = await service.approve(owner.id, business.id, input);
+    assert.equal(uncertain.retryable, true);
+    const recovered = await service.approve(owner.id, business.id, input);
+    const payment = await m.CommissionPayment.findByPk(recovered.paymentId);
+    assert.equal(payment.providerMode, 'live'); assert.equal(payment.feePolicy.id, 'us-standard-invoicing-starter-v1');
+    assert.equal(provider.invoices.size, 1); assert.equal(provider.customers.size, 1);
+    assert.equal(payment.totalCents, input.approvedTotalCents);
+    provider.succeed(payment, 50);
+    const webhooks = createStripeWebhookService({ sequelize: db, models: m, stripe: provider.stripe, commissionPayments: service, individualCommissionProfiles: individuals });
+    const event = { id: `evt_${randomUUID()}`, livemode: true, account: account.id, type: 'invoice.paid', data: { object: { id: payment.providerInvoiceId } } };
+    assert.deepEqual(await webhooks.receive(JSON.stringify({ ...event, livemode: false }), 'valid'), { received: true, ignored: true });
+    await webhooks.receive(JSON.stringify(event), 'valid');
+    assert.equal((await payment.reload()).status, 'paid_fee_review');
+    assert.equal(payment.providerNetCents, quote.totalCents - 50);
+    const settled = await service.reviewInvoicingFee(owner.id, business.id, payment.id, { invoicingFeeCents: 5, evidenceReference: 'Controlled provider billing fixture', reason: 'Offline proof of invoice fee', idempotencyKey: randomUUID() });
+    assert.equal(settled.status, 'paid');
+    assert.equal(settled.recipientBankPayoutVerified, false);
+    const earning = await m.CommissionEarning.findOne({ where: { statementId: statement.id } });
+    assert.equal(earning.paidCommissionCents, 1000); assert.equal(earning.reservedCommissionCents, 0);
+    assert.equal(provider.invoices.size, 1);
   } finally { await db.close(); }
 });

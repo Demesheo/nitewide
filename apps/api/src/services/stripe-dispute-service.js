@@ -3,13 +3,14 @@ const { Op } = require('sequelize');
 const { conflict, DomainError } = require('../domain/errors');
 const { providerId } = require('./stripe-checkout-service');
 const { mutationTransaction } = require('./mutation-transaction');
+const { isStripeMode, matchesStripeLivemode } = require('../payments/stripe-mode');
 
 const CLOSED = new Set(['won','lost','warning_closed','prevented']);
 const HELD = ['warning_needs_response','warning_under_review','needs_response','under_review','lost'];
 const STATUSES = new Set([...CLOSED,...HELD]);
 function verifyDispute(order, dispute, charge, intent) {
   return dispute?.object === 'dispute' && charge?.object === 'charge' && intent?.object === 'payment_intent'
-    && STATUSES.has(dispute.status) && dispute.livemode === false && charge.livemode === false && intent.livemode === false
+    && STATUSES.has(dispute.status) && [dispute, charge, intent].every(object => matchesStripeLivemode(object, order.providerMode))
     && providerId(dispute.charge) === order.stripeChargeId && charge.id === order.stripeChargeId
     && providerId(dispute.payment_intent) === order.stripePaymentIntentId && providerId(charge.payment_intent) === order.stripePaymentIntentId
     && intent.id === order.stripePaymentIntentId && intent.metadata?.orderId === order.id
@@ -24,25 +25,25 @@ function verifyDispute(order, dispute, charge, intent) {
 }
 function createStripeDisputeService({ sequelize, models, stripe, ledger, now = () => new Date() }) {
   async function reconcileDisputeEvent(event, account) {
-    if (!stripe?.enabled || stripe.mode !== 'test') throw new DomainError('Sandbox dispute reconciliation unavailable', {code:'STRIPE_DISPUTE_SYNC_UNAVAILABLE',status:503});
+    if (!stripe?.enabled || !isStripeMode(stripe.mode)) throw new DomainError('Dispute reconciliation unavailable', {code:'STRIPE_DISPUTE_SYNC_UNAVAILABLE',status:503});
     const reference = event.data?.object?.id;
-    if (!/^du_[A-Za-z0-9]+$/.test(reference || '') || event.account !== account.stripeAccountId || event.livemode !== false) throw conflict('Dispute selection needs review','DISPUTE_VERIFICATION_FAILED');
+    if (!/^du_[A-Za-z0-9]+$/.test(reference || '') || event.account !== account.stripeAccountId || account.mode !== stripe.mode || !matchesStripeLivemode(event, stripe.mode)) throw conflict('Dispute selection needs review','DISPUTE_VERIFICATION_FAILED');
     // The signed payload selects an object, never a financial status. Find its
     // immutable original merchant/order before beginning a fresh observation.
     let selected;
     try { selected = await stripe.retrieveDispute(reference,{stripeAccount:account.stripeAccountId}); }
     catch { return {retryable:true}; }
-    if (selected?.id !== reference || selected.livemode !== false) throw conflict('Dispute reference needs review','DISPUTE_VERIFICATION_FAILED');
-    const order = await models.Order.findOne({where:{stripeChargeId:providerId(selected.charge),stripeAccountId:account.stripeAccountId,paymentAccountId:account.id,providerMode:'test'}});
+    if (selected?.id !== reference || !matchesStripeLivemode(selected, stripe.mode)) throw conflict('Dispute reference needs review','DISPUTE_VERIFICATION_FAILED');
+    const order = await models.Order.findOne({where:{stripeChargeId:providerId(selected.charge),stripeAccountId:account.stripeAccountId,paymentAccountId:account.id,providerMode:stripe.mode}});
     if (!order) return {ignored:true};
     const token = randomUUID();
     const claim = await mutationTransaction(sequelize,async transaction => {
       await models.Event.findByPk(order.eventId,{transaction,lock:transaction.LOCK.UPDATE});
       const lockedOrder = await models.Order.findByPk(order.id,{transaction,lock:transaction.LOCK.UPDATE});
-      const [row] = await models.PurchaseDispute.findOrCreate({where:{stripeAccountId:account.stripeAccountId,providerMode:'test',stripeDisputeId:reference},
+      const [row] = await models.PurchaseDispute.findOrCreate({where:{stripeAccountId:account.stripeAccountId,providerMode:stripe.mode,stripeDisputeId:reference},
         defaults:{orderId:order.id,currency:order.currency},transaction});
       await row.reload({transaction,lock:transaction.LOCK.UPDATE});
-      if (row.orderId !== order.id || !lockedOrder.paidAt || !['paid','refunded'].includes(lockedOrder.status)) throw conflict('Dispute order needs review','DISPUTE_VERIFICATION_FAILED');
+      if (row.orderId !== order.id || lockedOrder.providerMode !== stripe.mode || !lockedOrder.paidAt || !['paid','refunded'].includes(lockedOrder.status)) throw conflict('Dispute order needs review','DISPUTE_VERIFICATION_FAILED');
       // Terminal provider resolution cannot regress through a delayed webhook.
       if (CLOSED.has(row.status)) return {terminal:true};
       await row.update({observationToken:token},{transaction});
@@ -62,7 +63,8 @@ function createStripeDisputeService({ sequelize, models, stripe, ledger, now = (
     if (dispute?.id !== reference || !verifyDispute(order,dispute,charge,intent)) throw conflict('Dispute payment binding needs review','DISPUTE_VERIFICATION_FAILED');
     return mutationTransaction(sequelize,async transaction => {
       await models.Event.findByPk(order.eventId,{transaction,lock:transaction.LOCK.UPDATE});
-      await models.Order.findByPk(order.id,{transaction,lock:transaction.LOCK.UPDATE});
+      const lockedOrder = await models.Order.findByPk(order.id,{transaction,lock:transaction.LOCK.UPDATE});
+      if (lockedOrder.providerMode !== stripe.mode || !verifyDispute(lockedOrder,dispute,charge,intent)) throw conflict('Dispute payment binding needs review','DISPUTE_VERIFICATION_FAILED');
       const row = await models.PurchaseDispute.findByPk(claim.id,{transaction,lock:transaction.LOCK.UPDATE});
       if (row.observationToken !== token || CLOSED.has(row.status)) return {retryable:!CLOSED.has(row.status),superseded:true};
       await row.update({status:dispute.status,amountCents:dispute.amount,synchronizedAt:now()},{transaction});

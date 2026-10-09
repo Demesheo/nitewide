@@ -6,7 +6,7 @@ const { activeUser } = require('./lifecycle-service');
 const { individualCommissionContext } = require('./commission-profile-repository');
 const { commissionTerms } = require('../domain/commission-eligibility');
 const { assertCommissionPricing } = require('../domain/editor-pricing-policy');
-function createCommissionSettingsService({ models, permissions, now = () => new Date() }) {
+function createCommissionSettingsService({ models, permissions, stripe = null, now = () => new Date() }) {
   const result = (organization, event) => ({ organizationId: organization?.id || event?.organizationId || null,
     ...(event ? { eventId: event.id } : {}), minimumSubtotalCents: event ? event.commissionMinimumSubtotalCents ?? null : organization.commissionMinimumSubtotalCents,
     effectiveMinimumSubtotalCents: effectiveCommissionMinimum(event, organization), floorSubtotalCents: MINIMUM_COMMISSION_SUBTOTAL_CENTS, appliesTo: 'future_orders' });
@@ -52,7 +52,7 @@ function createCommissionSettingsService({ models, permissions, now = () => new 
       if (!activeUser(person)) throw notFound('Active user');
       const affiliate = await models.OrgAffiliate.findOne({ where: { organizationId, userId: personUserId, status: 'active' }, transaction, lock: transaction.LOCK.UPDATE });
       if (!affiliate) throw notFound('Active organization referrer');
-      const commissionContext = await individualCommissionContext(models, personUserId, { transaction, now: now() });
+      const commissionContext = await individualCommissionContext(models, personUserId, { transaction, now: now(), mode: stripe?.mode || 'disabled' });
       await assertCommissionPricing({ models, organizationId, commissionBps: input.defaultCommissionBps, commissionContext, transaction, now: now() });
       const before = { defaultCommissionBps: affiliate.defaultCommissionBps };
       await affiliate.update({ defaultCommissionBps: input.defaultCommissionBps }, { transaction });

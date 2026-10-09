@@ -1,10 +1,11 @@
 const { DomainError } = require('./errors');
+const { isStripeMode, matchesStripeLivemode } = require('../payments/stripe-mode');
 
 // Business merchant accounts never prove personal eligibility. Only a profile
 // bound to the authenticated person and server-retrieved individual evidence
 // may unlock a configured rate. Live execution remains independently gated.
 const INDIVIDUAL_VERIFICATION_MAX_AGE_MS = 5 * 60 * 1000;
-function commissionEligibility({ userId, individualProfile, now = new Date() } = {}) {
+function commissionEligibility({ userId, individualProfile, now = new Date(), mode = 'test' } = {}) {
   const locked = {
     eligible: false,
     status: 'individual_setup_required',
@@ -22,9 +23,9 @@ function commissionEligibility({ userId, individualProfile, now = new Date() } =
   const individualReady = userId && individualProfile.userId === userId && !individualProfile.organizationId
     && individualProfile.lifecycleState === 'active' && individualProfile.status === 'active' && !individualProfile.deauthorizedAt && !individualProfile.paymentsDisabledAt
     && (!individualProfile.disconnectStatus || individualProfile.disconnectStatus === 'none')
-    && individualProfile.provider === 'stripe' && individualProfile.providerMode === 'test'
+    && individualProfile.provider === 'stripe' && isStripeMode(mode) && individualProfile.providerMode === mode
     && individualProfile.stripeAccountId && individualProfile.stripeAccountId === account?.id
-    && account?.object === 'v2.core.account' && account.livemode === false && account.closed !== true
+    && account?.object === 'v2.core.account' && matchesStripeLivemode(account, mode) && account.closed !== true
     && account.identity?.entity_type === 'individual' && account.dashboard === 'full'
     && responsibilities?.fees_collector === 'stripe' && responsibilities?.losses_collector === 'stripe' && responsibilities?.requirements_collector === 'stripe'
     && Array.isArray(account.applied_configurations) && account.applied_configurations.includes('merchant') && merchantApplied

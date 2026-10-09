@@ -1,17 +1,18 @@
 const { DomainError, conflict } = require('../domain/errors');
 const { controllerMatches } = require('../services/business-payment-account-service');
+const { isStripeMode, matchesStripeLivemode } = require('./stripe-mode');
 
 // Accounts v2 IDs have a v1 projection. Only Standard/full-dashboard,
 // Stripe-liable accounts can use OAuth deauthorization. Never close, delete or
 // reject an account as a substitute for removing the platform connection.
-function createStripeDisconnect(stripe, clientId) {
-  const enabled = /^ca_[A-Za-z0-9]+$/.test(clientId || '');
+function createStripeDisconnect(stripe, clientId, mode = 'test') {
+  const enabled = isStripeMode(mode) && /^ca_[A-Za-z0-9]+$/.test(clientId || '');
   async function disconnect(accountId) {
     if (!enabled) throw new DomainError('Stripe disconnect is not configured. New payments can still be disabled.', { code: 'DISCONNECT_NOT_CONFIGURED', status: 503 });
     if (!/^acct_[A-Za-z0-9]+$/.test(accountId || '')) throw conflict('Invalid merchant account.', 'DISCONNECT_NOT_SUPPORTED');
     const remote = await stripe.v2.core.accounts.retrieve(accountId, { include: ['defaults'] });
     const standard = await stripe.accounts.retrieve(accountId);
-    if (remote.id !== accountId || remote.livemode !== false || remote.closed || !controllerMatches(remote)
+    if (remote.id !== accountId || !matchesStripeLivemode(remote, mode) || remote.closed || !controllerMatches(remote)
       || standard.id !== accountId || standard.type !== 'standard'
       || standard.controller?.stripe_dashboard?.type !== 'full' || standard.controller?.losses?.payments !== 'stripe') {
       throw conflict('Stripe does not support self-service disconnection for this account configuration.', 'DISCONNECT_NOT_SUPPORTED');

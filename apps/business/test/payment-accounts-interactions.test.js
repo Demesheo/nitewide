@@ -24,7 +24,7 @@ test('finance account controls use hosted onboarding and server readiness; event
     const user = (await import('@testing-library/user-event')).default.setup({ document: dom.window.document });
     const calls = [], destinations = [];
     const session = { accessToken: 'fixture-token', user: { id: 'owner' } }, organization = { id: 'org', canManageFinance: true };
-    const accounts = [{ id: 'account', name: 'Downtown', paymentsReady: false, detailsSubmitted: false, chargesEnabled: false, payoutsEnabled: false }];
+    const accounts = [{ id: 'account', name: 'Downtown', mode: 'test', paymentsReady: false, detailsSubmitted: false, chargesEnabled: false, payoutsEnabled: false }];
     let defaultPaymentAccountId = null, failCreate = true;
     const request = async (path, identity, options = {}) => {
       assert.equal(identity, session); calls.push({ path, options });
@@ -50,6 +50,10 @@ test('finance account controls use hosted onboarding and server readiness; event
     await user.click(screen.getByRole('button', { name: 'Check readiness' }));
     await screen.findByText('Ready for sandbox payments');
     assert.equal(screen.queryByText(verificationHint), null);
+    accounts[0] = { ...accounts[0], mode: 'live' };
+    await user.click(screen.getByRole('button', { name: 'Check readiness' }));
+    await screen.findByText('Ready for payments');
+    assert.equal(screen.queryByText('Ready for sandbox payments'), null);
     await user.selectOptions(screen.getByLabelText('Default payment account'), 'account');
     await waitFor(() => assert.equal(defaultPaymentAccountId, 'account'));
     await user.type(screen.getByLabelText('New account name'), 'Uptown');

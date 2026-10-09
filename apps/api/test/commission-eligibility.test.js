@@ -70,6 +70,24 @@ test('applied merchant timestamps from freshly retrieved provider evidence are s
   context.individualProfile.verifiedStripeAccount.configuration.merchant.applied = '2027-01-01T00:00:00Z';
   assert.equal(commissionEligibility(context).eligible, false);
 });
+test('individual eligibility and SQL ordering accept only the runtime mode and matching provider evidence', () => {
+  const { commissionEligibilitySql } = require('../src/services/commission-profile-repository');
+  for (const mode of ['test', 'live']) {
+    const context = individualContext(); context.mode = mode;
+    context.individualProfile.providerMode = mode;
+    context.individualProfile.verifiedStripeAccount.livemode = mode === 'live';
+    assert.equal(commissionEligibility(context).eligible, true);
+    assert.match(commissionEligibilitySql('cp', ':observed', mode), new RegExp(`provider_mode='${mode}'`));
+    assert.match(commissionEligibilitySql('cp', ':observed', mode), new RegExp(`livemode'='${mode === 'live'}'::jsonb`));
+    for (const other of ['disabled', mode === 'live' ? 'test' : 'live']) assert.equal(commissionEligibility({ ...context, mode: other }).eligible, false);
+    for (const invalid of [null, undefined, 'true', mode !== 'live']) {
+      context.individualProfile.verifiedStripeAccount.livemode = invalid;
+      assert.equal(commissionEligibility(context).eligible, false);
+    }
+  }
+  assert.equal(commissionEligibilitySql('cp', ':observed', 'disabled'), 'FALSE');
+  assert.equal(commissionEligibilitySql('cp', ':observed', "live' OR TRUE"), 'FALSE');
+});
 
 test('shared commission write guard rejects nonzero before database or pricing work', async () => {
   const models = { Event: { sequelize: { query: async () => { throw new Error('The guard must run before SQL'); } } } };

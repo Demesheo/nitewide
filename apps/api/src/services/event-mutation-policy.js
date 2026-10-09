@@ -46,7 +46,7 @@ async function persistOffering({ models, eventId, values, previous = null, trans
     if (!event) throw conflict('Select an existing event', 'EVENT_NOT_FOUND');
     if (!paymentValidated) await assertPaidPublication({ models,event, offerings: [{ ...(previous?.toJSON ? previous.toJSON() : previous || {}), ...values }], environment, hostedDemo,stripe,transaction });
     if (!pricingValidated) await assertEditorPricing({ models, eventId, organizationId: event.organizationId,
-      eventFeeMode: event.feeMode || 'buyer', offerings: [{ ...(previous?.toJSON ? previous.toJSON() : previous || {}), ...values }], transaction });
+      eventFeeMode: event.feeMode || 'buyer', offerings: [{ ...(previous?.toJSON ? previous.toJSON() : previous || {}), ...values }], transaction, mode: stripe?.mode || 'disabled' });
   }
   return previous ? previous.update(values, { transaction }) : models.Offering.create({ ...values, eventId }, { transaction });
 }

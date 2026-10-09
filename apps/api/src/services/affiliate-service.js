@@ -17,7 +17,7 @@ const employeeReferralCode = (membershipId) => `STAFF-${membershipId}`;
 const leaderReferralCode = (membershipId) => `LEAD-${membershipId}`;
 const invalidCode = () => new DomainError('Promoter code is invalid or inactive', { code: 'INVALID_AFFILIATE' });
 
-async function resolveRundownMember(models, { event, code, now, transaction, lock, persist }) {
+async function resolveRundownMember(models, { event, code, now, transaction, lock, persist, mode }) {
   if (!/^RUN-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(code) || !models.Rundown) throw invalidCode();
   const common = { transaction, ...(lock ? { lock } : {}) };
   const profile = await models.Rundown.findByPk(code.slice(4), common);
@@ -33,7 +33,7 @@ async function resolveRundownMember(models, { event, code, now, transaction, loc
   });
   if (!eligible) throw invalidCode();
   let assignment = await models.EventAffiliate.findOne({ where: { eventId: event.id, userId: profile.userId }, ...common });
-  if (assignment) return resolveAffiliate(models, { event, code: assignment.code, now, transaction, lock, persist });
+  if (assignment) return resolveAffiliate(models, { event, code: assignment.code, now, transaction, lock, persist, mode });
   const membership = await currentOrganizationMembership(models, event.organizationId, profile.userId, transaction, now);
   const venue = await require('./venue-access-policy').currentVenueMembership(models, event, profile.userId, transaction);
   const independent = !event.organizationId && event.creatorUserId === profile.userId;
@@ -49,15 +49,15 @@ async function resolveRundownMember(models, { event, code, now, transaction, loc
     // Checkout preflight uses persist:false and public pages never call here.
     if (!transaction) throw invalidCode();
     [assignment] = await models.EventAffiliate.findOrCreate({ where: { eventId: event.id, userId: profile.userId }, defaults, transaction });
-    return resolveAffiliate(models, { event, code: assignment.code, now, transaction, lock, persist });
+    return resolveAffiliate(models, { event, code: assignment.code, now, transaction, lock, persist, mode });
   }
   const orgAffiliate = defaults.orgAffiliateId ? membership.record : null;
   return eligibleReferral(models, { eventAffiliate: defaults, orgAffiliate,
     commissionBps: defaults.commissionBps ?? orgAffiliate?.defaultCommissionBps ?? 0,
-    guestlistAllocation: defaults.guestlistAllocation ?? orgAffiliate?.defaultGuestlistAllocation ?? 0 }, { now, transaction, lock });
+    guestlistAllocation: defaults.guestlistAllocation ?? orgAffiliate?.defaultGuestlistAllocation ?? 0 }, { now, transaction, lock, mode });
 }
 
-async function resolveVenueMember(models, { event, code, now, transaction, lock, persist = true }) {
+async function resolveVenueMember(models, { event, code, now, transaction, lock, persist = true, mode }) {
   const leader = code.startsWith('LEAD-');
   if (!event.organizationId || !/^(STAFF|LEAD)-[0-9a-f-]{36}$/i.test(code)) throw invalidCode();
   const common = { transaction, ...(lock ? { lock } : {}) };
@@ -84,17 +84,17 @@ async function resolveVenueMember(models, { event, code, now, transaction, lock,
   const linked = eventAffiliate.orgAffiliateId ? await models.OrgAffiliate.findByPk(eventAffiliate.orgAffiliateId, common) : null;
   if (linked && !isActiveWindow(linked, now)) throw invalidCode();
   return eligibleReferral(models, { eventAffiliate, orgAffiliate: linked, commissionBps: eventAffiliate.commissionBps ?? linked?.defaultCommissionBps ?? 0,
-    guestlistAllocation: eventAffiliate.guestlistAllocation ?? linked?.defaultGuestlistAllocation ?? 0 }, { now, transaction, lock });
+    guestlistAllocation: eventAffiliate.guestlistAllocation ?? linked?.defaultGuestlistAllocation ?? 0 }, { now, transaction, lock, mode });
 }
 
 function isActiveWindow(record, now) {
   return record && record.status === 'active' && (!record.startsAt || record.startsAt <= now) && (!record.endsAt || record.endsAt >= now);
 }
 
-async function resolveAffiliate(models, { event, code, now = new Date(), transaction, lock, persist = true }) {
-  if (!code) return eligibleReferral(models, { commissionBps: 0, guestlistAllocation: 0, orgAffiliate: null, eventAffiliate: null }, { now, transaction });
-  if (code.startsWith('RUN-')) return resolveRundownMember(models, { event, code, now, transaction, lock, persist });
-  if (code.startsWith('STAFF-') || code.startsWith('LEAD-')) return resolveVenueMember(models, { event, code, now, transaction, lock, persist });
+async function resolveAffiliate(models, { event, code, now = new Date(), transaction, lock, persist = true, mode = 'test' }) {
+  if (!code) return eligibleReferral(models, { commissionBps: 0, guestlistAllocation: 0, orgAffiliate: null, eventAffiliate: null }, { now, transaction, mode });
+  if (code.startsWith('RUN-')) return resolveRundownMember(models, { event, code, now, transaction, lock, persist, mode });
+  if (code.startsWith('STAFF-') || code.startsWith('LEAD-')) return resolveVenueMember(models, { event, code, now, transaction, lock, persist, mode });
   const common = { transaction, ...(lock ? { lock } : {}) };
   let eventAffiliate = await models.EventAffiliate.findOne({ where: { eventId: event.id, code }, ...common });
   let orgAffiliate = eventAffiliate?.orgAffiliateId ? await models.OrgAffiliate.findByPk(eventAffiliate.orgAffiliateId, common) : null;
@@ -127,6 +127,6 @@ async function resolveAffiliate(models, { event, code, now = new Date(), transac
     orgAffiliate,
     commissionBps: eventAffiliate?.commissionBps ?? orgAffiliate?.defaultCommissionBps ?? 0,
     guestlistAllocation: eventAffiliate?.guestlistAllocation ?? orgAffiliate?.defaultGuestlistAllocation ?? 0,
-  }, { now, transaction, lock });
+  }, { now, transaction, lock, mode });
 }
 module.exports = { resolveAffiliate, isActiveWindow, employeeReferralCode, leaderReferralCode };

@@ -104,7 +104,7 @@ export const questions = [
   ],
   [
     "What can I use today?",
-    "Sign-in, event creation and editing, flyer uploads, ticket/package configuration, guestlist approvals, and sales reporting. Payments use Stripe test mode and do not collect real money.",
+    "Sign-in, event creation and editing, flyer uploads, ticket/package configuration, guestlist approvals, and sales reporting. Free events and guestlists need no payment account. Paid ticket sales require completed Stripe setup and verified payment readiness.",
   ],
   [
     "How do guestlist limits work?",

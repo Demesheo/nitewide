@@ -78,7 +78,7 @@ function summarizeEvent({ orders, offerings, people, guests }) {
   return { summary, tiers: [...tiers.values()], people: [...referrals.values()].map(({ customerIds, guestlistCustomerIds, ...p }) => ({ ...p, customers: customerIds.size, guestlistCustomers: guestlistCustomerIds.size })), customers: [...customers.values()], channels: [...channels.values()] };
 }
 
-function createEventWorkspaceService({ models: m, permissions, email = null, businessAppUrl = 'http://localhost:5174/app', now = () => new Date() }) {
+function createEventWorkspaceService({ models: m, permissions, email = null, stripe = null, businessAppUrl = 'http://localhost:5174/app', now = () => new Date() }) {
   async function roster(event) {
     if (!event.organizationId) return [];
     const include = [{ model: m.User, as: 'user', attributes: ['id', 'displayName', 'email', 'isActive'] }];
@@ -123,12 +123,12 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
     const ownOrg = event.organizationId ? await m.OrgAffiliate.findOne({ where: { organizationId: event.organizationId, userId, status: 'active' } }) : null;
     if (!canManage && !members.some((p) => p.userId === userId) && !activeAssignment) throw forbidden('Event access required');
     const allPeople = await Promise.all(assignments.map(async (a) => {
-      const terms = await persistedCommissionTerms(m, a.userId, a.commissionBps ?? a.orgAffiliate?.defaultCommissionBps ?? 0, { now: now() });
+      const terms = await persistedCommissionTerms(m, a.userId, a.commissionBps ?? a.orgAffiliate?.defaultCommissionBps ?? 0, { now: now(), mode: stripe?.mode || 'disabled' });
       return { id: a.id, userId: a.userId, name: a.user.displayName, email: a.user.email, role: members.find((p) => p.userId === a.userId)?.role || (a.userId === event.creatorUserId && !event.organizationId ? 'Creator' : 'Promoter'), orgAffiliateId: a.orgAffiliateId, status: a.status, code: a.code, commissionBps: terms.effectiveCommissionBps, ...terms };
     }));
     // Show the full current venue team, even without an event assignment or sales.
     // Owners, managers and employees can refer at 0% immediately.
-    for (const member of members) if (!allPeople.some((p) => p.userId === member.userId)) allPeople.push({ ...member, id: null, code: member.defaultReferralCode, status: member.defaultReferralCode ? 'default' : 'not_selected', commissionBps: 0, ...await persistedCommissionTerms(m, member.userId, 0, { now: now() }) });
+    for (const member of members) if (!allPeople.some((p) => p.userId === member.userId)) allPeople.push({ ...member, id: null, code: member.defaultReferralCode, status: member.defaultReferralCode ? 'default' : 'not_selected', commissionBps: 0, ...await persistedCommissionTerms(m, member.userId, 0, { now: now(), mode: stripe?.mode || 'disabled' }) });
     const orderWhere = { eventId, status: 'paid' };
     if (!canManage) orderWhere[Op.or] = [{ eventAffiliateId: ownAssignments }, ...(ownOrg ? [{ eventAffiliateId: null, orgAffiliateId: ownOrg.id }] : [])];
     const guestWhere = { eventId };
@@ -217,7 +217,7 @@ function createEventWorkspaceService({ models: m, permissions, email = null, bus
         }
       }
       if (eventRegrant) { values.sourceOrgAffiliateId = null; values.venueAccessId = null; }
-      const commissionContext = await individualCommissionContext(m, person.id, { transaction, now: now() });
+      const commissionContext = await individualCommissionContext(m, person.id, { transaction, now: now(), mode: stripe?.mode || 'disabled' });
       assertCommissionEligible(input.commissionBps, commissionContext);
       if (m.Offering && input.status === 'active') await assertCommissionPricing({ models: m, eventId, commissionBps: input.commissionBps, commissionContext, transaction, now: now() });
       if (assignment) await assignment.update(values, { transaction });

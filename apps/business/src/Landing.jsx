@@ -250,7 +250,7 @@ export default function Landing() {
               </a>
             </div>
             <p className="lp-demo-disclosure">
-              <span className="lp-dot" /> Sandbox preview · test payments only.
+              <span className="lp-dot" /> Free events and paid tickets · Stripe setup required for paid sales.
             </p>
           </div>
           <div className="lp-hero-visual">

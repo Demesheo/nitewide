@@ -24,6 +24,7 @@ test('payment command help and invalid targets never access secrets, a database 
 });
 
 test('deployed payment command uses private authorization, exact release expectations and no redirects', async () => {
+  for (const mode of ['sandbox-ready', 'live-ready']) {
   const output = [];
   const code = await run(['--url', 'https://example.com', '--require-paid', '--expect-revision', revision], {
     environment: { PAYMENT_PREFLIGHT_ADMIN_TOKEN: 'private-session' }, log: value => output.push(value),
@@ -35,11 +36,12 @@ test('deployed payment command uses private authorization, exact release expecta
       assert.equal(options.headers.Authorization, 'Bearer private-session');
       assert.equal(options.redirect, 'error');
       assert.ok(options.signal instanceof AbortSignal);
-      return { ok: true, json: async () => ({ data: report() }) };
+      return { ok: true, json: async () => ({ data: report({ mode }) }) };
     }, loadConfig: () => assert.fail('must inspect deployed configuration, not local settings'),
   });
   assert.equal(code, 0);
   assert.doesNotMatch(output.join('\n'), /private-session|Bearer|example\.com/);
+  }
 });
 
 test('paid release gate rejects disabled, incomplete, older and secret-bearing remote reports', async () => {

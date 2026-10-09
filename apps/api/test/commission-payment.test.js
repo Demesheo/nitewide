@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createCommissionPaymentService, quoteAmount, verifyInvoiceBinding, verifyCommissionCharge } = require('../src/services/commission-payment-service');
+const { createCommissionPaymentService, quoteAmount, verifyInvoiceBinding, verifyCommissionCharge, LIVE_FEE_POLICY, SANDBOX_FEE_POLICY } = require('../src/services/commission-payment-service');
 const { individualAccountMatches, individualReady } = require('../src/services/individual-commission-profile-service');
 const { createStripeClient } = require('../src/payments/stripe-client');
 const at = new Date('2026-10-02T12:00:00Z');
@@ -8,7 +8,7 @@ const remote = () => ({ id: 'acct_person', object: 'v2.core.account', livemode: 
   applied_configurations: ['merchant'], configuration: { merchant: { applied: true, capabilities: { card_payments: { status: 'active' }, ach_debit_payments: { status: 'active' }, stripe_balance: { payouts: { status: 'active' } } } } },
   defaults: { responsibilities: { fees_collector: 'stripe', losses_collector: 'stripe', requirements_collector: 'stripe' } }, requirements: { entries: [] } });
 const profile = () => ({ userId: 'recipient', provider: 'stripe', providerMode: 'test', accountApiVersion: 'v2', lifecycleState: 'active', status: 'active', disconnectStatus: 'none', stripeAccountId: 'acct_person', verifiedStripeAccount: remote(), verifiedAt: at });
-function evidenceFixture({ invoiceFee = null, feeEvidenceResolver = null } = {}) {
+function evidenceFixture({ invoiceFee = null, feeEvidenceResolver = null, mode = 'test' } = {}) {
   const payment = { id: 'payment', organizationId: 'business', recipientUserId: 'recipient', individualCommissionProfileId: 'profile', stripeAccountId: 'acct_person', providerMode: 'test',
     currency: 'USD', commissionCents: 1000, feeAllowanceCents: 100, totalCents: 1100, paymentMethod: 'card', approvalHash: 'approval', approvedByUserId: 'owner', approvedAt: at,
     providerCustomerId: 'cus_business', providerInvoiceId: 'in_commission', statementSnapshot: [{ id: 'statement', eventId: 'event', eventTitle: 'Night', amountCents: 1000 }], status: 'awaiting_payment', reconciliationStatus: 'awaiting_payment',
@@ -21,14 +21,16 @@ function evidenceFixture({ invoiceFee = null, feeEvidenceResolver = null } = {})
     disputed: false, refunded: false, amount_refunded: 0, balance_transaction: 'txn_approved', payment_method_details: { type: 'card' } };
   const balance = { id: 'txn_approved', object: 'balance_transaction', source: charge.id, amount: 1100, fee: 50, net: 1050, currency: 'usd', type: 'charge', fee_details: [{ amount: 50, currency: 'usd', type: 'stripe_fee' }] };
   const lines = { has_more: false, data: [{ amount: 1000, currency: 'usd', metadata: { ...metadata, commissionStatementId: 'statement', eventId: 'event' } }, { amount: 100, currency: 'usd', metadata: { ...metadata, commissionFeeAllowance: 'true' } }] };
+  payment.providerMode = mode;
+  for (const object of [invoice, intent, charge, ...invoicePayments.data, ...lines.data]) object.livemode = mode === 'live';
   const reads = [], settlements = [];
   const scoped = (name, object) => async (_id, options) => { assert.equal(options.stripeAccount, 'acct_person'); reads.push(name); return structuredClone(object); };
-  const stripe = { enabled: true, mode: 'test', retrieveCommissionInvoice: scoped('invoice', invoice), retrieveCommissionCustomer: scoped('customer', { id: payment.providerCustomerId, object: 'customer', livemode: false, metadata }),
+  const stripe = { enabled: true, mode, retrieveCommissionInvoice: scoped('invoice', invoice), retrieveCommissionCustomer: scoped('customer', { id: payment.providerCustomerId, object: 'customer', livemode: mode === 'live', metadata }),
     listCommissionInvoiceLines: scoped('lines', lines), listCommissionInvoicePayments: scoped('payments', invoicePayments), retrieveCommissionPaymentIntent: scoped('intent', intent), retrieveCharge: scoped('charge', charge), retrieveCommissionBalanceTransaction: scoped('balance', balance) };
   const models = { CommissionPayment: { findByPk: async () => payment, findOne: async () => payment }, AuditLog: { create: async () => {} },
     User: { findByPk: async () => ({ lifecycleState: 'active' }) }, Organization: { findByPk: async () => ({ lifecycleState: 'active', status: 'active', onboardingEstablished: true }) }, OrganizationOwner: { findOne: async () => ({ role: 'owner' }) } };
   const sequelize = { transaction: async (_options, work) => work({ LOCK: { UPDATE: 'UPDATE' } }) };
-  const service = createCommissionPaymentService({ sequelize, models, stripe, ledger: { finishPayment: async input => settlements.push(input) }, now: () => at,
+  const service = createCommissionPaymentService({ sequelize, models, stripe, ledger: { assertStatementMode: async ({ providerMode }) => assert.equal(providerMode, payment.providerMode), finishPayment: async input => settlements.push(input) }, now: () => at,
     invoicingFeeEvidence: feeEvidenceResolver || (invoiceFee == null ? null : async () => ({ verified: true, invoiceId: invoice.id, stripeAccountId: payment.stripeAccountId, currency: 'USD', amountCents: invoiceFee })) });
   return { payment, invoice, invoicePayments, intent, charge, balance, lines, service, reads, settlements, stripe, models };
 }
@@ -36,6 +38,43 @@ test('sandbox fee allowance is explicit, small balances carry forward and no cli
   assert.deepEqual(quoteAmount(1000, 'card'), { commissionCents: 1000, estimatedFeeCents: 94, totalCents: 1094, feeEstimateBasis: 'sandbox_estimate', feeReconciliationRequired: true });
   assert.throws(() => quoteAmount(49, 'card'), { code: 'COMMISSION_BELOW_MINIMUM' });
   assert.throws(() => quoteAmount(1000, 'card', { card: { bps: 0, fixedCents: 0 } }), { code: 'COMMISSION_FEE_POLICY_REQUIRED' });
+});
+test('live commissions verify every provider layer and keep actual net reconciliation unchanged', async () => {
+  const valid = evidenceFixture({ mode: 'live', invoiceFee: 25 });
+  const result = await valid.service.reconcile(valid.payment);
+  assert.equal(result.status, 'paid'); assert.equal(result.verifiedNetCents, 1025); assert.equal(valid.settlements.length, 1);
+  for (const select of [f => f.invoice, f => f.intent, f => f.charge, f => f.invoicePayments.data[0], f => f.lines.data[0]]) {
+    const invalid = evidenceFixture({ mode: 'live', invoiceFee: 0 }); select(invalid).livemode = false;
+    const rejected = await invalid.service.reconcile(invalid.payment);
+    assert.equal(rejected.status, 'review'); assert.equal(rejected.errorCode, 'COMMISSION_VERIFICATION_FAILED');
+    assert.equal(invalid.settlements.length, 0);
+  }
+  const crossMode = evidenceFixture(); crossMode.stripe.mode = 'live';
+  await assert.rejects(crossMode.service.reconcile(crossMode.payment), { code: 'COMMISSION_VERIFICATION_FAILED' });
+  assert.deepEqual(crossMode.reads, []);
+});
+test('live commission quote rounds fee components independently, caps ACH processing and never exceeds the approved gross', () => {
+  for (const method of ['card', 'us_bank_account']) {
+    const rail = LIVE_FEE_POLICY[method];
+    const fee = gross => Math.min(rail.capCents ?? Infinity, Math.ceil(gross * rail.bps / 10000) + rail.fixedCents) + Math.ceil(gross * 40 / 10000);
+    for (const commissionCents of [50, 99, 100, 999, 1000, 10_000, 61_749, 62_500, 100_000]) {
+      const quote = quoteAmount(commissionCents, method, LIVE_FEE_POLICY);
+      let minimum = commissionCents;
+      while (minimum - fee(minimum) < commissionCents) minimum += 1;
+      assert.equal(quote.totalCents, minimum, `${method}/${commissionCents} is minimal gross`);
+      assert.equal(quote.estimatedFeeCents, quote.totalCents - commissionCents);
+      assert.equal(quote.feeEstimateBasis, 'estimated_provider_fees');
+    }
+  }
+  const bank = quoteAmount(100_000, 'us_bank_account', LIVE_FEE_POLICY);
+  assert.equal(bank.totalCents, 100_904);
+  assert.equal(bank.estimatedFeeCents, 904, 'ACH processing stops at $5 while invoice cost remains proportional');
+  assert.throws(() => quoteAmount(99_999_999, 'card', LIVE_FEE_POLICY), { code: 'COMMISSION_AMOUNT_INVALID' });
+});
+test('live commission approval refuses an injected sandbox fee policy before creating provider work', async () => {
+  const service = createCommissionPaymentService({ stripe: { enabled: true, mode: 'live' }, feePolicy: SANDBOX_FEE_POLICY });
+  await assert.rejects(service.quote('owner', 'business', {}), { code: 'COMMISSION_FEE_POLICY_REQUIRED' });
+  await assert.rejects(service.approve('owner', 'business', {}), { code: 'COMMISSION_FEE_POLICY_REQUIRED' });
 });
 test('individual readiness uses fresh full-dashboard merchant evidence, independent from business/shared accounts', () => {
   assert.equal(individualReady(profile(), 'us_bank_account', at), true);
@@ -122,7 +161,7 @@ test('only verified unchanged payable invoice content exposes its hosted payment
 test('100 selected statements plus fee allowance are verified through two bounded pages', async () => {
   const f = evidenceFixture({ invoiceFee: 0 }), metadata = f.invoice.metadata;
   f.payment.statementSnapshot = Array.from({ length: 100 }, (_value, i) => ({ id: `statement_${i}`, eventId: `event_${i}`, eventTitle: `Event ${i}`, currency: 'USD', amountCents: 10 }));
-  const lines = [...f.payment.statementSnapshot.map((s, i) => ({ id: `il_${i}`, amount: 10, currency: 'usd', metadata: { ...metadata, commissionStatementId: s.id, eventId: s.eventId } })), { id: 'il_fee', amount: 100, currency: 'usd', metadata: { ...metadata, commissionFeeAllowance: 'true' } }];
+  const lines = [...f.payment.statementSnapshot.map((s, i) => ({ id: `il_${i}`, livemode: false, amount: 10, currency: 'usd', metadata: { ...metadata, commissionStatementId: s.id, eventId: s.eventId } })), { id: 'il_fee', livemode: false, amount: 100, currency: 'usd', metadata: { ...metadata, commissionFeeAllowance: 'true' } }];
   const cursors = [];
   f.stripe.listCommissionInvoiceLines = async (_id, options, { startingAfter }) => { assert.equal(options.stripeAccount, f.payment.stripeAccountId); cursors.push(startingAfter); return startingAfter ? { has_more: false, data: lines.slice(100) } : { has_more: true, data: lines.slice(0, 100) }; };
   assert.equal((await f.service.reconcile(f.payment)).status, 'paid'); assert.deepEqual(cursors, [undefined, 'il_99']); assert.equal(f.settlements.length, 1);

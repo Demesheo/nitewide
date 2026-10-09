@@ -17,7 +17,7 @@ test('payment runtime evidence detects configuration drift without returning set
   assert.match(evidence.configurationFingerprint, /^[a-f0-9]{64}$/);
   assert.deepEqual(paymentRuntimeEvidence({ ...config, corsOrigins: [...config.corsOrigins].reverse() }), evidence);
   for (const key of ['AUTH_TOKEN_SECRET', 'STRIPE_SECRET_KEY', 'STRIPE_PUBLISHABLE_KEY', 'STRIPE_WEBHOOK_SECRET',
-    'STRIPE_ACCOUNT_WEBHOOK_SECRET', 'STRIPE_CONNECT_CLIENT_ID', 'CUSTOMER_APP_URL', 'businessAppUrl', 'APP_ROUTING_MODE', 'ADMIN_APP_URL', 'TRUST_PROXY_MODE', 'TRUST_PROXY_HOPS', 'STRIPE_MODE', 'NODE_ENV',
+    'STRIPE_ACCOUNT_WEBHOOK_SECRET', 'STRIPE_CONNECT_CLIENT_ID', 'CUSTOMER_APP_URL', 'businessAppUrl', 'APP_ROUTING_MODE', 'ADMIN_APP_URL', 'TRUST_PROXY_MODE', 'TRUST_PROXY_HOPS', 'STRIPE_MODE', 'NODE_ENV', 'APP_ENVIRONMENT',
     'RESEND_API_KEY', 'RESEND_FROM_EMAIL', 'EMAIL_ENCRYPTION_KEY', 'RESEND_WEBHOOK_SECRET',
     'MEDIA_STORAGE_DRIVER', 'R2_ACCOUNT_ID', 'R2_BUCKET', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_ENDPOINT']) {
     assert.notEqual(paymentRuntimeEvidence({ ...config, [key]: 'different' }).configurationFingerprint, evidence.configurationFingerprint, key);

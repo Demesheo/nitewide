@@ -209,7 +209,7 @@ function createBusinessService({
           : [];
         const byId = new Map(existing.map((o) => [o.id, o]));
         await assertPaidPublication({ models, event: { ...input, paymentAccountId: event?.paymentAccountId }, offerings: input.offerings, environment, hostedDemo, stripe, transaction, now, expectedAccount: checkedAccount });
-        await assertEditorPricing({ models, eventId, organizationId: input.organizationId, eventFeeMode: input.feeMode || 'buyer', offerings: input.offerings, transaction, now: now() });
+        await assertEditorPricing({ models, eventId, organizationId: input.organizationId, eventFeeMode: input.feeMode || 'buyer', offerings: input.offerings, transaction, now: now(), mode: stripe?.mode || 'disabled' });
         for (const tier of input.offerings) {
           if (tier.id && !byId.has(tier.id))
             throw forbidden("Tier does not belong to this event");

@@ -5,6 +5,7 @@ const { assertFinanceAccess, safeProfile, paymentsReady } = require('./business-
 const { lockBusiness, bumpBusiness } = require('./business-membership-policy');
 const { activeUser } = require('./lifecycle-service');
 const { paymentControl, disconnectPermission } = require('../http/payment-schemas');
+const { isStripeMode } = require('../payments/stripe-mode');
 
 async function assertDisconnectAccess(models, userId, organizationId, transaction) {
   const organization = await assertFinanceAccess(models, userId, organizationId, transaction);
@@ -15,12 +16,13 @@ async function assertDisconnectAccess(models, userId, organizationId, transactio
 
 function createBusinessPaymentDisconnectService({ models, stripe, paymentAccounts, now = () => new Date() }) {
   const db = models.PaymentAccount?.sequelize || models.Organization?.sequelize;
-  const profile = account => safeProfile(account,now());
+  const profile = account => safeProfile(account,now(),stripe?.mode || 'disabled');
   const transact = fn => mutationTransaction(db, fn, { accessChange: true });
   const audit = (userId, organizationId, id, action, after, transaction) => models.AuditLog.create({ actorUserId:userId, organizationId,
     entityType:'PaymentAccount', entityId:id, action, after }, { transaction });
   const sharedMerchant = account => stripe?.mode === 'test' && stripe.sandboxSharedAccountId && account.stripeAccountId === stripe.sandboxSharedAccountId;
   const sharedWarning = 'Disable shared sandbox routing before disabling or disconnecting its merchant; all test businesses are using it.';
+  const matchingMode = account => isStripeMode(stripe?.mode) && account.mode === stripe.mode;
   async function get(organizationId, id, transaction) {
     const account = await models.PaymentAccount.findOne({ where:{ id, organizationId }, transaction, ...(transaction ? {lock:transaction.LOCK.UPDATE} : {}) });
     if (!account) throw notFound('Payment account');
@@ -56,9 +58,10 @@ function createBusinessPaymentDisconnectService({ models, stripe, paymentAccount
       const counts = await obligations(organization,account,transaction);
       const blockedReasons = blockers(counts);
       if (sharedMerchant(account)) blockedReasons.push(sharedWarning);
+      if (!matchingMode(account)) blockedReasons.push('This payment connection belongs to a different Stripe mode.');
       return { account:profile(account), ...counts, blockedReasons,
-        providerDisconnectConfigured:Boolean(stripe?.mode === 'test' && stripe.disconnectEnabled),
-        canDisconnect:Boolean(account.lifecycleState === 'active' && account.stripeAccountId && stripe?.disconnectEnabled && !blockedReasons.length) };
+        providerDisconnectConfigured:Boolean(matchingMode(account) && stripe.disconnectEnabled),
+        canDisconnect:Boolean(account.lifecycleState === 'active' && account.stripeAccountId && matchingMode(account) && stripe.disconnectEnabled && !blockedReasons.length) };
     });
   }
   async function disable(userId, organizationId, id, body) {
@@ -79,6 +82,7 @@ function createBusinessPaymentDisconnectService({ models, stripe, paymentAccount
       await assertDisconnectAccess(models,userId,organizationId,transaction);
       const account = await get(organizationId,id,transaction);
       if (account.lifecycleState !== 'active' || account.disconnectStatus !== 'none') throw conflict('A disconnected or disconnecting account cannot be resumed.', 'DISCONNECT_PENDING');
+      if (!matchingMode(account)) throw conflict('This payment connection belongs to a different Stripe mode.', 'PAYMENTS_NOT_READY');
       return account.controlVersion;
     });
     // Network work stays outside authorization/event locks. The final write
@@ -88,7 +92,7 @@ function createBusinessPaymentDisconnectService({ models, stripe, paymentAccount
       await assertDisconnectAccess(models,userId,organizationId,transaction);
       const account = await get(organizationId,id,transaction);
       if (account.controlVersion !== version) throw conflict('The payment controls changed while Stripe readiness was checked. Refresh before resuming.', 'PAYMENT_ACCOUNT_CHANGED');
-      if (account.disconnectStatus !== 'none' || !paymentsReady({...account.toJSON(),paymentsDisabledAt:null},now())) throw conflict('Verify Stripe readiness before resuming payments.', 'PAYMENTS_NOT_READY');
+      if (account.disconnectStatus !== 'none' || !paymentsReady({...account.toJSON(),paymentsDisabledAt:null},now(),stripe?.mode || 'disabled')) throw conflict('Verify Stripe readiness before resuming payments.', 'PAYMENTS_NOT_READY');
       if (account.paymentsDisabledAt) {
         await account.update({paymentsDisabledAt:null,disconnectErrorCode:null,controlVersion:account.controlVersion+1},{transaction});
         await audit(userId,organizationId,id,'business.payment_account.resumed',{reason:input.reason},transaction);
@@ -104,7 +108,7 @@ function createBusinessPaymentDisconnectService({ models, stripe, paymentAccount
       if (sharedMerchant(account)) throw conflict(sharedWarning, 'SANDBOX_SHARED_MERCHANT');
       if (account.disconnectStatus === 'disconnected') return {account,call:false};
       if (account.lifecycleState !== 'active') throw conflict('This payment connection is no longer active.', 'PAYMENTS_NOT_READY');
-      if (stripe?.mode !== 'test' || !stripe.disconnectEnabled || !account.stripeAccountId) throw conflict('Stripe disconnection is unavailable. You can disable new payments instead.', 'DISCONNECT_NOT_CONFIGURED');
+      if (!matchingMode(account) || !stripe.disconnectEnabled || !account.stripeAccountId) throw conflict('Stripe disconnection is unavailable. You can disable new payments instead.', 'DISCONNECT_NOT_CONFIGURED');
       if (account.disconnectStatus === 'pending' && account.disconnectRequestId !== input.idempotencyKey) throw conflict('A disconnection is already pending. Refresh and retry that request.', 'DISCONNECT_PENDING');
       const blockedReasons = blockers(await obligations(organization,account,transaction));
       if (blockedReasons.length) throw conflict(blockedReasons.join(' '), 'DISCONNECT_OBLIGATIONS');

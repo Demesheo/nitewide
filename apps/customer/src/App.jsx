@@ -756,7 +756,7 @@ function CustomerApp() {
     setDemoBusy(true);
     setDemoError('');
     try {
-    const mode = totals.total === 0 ? 'free' : paymentConfig?.enabled && paymentConfig.mode === 'test' ? 'stripe' : demoCheckoutEnabled ? 'demo' : 'disabled';
+    const mode = totals.total === 0 ? 'free' : paymentConfig?.enabled && ['test', 'live'].includes(paymentConfig.mode) ? 'stripe' : demoCheckoutEnabled ? 'demo' : 'disabled';
     if (mode === 'disabled' && !checkoutRecovering) throw new Error('Checkout is unavailable right now. Please try again later.');
     let attempt = checkoutRecovering ? activeCheckoutAttempt.current || readCheckoutAttempt(session.user.id) : prepareCheckoutAttempt(session.user.id, {
       eventId: selected.id,
@@ -1215,7 +1215,7 @@ function CustomerApp() {
                     </>
                   )}
                   <p className="demo-note">
-                    {totals.total === 0 ? 'Free admission · No payment required.' : paymentConfig?.enabled ? 'Secure sandbox checkout · Test payments only.' : demoCheckoutEnabled ? 'Demo checkout · No payment will be collected.' : paymentConfig ? 'Checkout is unavailable right now. Please try again later.' : 'Checking checkout availability…'}
+                    {totals.total === 0 ? 'Free admission · No payment required.' : paymentConfig?.enabled && paymentConfig.mode === 'live' ? 'Secure checkout with Stripe.' : paymentConfig?.enabled && paymentConfig.mode === 'test' ? 'Secure sandbox checkout · Test payments only.' : demoCheckoutEnabled ? 'Demo checkout · No payment will be collected.' : paymentConfig ? 'Checkout is unavailable right now. Please try again later.' : 'Checking checkout availability…'}
                   </p>
                 </TabsContent>
                 <TabsContent value="guestlist">
@@ -1245,9 +1245,9 @@ function CustomerApp() {
           )}
           {selected && stage === "checkout" && offering && (
             <div className="checkout-review">
-              <Badge variant="outline">{totals.total === 0 ? 'FREE BOOKING' : paymentConfig?.enabled ? 'SANDBOX CHECKOUT' : demoCheckoutEnabled ? 'DEMO CHECKOUT' : 'CHECKOUT'}</Badge>
+              <Badge variant="outline">{totals.total === 0 ? 'FREE BOOKING' : paymentConfig?.enabled && paymentConfig.mode === 'test' ? 'SANDBOX CHECKOUT' : paymentConfig?.enabled && paymentConfig.mode === 'live' ? 'SECURE CHECKOUT' : demoCheckoutEnabled ? 'DEMO CHECKOUT' : 'CHECKOUT'}</Badge>
               <p>
-                {totals.total === 0 ? 'Confirm your free admission. No card details are required.' : paymentConfig?.enabled ? 'Pay securely with Stripe in test mode. Use test payment details only; no real charge will be made.' : demoCheckoutEnabled ? 'This creates a demo order and admission in local test data. No card details or charge; not valid for entry.' : paymentConfig ? 'Checkout is unavailable right now. Please try again later.' : 'Checking checkout availability…'}
+                {totals.total === 0 ? 'Confirm your free admission. No card details are required.' : paymentConfig?.enabled && paymentConfig.mode === 'live' ? 'Pay securely with Stripe. Review your total before confirming your payment.' : paymentConfig?.enabled && paymentConfig.mode === 'test' ? 'Pay securely with Stripe in test mode. Use test payment details only; no real charge will be made.' : demoCheckoutEnabled ? 'This creates a demo order and admission in local test data. No card details or charge; not valid for entry.' : paymentConfig ? 'Checkout is unavailable right now. Please try again later.' : 'Checking checkout availability…'}
               </p>
               <div className="order-summary">
                 <h3>{paymentCheckout?.booking?.items.length > 1 ? 'Your booking' : offering.name}</h3>

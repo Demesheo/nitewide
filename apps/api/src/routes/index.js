@@ -20,8 +20,8 @@ function createRouter(options) {
   const { publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', qrTokenSecret, deliveryTrackingConfigured = false } = options;
   const router = require('./contract-router').instrumentRouter(express.Router(), { requireUser, permissions });
   const { environment = process.env.NODE_ENV || 'development', hostedDemo = false } = options;
-  const { stripe, paymentAccounts, paymentConfiguration = require('../payments/stripe-client').stripeConfiguration({ NODE_ENV: environment, hostedDemo }) } = options;
-  const unavailable = async () => { throw new (require('../domain/errors').DomainError)('Sandbox payments are not configured', { code: 'PAYMENTS_NOT_ENABLED', status: 503 }); };
+  const { stripe, paymentMode = 'test', paymentAccounts, paymentConfiguration = require('../payments/stripe-client').stripeConfiguration({ NODE_ENV: environment, hostedDemo }) } = options;
+  const unavailable = async () => { throw new (require('../domain/errors').DomainError)('Payments are not configured', { code: 'PAYMENTS_NOT_ENABLED', status: 503 }); };
   const paymentController = options.paymentController || Object.fromEntries(['prepare', 'verify', 'cancel', 'refund', 'adminRefund'].map(name => [name, unavailable]));
   const business = createBusinessService({ models, permissions, email, customerAppUrl, businessAppUrl, environment, hostedDemo, stripe });
   const businessRead = createBusinessReadService({ models, email, stripe, deliveryTrackingConfigured });
@@ -29,14 +29,14 @@ function createRouter(options) {
   const adminReports = createAdminReportService({ models, permissions, businessRead, reports: businessReports });
   const reportExports = createReportExportService({ models, businessRead, reports: businessReports, historicalReports: adminReports.reports });
   router.reportExports = reportExports;
-  const businessTeamRead = createBusinessTeamReadService({ models, permissions });
+  const businessTeamRead = createBusinessTeamReadService({ models, permissions, stripe });
   const businessEventReuse = createBusinessEventReuseService({ models, permissions });
-  const businessEventRead = createBusinessEventReadService({ models });
+  const businessEventRead = createBusinessEventReadService({ models, stripe });
   const businessInstructionsRead = createBusinessInstructionsReadService({ models, permissions, email, deliveryTrackingConfigured });
   const admin = createAdminService({ models, permissions });
   const adminSupport = require('../services/admin-support-service').createAdminSupportService({ models, permissions,notifications });
-  const team = createTeamService({ models, permissions, email, businessAppUrl });
-  const eventWorkspace = createEventWorkspaceService({ models, permissions, email, businessAppUrl });
+  const team = createTeamService({ models, permissions, email, businessAppUrl, stripe });
+  const eventWorkspace = createEventWorkspaceService({ models, permissions, email, businessAppUrl, stripe });
   const referralLinks = createReferralLinkService({ models });
   // Customer event operations use the same internal scope as event detail;
   // reports.view remains the unchanged Business/reporting collection default.
@@ -48,7 +48,7 @@ function createRouter(options) {
   const saved = createCustomerSavedService({ models });
   const admissions = createAdmissionsService({ models, permissions });
   const organizerMessages = require('../services/organizer-message-service').createOrganizerMessageService({ models, notifications, refunds: options.refunds });
-  const context = { router, publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl, businessAppUrl, qrTokenSecret, deliveryTrackingConfigured, business, businessRead, businessReports, adminReports, reportExports, businessTeamRead, businessEventReuse, businessEventRead, businessInstructionsRead, admin, adminSupport, team, eventWorkspace, referralLinks, myEvents, account, saved, admissions, stripe, paymentAccounts, paymentController };
+  const context = { router, publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl, businessAppUrl, qrTokenSecret, deliveryTrackingConfigured, business, businessRead, businessReports, adminReports, reportExports, businessTeamRead, businessEventReuse, businessEventRead, businessInstructionsRead, admin, adminSupport, team, eventWorkspace, referralLinks, myEvents, account, saved, admissions, stripe, paymentMode, paymentAccounts, paymentController };
   require('./public').registerPublicRoutes(context);
   require('./account').registerAccountRoutes(context);
   require('./business-access').registerBusinessAccessRoutes(context);
@@ -61,7 +61,7 @@ function createRouter(options) {
   require('./organizer-messages').registerOrganizerMessageRoutes({ ...context, organizerMessages });
   const supportMessages = require('../services/support-message-service').createSupportMessageService({ models,permissions,notifications,sequelize: options.sequelize });
   require('./support-messages').registerSupportMessageRoutes({ ...context,supportMessages });
-  const commissionSettings = require('../services/commission-settings-service').createCommissionSettingsService({ models, permissions });
+  const commissionSettings = require('../services/commission-settings-service').createCommissionSettingsService({ models, permissions, stripe });
   const commissionSchemas = require('../http/commission-schemas');
   router.patch('/business/organizations/:organizationId/people/:userId/commission-settings', requireUser, require('./contract-router').validate(commissionSchemas.organizationPersonCommissionSettings), require('./contract-router').asyncHandler(async (req,res) => {
     res.json({ data: await commissionSettings.personRate(req.userId,req.params.organizationId,req.params.userId,req.body) });
@@ -78,7 +78,7 @@ function createRouter(options) {
   require('./business-payments').registerBusinessPaymentRoutes(context);
   require('./commission-payments').registerCommissionPaymentRoutes({ ...context, commissionPayments: options.commissionPayments, individualCommissionProfiles: options.individualCommissionProfiles });
   router.get('/account/commission-earnings', requireUser, require('./contract-router').asyncHandler(async (req, res) => {
-    res.set('Cache-Control', 'no-store').json({ data: await require('../services/business-payment-overview-service').createBusinessPaymentOverviewService({ models }).earnings(req.userId, req.query) });
+    res.set('Cache-Control', 'no-store').json({ data: await require('../services/business-payment-overview-service').createBusinessPaymentOverviewService({ models, stripe, paymentMode }).earnings(req.userId, req.query) });
   }));
   require('./admissions').registerAdmissionsRoutes(context);
   require('./reporting').registerReportingRoutes(context);

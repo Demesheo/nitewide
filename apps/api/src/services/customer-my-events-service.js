@@ -72,11 +72,12 @@ function createCustomerMyEventsService({ models, businessRead, businessEventRead
   async function personalEarnings(userId, eventId) {
     const [row] = await select(`SELECT COALESCE(SUM(${netCommissionSql()}),0)::bigint AS earned,
       COALESCE(SUM(${netCommissionSql()}) FILTER (WHERE ${demoOrderSql()}),0)::bigint AS demo,
-      COALESCE(SUM(${netCommissionSql()}) FILTER (WHERE ${verifiedStripeOrderSql()}),0)::bigint AS sandbox
+      COALESCE(SUM(${netCommissionSql()}) FILTER (WHERE o.provider_mode='test' AND ${verifiedStripeOrderSql()}),0)::bigint AS sandbox,
+      COALESCE(SUM(${netCommissionSql()}) FILTER (WHERE o.provider_mode='live' AND ${verifiedStripeOrderSql()}),0)::bigint AS live
       FROM orders o WHERE o.event_id=:eventId AND o.status='paid' AND o.currency='USD' AND ${ownCommissionSql()}`, { userId, eventId });
-    const earned = Number(row.earned), demo = Number(row.demo), sandbox = Number(row.sandbox);
+    const earned = Number(row.earned), demo = Number(row.demo), sandbox = Number(row.sandbox), live = Number(row.live);
     return { currency: 'USD', earnedCommissionCents: earned, demoCommissionCents: demo, sandboxCommissionCents: sandbox,
-      unverifiedCommissionCents: earned - demo - sandbox, receivedPayouts: null, payoutsTracked: false };
+      liveCommissionCents: live, unverifiedCommissionCents: earned - demo - sandbox - live, receivedPayouts: null, payoutsTracked: false };
   }
   async function detail(userId, eventId) {
     await assertAccess(userId);

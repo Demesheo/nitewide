@@ -51,7 +51,7 @@ const sorts = {
   customers_desc: 'customers DESC, id ASC', customers_asc: 'customers ASC, id ASC',
 };
 
-function createBusinessTeamReadService({ models, permissions, now = () => new Date() }) {
+function createBusinessTeamReadService({ models, permissions, stripe = null, now = () => new Date() }) {
   const select = (sql, replacements) => models.Organization.sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
   async function page(userId, organizationId, input) {
     await permissions.assertManageOrganization(userId, organizationId);
@@ -68,7 +68,7 @@ function createBusinessTeamReadService({ models, permissions, now = () => new Da
     const [count] = await select(`SELECT COUNT(*)::integer AS total FROM (${membersSql}) team_rows`, values);
     const rows = await select(`SELECT * FROM (${membersSql}) team_rows ORDER BY ${sorts[input.sort]} LIMIT :pageSize OFFSET :offset`, values);
     return { ...pageResult(await Promise.all(rows.map(async (row) => {
-      const terms = await persistedCommissionTerms(models, row.id, Number(row.configuredCommissionBps || 0), { now: now() });
+      const terms = await persistedCommissionTerms(models, row.id, Number(row.configuredCommissionBps || 0), { now: now(), mode: stripe?.mode || 'disabled' });
       return { ...row, ...terms, commissionBps: terms.effectiveCommissionBps,
         salesCents: Number(row.salesCents), commissionCents: Number(row.commissionCents) };
     })),

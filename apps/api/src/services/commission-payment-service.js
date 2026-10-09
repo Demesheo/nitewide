@@ -5,20 +5,44 @@ const { mutationTransaction } = require('./mutation-transaction');
 const { assertFinanceAccess } = require('./business-payment-account-service');
 const { individualReady } = require('./individual-commission-profile-service');
 const { statementSelection, commissionApproval, commissionPage, commissionFeeReviewInput } = require('../http/commission-payment-schemas');
+const { isStripeMode, matchesStripeLivemode } = require('../payments/stripe-mode');
 const providerId = value => typeof value === 'string' ? value : value?.id;
 const sameCurrency = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toUpperCase() === b.toUpperCase();
 const zero = value => value == null || value === 0;
 const terminal = new Set(['failed', 'reversed', 'disputed']);
 const RECOVERY_WINDOW_MS = 23 * 3600000;
 // A test-only allowance, not Stripe pricing or a promise of the recipient's net.
-// Live processing is unavailable. Approval includes the exact gross ceiling.
 const SANDBOX_FEE_POLICY = Object.freeze({ id: 'sandbox-commission-allowance-v1', basis: 'sandbox_estimate', card: { bps: 400, fixedCents: 50 }, us_bank_account: { bps: 200, fixedCents: 50 }, invoicingFeesIncludedInEstimate: true, exact: false });
+// Standard US domestic payment and Invoicing Starter estimates. Each component
+// rounds upward independently; actual retrieved net, never this estimate,
+// determines settlement. Customized/international/Plus costs can differ.
+const LIVE_FEE_POLICY = Object.freeze({ id: 'us-standard-invoicing-starter-v1', basis: 'estimated_provider_fees',
+  card: Object.freeze({ bps: 290, fixedCents: 30 }), us_bank_account: Object.freeze({ bps: 80, fixedCents: 0, capCents: 500 }),
+  invoicing: Object.freeze({ bps: 40, fixedCents: 0 }), invoicingFeesIncludedInEstimate: true, exact: false });
 function quoteAmount(commissionCents, paymentMethod, policy = SANDBOX_FEE_POLICY) {
   const rail = policy?.[paymentMethod];
-  if (policy?.basis !== 'sandbox_estimate' || !Number.isInteger(rail?.bps) || rail.bps < 0 || rail.bps >= 10000 || !Number.isInteger(rail.fixedCents) || rail.fixedCents < 0) throw conflict('A reviewed commission fee estimate is required.', 'COMMISSION_FEE_POLICY_REQUIRED');
+  if (!['sandbox_estimate', 'estimated_provider_fees'].includes(policy?.basis) || !Number.isInteger(rail?.bps) || rail.bps < 0 || rail.bps >= 10000 || !Number.isInteger(rail.fixedCents) || rail.fixedCents < 0) throw conflict('A reviewed commission fee estimate is required.', 'COMMISSION_FEE_POLICY_REQUIRED');
+  if (!Number.isSafeInteger(commissionCents) || commissionCents <= 0 || commissionCents > 99_999_999) throw conflict('Commission amount is unavailable.', 'COMMISSION_AMOUNT_INVALID');
   if (commissionCents < 50) throw conflict('Carry this small balance forward to another event statement for this business, recipient and currency.', 'COMMISSION_BELOW_MINIMUM');
-  const totalCents = Math.ceil((commissionCents + rail.fixedCents) * 10000 / (10000 - rail.bps));
-  if (!Number.isSafeInteger(commissionCents) || commissionCents <= 0 || !Number.isSafeInteger(totalCents) || totalCents > 99_999_999) throw conflict('Commission amount is unavailable.', 'COMMISSION_AMOUNT_INVALID');
+  let totalCents;
+  if (policy.basis === 'sandbox_estimate') totalCents = Math.ceil((commissionCents + rail.fixedCents) * 10000 / (10000 - rail.bps));
+  else {
+    const invoicing = policy.invoicing;
+    if (!Number.isInteger(invoicing?.bps) || invoicing.bps < 0 || invoicing.bps + rail.bps >= 10000
+      || !Number.isInteger(invoicing.fixedCents) || invoicing.fixedCents < 0
+      || rail.capCents !== undefined && (!Number.isInteger(rail.capCents) || rail.capCents < rail.fixedCents)) throw conflict('A reviewed commission fee estimate is required.', 'COMMISSION_FEE_POLICY_REQUIRED');
+    const processing = gross => Math.min(rail.capCents ?? Infinity, Math.ceil(gross * rail.bps / 10000) + rail.fixedCents);
+    const net = gross => gross - processing(gross) - Math.ceil(gross * invoicing.bps / 10000) - invoicing.fixedCents;
+    if (net(99_999_999) < commissionCents) throw conflict('Commission amount is unavailable.', 'COMMISSION_AMOUNT_INVALID');
+    // Component rounding can make adjacent net amounts non-monotone by one
+    // cent, so binary search the unrounded lower bound, then check pennies.
+    let low = commissionCents, high = 99_999_999;
+    const unroundedNetScaled = gross => gross * 10000 - Math.min(rail.capCents === undefined ? Infinity : rail.capCents * 10000, gross * rail.bps + rail.fixedCents * 10000) - gross * invoicing.bps - invoicing.fixedCents * 10000;
+    while (low < high) { const mid = Math.floor((low + high) / 2); if (unroundedNetScaled(mid) >= commissionCents * 10000) high = mid; else low = mid + 1; }
+    totalCents = low;
+    while (totalCents <= 99_999_999 && net(totalCents) < commissionCents) totalCents += 1;
+  }
+  if (!Number.isSafeInteger(totalCents) || totalCents > 99_999_999) throw conflict('Commission amount is unavailable.', 'COMMISSION_AMOUNT_INVALID');
   if (totalCents < 50) throw conflict('Carry this small balance forward to another event statement.', 'COMMISSION_BELOW_MINIMUM');
   return { commissionCents, estimatedFeeCents: totalCents - commissionCents, totalCents, feeEstimateBasis: policy.basis, feeReconciliationRequired: true };
 }
@@ -39,7 +63,7 @@ function safePayment(payment) {
 function invoiceMetadata(payment) { return { commissionPaymentId: payment.id, organizationId: payment.organizationId, recipientUserId: payment.recipientUserId, approvalHash: payment.approvalHash }; }
 function metadataMatches(object, payment) { const expected = invoiceMetadata(payment); return Object.entries(expected).every(([key, value]) => object?.metadata?.[key] === value); }
 function verifyInvoiceBinding(invoice, payment) {
-  return invoice?.id === payment.providerInvoiceId && invoice.object === 'invoice' && invoice.livemode === false && metadataMatches(invoice, payment)
+  return invoice?.id === payment.providerInvoiceId && invoice.object === 'invoice' && matchesStripeLivemode(invoice, payment.providerMode) && metadataMatches(invoice, payment)
     && providerId(invoice.customer) === payment.providerCustomerId && sameCurrency(invoice.currency, payment.currency)
     && invoice.total === payment.totalCents && invoice.subtotal === payment.totalCents && (invoice.amount_due === payment.totalCents || invoice.status === 'void' && invoice.amount_due === 0) && invoice.paid_out_of_band !== true && zero(invoice.application_fee_amount)
     && !invoice.transfer_data && !invoice.on_behalf_of && invoice.collection_method === 'send_invoice' && invoice.auto_advance === false
@@ -48,11 +72,11 @@ function verifyInvoiceBinding(invoice, payment) {
     && (!invoice.total_taxes || invoice.total_taxes.length === 0) && (!invoice.total_pretax_credit_amounts || invoice.total_pretax_credit_amounts.length === 0);
 }
 function verifyCommissionCharge(payment, intent, charge, balance) {
-  return intent?.object === 'payment_intent' && intent.livemode === false && intent.status === 'succeeded'
+  return intent?.object === 'payment_intent' && matchesStripeLivemode(intent, payment.providerMode) && intent.status === 'succeeded'
     && intent.amount === payment.totalCents && intent.amount_received === payment.totalCents && sameCurrency(intent.currency, payment.currency)
     && providerId(intent.customer) === payment.providerCustomerId && providerId(intent.latest_charge) === charge?.id
     && zero(intent.application_fee_amount) && !intent.transfer_data && !intent.on_behalf_of
-    && charge?.object === 'charge' && charge.livemode === false && charge.paid === true && charge.captured === true
+    && charge?.object === 'charge' && matchesStripeLivemode(charge, payment.providerMode) && charge.paid === true && charge.captured === true
     && charge.amount === payment.totalCents && charge.amount_captured === payment.totalCents && sameCurrency(charge.currency, payment.currency)
     && providerId(charge.payment_intent) === intent.id && providerId(charge.customer) === payment.providerCustomerId
     && !charge.application_fee && zero(charge.application_fee_amount) && !charge.transfer && !charge.transfer_data && !charge.destination && !charge.on_behalf_of
@@ -64,15 +88,22 @@ function verifyCommissionCharge(payment, intent, charge, balance) {
     && !balance.exchange_rate && Array.isArray(balance.fee_details) && balance.fee_details.every(fee => Number.isInteger(fee.amount) && fee.amount >= 0 && sameCurrency(fee.currency, payment.currency))
     && balance.fee_details.reduce((sum, fee) => sum + fee.amount, 0) === balance.fee && !balance.fee_details.some(fee => fee.type === 'application_fee' || fee.application);
 }
-function createCommissionPaymentService({ sequelize, models, stripe, ledger, individualProfiles, feePolicy = SANDBOX_FEE_POLICY, invoicingFeeEvidence = null, now = () => new Date() }) {
-  function enabled() { if (!stripe?.enabled || stripe.mode !== 'test') throw conflict('Sandbox commission payments are unavailable.', 'PAYMENTS_NOT_ENABLED'); }
+function createCommissionPaymentService({ sequelize, models, stripe, ledger, individualProfiles, feePolicy = stripe?.mode === 'live' ? LIVE_FEE_POLICY : SANDBOX_FEE_POLICY, invoicingFeeEvidence = null, now = () => new Date() }) {
+  function enabled() {
+    if (!stripe?.enabled || !isStripeMode(stripe.mode)) throw conflict('Commission payments are unavailable.', 'PAYMENTS_NOT_ENABLED');
+  }
+  function quotePolicy() {
+    if (stripe.mode === 'live' && feePolicy?.basis !== 'estimated_provider_fees' || stripe.mode === 'test' && feePolicy?.basis !== 'sandbox_estimate') throw conflict('A reviewed commission fee estimate for this payment environment is required.', 'COMMISSION_FEE_POLICY_REQUIRED');
+    return feePolicy;
+  }
   const transact = fn => mutationTransaction(sequelize, fn);
   async function audit(payment, action, transaction, after = {}) { await models.AuditLog.create({ actorUserId: payment.approvedByUserId, organizationId: payment.organizationId, entityType: 'CommissionPayment', entityId: payment.id, action, after: { status: payment.status, commissionCents: payment.commissionCents, totalCents: payment.totalCents, ...after } }, { transaction }); }
   async function selected(organizationId, ids, transaction) {
     const statements = await models.CommissionStatement.findAll({ where: { id: ids, organizationId }, order: [['id', 'ASC']], transaction });
     if (statements.length !== ids.length) throw notFound('Commission statement');
     if (new Set(statements.map(s => `${s.recipientUserId}/${s.currency.toUpperCase()}`)).size !== 1) throw conflict('Combine only statements for the same business, recipient and currency.', 'COMMISSION_STATEMENT_SCOPE');
-    if (statements[0].currency.toUpperCase() !== 'USD') throw conflict('Commission execution currently supports USD sandbox payments only.', 'COMMISSION_CURRENCY_UNSUPPORTED');
+    await ledger.assertStatementMode({ statementIds: ids, providerMode: stripe.mode, transaction });
+    if (statements[0].currency.toUpperCase() !== 'USD') throw conflict('Commission execution currently supports USD payments only.', 'COMMISSION_CURRENCY_UNSUPPORTED');
     const summaries = await ledger.summarizeStatements({ organizationId, statementIds: ids, transaction });
     const items = [];
     for (const statement of statements) {
@@ -85,6 +116,7 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
     return { statements: items, recipientUserId: statements[0].recipientUserId, currency: statements[0].currency.toUpperCase(), amountCents: items.reduce((sum, s) => sum + s.amountCents, 0) };
   }
   async function quote(userId, organizationId, body) {
+    enabled(); quotePolicy();
     const input = statementSelection.parse(body);
     return transact(async transaction => { await assertFinanceAccess(models, userId, organizationId, transaction);
       const selection = await selected(organizationId, input.statementIds, transaction);
@@ -138,7 +170,7 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
     return { ...result, rows: undefined, hasMore: result.page * result.pageSize < result.total, items: await withPaymentState(result.rows || result.items) };
   }
   async function approve(userId, organizationId, body) {
-    enabled(); const input = commissionApproval.parse(body);
+    enabled(); quotePolicy(); const input = commissionApproval.parse(body);
     const approvalHash = createHash('sha256').update(JSON.stringify({ statementIds: [...input.statementIds].sort(), paymentMethod: input.paymentMethod, approvedTotalCents: input.approvedTotalCents, feeEstimateAcknowledged: true })).digest('hex');
     await assertFinanceAccess(models, userId, organizationId);
     const old = await models.CommissionPayment.findOne({ where: { organizationId, idempotencyKey: input.idempotencyKey } });
@@ -154,14 +186,14 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
       if (existing) { if (existing.approvalHash !== approvalHash) throw conflict('Commission retry does not match the original approval.', 'COMMISSION_IDEMPOTENCY_CONFLICT'); return existing; }
       const selection = await selected(organizationId, input.statementIds, transaction);
       const currentProfile = await models.IndividualCommissionProfile.findByPk(profile.id, { transaction, lock: transaction.LOCK.UPDATE });
-      if (!currentProfile || currentProfile.userId !== selection.recipientUserId || currentProfile.stripeAccountId !== profile.stripeAccountId || !individualReady(currentProfile, input.paymentMethod, now())) throw conflict('The recipient’s individual Stripe account is not verified for this payment method.', 'COMMISSION_PROFILE_NOT_READY');
+      if (!currentProfile || currentProfile.userId !== selection.recipientUserId || currentProfile.stripeAccountId !== profile.stripeAccountId || !individualReady(currentProfile, input.paymentMethod, now(), stripe.mode)) throw conflict('The recipient’s individual Stripe account is not verified for this payment method.', 'COMMISSION_PROFILE_NOT_READY');
       const priced = quoteAmount(selection.amountCents, input.paymentMethod, feePolicy);
       if (priced.totalCents !== input.approvedTotalCents) throw conflict('Commission amount changed. Review a fresh quote before approving.', 'COMMISSION_QUOTE_CHANGED');
       const created = await models.CommissionPayment.create({ id: randomUUID(), organizationId, recipientUserId: selection.recipientUserId, individualCommissionProfileId: profile.id,
-        stripeAccountId: currentProfile.stripeAccountId, providerMode: 'test', currency: selection.currency, commissionCents: priced.commissionCents,
+        stripeAccountId: currentProfile.stripeAccountId, providerMode: stripe.mode, currency: selection.currency, commissionCents: priced.commissionCents,
         feeAllowanceCents: priced.estimatedFeeCents, totalCents: priced.totalCents, feePolicy, statementSnapshot: selection.statements,
         paymentMethod: input.paymentMethod, idempotencyKey: input.idempotencyKey, approvalHash, approvedByUserId: userId, approvedAt: now(), status: 'creating' }, { transaction });
-      const reserved = await ledger.reserveStatements({ organizationId, recipientUserId: selection.recipientUserId, currency: selection.currency, statementIds: input.statementIds, paymentId: created.id, transaction });
+      const reserved = await ledger.reserveStatements({ organizationId, recipientUserId: selection.recipientUserId, currency: selection.currency, statementIds: input.statementIds, paymentId: created.id, providerMode: stripe.mode, transaction });
       if ((reserved.amountCents ?? reserved.totalCents) !== priced.commissionCents) throw conflict('Commission reservation changed. Review a fresh quote.', 'COMMISSION_QUOTE_CHANGED');
       if (reserved.statements.some(statement => !selection.statements.some(selected => selected.id === statement.id && selected.amountCents === statement.amountCents))) throw conflict('Itemized commission amounts changed. Review a fresh quote.', 'COMMISSION_QUOTE_CHANGED');
       await audit(created, 'commission_payment.approved', transaction, { feeEstimateBasis: feePolicy.basis, feeEstimateAcknowledged: true, statementIds: input.statementIds });
@@ -182,24 +214,31 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
   }
   async function recoverCreation(payment, observation) {
     const options = { stripeAccount: payment.stripeAccountId };
+    function assertCreationPolicy() {
+      if (payment.providerMode === 'live' && payment.feePolicy?.basis !== 'estimated_provider_fees') throw conflict('Approved live commission fee evidence is required.', 'COMMISSION_VERIFICATION_FAILED');
+    }
     if (!payment.providerInvoiceId && (+now() - +new Date(payment.approvedAt) < 0 || +now() - +new Date(payment.approvedAt) >= RECOVERY_WINDOW_MS)) return bind(payment, { status: 'review', errorCode: 'COMMISSION_CREATION_REVIEW', reconciliationStatus: 'creation_outcome_unknown', hostedInvoiceUrl: null }, observation);
     if (!payment.providerCustomerId) {
+      assertCreationPolicy();
       const organization = await models.Organization.findByPk(payment.organizationId);
       const customer = await stripe.createCommissionCustomer({ name: organization.name, metadata: invoiceMetadata(payment) }, { ...options, idempotencyKey: `commission/${payment.id}/customer` });
-      if (customer?.object !== 'customer' || customer.livemode !== false || !metadataMatches(customer, payment)) throw conflict('Commission customer could not be verified.', 'COMMISSION_VERIFICATION_FAILED');
+      if (customer?.object !== 'customer' || !matchesStripeLivemode(customer, payment.providerMode) || !metadataMatches(customer, payment)) throw conflict('Commission customer could not be verified.', 'COMMISSION_VERIFICATION_FAILED');
       payment = await bind(payment, { providerCustomerId: customer.id }, observation);
     }
     if (!payment.providerInvoiceId) {
+      assertCreationPolicy();
       const invoice = await stripe.createCommissionInvoice({ customer: payment.providerCustomerId, collection_method: 'send_invoice', days_until_due: 30,
         auto_advance: false, pending_invoice_items_behavior: 'exclude', currency: payment.currency.toLowerCase(), discounts: [], automatic_tax: { enabled: false },
         payment_settings: { payment_method_types: [payment.paymentMethod] }, metadata: invoiceMetadata(payment),
         description: 'Business-funded event commissions. Processing and invoicing fee allowance is estimated and reconciled separately.' },
       { ...options, idempotencyKey: `commission/${payment.id}/invoice` });
-      if (invoice?.object !== 'invoice' || invoice.livemode !== false || !metadataMatches(invoice, payment) || providerId(invoice.customer) !== payment.providerCustomerId) throw conflict('Commission invoice could not be verified.', 'COMMISSION_VERIFICATION_FAILED');
+      if (invoice?.object !== 'invoice' || !matchesStripeLivemode(invoice, payment.providerMode) || !metadataMatches(invoice, payment) || providerId(invoice.customer) !== payment.providerCustomerId) throw conflict('Commission invoice could not be verified.', 'COMMISSION_VERIFICATION_FAILED');
       payment = await bind(payment, { providerInvoiceId: invoice.id }, observation);
     }
     let invoice = await stripe.retrieveCommissionInvoice(payment.providerInvoiceId, options);
+    if (invoice?.id !== payment.providerInvoiceId || !matchesStripeLivemode(invoice, payment.providerMode) || !metadataMatches(invoice, payment) || providerId(invoice.customer) !== payment.providerCustomerId) throw conflict('Commission invoice could not be verified.', 'COMMISSION_VERIFICATION_FAILED');
     if (invoice.status === 'draft') {
+      assertCreationPolicy();
       if (+now() - +new Date(payment.approvedAt) >= RECOVERY_WINDOW_MS) return bind(payment, { status: 'review', errorCode: 'COMMISSION_CREATION_REVIEW', reconciliationStatus: 'creation_outcome_unknown', hostedInvoiceUrl: null }, observation);
       for (const statement of payment.statementSnapshot) await stripe.createCommissionInvoiceItem({ customer: payment.providerCustomerId, invoice: invoice.id, currency: payment.currency.toLowerCase(), amount: statement.amountCents, discountable: false,
         description: `Event commission: ${statement.eventTitle}`, metadata: { ...invoiceMetadata(payment), commissionStatementId: statement.id, eventId: statement.eventId } }, { ...options, idempotencyKey: `commission/${payment.id}/statement/${statement.id}` });
@@ -230,7 +269,7 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
     for (const line of lines) {
       const id = line.metadata?.commissionFeeAllowance === 'true' ? 'fee' : line.metadata?.commissionStatementId;
       const index = expected.findIndex(e => e.id === id && e.amount === line.amount && (e.id === 'fee' || line.metadata?.eventId === e.eventId));
-      if (index < 0 || !metadataMatches(line, payment) || !sameCurrency(line.currency, payment.currency) || (line.discount_amounts?.length || line.tax_amounts?.length || line.pretax_credit_amounts?.length)) throw conflict('Commission invoice line items changed.', 'COMMISSION_VERIFICATION_FAILED');
+      if (index < 0 || !matchesStripeLivemode(line, payment.providerMode) || !metadataMatches(line, payment) || !sameCurrency(line.currency, payment.currency) || (line.discount_amounts?.length || line.tax_amounts?.length || line.taxes?.length || line.pretax_credit_amounts?.length)) throw conflict('Commission invoice line items changed.', 'COMMISSION_VERIFICATION_FAILED');
       expected.splice(index, 1);
     }
   }
@@ -239,12 +278,12 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
       const invoice = await stripe.retrieveCommissionInvoice(payment.providerInvoiceId, options);
       if (!verifyInvoiceBinding(invoice, payment)) throw conflict('Commission invoice binding needs review.', 'COMMISSION_VERIFICATION_FAILED');
       const customer = await stripe.retrieveCommissionCustomer(payment.providerCustomerId, options);
-      if (customer?.id !== payment.providerCustomerId || customer.deleted || customer.livemode !== false || !metadataMatches(customer, payment)) throw conflict('Commission customer binding needs review.', 'COMMISSION_VERIFICATION_FAILED');
+      if (customer?.id !== payment.providerCustomerId || customer.deleted || !matchesStripeLivemode(customer, payment.providerMode) || !metadataMatches(customer, payment)) throw conflict('Commission customer binding needs review.', 'COMMISSION_VERIFICATION_FAILED');
       await verifyLines(payment);
       const payments = await stripe.listCommissionInvoicePayments(invoice.id, options);
       if (payments.has_more || !Array.isArray(payments.data)) throw conflict('Commission payment evidence needs review.', 'COMMISSION_VERIFICATION_FAILED');
       const entries = payments.data;
-      if (entries.some(e => e.livemode !== false || providerId(e.invoice) !== invoice.id || !sameCurrency(e.currency, payment.currency) || e.amount_requested !== payment.totalCents || e.payment?.type !== 'payment_intent')) throw conflict('Commission payment evidence needs review.', 'COMMISSION_VERIFICATION_FAILED');
+      if (entries.some(e => !matchesStripeLivemode(e, payment.providerMode) || providerId(e.invoice) !== invoice.id || !sameCurrency(e.currency, payment.currency) || e.amount_requested !== payment.totalCents || e.payment?.type !== 'payment_intent')) throw conflict('Commission payment evidence needs review.', 'COMMISSION_VERIFICATION_FAILED');
       if (entries.length > 1) throw conflict('Commission invoice contains multiple payment attempts requiring review.', 'COMMISSION_VERIFICATION_FAILED');
       let intent, charge;
       const intentId = entries[0] ? providerId(entries[0].payment.payment_intent) : payment.providerPaymentIntentId;
@@ -252,10 +291,10 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
       if (intentId) {
         intent = await stripe.retrieveCommissionPaymentIntent(intentId, options);
         if (intent?.id !== intentId) throw conflict('Commission payment intent reference changed.', 'COMMISSION_VERIFICATION_FAILED');
-        if (intent?.livemode !== false || intent.amount !== payment.totalCents || !sameCurrency(intent.currency, payment.currency) || providerId(intent.customer) !== payment.providerCustomerId) throw conflict('Commission payment intent binding needs review.', 'COMMISSION_VERIFICATION_FAILED');
+        if (!matchesStripeLivemode(intent, payment.providerMode) || intent.amount !== payment.totalCents || !sameCurrency(intent.currency, payment.currency) || providerId(intent.customer) !== payment.providerCustomerId) throw conflict('Commission payment intent binding needs review.', 'COMMISSION_VERIFICATION_FAILED');
         if (providerId(intent.latest_charge)) {
           charge = await stripe.retrieveCharge(providerId(intent.latest_charge), options);
-          if (charge?.id !== providerId(intent.latest_charge) || charge.livemode !== false || charge.amount !== payment.totalCents || !sameCurrency(charge.currency, payment.currency) || providerId(charge.payment_intent) !== intent.id || providerId(charge.customer) !== payment.providerCustomerId) throw conflict('Commission charge binding needs review.', 'COMMISSION_VERIFICATION_FAILED');
+          if (charge?.id !== providerId(intent.latest_charge) || !matchesStripeLivemode(charge, payment.providerMode) || charge.amount !== payment.totalCents || !sameCurrency(charge.currency, payment.currency) || providerId(charge.payment_intent) !== intent.id || providerId(charge.customer) !== payment.providerCustomerId) throw conflict('Commission charge binding needs review.', 'COMMISSION_VERIFICATION_FAILED');
         }
         if (payment.providerChargeId && charge?.id !== payment.providerChargeId) throw conflict('Previously bound commission charge is unavailable.', 'COMMISSION_VERIFICATION_FAILED');
       }
@@ -267,7 +306,8 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
     let payment = await transact(async transaction => {
       const current = await models.CommissionPayment.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
       if (!current) throw notFound('Commission payment');
-      if (current.providerMode !== 'test' || !current.approvedByUserId || !current.approvedAt || !current.stripeAccountId) throw conflict('Commission payment binding needs review.', 'COMMISSION_VERIFICATION_FAILED');
+      if (current.providerMode !== stripe.mode || !current.approvedByUserId || !current.approvedAt || !current.stripeAccountId) throw conflict('Commission payment binding needs review.', 'COMMISSION_VERIFICATION_FAILED');
+      await ledger.assertStatementMode({ statementIds: current.statementSnapshot.map(s => s.id), providerMode: current.providerMode, transaction });
       if (!terminal.has(current.status)) await current.update({ reconciliationToken: token }, { transaction });
       return current;
     });
@@ -286,7 +326,7 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
         // Cancel only our durably bound invoice/customer/account. An edited
         // unpaid invoice must not evade cancellation through failed amounts or
         // lines verification. Release still requires the full original proof.
-        if (currentInvoice?.id !== payment.providerInvoiceId || currentInvoice.object !== 'invoice' || currentInvoice.livemode !== false || providerId(currentInvoice.customer) !== payment.providerCustomerId || !metadataMatches(currentInvoice, payment)) throw conflict('Commission invoice binding needs review.', 'COMMISSION_VERIFICATION_FAILED');
+        if (currentInvoice?.id !== payment.providerInvoiceId || currentInvoice.object !== 'invoice' || !matchesStripeLivemode(currentInvoice, payment.providerMode) || providerId(currentInvoice.customer) !== payment.providerCustomerId || !metadataMatches(currentInvoice, payment)) throw conflict('Commission invoice binding needs review.', 'COMMISSION_VERIFICATION_FAILED');
         if (['open', 'uncollectible'].includes(currentInvoice.status)) {
           try { await stripe.voidCommissionInvoice(payment.providerInvoiceId, { ...options, idempotencyKey: `commission/${payment.id}/invalidate-void` }); } catch (_error) { /* Retrieve authoritative outcome, including a lost response. */ }
         }
@@ -399,16 +439,17 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
   async function get(userId, organizationId, id, { synchronize = false } = {}) { await assertFinanceAccess(models, userId, organizationId); const payment = await models.CommissionPayment.findOne({ where: { id, organizationId } }); if (!payment) throw notFound('Commission payment'); return synchronize ? reconcile(payment) : safePayment(payment); }
   async function sweepPendingCommissions({ limit = 25 } = {}) {
     enabled(); const boundedLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 25) : 25;
-    const payments = await models.CommissionPayment.findAll({ where: { [Op.or]: [{ status: { [Op.in]: ['creating', 'awaiting_payment', 'processing', 'payment_failed', 'paid_fee_review'] } }, { status: 'review', invalidatedAt: { [Op.ne]: null } }] }, order: [['updatedAt', 'ASC'], ['id', 'ASC']], limit: boundedLimit });
+    const payments = await models.CommissionPayment.findAll({ where: { providerMode: stripe.mode, [Op.or]: [{ status: { [Op.in]: ['creating', 'awaiting_payment', 'processing', 'payment_failed', 'paid_fee_review'] } }, { status: 'review', invalidatedAt: { [Op.ne]: null } }] }, order: [['updatedAt', 'ASC'], ['id', 'ASC']], limit: boundedLimit });
     const results = []; for (const payment of payments) { results.push(await reconcile(payment)); await models.CommissionPayment.update({ updatedAt: now() }, { where: { id: payment.id } }); } return results;
   }
   async function reconcileCommissionEvent(event, profile) {
+    if (!matchesStripeLivemode(event, stripe?.mode) || event.account !== profile.stripeAccountId || profile.providerMode !== stripe?.mode) throw conflict('Commission event environment does not match.', 'COMMISSION_VERIFICATION_FAILED');
     enabled(); const options = { stripeAccount: profile.stripeAccountId };
     let reference = event.data?.object?.id, payment;
     if (event.type.startsWith('invoice.')) {
       const invoice = await stripe.retrieveCommissionInvoice(reference, options);
-      if (invoice?.id !== reference || invoice.livemode !== false) throw conflict('Commission invoice event binding failed.', 'COMMISSION_VERIFICATION_FAILED');
-      payment = await models.CommissionPayment.findOne({ where: { id: invoice.metadata?.commissionPaymentId || '00000000-0000-0000-0000-000000000000', stripeAccountId: profile.stripeAccountId } });
+      if (invoice?.id !== reference || !matchesStripeLivemode(invoice, stripe.mode)) throw conflict('Commission invoice event binding failed.', 'COMMISSION_VERIFICATION_FAILED');
+      payment = await models.CommissionPayment.findOne({ where: { id: invoice.metadata?.commissionPaymentId || '00000000-0000-0000-0000-000000000000', stripeAccountId: profile.stripeAccountId, providerMode: stripe.mode } });
       if (!payment) return { ignored: true };
       // Recover our original idempotency key, never attach metadata lookalikes.
       if (!payment.providerInvoiceId) await reconcile(payment);
@@ -416,20 +457,20 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
       if (payment.providerInvoiceId !== reference) throw conflict('Commission invoice event is not the approved invoice.', 'COMMISSION_VERIFICATION_FAILED');
     } else if (event.type.startsWith('payment_intent.')) {
       const intent = await stripe.retrieveCommissionPaymentIntent(reference, options);
-      if (intent?.id !== reference || intent.livemode !== false) throw conflict('Commission payment event binding failed.', 'COMMISSION_VERIFICATION_FAILED');
-      payment = await models.CommissionPayment.findOne({ where: { providerCustomerId: providerId(intent.customer) || '', stripeAccountId: profile.stripeAccountId } });
+      if (intent?.id !== reference || !matchesStripeLivemode(intent, stripe.mode)) throw conflict('Commission payment event binding failed.', 'COMMISSION_VERIFICATION_FAILED');
+      payment = await models.CommissionPayment.findOne({ where: { providerCustomerId: providerId(intent.customer) || '', stripeAccountId: profile.stripeAccountId, providerMode: stripe.mode } });
       if (payment && (intent.amount !== payment.totalCents || !sameCurrency(intent.currency, payment.currency))) throw conflict('Commission payment event amount changed.', 'COMMISSION_VERIFICATION_FAILED');
     }
     else {
-      if (event.type.startsWith('charge.dispute.')) { const dispute = await stripe.retrieveCommissionDispute(reference, options); if (dispute?.id !== reference || dispute.livemode !== false) throw conflict('Commission dispute event binding failed.', 'COMMISSION_VERIFICATION_FAILED'); reference = providerId(dispute.charge); }
-      if (event.type.startsWith('refund.')) { const refund = await stripe.retrieveRefund(reference, options); if (refund?.id !== reference || refund.livemode === true) throw conflict('Commission refund event binding failed.', 'COMMISSION_VERIFICATION_FAILED'); reference = providerId(refund.charge); }
+      if (event.type.startsWith('charge.dispute.')) { const dispute = await stripe.retrieveCommissionDispute(reference, options); if (dispute?.id !== reference || !matchesStripeLivemode(dispute, stripe.mode)) throw conflict('Commission dispute event binding failed.', 'COMMISSION_VERIFICATION_FAILED'); reference = providerId(dispute.charge); }
+      if (event.type.startsWith('refund.')) { const refund = await stripe.retrieveRefund(reference, options); if (refund?.id !== reference || Object.hasOwn(refund, 'livemode') && !matchesStripeLivemode(refund, stripe.mode)) throw conflict('Commission refund event binding failed.', 'COMMISSION_VERIFICATION_FAILED'); reference = providerId(refund.charge); }
       const charge = await stripe.retrieveCharge(reference, options);
-      if (charge?.id !== reference || charge.livemode !== false) throw conflict('Commission charge event binding failed.', 'COMMISSION_VERIFICATION_FAILED');
-      payment = await models.CommissionPayment.findOne({ where: { providerCustomerId: providerId(charge.customer) || '', stripeAccountId: profile.stripeAccountId } });
+      if (charge?.id !== reference || !matchesStripeLivemode(charge, stripe.mode)) throw conflict('Commission charge event binding failed.', 'COMMISSION_VERIFICATION_FAILED');
+      payment = await models.CommissionPayment.findOne({ where: { providerCustomerId: providerId(charge.customer) || '', stripeAccountId: profile.stripeAccountId, providerMode: stripe.mode } });
       if (payment && (charge.amount !== payment.totalCents || !sameCurrency(charge.currency, payment.currency))) throw conflict('Commission charge event amount changed.', 'COMMISSION_VERIFICATION_FAILED');
     }
     if (!payment) return { ignored: true }; return reconcile(payment);
   }
   return { list, ownStatements, approveStatement, quote, approve, get, reconcile, reviewInvoicingFee, sweepPendingCommissions, reconcileCommissionEvent };
 }
-module.exports = { createCommissionPaymentService, quoteAmount, safePayment, verifyInvoiceBinding, verifyCommissionCharge, SANDBOX_FEE_POLICY };
+module.exports = { createCommissionPaymentService, quoteAmount, safePayment, verifyInvoiceBinding, verifyCommissionCharge, SANDBOX_FEE_POLICY, LIVE_FEE_POLICY };

@@ -43,21 +43,21 @@ function validateEditorPricing(input) {
   if (issues.length) throw new DomainError(issues[0].message,{ status: 422,code: 'PRICING_EDITOR_INVALID',details: { issues,economicsBasis: 'modeled_demo_costs' } });
   return true;
 }
-async function configuredCommissionBps({ models,eventId,organizationId,transaction,now = new Date() }) {
+async function configuredCommissionBps({ models,eventId,organizationId,transaction,now = new Date(),mode = 'test' }) {
   const [row] = await models.Event.sequelize.query(`SELECT COALESCE(MAX(rate),0)::integer AS rate FROM (
-    SELECT CASE WHEN ${commissionEligibilitySql('cp')} THEN oa.default_commission_bps ELSE 0 END AS rate FROM org_affiliates oa
+    SELECT CASE WHEN ${commissionEligibilitySql('cp', ':commissionNow', mode)} THEN oa.default_commission_bps ELSE 0 END AS rate FROM org_affiliates oa
       LEFT JOIN individual_commission_profiles cp ON cp.user_id=oa.user_id WHERE oa.organization_id=:organizationId AND oa.status='active'
       AND (:eventId IS NULL OR NOT EXISTS (SELECT 1 FROM event_affiliates override WHERE override.event_id=:eventId AND override.user_id=oa.user_id
         AND (override.commission_bps IS NOT NULL OR override.status<>'active')))
     UNION ALL SELECT COALESCE(ea.commission_bps,oa.default_commission_bps,0) AS rate
       FROM event_affiliates ea LEFT JOIN org_affiliates oa ON oa.id=ea.org_affiliate_id
       LEFT JOIN individual_commission_profiles cp ON cp.user_id=ea.user_id
-      WHERE ea.event_id=:eventId AND ea.status='active' AND ${commissionEligibilitySql('cp')}) rates`,
+      WHERE ea.event_id=:eventId AND ea.status='active' AND ${commissionEligibilitySql('cp', ':commissionNow', mode)}) rates`,
   { replacements: { organizationId: organizationId || null,eventId: eventId || null, commissionNow: now },transaction,type: QueryTypes.SELECT });
   return Number(row.rate);
 }
-async function assertEditorPricing({ models,eventId,organizationId,eventFeeMode = 'buyer',offerings,transaction,now = new Date() }) {
-  const commissionBps = await configuredCommissionBps({ models,eventId,organizationId,transaction,now });
+async function assertEditorPricing({ models,eventId,organizationId,eventFeeMode = 'buyer',offerings,transaction,now = new Date(),mode = 'test' }) {
+  const commissionBps = await configuredCommissionBps({ models,eventId,organizationId,transaction,now,mode });
   const event = eventId && models.Event.findByPk ? await models.Event.findByPk(eventId, { transaction }) : null;
   const organization = organizationId && models.Organization?.findByPk ? await models.Organization.findByPk(organizationId, { transaction }) : null;
   return validateEditorPricing({ eventFeeMode,offerings,commissionBps,commissionMinimumSubtotalCents: effectiveCommissionMinimum(event, organization),now });

@@ -206,3 +206,15 @@ test('terminal refund recovery waits for succeeded evidence and retries provider
   assert.deepEqual(unavailable.calls.mutations, []);
   assert.deepEqual(unavailable.calls.audits, []);
 });
+test('live refund recovery infers missing refund mode from the original live charge and application fee', async () => {
+  const f = terminalRecoveryFixture(({ order, lockedOrder, charge, fee }) => {
+    order.providerMode = 'live'; lockedOrder.providerMode = 'live'; charge.livemode = true; fee.livemode = true;
+  });
+  f.stripe.mode = 'live';
+  assert.equal((await f.service.reconcile(f.refund)).status, 'succeeded');
+  assert.deepEqual(f.calls.provider, ['refund', 'charge', 'fee']);
+  assert.equal(f.calls.mutations.length, 1);
+  const wrongRuntime = terminalRecoveryFixture(); wrongRuntime.stripe.mode = 'live';
+  await assert.rejects(wrongRuntime.service.reconcile(wrongRuntime.refund), { code: 'REFUND_STATE_CONFLICT' });
+  assert.deepEqual(wrongRuntime.calls.provider, []);
+});

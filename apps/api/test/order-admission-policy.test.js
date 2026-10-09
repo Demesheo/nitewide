@@ -16,3 +16,15 @@ test('roster and headcounts apply shared provider admission predicate before agg
   assert.ok(sql.indexOf(orderAdmissionSql('o')) < sql.indexOf('UNION ALL'));
   assert.throws(() => orderAdmissionSql('o;DROP'), TypeError);
 });
+test('live and test admissions require the same verified provider binding', () => {
+  const paid = { status: 'paid', providerVerificationStatus: 'verified', paymentAccountId: 'account',
+    stripeAccountId: 'acct_merchant', stripePaymentIntentId: 'pi_payment', stripeChargeId: 'ch_charge' };
+  for (const providerMode of ['test', 'live']) {
+    assert.equal(orderAdmissionEligible({ ...paid, providerMode }), true);
+    for (const providerVerificationStatus of ['pending', 'review']) {
+      assert.equal(orderAdmissionEligible({ ...paid, providerMode, providerVerificationStatus }), false);
+    }
+    assert.equal(orderAdmissionEligible({ ...paid, providerMode, stripeChargeId: null }), false);
+  }
+  assert.equal(orderAdmissionEligible({ ...paid, providerMode: 'unknown' }), false);
+});

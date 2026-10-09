@@ -12,20 +12,21 @@ const { createPermissionService } = require('../src/services/permission-service'
 const {createBusinessPaymentAccountService}=require('../src/services/business-payment-account-service');
 const {createBusinessPaymentDisconnectService}=require('../src/services/business-payment-disconnect-service');
 
-function mockProvider(namespace = '') {
+function mockProvider(namespace = '', mode = 'test') {
+  const livemode = mode === 'live';
   const sessions = new Map(), keys = new Map(), refunds = new Map(), charges = new Map(), fees = new Map(), thinEvents = new Map();
   let unavailable = false, loseCreationResponse = false, loseRefundResponse = false, creations = 0, refundCreations = 0, refundRequests = 0;
   let refundResponseGate, executingRefundGate;
   const check = () => { if (unavailable) throw new Error('Provider transport unavailable'); };
   const scoped = (session, options) => { assert.equal(options.stripeAccount, session.account); return structuredClone(session); };
   const paymentOptions = require('../src/payments/stripe-client').createStripeClient({ STRIPE_MODE:'test', STRIPE_SECRET_KEY:'sk_test_mock', STRIPE_PUBLISHABLE_KEY:'pk_test_mock', STRIPE_WEBHOOK_SECRET:'whsec_mock', STRIPE_ACCOUNT_WEBHOOK_SECRET:'whsec_mock' }, { sdk:{} }).checkoutPaymentMethodOptions;
-  const stripe = { enabled: true, mode: 'test', checkoutPaymentMethodOptions: paymentOptions,
-    retrieveAccount: async id => ({ id, object: 'v2.core.account', livemode: false, applied_configurations: ['merchant'], dashboard: 'full',
+  const stripe = { enabled: true, mode, checkoutPaymentMethodOptions: paymentOptions,
+    retrieveAccount: async id => ({ id, object: 'v2.core.account', livemode, applied_configurations: ['merchant'], dashboard: 'full',
       defaults: { responsibilities: { fees_collector: 'stripe', losses_collector: 'stripe', requirements_collector: 'stripe' } },
       configuration: { merchant: { applied: true, capabilities: { card_payments: { status: 'active' }, stripe_balance: { payouts: { status: 'active' } } } } }, requirements: { entries: [] } }),
     createCheckoutSession: async (params, options) => {
       check(); if (keys.has(options.idempotencyKey)) return scoped(sessions.get(keys.get(options.idempotencyKey)), options);
-      const id = `cs_${namespace}${++creations}`, session = { id, account: options.stripeAccount, client_secret: `${id}_secret`, livemode: false,
+      const id = `cs_${namespace}${++creations}`, session = { id, account: options.stripeAccount, client_secret: `${id}_secret`, livemode,
         mode: params.mode, status: 'open', payment_status: 'unpaid', metadata: params.metadata, client_reference_id: params.client_reference_id,
         amount_total: params.line_items.reduce((sum, line) => sum + line.quantity * line.price_data.unit_amount, 0), currency: params.line_items[0].price_data.currency,
         fee: params.payment_intent_data.application_fee_amount, params };
@@ -51,7 +52,7 @@ function mockProvider(namespace = '') {
       assert.equal(params.refund_application_fee, true); assert.equal('reverse_transfer' in params, false);
       const charge = [...charges.values()].find(value => value.payment_intent === params.payment_intent);
       assert.equal(options.stripeAccount, charge.account);
-      const id = `re_${namespace}${++refundCreations}`, refund = { id, livemode: false, status: 'succeeded', amount: params.amount, currency: charge.currency,
+      const id = `re_${namespace}${++refundCreations}`, refund = { id, livemode, status: 'succeeded', amount: params.amount, currency: charge.currency,
         payment_intent: params.payment_intent, charge: charge.id, metadata: params.metadata };
       charge.refunded = true; charge.amount_refunded = params.amount;
       const fee = fees.get(charge.application_fee); fee.refunded = true; fee.amount_refunded = fee.amount;
@@ -71,10 +72,10 @@ function mockProvider(namespace = '') {
   function pay(id) {
     const s = sessions.get(id), suffix = id.replace(/[^A-Za-z0-9]/g, '');
     const intentId = `pi_${suffix}`, chargeId = `ch_${suffix}`, feeId = `fee_${suffix}`;
-    const charge = { id: chargeId, account: s.account, livemode: false, payment_intent: intentId, amount: s.amount_total, currency: s.currency,
+    const charge = { id: chargeId, account: s.account, livemode, payment_intent: intentId, amount: s.amount_total, currency: s.currency,
       paid: true, captured: true, refunded: false, amount_refunded: 0, application_fee_amount: s.fee, application_fee: feeId };
-    charges.set(chargeId, charge); fees.set(feeId, { id: feeId, livemode: false, currency: s.currency, amount: s.fee, amount_refunded: 0, refunded: false, account: s.account, charge: chargeId });
-    s.status = 'complete'; s.payment_status = 'paid'; s.payment_intent = { id: intentId, livemode: false, status: 'succeeded', amount: s.amount_total,
+    charges.set(chargeId, charge); fees.set(feeId, { id: feeId, livemode, currency: s.currency, amount: s.fee, amount_refunded: 0, refunded: false, account: s.account, charge: chargeId });
+    s.status = 'complete'; s.payment_status = 'paid'; s.payment_intent = { id: intentId, livemode, status: 'succeeded', amount: s.amount_total,
       amount_received: s.amount_total, currency: s.currency, metadata: s.metadata, application_fee_amount: s.fee, latest_charge: charge };
   }
   function pauseNextRefundResponse({ idempotencyInUse = false } = {}) {
@@ -730,4 +731,59 @@ test('temporary shared sandbox merchant serves all businesses without changing o
       await assert.rejects(resolvePaymentAccount({models,event:events[1],stripe}),{code:'PAYMENTS_NOT_READY'});
     });
   } finally {await sequelize.close();}
+});
+
+test('live checkout, recovery, webhook fulfillment and full refunds preserve live identity without accepting test evidence', { timeout: 30000 }, async () => {
+  assertManagedTestDatabase();
+  const sequelize = createSequelize(require('../src/config').getConfig()), models = initModels(sequelize);
+  const provider = mockProvider('live_', 'live');
+  try {
+    const owner = await models.User.create({ displayName: 'Live merchant fixture', email: `${randomUUID()}@offline.nitewide.test` });
+    const buyer = await models.User.create({ displayName: 'Live buyer fixture', email: `${randomUUID()}@offline.nitewide.test` });
+    const organization = await models.Organization.create({ name: 'Live merchant fixture', slug: `live-${randomUUID()}`, onboardingEstablished: true });
+    await models.OrganizationOwner.create({ organizationId: organization.id, userId: owner.id, role: 'owner' });
+    const account = await models.PaymentAccount.create({ organizationId: organization.id, name: 'Live fixture', mode: 'live', stripeAccountId: `acct_${randomUUID().replaceAll('-', '')}` });
+    await organization.update({ defaultPaymentAccountId: account.id });
+    const event = await models.Event.create({ creatorUserId: owner.id, organizationId: organization.id, title: 'Live fixture', slug: `live-${randomUUID()}`, status: 'published', startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 172800000) });
+    const offering = await models.Offering.create({ eventId: event.id, name: 'Ticket', priceCents: 2000, quantityTotal: 2 });
+    const checkout = createCheckoutService({ sequelize, models, email: null, environment: 'test' });
+    const receiptKeys = [];
+    const email = { enabled: true, queue: async (message, transaction) => {
+      receiptKeys.push(message.key);
+      return models.EmailOutbox.create({ templateAlias: message.template, dedupeKey: message.key, recipientEmail: message.to, encryptedVariables: 'offline live-mode fixture' }, { transaction });
+    } };
+    const { paymentCheckouts: payments, refunds, stripeWebhooks: webhook } = require('../src/payments/services').createPaymentServices({
+      sequelize, models, checkout, email, services: { stripe: provider.stripe }, permissions: createPermissionService(models),
+      config: { CUSTOMER_APP_URL: 'https://nitewide.test', businessAppUrl: 'https://business.nitewide.test/app' },
+    });
+    const input = { buyerUserId: buyer.id, eventId: event.id, idempotencyKey: randomUUID(), items: [{ offeringId: offering.id, quantity: 1 }] };
+    provider.loseNextCreation();
+    const uncertain = await payments.prepare(input);
+    assert.equal(uncertain.retryable, true);
+    const prepared = await payments.prepare(input);
+    const order = await models.Order.findByPk(prepared.orderId);
+    assert.equal(order.providerMode, 'live'); assert.equal(provider.creations(), 1);
+    assert.equal((await payments.resume(buyer.id, order.id)).clientSecret, prepared.clientSecret);
+    provider.pay(order.checkoutSessionId);
+    const body = { id: `evt_${randomUUID()}`, type: 'checkout.session.completed', livemode: true, account: account.stripeAccountId, data: { object: { id: order.checkoutSessionId } } };
+    assert.deepEqual(await webhook.receive(Buffer.from(JSON.stringify({ ...body, livemode: false })), 'verified-signature'), { received: true, ignored: true });
+    assert.equal(await models.Ticket.count({ where: { eventId: event.id } }), 0);
+    await webhook.receive(Buffer.from(JSON.stringify(body)), 'verified-signature');
+    assert.equal((await order.reload()).status, 'paid');
+    assert.equal(await models.Ticket.count({ where: { eventId: event.id, status: 'valid' } }), 1);
+    assert.equal((await models.StripeWebhookReceipt.findOne({ where: { stripeEventId: body.id } })).mode, 'live');
+    assert.equal((await webhook.receive(Buffer.from(JSON.stringify(body)), 'verified-signature')).replayed, true);
+    await payments.verify(buyer.id, order.id);
+    assert.equal(receiptKeys.length, 1, 'live recovery and webhook replay queue one transactional receipt');
+    assert.equal(await models.EmailOutbox.count({ where: { recipientEmail: buyer.email } }), 1);
+    provider.loseNextRefund();
+    const pending = await refunds.requestRefund(owner.id, order.id, { reason: 'Approved fixture refund', idempotencyKey: randomUUID() });
+    assert.equal(pending.retryable, true);
+    const refund = await models.Refund.findByPk(pending.refundId);
+    assert.equal((await refunds.reconcile(refund)).status, 'succeeded');
+    assert.equal(provider.refundCreations(), 1);
+    assert.equal((await order.reload()).status, 'refunded');
+    assert.equal(await models.Ticket.count({ where: { eventId: event.id, status: 'void' } }), 1);
+    assert.equal((await offering.reload()).quantitySold, 1);
+  } finally { await sequelize.close(); }
 });

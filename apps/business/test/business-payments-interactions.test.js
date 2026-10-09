@@ -59,7 +59,7 @@ test('payments workspace protects finance scope, switches views and organization
         assert.equal(identity, session); calls.push(path);
         if (path === '/business/payments/earnings') return earnings;
         const id = path.split('/')[3];
-        return path.includes('/payment-accounts') ? accountData(id) : merchant(id);
+        return path.includes('/payment-accounts') ? accountData(id) : { ...merchant(id), mode: id === 'org-b' ? 'live' : 'test' };
       };
       mount({ canViewEarnings: true, request });
       await screen.findByRole('heading', { name: 'org-a account' });
@@ -71,8 +71,11 @@ test('payments workspace protects finance scope, switches views and organization
       assert.ok(within(payments).getByText('$25.00'));
       assert.ok(within(payments).getByText('$100.00'));
       assert.ok(within(payments).getByText(/2 pending bookings · 1 payments needing review/));
+      assert.ok(within(payments).getByText('Downtown · All-time verified Stripe sandbox bookings.'));
       await user.selectOptions(business, 'org-b');
       await screen.findByRole('heading', { name: 'org-b account' });
+      await screen.findByText('Uptown · All-time verified Stripe bookings.');
+      assert.equal(screen.queryByText('Uptown · All-time verified Stripe sandbox bookings.'), null);
       assert.equal(screen.queryByRole('heading', { name: 'org-a account' }), null);
       assert.equal(new URLSearchParams(dom.window.location.search).get('paymentOrganization'), 'org-b');
       await user.click(screen.getByRole('button', { name: 'My commissions', exact: true }));

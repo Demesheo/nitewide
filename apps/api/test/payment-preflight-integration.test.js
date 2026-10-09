@@ -9,6 +9,7 @@ const { createSequelize } = require('../src/db/sequelize');
 const { initModels } = require('../src/db/models');
 const { createApp } = require('../src/app');
 const { createPaymentPreflight, REQUIRED_MIGRATIONS } = require('../src/diagnostics/payment-preflight');
+const { paymentRuntimeEvidence } = require('../src/diagnostics/payment-runtime');
 
 const snapshotAt = new Date();
 const staticStripeConfig = {
@@ -146,6 +147,44 @@ test('payment preflight reads real schema and merchant routes without provider c
       await sharedProfile.update({ paymentsDisabledAt: snapshotAt, disconnectStatus: 'disconnected' });
       counts(await sharedInspect(), { readyEventCount: 0, blockedEventCount: 3 });
       await sharedProfile.update(readyProfile);
+    });
+
+    await t.test('live routes reject sandbox merchants and disabled live credentials do not inspect routes', async () => {
+      const liveConfig = { NODE_ENV: 'production', APP_ENVIRONMENT: 'production', HOSTED_DEMO: 'false',
+        STRIPE_MODE: 'live', STRIPE_SECRET_KEY: 'sk_live_offlinepreflight', STRIPE_PUBLISHABLE_KEY: 'pk_live_offlinepreflight',
+        RELEASE_REVISION: 'a'.repeat(40), corsOrigins: ['https://customer.nitewide.test', 'https://business.nitewide.test'] };
+      const inspectLive = () => inspect(liveConfig, { mode: 'live' });
+      counts(await inspectLive(), { activePaidEventCount: 3, readyEventCount: 0, blockedEventCount: 3 });
+      await defaultProfile.update({ mode: 'live' });
+      counts(await inspectLive(), { activePaidEventCount: 3, readyEventCount: 1, blockedEventCount: 2 });
+      counts(await inspect(), { activePaidEventCount: 3, readyEventCount: 1, blockedEventCount: 2 });
+      const before = readOnlyInspections;
+      const disabled = await inspect({ ...liveConfig, STRIPE_MODE: 'disabled' }, { mode: 'disabled', enabled: false });
+      assert.equal(disabled.mode, 'disabled'); assert.equal(disabled.routing.status, 'not-checked');
+      assert.equal(readOnlyInspections, before);
+      const otherLiveProfile = await profile(unconfiguredOrg.id, 'Live private profile');
+      await otherLiveProfile.update({ mode: 'live' });
+      await unconfiguredOrg.update({ defaultPaymentAccountId: otherLiveProfile.id });
+      await explicitProfile.update({ mode: 'live' });
+      const workerId = randomUUID();
+      const workerEvidence = paymentRuntimeEvidence({ ...config, ...liveConfig });
+      await db.query(`INSERT INTO background_workers(id,status,heartbeat_at,details)
+        VALUES(:id,'running',:observedAt,CAST(:details AS jsonb))`, { replacements: { id: workerId, observedAt: snapshotAt,
+        details: JSON.stringify({ paymentReconciliationEnabled: true, paymentRuntime: workerEvidence }) } });
+      try {
+        const ready = await inspectLive();
+        assert.equal(ready.mode, 'live-ready'); assert.equal(ready.workers.status, 'ready');
+        counts(ready, { activePaidEventCount: 3, readyEventCount: 3, blockedEventCount: 0 });
+        const sandboxEvidence = paymentRuntimeEvidence({ ...config, RELEASE_REVISION: liveConfig.RELEASE_REVISION });
+        await db.query('UPDATE background_workers SET details=CAST(:details AS jsonb) WHERE id=:id', {
+          replacements: { id: workerId, details: JSON.stringify({ paymentReconciliationEnabled: true, paymentRuntime: sandboxEvidence }) },
+        });
+        const mismatch = await inspectLive();
+        assert.equal(mismatch.mode, 'configuration-blocked'); assert.equal(mismatch.workers.mismatchedWorkerCount, 1);
+      } finally { await db.query('DELETE FROM background_workers WHERE id=:id', { replacements: { id: workerId } }); }
+      await unconfiguredOrg.update({ defaultPaymentAccountId: null });
+      await explicitProfile.update(readyProfile);
+      await defaultProfile.update(readyProfile);
     });
 
     await t.test('internal diagnostic authorization and no-store preserve healthy liveness and free checkout', async () => {

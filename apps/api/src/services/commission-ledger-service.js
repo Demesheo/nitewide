@@ -23,7 +23,7 @@ function createCommissionLedgerService({ sequelize, models, now = () => new Date
   const select = (sql, replacements, transaction) => sequelize.query(sql, { replacements, transaction, type: QueryTypes.SELECT });
   async function recordPaidOrder({ order, event, transaction }) {
     if (!models.CommissionEarning || order.status !== 'paid' || order.providerVerificationStatus !== 'verified'
-      || order.providerMode !== 'test' || order.pricingPlanSnapshot?.demo === true || !order.stripePaymentIntentId) return null;
+      || !['test', 'live'].includes(order.providerMode) || order.pricingPlanSnapshot?.demo === true || !order.stripePaymentIntentId) return null;
     const snapshot = order.commissionSnapshot;
     if (snapshot?.version !== 1 || snapshot.commissionEligibility?.eligible !== true || snapshot.effectiveCommissionBps <= 0
       || !snapshot.organizationId || !snapshot.recipientUserId || !snapshot.individualCommissionProfileId || !snapshot.stripeAccountId
@@ -148,14 +148,31 @@ function createCommissionLedgerService({ sequelize, models, now = () => new Date
       return statements;
     });
   }
+  async function assertStatementMode({ statementIds, providerMode, transaction }) {
+    selection({ statementIds });
+    if (!['test', 'live'].includes(providerMode)) throw conflict('Commission statements require a known payment environment.', 'COMMISSION_MODE_MISMATCH');
+    if (typeof sequelize.query === 'function') {
+      const mismatches = await select(`SELECT e.id FROM commission_earnings e LEFT JOIN orders o ON o.id=e.order_id
+        WHERE e.statement_id IN (:statementIds) AND o.provider_mode IS DISTINCT FROM :providerMode LIMIT 1`, { statementIds, providerMode }, transaction);
+      if (mismatches.length) throw conflict('These statements contain purchases from another payment environment and require separate finance review.', 'COMMISSION_MODE_MISMATCH');
+      return;
+    }
+    const earnings = await models.CommissionEarning.findAll({ where: { statementId: { [Op.in]: statementIds } }, transaction });
+    const orders = await models.Order.findAll({ where: { id: { [Op.in]: earnings.map(e => e.orderId) } }, transaction });
+    if (earnings.some(e => orders.find(o => o.id === e.orderId)?.providerMode !== providerMode)) throw conflict('These statements contain purchases from another payment environment and require separate finance review.', 'COMMISSION_MODE_MISMATCH');
+  }
   async function reserveStatements(input) {
     return inTransaction(input.transaction, async (transaction) => {
       const statements = await lockedStatements(input, transaction);
       for (const statement of statements) {
         if (!statement.approvedAt || new Date(statement.availableAt) > now()) throw conflict('Approve a mature event statement before payment.', 'COMMISSION_STATEMENT_NOT_APPROVED');
       }
+      const providerMode = input.providerMode ?? 'test';
+      await assertStatementMode({ statementIds: statements.map(s => s.id), providerMode, transaction });
       if (typeof sequelize.query === 'function') {
-        const values = { paymentId: input.paymentId, statementIds: statements.map((s) => s.id), current: now() };
+        const values = { paymentId: input.paymentId, statementIds: statements.map((s) => s.id), current: now(), providerMode };
+        const [payment] = await select('SELECT provider_mode AS "providerMode" FROM commission_payments WHERE id=:paymentId', values, transaction);
+        if (payment?.providerMode !== providerMode) throw conflict('Commission payment environment changed.', 'COMMISSION_MODE_MISMATCH');
         const [existing] = await select(`SELECT COUNT(*)::integer AS count,
           COUNT(*) FILTER (WHERE status<>'reserved' OR statement_id NOT IN (:statementIds))::integer AS invalid
           FROM commission_allocations WHERE payment_id=:paymentId`, values, transaction);
@@ -169,9 +186,10 @@ function createCommissionLedgerService({ sequelize, models, now = () => new Date
           // <=100 event totals cross the process boundary; large event histories
           // do not need an artificial cap or an in-memory earning collection.
           rows = await select(`WITH eligible AS MATERIALIZED (
-            SELECT id,statement_id,unpaid_commission_cents-reserved_commission_cents AS amount
-            FROM commission_earnings WHERE statement_id IN (:statementIds) AND NOT refund_hold AND NOT dispute_hold
-              AND unpaid_commission_cents>reserved_commission_cents ORDER BY id FOR UPDATE
+            SELECT e.id,e.statement_id,e.unpaid_commission_cents-e.reserved_commission_cents AS amount
+            FROM commission_earnings e JOIN orders o ON o.id=e.order_id
+            WHERE e.statement_id IN (:statementIds) AND o.provider_mode=:providerMode AND NOT e.refund_hold AND NOT e.dispute_hold
+              AND e.unpaid_commission_cents>e.reserved_commission_cents ORDER BY e.id FOR UPDATE OF e
           ), inserted AS (
             INSERT INTO commission_allocations(id,payment_id,statement_id,earning_id,amount_cents,status,created_at,updated_at)
             SELECT gen_random_uuid(),:paymentId,statement_id,id,amount,'reserved',:current,:current FROM eligible
@@ -339,7 +357,7 @@ function createCommissionLedgerService({ sequelize, models, now = () => new Date
     if (rows.length !== statementIds.length) throw notFound('Commission statement');
     return rows.map(numbers);
   }
-  return { recordPaidOrder, setRefundHold, setDisputeHold, adjustRefund, approveStatements, reserveStatements, finishPayment,
+  return { recordPaidOrder, setRefundHold, setDisputeHold, adjustRefund, approveStatements, assertStatementMode, reserveStatements, finishPayment,
     settlePayment: (input) => finishPayment({ ...input, paid: true }), releasePayment: (input) => finishPayment({ ...input, paid: false }), listStatements, statementDetails, summarizeStatements };
 }
 module.exports = { createCommissionLedgerService, totalsSql };

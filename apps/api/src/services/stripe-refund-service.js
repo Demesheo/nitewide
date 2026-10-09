@@ -3,24 +3,27 @@ const { DomainError, notFound, conflict } = require('../domain/errors');
 const { mutationTransaction } = require('./mutation-transaction');
 const { providerId } = require('./stripe-checkout-service');
 const { assertFinanceAccess } = require('./business-payment-account-service');
+const { isStripeMode, matchesStripeLivemode } = require('../payments/stripe-mode');
 
 const refundSummary = (refund) => ({ refundId: refund.id, orderId: refund.orderId, status: refund.status });
+const refundModeMatches = (refund, mode) => isStripeMode(mode) && refund != null
+  && (!Object.hasOwn(refund, 'livemode') || matchesStripeLivemode(refund, mode));
 function verifyRefund(order, refund, evidence, charge, applicationFee) {
-  // Refund objects have no livemode field. Sandbox evidence comes from the
-  // independently retrieved account-scoped Charge and guarded test adapter.
-  return evidence?.id === refund.providerReference && evidence.livemode !== true
+  // Refund objects omit livemode. The independently retrieved Charge proves
+  // mode; any explicitly supplied contradictory mode must still be rejected.
+  return evidence?.id === refund.providerReference && refundModeMatches(evidence, order.providerMode)
     && evidence.status === 'succeeded' && evidence.amount === order.totalCents
     && evidence.currency?.toUpperCase() === order.currency.toUpperCase()
     && providerId(evidence.payment_intent) === order.stripePaymentIntentId
     && providerId(evidence.charge) === order.stripeChargeId && evidence.metadata?.refundId === refund.id
     && evidence.metadata?.orderId === order.id && charge?.id === order.stripeChargeId
     && providerId(charge.payment_intent) === order.stripePaymentIntentId
-    && charge.livemode === false && charge.paid === true && charge.captured === true
+    && matchesStripeLivemode(charge, order.providerMode) && charge.paid === true && charge.captured === true
     && charge.amount === order.totalCents && charge.currency?.toUpperCase() === order.currency.toUpperCase()
     && charge.application_fee_amount === order.applicationFeeCents
     && charge.refunded === true && charge.amount_refunded === order.totalCents
     && (order.applicationFeeCents === 0 || (applicationFee?.id === providerId(charge.application_fee)
-      && applicationFee?.amount === order.applicationFeeCents && applicationFee.livemode === false
+      && applicationFee?.amount === order.applicationFeeCents && matchesStripeLivemode(applicationFee, order.providerMode)
       && applicationFee.currency?.toUpperCase() === order.currency.toUpperCase()
       && applicationFee.refunded === true && applicationFee.amount_refunded === order.applicationFeeCents
       && providerId(applicationFee.account) === order.stripeAccountId && providerId(applicationFee.charge) === order.stripeChargeId));
@@ -34,7 +37,7 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
     }
     if (full && models.OrderRefundRequest) await models.OrderRefundRequest.update({ status: 'resolved' }, { where: { orderId: order.id, status: ['pending', 'approved'] }, transaction });
   }
-  function enabled() { if (!stripe?.enabled || stripe.mode !== 'test') throw new DomainError('Sandbox refunds unavailable', { code: 'PAYMENTS_NOT_ENABLED', status: 503 }); }
+  function enabled() { if (!stripe?.enabled || !isStripeMode(stripe.mode)) throw new DomainError('Refunds unavailable', { code: 'PAYMENTS_NOT_ENABLED', status: 503 }); }
   async function bindRefundReference(refund, reference) {
     return mutationTransaction(sequelize, async (transaction) => {
       const locked = await models.Refund.findByPk(refund.id, { transaction, lock: transaction.LOCK.UPDATE });
@@ -46,11 +49,11 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
     });
   }
   async function approvedRefundForCharge(chargeId, stripeAccountId) {
-    const order = await models.Order.findOne({ where: { stripeChargeId: chargeId, stripeAccountId, providerMode: 'test' } });
+    const order = await models.Order.findOne({ where: { stripeChargeId: chargeId, stripeAccountId, providerMode: stripe.mode } });
     return order && await models.Refund.findOne({ where: { orderId: order.id } });
   }
   function assertRefundBinding(order, refund) {
-    if (!order || !refund || refund.orderId !== order.id || order.providerMode !== 'test' || refund.stripeAccountId !== order.stripeAccountId
+    if (!order || !refund || refund.orderId !== order.id || order.providerMode !== stripe.mode || refund.stripeAccountId !== order.stripeAccountId
       || refund.paymentAccountId !== order.paymentAccountId || refund.amountCents !== order.totalCents
       || refund.currency.toUpperCase() !== order.currency.toUpperCase() || !refund.approvedByUserId
       || !order.stripePaymentIntentId || !order.stripeChargeId
@@ -82,7 +85,7 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
           refund_application_fee: true, metadata: { refundId: refund.id, orderId: order.id } },
         { stripeAccount: refund.stripeAccountId, idempotencyKey: `refund/${refund.id}` });
       } catch { return { ...refundSummary(refund), retryable: true }; }
-      if (!created?.id || created.livemode === true || created.metadata?.refundId !== refund.id
+      if (!created?.id || !refundModeMatches(created, order.providerMode) || created.metadata?.refundId !== refund.id
         || created.metadata?.orderId !== order.id) throw conflict('Refund provider response needs review', 'REFUND_VERIFICATION_FAILED');
       refund = await bindRefundReference(refund, created.id);
       if (refund.status === 'succeeded') return refundSummary(refund);
@@ -139,7 +142,7 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
       const event = await models.Event.findByPk(order.eventId, { transaction });
       if (internalOverride) await permissions.assertInternalPermission(userId, 'finance.manage', transaction);
       else await assertFinanceAccess(models, userId, event.organizationId, transaction);
-      if (order.providerMode !== 'test' || !order.stripePaymentIntentId || !order.stripeChargeId || !['paid', 'pending', 'refunded'].includes(order.status)) throw conflict('Only verified provider payments can be refunded', 'REFUND_NOT_AVAILABLE');
+      if (order.providerMode !== stripe.mode || !order.stripePaymentIntentId || !order.stripeChargeId || !['paid', 'pending', 'refunded'].includes(order.status)) throw conflict('Only verified provider payments can be refunded', 'REFUND_NOT_AVAILABLE');
       if (order.status === 'pending' && order.providerVerificationStatus !== 'review') throw conflict('Payment is not confirmed', 'REFUND_NOT_AVAILABLE');
       const existing = await models.Refund.findOne({ where: { orderId }, transaction });
       if (existing) {
@@ -148,7 +151,7 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
       }
       if (order.status === 'refunded') throw conflict('This order has already been refunded', 'REFUND_NOT_AVAILABLE');
       const merchant = await models.PaymentAccount.findByPk(order.paymentAccountId,{transaction});
-      if (!merchant || merchant.lifecycleState !== 'active' || merchant.disconnectStatus !== 'none') {
+      if (!merchant || merchant.mode !== order.providerMode || merchant.stripeAccountId !== order.stripeAccountId || merchant.lifecycleState !== 'active' || merchant.disconnectStatus !== 'none') {
         throw conflict('This Stripe connection is disconnected or disconnecting. Manage any later refund in the merchant Stripe dashboard.', 'PAYMENT_ACCOUNT_DISCONNECTED');
       }
       const created = await models.Refund.create({ orderId, paymentAccountId: order.paymentAccountId, stripeAccountId: order.stripeAccountId,
@@ -180,10 +183,11 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
   }
   async function reconcileRefundEvent(event, account) {
     enabled();
+    if (!matchesStripeLivemode(event, stripe.mode) || account.mode !== stripe.mode || event.account !== account.stripeAccountId) throw conflict('Refund environment needs review', 'REFUND_VERIFICATION_FAILED');
     const reference = event.data.object.id;
     if (event.type === 'charge.refunded') {
       const externalCharge = await stripe.retrieveCharge(reference, { stripeAccount: account.stripeAccountId });
-      if (externalCharge?.id !== reference) throw conflict('Charge reference mismatch', 'REFUND_VERIFICATION_FAILED');
+      if (externalCharge?.id !== reference || !matchesStripeLivemode(externalCharge, stripe.mode)) throw conflict('Charge reference mismatch', 'REFUND_VERIFICATION_FAILED');
       // Charge.refunds is optional. Select our approval using the immutable
       // direct-account order instead of misclassifying it as a Dashboard refund.
       const approvedRefund = await approvedRefundForCharge(reference, account.stripeAccountId);
@@ -191,14 +195,14 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
       return reconcileExternalRefund(event, account, externalCharge);
     }
     if (!reference) return;
-    let refund = await models.Refund.findOne({ where: { providerReference: reference } });
+    let refund = await models.Refund.findOne({ where: { providerReference: reference, stripeAccountId: account.stripeAccountId } });
     if (!refund) {
       const evidence = await stripe.retrieveRefund(reference, { stripeAccount: account.stripeAccountId });
-      if (evidence?.id !== reference) throw conflict('Refund reference mismatch', 'REFUND_VERIFICATION_FAILED');
+      if (evidence?.id !== reference || !refundModeMatches(evidence, stripe.mode)) throw conflict('Refund reference mismatch', 'REFUND_VERIFICATION_FAILED');
       refund = evidence.metadata?.refundId && await models.Refund.findOne({ where: { id: evidence.metadata.refundId, stripeAccountId: account.stripeAccountId } });
       if (!refund) {
         const charge = await stripe.retrieveCharge(providerId(evidence.charge), { stripeAccount: account.stripeAccountId });
-        if (charge?.id !== providerId(evidence.charge) || evidence.livemode === true || providerId(evidence.payment_intent) !== providerId(charge.payment_intent)
+        if (charge?.id !== providerId(evidence.charge) || !matchesStripeLivemode(charge, stripe.mode) || providerId(evidence.payment_intent) !== providerId(charge.payment_intent)
           || evidence.currency?.toUpperCase() !== charge.currency?.toUpperCase()) throw conflict('External refund binding needs review', 'REFUND_VERIFICATION_FAILED');
         const approvedRefund = await approvedRefundForCharge(charge.id, account.stripeAccountId);
         if (approvedRefund) return reconcile(approvedRefund);
@@ -208,7 +212,7 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
       assertRefundBinding(boundOrder, refund);
       // Provider metadata cannot attach a merchant-created lookalike refund
       // to our approval. Check its original payment before saving the pointer.
-      if (boundOrder.stripeAccountId !== account.stripeAccountId || evidence.livemode === true
+      if (boundOrder.stripeAccountId !== account.stripeAccountId || !refundModeMatches(evidence, boundOrder.providerMode)
         || evidence.metadata?.orderId !== boundOrder.id || evidence.amount !== boundOrder.totalCents
         || evidence.currency?.toUpperCase() !== boundOrder.currency.toUpperCase()
         || providerId(evidence.payment_intent) !== boundOrder.stripePaymentIntentId
@@ -223,23 +227,27 @@ function createStripeRefundService({ sequelize, models, stripe, permissions, now
   async function reconcileExternalRefund(event, account, charge) {
     // Signed events only select a provider object. Independently retrieved
     // direct-account Charge evidence is bound to our immutable payment.
-    const order = charge?.id && await models.Order.findOne({ where: { stripeChargeId: charge.id, stripeAccountId: account.stripeAccountId, providerMode: 'test' } });
+    const order = charge?.id && await models.Order.findOne({ where: { stripeChargeId: charge.id, stripeAccountId: account.stripeAccountId, providerMode: stripe.mode } });
     if (!order) return { ignored: true };
-    if (charge.livemode !== false || providerId(charge.payment_intent) !== order.stripePaymentIntentId
+    if (!matchesStripeLivemode(charge, order.providerMode) || providerId(charge.payment_intent) !== order.stripePaymentIntentId
       || charge.amount !== order.totalCents || charge.currency?.toUpperCase() !== order.currency.toUpperCase()
       || charge.application_fee_amount !== order.applicationFeeCents
       || charge.paid !== true || charge.captured !== true || !Number.isInteger(charge.amount_refunded)
       || charge.amount_refunded < 0 || charge.amount_refunded > order.totalCents) throw conflict('External charge binding needs review', 'REFUND_VERIFICATION_FAILED');
     let fee;
     if (order.applicationFeeCents > 0 && charge.application_fee) fee = await stripe.retrieveApplicationFee(providerId(charge.application_fee), {});
+    if (fee && !matchesStripeLivemode(fee, order.providerMode)) throw conflict('External application fee environment needs review', 'REFUND_VERIFICATION_FAILED');
     const full = charge.refunded === true && charge.amount_refunded === order.totalCents
-      && (order.applicationFeeCents === 0 || (fee?.livemode === false && fee.amount === order.applicationFeeCents
+      && (order.applicationFeeCents === 0 || (matchesStripeLivemode(fee, order.providerMode) && fee.amount === order.applicationFeeCents
         && fee.currency?.toUpperCase() === order.currency.toUpperCase() && fee.refunded === true
         && fee.amount_refunded === order.applicationFeeCents && providerId(fee.account) === order.stripeAccountId
         && providerId(fee.charge) === order.stripeChargeId));
     return mutationTransaction(sequelize, async transaction => {
       const eventRow = await models.Event.findByPk(order.eventId, { transaction, lock: transaction.LOCK.UPDATE });
       const locked = await models.Order.findByPk(order.id, { transaction, lock: transaction.LOCK.UPDATE });
+      if (locked.providerMode !== stripe.mode || locked.stripeAccountId !== order.stripeAccountId || locked.stripeChargeId !== charge.id
+        || locked.stripePaymentIntentId !== order.stripePaymentIntentId || locked.totalCents !== order.totalCents
+        || locked.applicationFeeCents !== order.applicationFeeCents || locked.currency !== order.currency) throw conflict('External refund binding changed', 'REFUND_STATE_CONFLICT');
       if (locked.status === 'refunded') return { orderId: locked.id, status: 'succeeded' };
       if (!['paid', 'pending'].includes(locked.status)) throw conflict('External refund state needs review', 'REFUND_STATE_CONFLICT');
       const items = await models.OrderItem.findAll({ where: { orderId: order.id }, transaction });

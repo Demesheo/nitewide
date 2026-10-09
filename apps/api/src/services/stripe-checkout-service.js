@@ -17,25 +17,26 @@ const { ensureCheckoutReminder } = require('./checkout-reminder-policy');
 const { commissionSnapshot, effectiveCommissionMinimum } = require('../domain/commission-policy');
 const { commissionEligibility } = require('../domain/commission-eligibility');
 const { createCommissionLedgerService } = require('./commission-ledger-service');
+const { isStripeMode, matchesStripeLivemode } = require('../payments/stripe-mode');
 
-const summary = (order) => ({ orderId: order.id, status: order.status, verificationStatus: order.providerMode === 'test' ? order.providerVerificationStatus || null : null });
+const summary = (order) => ({ orderId: order.id, status: order.status, verificationStatus: isStripeMode(order.providerMode) ? order.providerVerificationStatus || null : null });
 const providerMismatch = () => new DomainError('Payment verification needs review', { code: 'PAYMENT_VERIFICATION_FAILED', status: 409 });
 const providerId = (value) => typeof value === 'string' ? value : value?.id;
 
 // A server-side account-scoped retrieval supplies these objects; callers and
 // webhook payloads cannot supply this evidence to the fulfillment transaction.
 function verifySession(order, session) {
-  if (!session || session.id !== order.checkoutSessionId || session.livemode !== false || session.mode !== 'payment'
+  if (!session || session.id !== order.checkoutSessionId || !matchesStripeLivemode(session, order.providerMode) || session.mode !== 'payment'
     || session.metadata?.orderId !== order.id || session.client_reference_id !== order.id
     || session.amount_total !== order.totalCents || session.currency?.toUpperCase() !== order.currency.toUpperCase()) throw providerMismatch();
   if (session.payment_status !== 'paid' || session.status !== 'complete') return { paid: false, expired: session.status === 'expired' && session.payment_status === 'unpaid' };
   const intent = session.payment_intent, charge = intent?.latest_charge;
-  if (!intent || typeof intent === 'string' || intent.livemode !== false || intent.status !== 'succeeded'
+  if (!intent || typeof intent === 'string' || !matchesStripeLivemode(intent, order.providerMode) || intent.status !== 'succeeded'
     || intent.amount !== order.totalCents || intent.amount_received !== order.totalCents
     || intent.currency?.toUpperCase() !== order.currency.toUpperCase() || intent.metadata?.orderId !== order.id
     || (intent.application_fee_amount || 0) !== order.applicationFeeCents
     || intent.transfer_data || intent.on_behalf_of
-    || !charge || typeof charge === 'string' || charge.livemode !== false || charge.paid !== true || charge.captured !== true
+    || !charge || typeof charge === 'string' || !matchesStripeLivemode(charge, order.providerMode) || charge.paid !== true || charge.captured !== true
     || charge.amount !== order.totalCents || charge.currency?.toUpperCase() !== order.currency.toUpperCase()
     || providerId(charge.payment_intent) !== intent.id || (charge.application_fee_amount || 0) !== order.applicationFeeCents
     || charge.refunded || charge.amount_refunded > 0) throw providerMismatch();
@@ -46,12 +47,13 @@ function createStripeCheckoutService({ sequelize, models, stripe, checkout, appl
   accountResolver = resolvePaymentAccount, now = () => new Date(), customerAppUrl = 'http://localhost:5173',
   individualProfiles = null, email = null, notificationJobs = createNotificationJobService({ sequelize, models, now }) }) {
   const tx = (work) => mutationTransaction(sequelize, work);
-  function enabled() { if (!stripe?.enabled || stripe.mode !== 'test') throw new DomainError('Sandbox payments are unavailable', { code: 'PAYMENTS_NOT_ENABLED', status: 503 }); }
+  function enabled() { if (!stripe?.enabled || !isStripeMode(stripe.mode)) throw new DomainError('Payments are unavailable', { code: 'PAYMENTS_NOT_ENABLED', status: 503 }); }
+  function assertOrderMode(order) { if (order.providerMode !== stripe.mode || !isStripeMode(order.providerMode)) throw providerMismatch(); }
   const recipientId = affiliate => affiliate.eventAffiliate?.userId || affiliate.orgAffiliate?.userId;
   // Recognize previously ready server evidence without treating its old age as
   // current readiness. Disabled/disconnected bindings remain intentionally zero.
   const previouslyReady = affiliate => affiliate.individualProfile?.verifiedAt && commissionEligibility({
-    userId: recipientId(affiliate), individualProfile: affiliate.individualProfile, now: affiliate.individualProfile.verifiedAt,
+    userId: recipientId(affiliate), individualProfile: affiliate.individualProfile, now: affiliate.individualProfile.verifiedAt, mode: stripe.mode,
   }).eligible;
   const recipientUnavailable = () => new DomainError('Commission recipient verification is temporarily unavailable. Retry checkout shortly.', {
     code: 'COMMISSION_RECIPIENT_VERIFICATION_UNAVAILABLE', status: 503, details: { retryable: true },
@@ -62,13 +64,13 @@ function createStripeCheckoutService({ sequelize, models, stripe, checkout, appl
     await assertActiveEvent(models, event);
     // Read-only attribution resolution: neither browser readiness nor a supplied
     // account id is accepted, and preflight cannot create event assignments.
-    const affiliate = await resolveAffiliate(models, { event, code: input.affiliateCode, now: now(), persist: false });
+    const affiliate = await resolveAffiliate(models, { event, code: input.affiliateCode, now: now(), persist: false, mode: stripe.mode });
     if (recipientId(affiliate) === input.buyerUserId) throw conflict('Self referrals cannot earn commission', 'SELF_REFERRAL');
     const organization = await models.Organization.findByPk(event.organizationId);
     const subtotal = input.items.reduce((sum, item) => sum + (offerings.find(o => o.id === item.offeringId)?.priceCents || 0) * item.quantity, 0);
     if (affiliate.configuredCommissionBps <= 0 || subtotal < effectiveCommissionMinimum(event, organization) || affiliate.commissionEligibility.eligible) return;
     const profile = affiliate.individualProfile;
-    if (!profile?.stripeAccountId || profile.provider !== 'stripe' || profile.providerMode !== 'test' || profile.lifecycleState !== 'active'
+    if (!profile?.stripeAccountId || profile.provider !== 'stripe' || profile.providerMode !== stripe.mode || profile.lifecycleState !== 'active'
       || profile.paymentsDisabledAt || profile.deauthorizedAt || profile.disconnectStatus && profile.disconnectStatus !== 'none') return;
     const wasReady = previouslyReady(affiliate);
     try {
@@ -110,6 +112,8 @@ function createStripeCheckoutService({ sequelize, models, stripe, checkout, appl
   async function settle(orderId, session) {
     return tx(async (transaction) => {
       const state = await lockedOrder(orderId, transaction), { order, event, items, offerings } = state;
+      enabled();
+      assertOrderMode(order);
       if (order.status !== 'pending' || order.providerVerificationStatus === 'review') return summary(order);
       let evidence;
       try { evidence = verifySession(order, session); } catch (error) {
@@ -128,7 +132,7 @@ function createStripeCheckoutService({ sequelize, models, stripe, checkout, appl
       let admissionAllowed = event && event.status === 'published' && !eventFinished(event, now());
       try { if (admissionAllowed) await assertActiveEvent(models, event, transaction); } catch { admissionAllowed = false; }
       const account = await models.PaymentAccount.findByPk(order.paymentAccountId, { transaction, lock: transaction.LOCK.SHARE || 'SHARE' });
-      if (!account || account.stripeAccountId !== order.stripeAccountId || account.mode !== 'test'
+      if (!account || account.stripeAccountId !== order.stripeAccountId || account.mode !== order.providerMode
         || account.lifecycleState !== 'active' || (account.organizationId !== event.organizationId && !sharedSandboxOrderMatches(order, account, event))) admissionAllowed = false;
       if (account && account.organizationId !== event.organizationId && sharedSandboxOrderMatches(order, account, event)) {
         try { await assertActiveOrganization(models,account.organizationId,transaction); }
@@ -159,6 +163,7 @@ function createStripeCheckoutService({ sequelize, models, stripe, checkout, appl
     });
   }
   async function ensureSession(order) {
+    assertOrderMode(order);
     if (order.checkoutSessionId) return stripe.retrieveCheckoutSession(order.checkoutSessionId, { stripeAccount: order.stripeAccountId, expand: ['payment_intent.latest_charge'] });
     const params = order.pricingPlanSnapshot?.providerSessionParams;
     const preparedAt = new Date(order.pricingPlanSnapshot?.providerSessionPreparedAt).getTime();
@@ -183,17 +188,19 @@ function createStripeCheckoutService({ sequelize, models, stripe, checkout, appl
     }
     const session = await stripe.createCheckoutSession(structuredClone(params),
     { stripeAccount: order.stripeAccountId, idempotencyKey: `checkout/${order.id}` });
-    if (!session?.id || session.livemode !== false || session.metadata?.orderId !== order.id) throw providerMismatch();
+    if (!session?.id || !matchesStripeLivemode(session, order.providerMode) || session.metadata?.orderId !== order.id) throw providerMismatch();
     await tx(async (transaction) => {
       const current = await models.Order.findByPk(order.id, { transaction, lock: transaction.LOCK.UPDATE });
+      assertOrderMode(current);
       if (current.checkoutSessionId && current.checkoutSessionId !== session.id) throw providerMismatch();
       await current.update({ checkoutSessionId: session.id }, { transaction });
     });
     return session;
   }
   async function reconcileOrder(order) {
-    if (order.status !== 'pending' || order.providerMode !== 'test' || order.providerVerificationStatus === 'review') return summary(order);
+    if (order.status !== 'pending' || !isStripeMode(order.providerMode) || order.providerVerificationStatus === 'review') return summary(order);
     enabled();
+    assertOrderMode(order);
     try {
       const session = await ensureSession(order);
       if (!session) return summary(order);
@@ -245,7 +252,7 @@ function createStripeCheckoutService({ sequelize, models, stripe, checkout, appl
         if (offering.inventoryMode === 'finite' && offering.quantitySold + offering.quantityReserved + quantity > offering.quantityTotal) throw conflict('Not enough inventory', 'INSUFFICIENT_INVENTORY');
         return { offering, quantity };
       });
-      const affiliate = await resolveAffiliate(models, { event, code: input.affiliateCode, now: now(), transaction, lock: transaction.LOCK.UPDATE });
+      const affiliate = await resolveAffiliate(models, { event, code: input.affiliateCode, now: now(), transaction, lock: transaction.LOCK.UPDATE, mode: stripe.mode });
       if (affiliate.eventAffiliate?.userId === input.buyerUserId || affiliate.orgAffiliate?.userId === input.buyerUserId) throw conflict('Self referrals cannot earn commission', 'SELF_REFERRAL');
       const organization = await models.Organization.findByPk(event.organizationId, { transaction });
       const subtotalCents = lines.reduce((sum, { offering, quantity }) => sum + offering.priceCents * quantity, 0);
@@ -258,16 +265,16 @@ function createStripeCheckoutService({ sequelize, models, stripe, checkout, appl
       const pricing = calculatePricing({ subtotalCents, items: lines.map(({ offering, quantity }) => ({ unitPriceCents: offering.priceCents, quantity, feeMode: effectiveFeeMode(event.feeMode || 'buyer', offering.feeMode || 'inherit') })), currency: selected[0].currency, planTier: organization.planTier, commissionBps: commission.effectiveCommissionBps, now: now() });
       if (input.expectedTotalCents !== undefined && input.expectedTotalCents !== pricing.totalCents) throw conflict('Pricing changed', 'PRICE_CHANGED');
       if (lines.length + (pricing.platformFeeCents > 0 ? 1 : 0) > 100) throw new DomainError('This cart has too many offerings', { code: 'CHECKOUT_TOO_LARGE', status: 422 });
-      const feeDecision = applicationFeeForOrder(pricing);
+      const feeDecision = applicationFeeForOrder(pricing, stripe.mode);
       const applicationFeeCents = typeof feeDecision === 'number' ? feeDecision : feeDecision.applicationFeeCents;
       if (!Number.isSafeInteger(applicationFeeCents) || applicationFeeCents < 0 || applicationFeeCents > pricing.totalCents) throw conflict('Application fee needs review', 'INVALID_APPLICATION_FEE');
       const created = await models.Order.create({ buyerUserId: input.buyerUserId, eventId: event.id, status: 'pending', currency: selected[0].currency,
         subtotalCents, ...pricing, commissionSnapshot: commission, idempotencyKey: input.idempotencyKey, requestFingerprint, paymentAccountId: account.id, stripeAccountId: account.stripeAccountId,
-        applicationFeeCents, providerMode: 'test', providerVerificationStatus: 'pending', reservationExpiresAt: new Date(now().getTime() + 35 * 60 * 1000),
+        applicationFeeCents, providerMode: stripe.mode, providerVerificationStatus: 'pending', reservationExpiresAt: new Date(now().getTime() + 35 * 60 * 1000),
         orgAffiliateId: affiliate.orgAffiliate?.id, eventAffiliateId: affiliate.eventAffiliate?.id,
         pricingPlanSnapshot: { ...pricing.pricingPlanSnapshot, demo: false, providerCustomerEmail: buyer.email, commissionBps: commission.effectiveCommissionBps,
-          configuredCommissionBps: affiliate.configuredCommissionBps, commissionEligibility: affiliate.commissionEligibility, stripeFeeDecision: feeDecision, economicsBasis: 'modeled_sandbox_economics', merchant: { paymentAccountId: account.id, stripeAccountId: account.stripeAccountId, organizationId: event.organizationId,
-            ...(stripe.sandboxSharedAccountId === account.stripeAccountId ? { sharedSandbox: true } : {}) } } }, { transaction });
+          configuredCommissionBps: affiliate.configuredCommissionBps, commissionEligibility: affiliate.commissionEligibility, stripeFeeDecision: feeDecision, economicsBasis: stripe.mode === 'test' ? 'modeled_sandbox_economics' : 'modeled_provider_economics', merchant: { paymentAccountId: account.id, stripeAccountId: account.stripeAccountId, organizationId: event.organizationId,
+            ...(stripe.mode === 'test' && stripe.sandboxSharedAccountId === account.stripeAccountId ? { sharedSandbox: true } : {}) } } }, { transaction });
       const returnUrl = new URL(customerAppUrl); returnUrl.searchParams.set('paymentOrder', created.id); returnUrl.searchParams.set('session_id', '{CHECKOUT_SESSION_ID}');
       const lineItems = lines.map(({ offering, quantity }) => ({ quantity, price_data: { currency: created.currency.toLowerCase(), unit_amount: offering.priceCents, product_data: { name: offering.name } } }));
       if (created.platformFeeCents) lineItems.push({ quantity: 1, price_data: { currency: created.currency.toLowerCase(), unit_amount: created.platformFeeCents, product_data: { name: 'Booking fee' } } });
@@ -300,7 +307,7 @@ function createStripeCheckoutService({ sequelize, models, stripe, checkout, appl
   }
   async function resume(buyerUserId, orderId) {
     const order = await buyerOrder(buyerUserId, orderId);
-    if (order.providerMode !== 'test') throw conflict('This booking does not use Stripe checkout', 'CHECKOUT_NOT_RESUMABLE');
+    if (!isStripeMode(order.providerMode) || order.providerMode !== stripe.mode) throw conflict('This booking does not use the active Stripe checkout environment', 'CHECKOUT_NOT_RESUMABLE');
     // Recover only this buyer's original order/session. Never re-price, change
     // its merchant or generate a replacement checkout key to resume payment.
     const result = await paymentForm(order);
@@ -330,13 +337,14 @@ function createStripeCheckoutService({ sequelize, models, stripe, checkout, appl
     let session;
     try { session = await ensureSession(order); } catch { return { ...summary(order), retryable: true }; }
     if (!session) return summary(order);
+    verifySession(order, session);
     try { await stripe.expireCheckoutSession(session.id, { stripeAccount: order.stripeAccountId }); } catch { /* Independently retrieve even when expiry raced payment. */ }
     order.checkoutSessionId = session.id;
     return reconcileOrder(order);
   }
   async function reconcileExpired({ limit = 25 } = {}) {
     enabled();
-    const orders = await models.Order.findAll({ where: { status: 'pending', providerMode: 'test', providerVerificationStatus: 'pending', reservationExpiresAt: { [Op.lte]: now() } }, order: [['reservationExpiresAt', 'ASC']], limit: Math.min(100, Math.max(1, limit)) });
+    const orders = await models.Order.findAll({ where: { status: 'pending', providerMode: stripe.mode, providerVerificationStatus: 'pending', reservationExpiresAt: { [Op.lte]: now() } }, order: [['reservationExpiresAt', 'ASC']], limit: Math.min(100, Math.max(1, limit)) });
     const results = [];
     // No local expiry releases stock. Unknown creation outcomes are retried
     // with immutable original params and the original provider idempotency key.

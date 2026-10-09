@@ -35,7 +35,7 @@ test("public copy distinguishes working features and planned capabilities", () =
   assert.ok(roadmap.some((item) => item.description.includes("Email and SMS")));
   assert.ok(
     questions.some(([, answer]) =>
-      answer.includes("Payments use Stripe test mode and do not collect real money."),
+      answer.includes("Paid ticket sales require completed Stripe setup and verified payment readiness."),
     ),
   );
   assert.ok(

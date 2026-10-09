@@ -85,7 +85,7 @@ async function run(args = process.argv.slice(2), dependencies = {}) {
         createPreflight: dependencies.createPreflight || require('../apps/api/src/diagnostics/payment-preflight').createPaymentPreflight });
     log(JSON.stringify(report, null, 2));
     const failed = report.mode === 'configuration-blocked' || report.checks.some(item => item.status === 'fail')
-      || options.requirePaid && (report.mode !== 'sandbox-ready' || report.schema.status !== 'ready'
+      || options.requirePaid && (!['sandbox-ready', 'live-ready'].includes(report.mode) || report.schema.status !== 'ready'
         || report.routing.status !== 'ready' || report.workers.status !== 'ready'
         || report.routing.readyEventCount < 1 || report.routing.blockedEventCount > 0)
       || options.expectRevision && report.runtime.revision !== options.expectRevision;

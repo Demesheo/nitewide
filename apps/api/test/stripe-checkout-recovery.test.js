@@ -55,3 +55,13 @@ test('known sessions remain independently retrievable after creation replay wind
   assert.equal((await f.service.reconcileOrder(f.order)).retryable, true);
   assert.equal(retrieved, 1); assert.equal(f.calls(), 0); assert.equal(f.order.providerVerificationStatus, 'pending');
 });
+test('checkout retries never send a stored order to a different Stripe environment', async () => {
+  for (const [orderMode, clientMode] of [['test', 'live'], ['live', 'test']]) {
+    const f = fixture(); f.order.providerMode = orderMode; f.stripe.mode = clientMode;
+    f.stripe.retrieveCheckoutSession = async () => assert.fail('Cross-mode provider retrieval');
+    await assert.rejects(f.service.reconcileOrder(f.order), { code: 'PAYMENT_VERIFICATION_FAILED' });
+    f.order.checkoutSessionId = 'cs_existing';
+    await assert.rejects(f.service.reconcileOrder(f.order), { code: 'PAYMENT_VERIFICATION_FAILED' });
+    assert.equal(f.calls(), 0); assert.equal(f.audits.length, 0);
+  }
+});

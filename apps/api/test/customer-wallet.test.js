@@ -84,8 +84,8 @@ test('check-in blocks early admission, unpaid/refunded orders and production dem
 });
 const verifiedProvider = { providerMode: 'test', providerVerificationStatus: 'verified', paymentAccountId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', stripeAccountId: 'acct_test', stripePaymentIntentId: 'pi_test', stripeChargeId: 'ch_test' };
 test('provider review and missing binding cannot use scanner or customer wallet, while verified Stripe can', async () => {
-  for (const patch of [{}, { providerVerificationStatus: 'review' }, { providerVerificationStatus: 'pending' }, { providerVerificationStatus: null }, { providerMode: 'live' }, { stripeChargeId: null }, { stripePaymentIntentId: null }, { paymentAccountId: null }]) {
-    const provider = { ...verifiedProvider, ...patch };
+  for (const providerMode of ['test', 'live']) for (const patch of [{}, { providerVerificationStatus: 'review' }, { providerVerificationStatus: 'pending' }, { providerVerificationStatus: null }, { providerMode: 'unknown' }, { stripeChargeId: null }, { stripePaymentIntentId: null }, { paymentAccountId: null }]) {
+    const provider = { ...verifiedProvider, providerMode, ...patch };
     const allowed = Object.keys(patch).length === 0;
     if (allowed) assert.equal((await scanner({ provider })()).credential.status, 'checked_in');
     else await assert.rejects(scanner({ provider })(), { code: 'INVALID_CREDENTIAL' });
@@ -97,6 +97,21 @@ test('provider review and missing binding cannot use scanner or customer wallet,
     assert.equal(Boolean(purchase.tickets[0].qrImage), allowed);
     assert.equal(purchase.tickets[0].status, 'valid');
   }
+});
+test('pending purchase recovery supports both known Stripe modes without exposing tickets or another customer', async () => {
+  const order = { id: 'pending-purchase', status: 'pending', providerMode: 'live',
+    event: { status: 'published', endsAt: '2099-01-01T00:00:00Z' }, items: [{ nameSnapshot: 'Ticket', tickets: [ticket] }] };
+  const service = createCustomerAccountService({ tokenSecret: secret, models: {
+    Order: { findOne: async ({ where }) => where.buyerUserId === ticket.holderUserId ? order : null },
+  } });
+  for (const providerMode of ['test', 'live', 'unknown', null]) {
+    order.providerMode = providerMode;
+    const purchase = await service.purchaseTickets(ticket.holderUserId, order.id);
+    assert.equal(purchase.canResumePayment, ['test', 'live'].includes(providerMode));
+    assert.equal(purchase.canRequestRefund, false); assert.equal(purchase.canContactOrganizer, false);
+    assert.equal(purchase.tickets[0].qrImage, null);
+  }
+  await assert.rejects(service.purchaseTickets('other-customer', order.id), { code: 'NOT_FOUND' });
 });
 test('purchase ticket list includes individual entry states and hides other holders and unusable QR codes', async () => {
   const credentials = ['valid', 'checked_in', 'void', 'transferred'].map((status, index) => ({ ...ticket, id: `${ticket.id}-${index}`, status, checkedInAt: status === 'checked_in' ? new Date() : null }));

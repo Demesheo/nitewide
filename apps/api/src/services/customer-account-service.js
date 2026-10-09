@@ -12,6 +12,7 @@ const { connectionHistorySql, pagedConnections } = require('./customer-connectio
 const { guestlistPassTickets } = require('./guestlist-pass-service');
 const { MAX_GUESTLIST_REQUEST_PARTY_SIZE, assertGuestlistPartySize } = require('../domain/guestlist-party-size');
 const { paidBooking, canRequestRefund } = require('../domain/organizer-message-policy');
+const { isStripeMode } = require('../payments/stripe-mode');
 
 function profile(user) {
   return { id: user.id, displayName: user.displayName, email: user.email, phone: user.phone,
@@ -120,7 +121,7 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
     const guests = await models.GuestlistEntry.findAll({ where: { userId, id: timeline.entries.filter((row) => row.kind === 'guestlist').map((row) => row.id) }, attributes: ['id', 'eventId', 'partySize', 'status', 'createdAt'], include: [eventInclude] });
     const addressEvents = await attendeeLocationEventIds(userId, [...orders, ...guests].map((row) => row.eventId));
     return { page, total: timeline.total, entries: timeline.entries, pageSize: 10, orders: orders.map((order) => ({ id: order.id, status: order.status, currency: order.currency,
-      canResumePayment: order.status === 'pending' && order.providerMode === 'test',
+      canResumePayment: order.status === 'pending' && isStripeMode(order.providerMode),
       subtotalCents: order.subtotalCents, totalCents: order.totalCents, paidAt: order.paidAt,
       demo: Boolean(order.pricingPlanSnapshot?.demo), event: eventSummary(order.event, { canViewAttendeeAddress: addressEvents.has(order.eventId) }),
       items: order.items.map((item) => ({ id: item.id, name: item.nameSnapshot, quantity: item.quantity,
@@ -158,7 +159,7 @@ function createCustomerAccountService({ models, tokenSecret, now = () => new Dat
         qrImage: showCode ? await QRCode.toDataURL(walletToken(credential, tokenSecret), { width: 320, margin: 4, errorCorrectionLevel: 'M' }) : null });
     }
     const addressEvents = await attendeeLocationEventIds(userId, [order.eventId]);
-    return { id: order.id, status: order.status, canContactOrganizer: paidBooking(order), canRequestRefund: canRequestRefund(order, order.event, now()), canResumePayment: order.status === 'pending' && order.providerMode === 'test', event: eventSummary(order.event, { canViewAttendeeAddress: addressEvents.has(order.eventId) }), demo: Boolean(order.pricingPlanSnapshot?.demo),
+    return { id: order.id, status: order.status, canContactOrganizer: paidBooking(order), canRequestRefund: canRequestRefund(order, order.event, now()), canResumePayment: order.status === 'pending' && isStripeMode(order.providerMode), event: eventSummary(order.event, { canViewAttendeeAddress: addressEvents.has(order.eventId) }), demo: Boolean(order.pricingPlanSnapshot?.demo),
       subtotalCents: order.subtotalCents, totalCents: order.totalCents, currency: order.currency, tickets };
   }
   async function updateProfile(userId, input) {

@@ -41,7 +41,7 @@ const operations = [
     responses: { 200: health, 503: health } })),
   { method: 'get', path: '/api/admin/diagnostics/metrics', authenticated: true, responses: { 200: envelope(metrics) } },
   { method: 'get', path: '/api/admin/diagnostics/payments', authenticated: true, query: paymentPreflightQuery,
-    description: 'Internal administrators only. Read-only sandbox configuration, schema, stored merchant readiness and API/worker parity diagnostic; no provider requests. HTTP 200 includes blocked/disabled outcomes. Key-pair identity and actual webhook delivery remain unverified. Independent of general service readiness.',
+    description: 'Internal administrators only. Read-only payment configuration, schema, stored merchant readiness and API/worker parity diagnostic; no provider requests. HTTP 200 includes blocked/disabled outcomes. Key-pair identity and actual webhook delivery remain unverified. Independent of general service readiness.',
     responses: { 200: envelope(paymentPreflightReport) } },
   { method: 'post', path: '/api/business/uploads/image', authenticated: true, multipart: true, responses: { 201: envelope(image) } },
   { method: 'get', path: '/api/media/images/:assetId', authenticated: false, image: true, params: z.object({ assetId: z.uuid() }) },
@@ -96,12 +96,12 @@ function supplementalPaths({ jsonSchema }) {
     if (typeof metadata.signedWebhook === 'string') {
       const thin = metadata.signedWebhook === 'stripe-account';
       operation.description = thin
-        ? 'Verify raw thin Accounts v2 notification bytes with STRIPE_ACCOUNT_WEBHOOK_SECRET, then independently retrieve the sandbox event and account. Your account event source; no bearer session.'
-        : 'Verify raw connected-account snapshot bytes with STRIPE_WEBHOOK_SECRET, then independently retrieve scoped sandbox checkout/refund evidence before fulfillment. Connected accounts event source; no bearer session.';
+        ? 'Verify raw thin Accounts v2 notification bytes with STRIPE_ACCOUNT_WEBHOOK_SECRET, then independently retrieve the matching-mode event and account. Your account event source; no bearer session.'
+        : 'Verify raw connected-account snapshot bytes with STRIPE_WEBHOOK_SECRET, then independently retrieve scoped matching-mode checkout/refund evidence before fulfillment. Connected accounts event source; no bearer session.';
       operation.parameters.push({ name: 'Stripe-Signature', in: 'header', required: true, schema: { type: 'string', minLength: 1 } });
       operation.requestBody = { required: true, content: { 'application/json': { schema: {
         type: 'object', description: thin ? 'Signed thin Accounts v2 event notification.' : 'Signed Stripe snapshot event.',
-        properties: { id: { type: 'string' }, type: { type: 'string' }, livemode: { const: false } }, additionalProperties: true,
+        properties: { id: { type: 'string' }, type: { type: 'string' }, livemode: { type: 'boolean' } }, additionalProperties: true,
       } } } };
     }
     for (const [status, schema] of Object.entries(metadata.responses || {})) operation.responses[status] = {

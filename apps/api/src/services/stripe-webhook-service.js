@@ -1,5 +1,6 @@
 const { DomainError } = require('../domain/errors');
 const { mutationTransaction } = require('./mutation-transaction');
+const { isStripeMode, matchesStripeLivemode } = require('../payments/stripe-mode');
 
 function createStripeWebhookService({ sequelize, models, stripe, paymentCheckouts, paymentAccounts, refunds, disputes, individualCommissionProfiles, commissionPayments, now = () => new Date() }) {
   async function invalidateAccount(account, eventId) {
@@ -14,16 +15,19 @@ function createStripeWebhookService({ sequelize, models, stripe, paymentCheckout
     }, { accessChange: true });
   }
   async function receive(rawBody, signature) {
-    if (!stripe?.enabled || stripe.mode !== 'test') throw new DomainError('Stripe webhooks unavailable', { code: 'STRIPE_WEBHOOK_UNAVAILABLE', status: 503 });
+    if (!stripe?.enabled || !isStripeMode(stripe.mode)) throw new DomainError('Stripe webhooks unavailable', { code: 'STRIPE_WEBHOOK_UNAVAILABLE', status: 503 });
     let event;
     try { event = stripe.constructWebhookEvent(rawBody, signature); } catch { throw new DomainError('Invalid Stripe signature', { code: 'INVALID_WEBHOOK', status: 400 }); }
-    if (event.livemode !== false || !event.account || !event.id) throw new DomainError('Only connected sandbox events are accepted', { code: 'INVALID_WEBHOOK', status: 400 });
-    const account = await models.PaymentAccount.findOne({ where: { stripeAccountId: event.account, mode: 'test' } });
-    const individual = models.IndividualCommissionProfile && await models.IndividualCommissionProfile.findOne({ where: { stripeAccountId: event.account, providerMode: 'test' } });
+    if (typeof event?.livemode !== 'boolean' || typeof event.account !== 'string' || !event.account || typeof event.id !== 'string' || !event.id || typeof event.type !== 'string' || !event.type) throw new DomainError('A connected Stripe event with an explicit payment mode is required', { code: 'INVALID_WEBHOOK', status: 400 });
+    // Connect live destinations also receive signed test events. Acknowledge
+    // those without a database lookup or a provider call in the wrong mode.
+    if (!matchesStripeLivemode(event, stripe.mode)) return { received: true, ignored: true };
+    const account = await models.PaymentAccount.findOne({ where: { stripeAccountId: event.account, mode: stripe.mode } });
+    const individual = models.IndividualCommissionProfile && await models.IndividualCommissionProfile.findOne({ where: { stripeAccountId: event.account, providerMode: stripe.mode } });
     if (!account && !individual) return { received: true, ignored: true };
     if (account && individual) throw new DomainError('Stripe account has conflicting business and individual bindings', { code: 'INVALID_WEBHOOK', status: 400 });
-    const [receipt] = await models.StripeWebhookReceipt.findOrCreate({ where: { stripeEventId: event.id, stripeAccountId: event.account, mode: 'test' }, defaults: { type: event.type, status: 'pending' } });
-    if (receipt.stripeAccountId !== event.account || receipt.mode !== 'test') throw new DomainError('Webhook account mismatch', { code: 'INVALID_WEBHOOK', status: 400 });
+    const [receipt] = await models.StripeWebhookReceipt.findOrCreate({ where: { stripeEventId: event.id, stripeAccountId: event.account, mode: stripe.mode }, defaults: { type: event.type, status: 'pending' } });
+    if (receipt.stripeAccountId !== event.account || receipt.mode !== stripe.mode) throw new DomainError('Webhook account mismatch', { code: 'INVALID_WEBHOOK', status: 400 });
     if (receipt.status === 'processed') return { received: true, replayed: true };
     // Payload status never fulfills an order. The signed event only identifies
     // which immutable provider object to independently retrieve and verify.
@@ -39,8 +43,8 @@ function createStripeWebhookService({ sequelize, models, stripe, paymentCheckout
     } else if (event.type.startsWith('checkout.session.')) {
       const session = await stripe.retrieveCheckoutSession(event.data.object.id, { stripeAccount: account.stripeAccountId, expand: ['payment_intent.latest_charge'] });
       const orderId = session.metadata?.orderId;
-      const order = orderId && await models.Order.findOne({ where: { id: orderId, paymentAccountId: account.id, stripeAccountId: account.stripeAccountId, providerMode: 'test' } });
-      if (!order || session.livemode !== false || session.client_reference_id !== order.id
+      const order = orderId && await models.Order.findOne({ where: { id: orderId, paymentAccountId: account.id, stripeAccountId: account.stripeAccountId, providerMode: stripe.mode } });
+      if (!order || !matchesStripeLivemode(session, stripe.mode) || session.client_reference_id !== order.id
         || session.amount_total !== order.totalCents || session.currency?.toUpperCase() !== order.currency.toUpperCase()) throw new DomainError('Unknown or mismatched checkout', { code: 'INVALID_WEBHOOK', status: 400 });
       // A completion may arrive before our creation response is saved. Recover
       // OUR original provider idempotency key; matching metadata alone cannot
@@ -80,23 +84,25 @@ function createStripeWebhookService({ sequelize, models, stripe, paymentCheckout
     return { received: true, replayed: false };
   }
   async function receiveAccountNotification(rawBody, signature) {
-    if (!stripe?.enabled || stripe.mode !== 'test') throw new DomainError('Stripe account notifications unavailable', { code: 'STRIPE_WEBHOOK_UNAVAILABLE', status: 503 });
+    if (!stripe?.enabled || !isStripeMode(stripe.mode)) throw new DomainError('Stripe account notifications unavailable', { code: 'STRIPE_WEBHOOK_UNAVAILABLE', status: 503 });
     let notification;
     try { notification = stripe.constructAccountNotification(rawBody, signature); } catch { throw new DomainError('Invalid Stripe account signature', { code: 'INVALID_WEBHOOK', status: 400 }); }
     if (!notification?.id) throw new DomainError('Invalid Stripe account notification', { code: 'INVALID_WEBHOOK', status: 400 });
+    if (Object.hasOwn(notification, 'livemode') && !matchesStripeLivemode(notification, stripe.mode)) throw new DomainError('Stripe account notification environment mismatch', { code: 'INVALID_WEBHOOK', status: 400 });
     const event = await stripe.retrieveAccountNotification(notification.id);
     const types = new Set(['v2.core.account.updated', 'v2.core.account.closed', 'v2.core.account[configuration.merchant].updated',
       'v2.core.account[configuration.merchant].capability_status_updated', 'v2.core.account[requirements].updated', 'v2.core.account[defaults].updated']);
-    if (event.id !== notification.id || event.object !== 'v2.core.event' || event.livemode !== false || !types.has(event.type)
+    if (event.id !== notification.id || event.object !== 'v2.core.event' || !matchesStripeLivemode(event, stripe.mode) || !types.has(event.type)
       || !/^acct_[A-Za-z0-9]+$/.test(event.related_object?.id || '') || event.related_object?.type !== 'v2.core.account') {
-      throw new DomainError('Invalid retrieved sandbox account event', { code: 'INVALID_WEBHOOK', status: 400 });
+      throw new DomainError('Invalid retrieved Stripe account event', { code: 'INVALID_WEBHOOK', status: 400 });
     }
-    const account = await models.PaymentAccount.findOne({ where: { stripeAccountId: event.related_object.id, mode: 'test' } });
-    const individual = models.IndividualCommissionProfile && await models.IndividualCommissionProfile.findOne({ where: { stripeAccountId: event.related_object.id, providerMode: 'test' } });
+    const account = await models.PaymentAccount.findOne({ where: { stripeAccountId: event.related_object.id, mode: stripe.mode } });
+    const individual = models.IndividualCommissionProfile && await models.IndividualCommissionProfile.findOne({ where: { stripeAccountId: event.related_object.id, providerMode: stripe.mode } });
     if (!account && !individual) return { received: true, ignored: true };
     if (account && individual) throw new DomainError('Stripe account has conflicting business and individual bindings', { code: 'INVALID_WEBHOOK', status: 400 });
     const boundAccount = account || individual;
-    const [receipt] = await models.StripeWebhookReceipt.findOrCreate({ where: { stripeEventId: event.id, stripeAccountId: boundAccount.stripeAccountId, mode: 'test' }, defaults: { type: event.type, status: 'pending' } });
+    const [receipt] = await models.StripeWebhookReceipt.findOrCreate({ where: { stripeEventId: event.id, stripeAccountId: boundAccount.stripeAccountId, mode: stripe.mode }, defaults: { type: event.type, status: 'pending' } });
+    if (receipt.stripeAccountId !== boundAccount.stripeAccountId || receipt.mode !== stripe.mode) throw new DomainError('Webhook account mismatch', { code: 'INVALID_WEBHOOK', status: 400 });
     if (receipt.status === 'processed') return { received: true, replayed: true };
     if (individual) {
       if (event.type === 'v2.core.account.closed') await individualCommissionProfiles.deauthorizeTrusted(individual.stripeAccountId);

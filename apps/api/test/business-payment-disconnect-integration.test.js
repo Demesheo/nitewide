@@ -11,7 +11,7 @@ const {createStripeRefundService}=require('../src/services/stripe-refund-service
 const schemas=require('../src/http/payment-schemas');
 const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve};};
 const control=()=>({confirmed:true,reason:'Self-service connection change',idempotencyKey:randomUUID()});
-async function fixture(run) {
+async function fixture(run, mode = 'test') {
   assertManagedTestDatabase();const config=require('../src/config').getConfig();
   const db=require('../src/db/sequelize').createSequelize(config),m=require('../src/db/models').initModels(db);
   let clock=new Date(),calls=0;
@@ -22,10 +22,10 @@ async function fixture(run) {
     const org=await m.Organization.create({name:'Disconnect fixture',slug:`disconnect-${randomUUID()}`,onboardingEstablished:true});
     await m.OrganizationOwner.create({organizationId:org.id,userId:owner.id,role:'owner'});
     const membership=await m.OrganizationOwner.create({organizationId:org.id,userId:manager.id,role:'admin',financeAuthorized:true});
-    const remote={id:`acct_${randomUUID().replaceAll('-','')}`,object:'v2.core.account',livemode:false,applied_configurations:['merchant'],dashboard:'full',
+    const remote={id:`acct_${randomUUID().replaceAll('-','')}`,object:'v2.core.account',livemode:mode==='live',applied_configurations:['merchant'],dashboard:'full',
       defaults:{responsibilities:{...RESPONSIBILITIES,requirements_collector:'stripe'}},configuration:{merchant:{applied:true,
         capabilities:{card_payments:{status:'active'},stripe_balance:{payouts:{status:'active'}}}}},requirements:{entries:[]}};
-    const stripe={mode:'test',enabled:true,disconnectEnabled:true,createAccount:async()=>remote,retrieveAccount:async()=>remote,
+    const stripe={mode,enabled:true,disconnectEnabled:true,createAccount:async()=>remote,retrieveAccount:async()=>remote,
       disconnectAccount:async()=>{calls++;return {disconnected:true};}};
     const accounts=createBusinessPaymentAccountService({models:m,stripe,now:()=>clock});
     const saved=await accounts.create(owner.id,org.id,{name:'Test merchant',idempotencyKey:randomUUID()});
@@ -38,12 +38,34 @@ async function fixture(run) {
     }
     async function order(e,status='paid',changes={}) {
       return m.Order.create({buyerUserId:owner.id,eventId:e.id,status,idempotencyKey:randomUUID(),paymentAccountId:profile.id,stripeAccountId:remote.id,
-        providerMode:'test',providerVerificationStatus:'verified',stripePaymentIntentId:`pi_${randomUUID().replaceAll('-','')}`,stripeChargeId:`ch_${randomUUID().replaceAll('-','')}`,totalCents:1000,...changes});
+        providerMode:mode,providerVerificationStatus:'verified',stripePaymentIntentId:`pi_${randomUUID().replaceAll('-','')}`,stripeChargeId:`ch_${randomUUID().replaceAll('-','')}`,totalCents:1000,...changes});
     }
     await run({m,db,config,owner,manager,outsider,membership,org,profile,remote,stripe,accounts,disconnect,event,order,
       calls:()=>calls,tick:()=>{clock=new Date(+clock+61000);}});
   } finally {await db.close();}
 }
+test('live payment controls preserve history and refuse mismatched modes before provider work',{timeout:30000},()=>fixture(async f=>{
+  const impact = () => f.disconnect.impact(f.owner.id, f.org.id, f.profile.id);
+  assert.equal((await impact()).canDisconnect, true);
+  const past = await f.event(false), paid = await f.order(past);
+  await f.disconnect.disable(f.owner.id, f.org.id, f.profile.id, control());
+  let retrievals = 0;
+  f.stripe.retrieveAccount = async () => { retrievals++; return f.remote; };
+  f.stripe.mode = 'test';
+  assert.equal((await impact()).providerDisconnectConfigured, false);
+  assert.equal((await impact()).canDisconnect, false);
+  await assert.rejects(f.disconnect.disconnect(f.owner.id, f.org.id, f.profile.id, control()), { code: 'DISCONNECT_NOT_CONFIGURED' });
+  await assert.rejects(f.disconnect.resume(f.owner.id, f.org.id, f.profile.id, control()), { code: 'PAYMENTS_NOT_READY' });
+  assert.equal(f.calls(), 0); assert.equal(retrievals, 0);
+  await f.profile.reload(); assert.equal(f.profile.disconnectStatus, 'none'); assert.ok(f.profile.paymentsDisabledAt);
+  f.stripe.mode = 'live';
+  const resumed = await f.disconnect.resume(f.owner.id, f.org.id, f.profile.id, control());
+  assert.equal(resumed.paymentsReady, true); assert.equal(resumed.mode, 'live');
+  const result = await f.disconnect.disconnect(f.owner.id, f.org.id, f.profile.id, control());
+  assert.equal(result.account.disconnectStatus, 'disconnected'); assert.equal(f.calls(), 1);
+  await paid.reload(); assert.equal(paid.status, 'paid'); assert.equal(paid.providerMode, 'live');
+  assert.equal(paid.paymentAccountId, f.profile.id);
+}, 'live'));
 test('owners explicitly delegate disconnect authority; finance grants and platform admin flags alone cannot disconnect',{timeout:30000},()=>fixture(async f=>{
   const {disconnect,owner,manager,outsider,org,profile,membership,m}=f;
   await assert.rejects(disconnect.impact(manager.id,org.id,profile.id),{code:'FORBIDDEN'});

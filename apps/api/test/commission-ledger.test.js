@@ -13,6 +13,7 @@ function fixture({ ended = '2026-10-01T10:00:00Z' } = {}) {
   const payments = [record({ id: 'payment', status: 'awaiting_payment', reconciliationToken: 'inflight-proof' })];
   const matches = (row, where) => Object.entries(where || {}).every(([key, value]) => value && typeof value === 'object' && value[Op.in] ? value[Op.in].includes(row[key]) : row[key] === value);
   const models = {
+    Order: { findAll: async ({ where }) => earnings.map(e => ({ id: e.orderId, providerMode: e.providerMode || 'test' })).filter(row => matches(row, where)) },
     Event: { findAll: async ({ where }) => events.filter((row) => matches(row, where)) },
     CommissionStatement: { findAll: async ({ where }) => statements.filter((row) => matches(row, where)) },
     CommissionEarning: { findOne: async ({ where }) => earnings.find((row) => matches(row, where)), findAll: async ({ where }) => earnings.filter((row) => matches(row, where)) },
@@ -38,6 +39,16 @@ test('maturity and statement approval precede durable commission reservations', 
   assert.equal(replay.amountCents, 200);
   assert.equal(mature.allocations.length, 2);
   assert.equal(first.statements[0].earnings.length, 2);
+});
+test('commission reservations reject mixed purchase environments without consuming either balance', async () => {
+  const f = fixture(); await f.service.approveStatements(f.input);
+  f.earnings[0].providerMode = 'live';
+  await assert.rejects(f.service.reserveStatements({ ...f.input, providerMode: 'live' }), { code: 'COMMISSION_MODE_MISMATCH' });
+  await assert.rejects(f.service.reserveStatements(f.input), { code: 'COMMISSION_MODE_MISMATCH' });
+  assert.equal(f.allocations.length, 0);
+  assert.equal(f.earnings.every(e => e.reservedCommissionCents === 0), true);
+  f.earnings[1].providerMode = 'live';
+  assert.equal((await f.service.reserveStatements({ ...f.input, providerMode: 'live' })).amountCents, 200);
 });
 test('a refund request holds only its order and leaves other payable earnings available', async () => {
   const f = fixture();

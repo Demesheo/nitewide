@@ -70,7 +70,7 @@ test('regular release configuration isolates staging/production, bounds pools an
       { ADMIN_APP_URL: 'https://other.example.test/admin' }, { ADMIN_APP_URL: `${environment.CUSTOMER_APP_URL}/` },
       { CUSTOMER_APP_URL: `${environment.CUSTOMER_APP_URL}/?invite=unexpected` },
       { DATABASE_POOL_MAX: '0' }, { DATABASE_POOL_MAX: '41' }, { RENDER_GIT_COMMIT: 'not-a-sha' },
-      { STRIPE_SANDBOX_SHARED_ACCOUNT_ID: 'acct_sharedfixture' }, { STRIPE_SECRET_KEY: 'sk_live_forbidden' },
+      { STRIPE_SANDBOX_SHARED_ACCOUNT_ID: 'acct_sharedfixture' }, { STRIPE_SECRET_KEY: 'sk_invalid_fixture' },
       { LOCATION_GEOCODING_PROVIDER: 'unknown' },
     ]) assert.throws(() => releaseConfig({ ...environment, ...invalid }));
     await assert.rejects(main(['api'], { ...environment, SERVE_FRONTENDS: 'false' }), /API must enable/);
@@ -113,6 +113,33 @@ test('regular release configuration isolates staging/production, bounds pools an
   assert.equal(offline.EMAIL_DELIVERY_POLICY, 'all');
   assert.equal(getConfig({ EMAIL_DELIVERY_POLICY: '' }).EMAIL_DELIVERY_POLICY, 'all');
   assert.throws(() => getConfig({ EMAIL_DELIVERY_POLICY: 'unknown' }));
+});
+
+test('live Stripe requires a complete isolated production setup and disabled live credentials stay inert', () => {
+  const environment = { ...production, APP_ENVIRONMENT: 'production', HOSTED_DEMO: 'false',
+    DATABASE_URL: 'postgres://app:password@database.example/nitewide_production',
+    MEDIA_STORAGE_DRIVER: 'r2', R2_ACCOUNT_ID: 'a'.repeat(32), R2_BUCKET: 'nitewide-production-media',
+    R2_ACCESS_KEY_ID: 'synthetic-access-key', R2_SECRET_ACCESS_KEY: 'synthetic-r2-secret-key-for-offline-tests',
+    CUSTOMER_APP_URL: 'https://production.example.test', BUSINESS_APP_URL: 'https://production.example.test/app',
+    STRIPE_MODE: 'live', STRIPE_SECRET_KEY: 'sk_live_offlinefixture', STRIPE_PUBLISHABLE_KEY: 'pk_live_offlinefixture',
+    STRIPE_WEBHOOK_SECRET: 'whsec_offlinefixture', STRIPE_ACCOUNT_WEBHOOK_SECRET: 'whsec_offlineaccountfixture' };
+  assert.equal(getConfig(environment).STRIPE_MODE, 'live');
+  for (const changes of [
+    { NODE_ENV: 'development' }, { NODE_ENV: 'test' }, { APP_ENVIRONMENT: undefined }, { APP_ENVIRONMENT: 'staging' },
+    { HOSTED_DEMO: undefined }, { HOSTED_DEMO: 'true' }, { STRIPE_MODE: 'test' },
+    { STRIPE_SECRET_KEY: undefined }, { STRIPE_SECRET_KEY: 'sk_test_offlinefixture' },
+    { STRIPE_PUBLISHABLE_KEY: undefined }, { STRIPE_PUBLISHABLE_KEY: 'pk_test_offlinefixture' },
+    { STRIPE_WEBHOOK_SECRET: undefined }, { STRIPE_ACCOUNT_WEBHOOK_SECRET: undefined },
+    { STRIPE_WEBHOOK_SECRET: 'not-a-signing-secret' }, { STRIPE_ACCOUNT_WEBHOOK_SECRET: 'not-a-signing-secret' },
+    { STRIPE_ACCOUNT_WEBHOOK_SECRET: environment.STRIPE_WEBHOOK_SECRET },
+    { STRIPE_SANDBOX_SHARED_ACCOUNT_ID: 'acct_sharedfixture' },
+    { CUSTOMER_APP_URL: 'http://localhost:5173' }, { BUSINESS_APP_URL: 'https://127.0.0.1/app' },
+  ]) assert.throws(() => getConfig({ ...environment, ...changes }));
+  const disabled = { ...environment, STRIPE_MODE: 'disabled' };
+  assert.equal(getConfig(disabled).STRIPE_MODE, 'disabled');
+  for (const changes of [{ APP_ENVIRONMENT: 'staging' }, { HOSTED_DEMO: 'true' }, { STRIPE_PUBLISHABLE_KEY: 'pk_test_offlinefixture' }]) {
+    assert.throws(() => getConfig({ ...disabled, ...changes }));
+  }
 });
 
 test('release media preflight closes its client and emits only safe diagnostics', async () => {

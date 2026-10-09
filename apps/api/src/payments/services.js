@@ -10,12 +10,12 @@ const { createStripeDisputeService } = require('../services/stripe-dispute-servi
 
 // The web API and worker use the same provider/domain boundary. Sandbox
 // purchases deliberately do not enqueue quota-consuming transactional mail.
-function createPaymentServices({ sequelize, models, config, permissions, notificationJobs, checkout, services = {} }) {
+function createPaymentServices({ sequelize, models, config, permissions, notificationJobs, checkout, email, services = {} }) {
   const stripe = Object.hasOwn(services, 'stripe') ? services.stripe : createStripeClient(config);
   const paymentAccounts = services.paymentAccounts || createBusinessPaymentAccountService({ models, stripe, businessAppUrl: config.businessAppUrl });
   const individualCommissionProfiles = services.individualCommissionProfiles || createIndividualCommissionProfileService({ sequelize, models, stripe, customerAppUrl: config.CUSTOMER_APP_URL, businessAppUrl: config.businessAppUrl });
   const paymentCheckouts = services.paymentCheckouts || createStripeCheckoutService({ sequelize, models, stripe,
-    notificationJobs, checkout, email: null, individualProfiles: individualCommissionProfiles, customerAppUrl: config.CUSTOMER_APP_URL });
+    notificationJobs, checkout, email: stripe?.mode === 'live' ? email : null, individualProfiles: individualCommissionProfiles, customerAppUrl: config.CUSTOMER_APP_URL });
   const refunds = services.refunds || createStripeRefundService({ sequelize, models, stripe, permissions });
   const commissionLedger = services.commissionLedger || createCommissionLedgerService({ sequelize, models });
   const commissionPayments = services.commissionPayments || createCommissionPaymentService({ sequelize, models, stripe, ledger: commissionLedger, individualProfiles: individualCommissionProfiles });

@@ -15,7 +15,7 @@ const PAYMENT_OPTIONS = { layout: 'tabs', wallets: { applePay: 'never', googlePa
 
 // Keeping provider state injectable makes the confirmation flow testable
 // without loading Stripe.js or submitting card information.
-export function PaymentCheckoutForm({ checkoutState, PaymentFields, ExpressFields, onCheck, onVerify, onBusyChange, amount }) {
+export function PaymentCheckoutForm({ checkoutState, PaymentFields, ExpressFields, onCheck, onVerify, onBusyChange, amount, mode }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [walletsAvailable, setWalletsAvailable] = useState(null);
@@ -58,6 +58,6 @@ export function PaymentCheckoutForm({ checkoutState, PaymentFields, ExpressField
       onLoadError={() => { setFieldsReady(false); setFieldsLoadFailed(true); setError('The secure payment form couldn’t load. Pay will check your original booking; refresh the page if it is still unpaid.'); }} />}
     {error && <p role="alert" className="error-message">{error}</p>}
     {canPay && <Button type="submit" className="primary-action dark-glass-action" disabled={busy}>{busy ? <LoadingIndicator>Checking your booking…</LoadingIndicator> : `Pay ${ready ? checkoutState.checkout.total.total.amount : amount || ''}`.trim()}</Button>}
-    <p className="fine-print">Sandbox payment · use test payment details only.</p>
+    {mode === 'test' && <p className="fine-print">Sandbox payment · use test payment details only.</p>}
   </form>;
 }

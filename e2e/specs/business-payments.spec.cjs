@@ -8,7 +8,7 @@ function merchantOverview(organizationId) {
 }
 
 function ownEarnings() {
-  return { period: 'all_time', scope: 'own', currencies: [{ currency: 'usd', verifiedEarnedCents: 1800, verifiedRefundedCents: 300, demoEarnedCents: 4200, demoRefundedCents: 200, verifiedPaidOrders: 3, verifiedRefundedOrders: 1, demoPaidOrders: 4, demoRefundedOrders: 1 }], receivedPayouts: null, dashboardConnected: null, dashboardUrl: null };
+  return { period: 'all_time', mode: 'test', scope: 'own', currencies: [{ currency: 'usd', verifiedEarnedCents: 1800, verifiedRefundedCents: 300, demoEarnedCents: 4200, demoRefundedCents: 200, verifiedPaidOrders: 3, verifiedRefundedOrders: 1, demoPaidOrders: 4, demoRefundedOrders: 1 }], receivedPayouts: null, dashboardConnected: null, dashboardUrl: null };
 }
 
 async function mockPaymentSummaries(page) {
@@ -37,7 +37,7 @@ test('shared sandbox payments journey protects merchant choices and explains una
   await page.route('**/api/business/organizations/*/payment-accounts**',route=>{
     if(route.request().method()!=='GET') mutations++;
     reads++;
-    return route.fulfill({json:{data:{items:[{id:'00000000-0000-4000-8000-000000000520',name:'Original merchant profile',stripeAccountId:sharedAccountId,
+    return route.fulfill({json:{data:{items:[{id:'00000000-0000-4000-8000-000000000520',name:'Original merchant profile',mode:'test',stripeAccountId:sharedAccountId,
       lifecycleState:'active',disconnectStatus:'none',paymentsReady:true,detailsSubmitted:true,chargesEnabled:true,payoutsEnabled:true}],
       total:1,page:1,pageSize:10,hasMore:false,canDisconnectPayments:true,defaultPaymentAccountId:null,
       sharedSandboxAccount:{stripeAccountId:sharedAccountId,paymentsReady}}}});
@@ -77,7 +77,7 @@ test('shared sandbox payments journey protects merchant choices and explains una
 
 authTest('merchant disconnect journey blocks unresolved obligations, disables safely and reconciles an uncertain retry',async({page,fixture},testInfo)=>{
   await enableFinanceFixture(page);
-  let account={id:'00000000-0000-4000-8000-000000000510',name:'Disconnect merchant',stripeAccountId:'acct_offline',
+  let account={id:'00000000-0000-4000-8000-000000000510',name:'Disconnect merchant',mode:'test',stripeAccountId:'acct_offline',
     lifecycleState:'active',disconnectStatus:'none',paymentsReady:true,detailsSubmitted:true,chargesEnabled:true,payoutsEnabled:true};
   const mutations=[];
   let obligations = true, disables = 0, resumes = 0;
@@ -166,7 +166,7 @@ authTest('merchant setup journey names defaults, recovers hosted onboarding and 
   const identity = createStripeTestIdentity('setup-recovery');
   // Explicit finance delegation is isolated from the unchanged denial cases.
   await enableFinanceFixture(page, { canViewEarnings: true });
-  const accounts = [{ id: '00000000-0000-4000-8000-000000000501', name: 'Downtown', paymentsReady: false, detailsSubmitted: false, chargesEnabled: false, payoutsEnabled: false }];
+  const accounts = [{ id: '00000000-0000-4000-8000-000000000501', name: 'Downtown', mode: 'test', paymentsReady: false, detailsSubmitted: false, chargesEnabled: false, payoutsEnabled: false }];
   let defaultPaymentAccountId = null;
   const creates = [];
   let attempts = 0, pending;
@@ -185,7 +185,7 @@ authTest('merchant setup journey names defaults, recovers hosted onboarding and 
       return route.fulfill({ json: { data: accounts[index] } });
     }
     if (path.endsWith('/default')) { defaultPaymentAccountId = route.request().postDataJSON().paymentAccountId; return route.fulfill({ json: { data: {} } }); }
-    if (method === 'POST') { creates.push(route.request().postDataJSON()); accounts.push({ id: '00000000-0000-4000-8000-000000000502', name: creates[0].name, paymentsReady: false }); return route.fulfill({ json: { data: accounts[1] } }); }
+    if (method === 'POST') { creates.push(route.request().postDataJSON()); accounts.push({ id: '00000000-0000-4000-8000-000000000502', name: creates[0].name, mode: 'test', paymentsReady: false }); return route.fulfill({ json: { data: accounts[1] } }); }
     return route.fulfill({ json: { data: { items: accounts, total: accounts.length, page: 1, pageSize: 10, hasMore: false, defaultPaymentAccountId } } });
   });
   await page.route('https://connect.stripe.com/**', route => route.fulfill({ contentType: 'text/html', body: '<html><body><h1>Offline Stripe setup</h1><label>Email address<input type="email" /></label></body></html>' }));
@@ -254,7 +254,7 @@ authTest('merchant setup journey names defaults, recovers hosted onboarding and 
 
 test('event merchant journey locks unresolved payments then changes future routing while retaining historical accounts', async ({ page, fixture }) => {
   let settled = false, selected = null;
-  const fresh = { id: '00000000-0000-4000-8000-000000000512', name: 'New merchant', paymentsReady: true };
+  const fresh = { id: '00000000-0000-4000-8000-000000000512', name: 'New merchant', mode: 'test', paymentsReady: true };
   await page.route(`**/api/business/events/${fixture.ids.event}/summary`, async route => {
     const response = await route.fetch();
     const payload = await response.json();

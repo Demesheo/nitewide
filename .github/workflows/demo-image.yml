@@ -1,7 +1,9 @@
 name: Demo image
 on:
   push:
-    branches: [main, staging, production]
+    # Production preparation must not start CI, publication, or deployment.
+    # Run production verification explicitly with workflow_dispatch when approved.
+    branches: [main, staging]
   pull_request:
   workflow_dispatch:
 

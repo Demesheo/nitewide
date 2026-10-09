@@ -173,7 +173,8 @@ test('publication and deployment do not cancel started releases or deploy stale 
   }
   assert.match(section('deploy'), /needs: publish/);
   assert.match(section('deploy'), /if: github.ref == 'refs\/heads\/main' && needs.publish.outputs.digest != ''/);
-  assert.match(workflow, /branches: \[main, staging, production\]/);
+  assert.match(workflow, /push:\n(?:    #[^\n]*\n)*    branches: \[main, staging\]\n/);
+  assert.match(workflow, /^  workflow_dispatch:\s*$/m);
   assert.match(section('publish'), /refs\/heads\/staging.*refs\/heads\/production/);
   assert.match(section('publish'), /refs\/heads\/\$GITHUB_REF_NAME/);
   assert.match(section('publish'), /if \[ "\$GITHUB_REF_NAME" = main \]; then\s+docker tag nitewide-demo:test "\$IMAGE:demo"/);

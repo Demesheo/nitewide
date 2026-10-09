@@ -4,7 +4,7 @@ const { verifySession } = require('../src/services/stripe-checkout-service');
 const { verifyRefund } = require('../src/services/stripe-refund-service');
 const { customerOrder } = require('../src/controllers/commerce-controller');
 function fixture() {
-  const order = { id: 'order', checkoutSessionId: 'cs_test', totalCents: 2320, currency: 'USD', applicationFeeCents: 150, stripeAccountId: 'acct_test', stripePaymentIntentId: 'pi_test', stripeChargeId: 'ch_test' };
+  const order = { id: 'order', providerMode: 'test', checkoutSessionId: 'cs_test', totalCents: 2320, currency: 'USD', applicationFeeCents: 150, stripeAccountId: 'acct_test', stripePaymentIntentId: 'pi_test', stripeChargeId: 'ch_test' };
   const charge = { id: 'ch_test', payment_intent: 'pi_test', livemode: false, paid: true, captured: true, amount: 2320, currency: 'usd', application_fee_amount: 150, amount_refunded: 0, refunded: false };
   const session = { id: 'cs_test', mode: 'payment', livemode: false, metadata: { orderId: 'order' }, client_reference_id: 'order', amount_total: 2320, currency: 'usd', status: 'complete', payment_status: 'paid',
     payment_intent: { id: 'pi_test', livemode: false, status: 'succeeded', metadata: { orderId: 'order' }, amount: 2320, amount_received: 2320, currency: 'usd', application_fee_amount: 150, latest_charge: charge } };
@@ -26,6 +26,19 @@ test('open/processing remains pending and only provider-confirmed expired unpaid
   assert.deepEqual(verifySession(f.order, { ...f.session, payment_status: 'unpaid', status: 'open' }), { paid: false, expired: false });
   assert.deepEqual(verifySession(f.order, { ...f.session, payment_status: 'unpaid', status: 'expired' }), { paid: false, expired: true });
 });
+test('live checkout evidence must agree with the immutable order mode at every provider layer', () => {
+  const f = fixture(); f.order.providerMode = 'live';
+  f.session.livemode = true; f.session.payment_intent.livemode = true; f.charge.livemode = true;
+  assert.equal(verifySession(f.order, f.session).paid, true);
+  for (const select of [s => s, s => s.payment_intent, s => s.payment_intent.latest_charge]) {
+    for (const badMode of [false, undefined, null, 'true']) {
+      const session = structuredClone(f.session); select(session).livemode = badMode;
+      assert.throws(() => verifySession(f.order, session), { code: 'PAYMENT_VERIFICATION_FAILED' });
+    }
+  }
+  assert.throws(() => verifySession({ ...f.order, providerMode: 'test' }, f.session), { code: 'PAYMENT_VERIFICATION_FAILED' });
+  assert.throws(() => verifySession({ ...f.order, providerMode: undefined }, f.session), { code: 'PAYMENT_VERIFICATION_FAILED' });
+});
 test('refund verification includes full customer amount, direct-account charge and application fee refund', () => {
   const f = fixture(), refund = { id: 'local-refund', providerReference: 're_test' };
   const evidence = { id: 're_test', livemode: false, status: 'succeeded', amount: 2320, currency: 'usd', payment_intent: 'pi_test', charge: 'ch_test', metadata: { refundId: refund.id, orderId: f.order.id } };
@@ -37,6 +50,12 @@ test('refund verification includes full customer amount, direct-account charge a
   assert.equal(verifyRefund(f.order, refund, { ...evidence, amount: 2000 }, charge, fee), false);
   assert.equal(verifyRefund(f.order, refund, evidence, charge, { ...fee, refunded: false }), false);
   assert.equal(verifyRefund(f.order, refund, evidence, charge, { ...fee, account: 'acct_other' }), false);
+  f.order.providerMode = 'live'; charge.livemode = true; fee.livemode = true;
+  assert.equal(verifyRefund(f.order, refund, withoutLivemode, charge, fee), true);
+  assert.equal(verifyRefund(f.order, refund, { ...evidence, livemode: true }, charge, fee), true);
+  for (const livemode of [false, null, undefined, 'true']) assert.equal(verifyRefund(f.order, refund, { ...evidence, livemode }, charge, fee), false);
+  assert.equal(verifyRefund(f.order, refund, withoutLivemode, { ...charge, livemode: false }, fee), false);
+  assert.equal(verifyRefund(f.order, refund, withoutLivemode, charge, { ...fee, livemode: false }), false);
 });
 test('customer orders exclude merchant/provider/reservation internals and fee decisions', () => {
   const f = fixture();

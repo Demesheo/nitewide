@@ -5,7 +5,7 @@ function checkoutReminderVisibleSql(alias) {
   return `EXISTS (SELECT 1 FROM orders reminder_order
     WHERE reminder_order.id = ${alias}.id
       AND reminder_order.buyer_user_id = ${alias}.user_id
-      AND reminder_order.status = 'pending' AND reminder_order.provider_mode = 'test')`;
+      AND reminder_order.status = 'pending' AND reminder_order.provider_mode IN ('test','live'))`;
 }
 
 async function ensureCheckoutReminder(models, order, event, transaction) {

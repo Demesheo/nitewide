@@ -15,6 +15,43 @@ const {createBusinessService}=require('../src/services/business-service');
 const {createPermissionService}=require('../src/services/permission-service');
 const {eventEditor}=require('../src/http/business-schemas');
 
+test('live account readiness and commission SQL stay scoped to live evidence with retained sandbox profiles',{timeout:30000},async()=>{
+  assertManagedTestDatabase();
+  const db=require('../src/db/sequelize').createSequelize(require('../src/config').getConfig());
+  const m=require('../src/db/models').initModels(db);
+  const remote={id:`acct_live_${randomUUID().replaceAll('-','')}`,object:'v2.core.account',livemode:true,applied_configurations:['merchant'],dashboard:'full',
+    defaults:{responsibilities:{...RESPONSIBILITIES,requirements_collector:'stripe'}},
+    configuration:{merchant:{applied:true,capabilities:{card_payments:{status:'active'},stripe_balance:{payouts:{status:'active'}}}}},requirements:{entries:[]}};
+  let calls=0;
+  const stripe={mode:'live',enabled:true,createAccount:async()=>{calls++;return remote;},retrieveAccount:async()=>{calls++;return remote;}};
+  try {
+    const owner=await m.User.create({displayName:'Live readiness owner',email:`${randomUUID()}@offline.nitewide.test`});
+    const org=await m.Organization.create({name:'Live readiness business',slug:randomUUID(),onboardingEstablished:true});
+    await m.OrganizationOwner.create({organizationId:org.id,userId:owner.id,role:'owner'});
+    const service=createBusinessPaymentAccountService({models:m,stripe});
+    const live=await service.create(owner.id,org.id,{name:'Live merchant',idempotencyKey:randomUUID()});
+    assert.equal(live.mode,'live');assert.equal((await service.synchronize(owner.id,org.id,live.id)).paymentsReady,true);
+    await service.selectDefault(owner.id,org.id,live.id);
+    const event={organizationId:org.id};
+    assert.equal((await resolvePaymentAccount({models:m,event,stripe,refresh:false})).id,live.id);
+    const sandbox=await m.PaymentAccount.create({organizationId:org.id,name:'Retained sandbox',stripeAccountId:`acct_test_${randomUUID().replaceAll('-','')}`,mode:'test',accountApiVersion:'v2',chargesEnabled:true,detailsSubmitted:true,cardPaymentsActive:true,controllerMatches:true,synchronizedAt:new Date()});
+    const count=calls;
+    await assert.rejects(service.selectDefault(owner.id,org.id,sandbox.id),{code:'PAYMENTS_NOT_READY'});
+    await assert.rejects(resolvePaymentAccount({models:m,event:{...event,paymentAccountId:sandbox.id},stripe}),{code:'PAYMENTS_NOT_READY'});
+    assert.equal(calls,count,'a cached sandbox merchant must never reach the live provider');
+    const {commissionEligibilitySql,persistedCommissionTerms}=require('../src/services/commission-profile-repository');
+    const people=await m.User.bulkCreate(['Live promoter','Test promoter'].map(displayName=>({displayName,email:`${randomUUID()}@offline.nitewide.test`})),{returning:true});
+    const observedAt=new Date();
+    for(const [index,mode] of ['live','test'].entries()) await m.IndividualCommissionProfile.create({userId:people[index].id,name:people[index].displayName,creationRequestId:randomUUID(),providerMode:mode,status:'active',stripeAccountId:`acct_person_${people[index].id}`,verifiedAt:observedAt,
+      verifiedStripeAccount:{...remote,id:`acct_person_${people[index].id}`,livemode:mode==='live',identity:{entity_type:'individual'}}});
+    for(const [index,mode] of ['live','test'].entries()) {
+      const rows=await db.query(`SELECT cp.user_id AS "userId" FROM individual_commission_profiles cp WHERE cp.user_id IN (:ids) AND ${commissionEligibilitySql('cp',':at',mode)}`,{replacements:{ids:people.map(person=>person.id),at:observedAt},type:'SELECT'});
+      assert.deepEqual(rows.map(row=>row.userId),[people[index].id]);
+      for(const person of people) assert.equal((await persistedCommissionTerms(m,person.id,1000,{now:observedAt,mode})).effectiveCommissionBps,person.id===people[index].id?1000:0);
+    }
+  }finally{await db.close();}
+});
+
 test('paid event editor refreshes only its authorized merchant outside locks and rechecks the final mutation',{timeout:60000},async t=>{
   assertManagedTestDatabase();
   const config=require('../src/config').getConfig(),db=require('../src/db/sequelize').createSequelize(config);
@@ -207,12 +244,12 @@ test('sandbox profiles persist scoped provider readiness and lock event merchant
     const synchronized=await service.synchronize(owner.id,org.id,profile.id);assert.equal(synchronized.paymentsReady,true);
     await service.selectDefault(owner.id,org.id,profile.id);
     const event=await m.Event.create({creatorUserId:owner.id,organizationId:org.id,title:'Sandbox Event',slug:`event-${randomUUID()}`,startsAt:new Date(Date.now()+3600000),endsAt:new Date(Date.now()+7200000)});
-    assert.equal((await resolvePaymentAccount({models:m,event,refresh:false})).id,profile.id);
+    assert.equal((await resolvePaymentAccount({models:m,event,stripe,refresh:false})).id,profile.id);
     await service.selectEvent(owner.id,event.id,profile.id);
     await m.Order.create({buyerUserId:owner.id,eventId:event.id,status:'pending',idempotencyKey:randomUUID(),paymentAccountId:profile.id,stripeAccountId:remote.id,providerMode:'test'});
     await assert.rejects(service.selectEvent(owner.id,event.id,null),{code:'PAYMENT_ACCOUNT_LOCKED'});
     remote.configuration.merchant.capabilities.card_payments.status='restricted';await service.synchronize(owner.id,org.id,profile.id);
-    await assert.rejects(resolvePaymentAccount({models:m,event,refresh:false}),{code:'PAYMENTS_NOT_READY'});
+    await assert.rejects(resolvePaymentAccount({models:m,event,stripe,refresh:false}),{code:'PAYMENTS_NOT_READY'});
     const audit=await m.AuditLog.findAll({where:{organizationId:org.id}});assert.ok(audit.length>=3);assert.equal(JSON.stringify(audit).includes('mock-only'),false);
     const cached=await m.PaymentAccount.findByPk(profile.id);let clock=new Date(+cached.synchronizedAt+1000);
     const slow=deferred(),started=deferred();let retrievals=0;
@@ -401,6 +438,18 @@ test('payment overview and own earnings retain verified currency evidence and fi
     await order({verification:'review',total:1600,commission:160});
     await order({status:'pending',payment:false});await order({status:'pending',verification:'review',payment:false});
     await order({changes:{providerMode:'live'},total:1700,commission:170});
+    const liveMerchant=await m.PaymentAccount.create({organizationId:org.id,name:'Live merchant',stripeAccountId:`acct_${randomUUID().replaceAll('-','')}`,mode:'live',accountApiVersion:'v2'});
+    await order({total:2800,commission:250,changes:{providerMode:'live',paymentAccountId:liveMerchant.id,stripeAccountId:liveMerchant.stripeAccountId},
+      paymentChanges:{metadata:{stripeAccountId:liveMerchant.stripeAccountId}}});
+    const liveReports=createBusinessPaymentOverviewService({models:m,paymentMode:'live'});
+    const liveOverview=paymentSchemas.paymentOverview.parse(await liveReports.overview(owner.id,org.id));
+    assert.equal(liveOverview.mode,'live');
+    assert.deepEqual(liveOverview.currencies,[{currency:'USD',collectedCents:2800,refundedCents:0,netCollectedCents:2800,
+      paidOrders:1,refundedOrders:0,pendingOrders:0,reviewOrders:0}],'live reporting excludes sandbox and mismatched-mode merchant evidence');
+    const liveEarnings=paymentSchemas.paymentEarnings.parse(await liveReports.earnings(promoter.id));
+    assert.equal(liveEarnings.mode,'live');
+    assert.equal(liveEarnings.currencies[0].verifiedEarnedCents,250);
+    assert.equal(liveEarnings.currencies[0].demoEarnedCents,600,'demo history stays explicitly labeled, never verified earnings');
     const overview=paymentSchemas.paymentOverview.parse(await reports.overview(owner.id,org.id));
     const usd=overview.currencies.find(row=>row.currency==='USD');
     assert.deepEqual(usd,{currency:'USD',collectedCents:13200,refundedCents:2200,netCollectedCents:11000,paidOrders:3,refundedOrders:1,pendingOrders:1,reviewOrders:2});

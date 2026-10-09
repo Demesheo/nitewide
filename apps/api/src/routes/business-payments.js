@@ -1,8 +1,8 @@
 const { z } = require('zod');
 const { asyncHandler, validate } = require('./contract-router');
 const { selection, createProfile, paymentControl, disconnectPermission } = require('../http/payment-schemas');
-function registerBusinessPaymentRoutes({ router,requireUser,paymentAccounts,models,stripe }) {
-  const reports = require('../services/business-payment-overview-service').createBusinessPaymentOverviewService({ models });
+function registerBusinessPaymentRoutes({ router,requireUser,paymentAccounts,models,stripe,paymentMode }) {
+  const reports = require('../services/business-payment-overview-service').createBusinessPaymentOverviewService({ models,stripe,paymentMode });
   const disconnect = require('../services/business-payment-disconnect-service').createBusinessPaymentDisconnectService({models,stripe,paymentAccounts});
   const org = req => z.uuid().parse(req.params.organizationId), account = req => z.uuid().parse(req.params.accountId);
   router.get('/business/organizations/:organizationId/payment-overview',requireUser,asyncHandler(async (req,res)=>res.set('Cache-Control','no-store').json({data:await reports.overview(req.userId,org(req))})));

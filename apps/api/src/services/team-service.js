@@ -26,7 +26,7 @@ function rosterPeople(leaders, employees, promoters) {
   for (const entry of promoters.filter((row) => row.status === 'active')) add(entry, 'Promoter');
   return [...people.values()];
 }
-function createTeamService({ models, permissions, email: emailService = null, businessAppUrl = 'http://localhost:5174/app' }) {
+function createTeamService({ models, permissions, email: emailService = null, stripe = null, businessAppUrl = 'http://localhost:5174/app' }) {
   async function assertManager(userId, organizationId, transaction) {
     await permissions.assertManageOrganization(userId, organizationId, transaction);
     const organization = await models.Organization.findByPk(organizationId, { transaction });
@@ -43,9 +43,9 @@ function createTeamService({ models, permissions, email: emailService = null, bu
     ]);
     const promoters = affiliates.filter((affiliate) => affiliate.status === 'active' && !affiliate.code.endsWith('-STAFF'));
     const people = await Promise.all(rosterPeople(leaders, employees, promoters).map(async (person) => ({ ...person,
-      ...await persistedCommissionTerms(models, person.id, person.configuredCommissionBps) })));
+      ...await persistedCommissionTerms(models, person.id, person.configuredCommissionBps, { mode: stripe?.mode || 'disabled' }) })));
     return { leaders, employees, affiliates: await Promise.all(promoters.map(async (row) => ({ ...(row.toJSON ? row.toJSON() : row),
-      ...await persistedCommissionTerms(models, row.userId, row.defaultCommissionBps ?? 0) }))), people,
+      ...await persistedCommissionTerms(models, row.userId, row.defaultCommissionBps ?? 0, { mode: stripe?.mode || 'disabled' }) }))), people,
       invitations: invitations.map(row => shareableTeamInvitation(row)),
       organizationVersion: organization.version, canGrantFinance: leaders.some((row) => row.userId === userId && row.role === 'owner' && row.lifecycleState !== 'archived' && row.lifecycleState !== 'suspended') };
   }
@@ -151,7 +151,7 @@ function createTeamService({ models, permissions, email: emailService = null, bu
       assertEventEditable(event);
       const email = input.email.trim().toLowerCase();
       const person = models.User?.findOne ? await models.User.findOne({ where: { email }, transaction }) : null;
-      const commissionContext = await individualCommissionContext(models, activeUser(person) ? person.id : null, { transaction });
+      const commissionContext = await individualCommissionContext(models, activeUser(person) ? person.id : null, { transaction, mode: stripe?.mode || 'disabled' });
       assertCommissionEligible(input.commissionBps ?? 0, commissionContext);
       if (models.Offering) await assertCommissionPricing({ models, eventId, commissionBps: input.commissionBps ?? 0, commissionContext, transaction });
       const token = crypto.randomBytes(32).toString('base64url');
@@ -217,7 +217,7 @@ function createTeamService({ models, permissions, email: emailService = null, bu
         await permissions.assertManageEvent(row.invitedByUserId,row.eventId,transaction);
         // Accept legacy access without silently rewriting its configured terms.
         // Only the effective, individually eligible rate applies to future sales.
-        const commissionContext = await individualCommissionContext(models, userId, { transaction });
+        const commissionContext = await individualCommissionContext(models, userId, { transaction, mode: stripe?.mode || 'disabled' });
         if (models.Offering) await assertCommissionPricing({ models, eventId: row.eventId,
           commissionBps: commissionTerms(row.commissionBps ?? 0, commissionContext).effectiveCommissionBps, commissionContext, transaction });
         const [assignment,created] = await models.EventAffiliate.findOrCreate({where:{eventId:row.eventId,userId},defaults:{code:`NW-${crypto.randomUUID()}`,commissionBps:row.commissionBps,guestlistAllocation:0,status:'active',accessScope:'event'},transaction});

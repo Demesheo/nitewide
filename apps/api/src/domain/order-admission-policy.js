@@ -6,7 +6,7 @@ function orderAdmissionEligible(order) {
   if (!order || order.status !== 'paid') return false;
   const marked = fields.some((field) => order[field] != null) || order.pricingPlanSnapshot?.stripeFeeDecision != null;
   if (!marked) return true;
-  return order.providerMode === 'test' && order.providerVerificationStatus === 'verified'
+  return ['test', 'live'].includes(order.providerMode) && order.providerVerificationStatus === 'verified'
     && typeof order.paymentAccountId === 'string' && order.paymentAccountId.length > 0
     && /^acct_[A-Za-z0-9]+$/.test(order.stripeAccountId || '')
     && /^pi_[A-Za-z0-9]+$/.test(order.stripePaymentIntentId || '')
@@ -17,7 +17,7 @@ function orderAdmissionSql(alias = 'o') {
   return `(${alias}.status = 'paid' AND ((
     ${columns.map((column) => `${alias}.${column} IS NULL`).join(' AND ')}
     AND (${alias}.pricing_plan_snapshot->>'stripeFeeDecision') IS NULL
-  ) OR (${alias}.provider_mode = 'test' AND ${alias}.provider_verification_status = 'verified'
+  ) OR (${alias}.provider_mode IN ('test','live') AND ${alias}.provider_verification_status = 'verified'
     AND ${alias}.payment_account_id IS NOT NULL
     AND ${alias}.stripe_account_id ~ '^acct_[A-Za-z0-9]+$'
     AND ${alias}.stripe_payment_intent_id ~ '^pi_[A-Za-z0-9]+$'

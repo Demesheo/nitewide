@@ -10,6 +10,7 @@ const { venueMemberSql,venueManagerSql } = require('./venue-access-policy');
 const { canViewEarningsSql } = require('./business-payment-report-policy');
 const { netSubtotalSql, commissionExpenseSql: netCommissionSql, financialOrderSql } = require('./refund-report-policy');
 const { paymentsReady } = require('./business-payment-account-service');
+const { isStripeMode } = require('../payments/stripe-mode');
 
 // Every collection and aggregate starts from this SQL scope. In particular, a
 // revoked automatic assignment cannot keep a former staff member in an event.
@@ -155,10 +156,10 @@ function createBusinessReadService({ models, email = null, stripe = null, delive
     return rows.map(row => {
       const org = byId.get(row.id), account = row.paymentAccount;
       let stripeStatus = 'not_connected';
-      if (!stripe?.enabled || stripe.mode !== 'test') stripeStatus = 'unavailable';
+      if (!stripe?.enabled || !isStripeMode(stripe.mode)) stripeStatus = 'unavailable';
       else if (account?.paymentsDisabledAt || account && (account.lifecycleState !== 'active' || account.disconnectStatus !== 'none')) stripeStatus = 'disabled';
-      else if (paymentsReady(account, observedAt)) stripeStatus = 'ready';
-      else if (account && paymentsReady({ ...account, synchronizedAt: observedAt }, observedAt)) stripeStatus = 'needs_refresh';
+      else if (paymentsReady(account, observedAt, stripe.mode)) stripeStatus = 'ready';
+      else if (account && paymentsReady({ ...account, synchronizedAt: observedAt }, observedAt, stripe.mode)) stripeStatus = 'needs_refresh';
       else if (account) stripeStatus = 'needs_attention';
       // Account identifiers, requirements and financial data stay on the
       // finance-authorized routes. The checklist is guidance, never a gate.
