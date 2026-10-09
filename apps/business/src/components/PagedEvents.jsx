@@ -12,6 +12,7 @@ import { PagedEventDetail } from './PagedEventDetail';
 import { EventTable } from './EventTable';
 import { ServerPager } from './ServerPager';
 import { readWorkspaceLocation, writeWorkspaceLocation } from '@/lib/workspace-navigation';
+import { workspaceScrollY, scrollWorkspaceTo } from '@/lib/workspace-scroll';
 
 function listQuery({ page, pageSize, view, search, from, to, sort, organizationIds, venueIds }) {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), status: view, sort });
@@ -71,12 +72,12 @@ export function PagedEvents({ session, onEdit, onDuplicate, onCreate, onUnauthor
     if (selectedId || !result || returnScroll.current == null) return;
     const y = returnScroll.current;
     returnScroll.current = null;
-    const frame = requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' }));
+    const frame = requestAnimationFrame(() => scrollWorkspaceTo({ top: y, behavior: 'instant' }));
     return () => cancelAnimationFrame(frame);
   }, [selectedId, result]);
   function choose(id) {
-    returnScroll.current = window.scrollY;
-    window.history.replaceState({ ...window.history.state, eventsScrollY: window.scrollY }, '', window.location.href);
+    returnScroll.current = workspaceScrollY();
+    window.history.replaceState({ ...window.history.state, eventsScrollY: returnScroll.current }, '', window.location.href);
     setSelectedId(id); onSelectionChange?.(id);
   }
   function back() {

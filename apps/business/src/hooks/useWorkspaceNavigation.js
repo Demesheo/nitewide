@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { readWorkspaceLocation, writeWorkspaceLocation } from '@/lib/workspace-navigation';
+import { scrollWorkspaceTo } from '@/lib/workspace-scroll';
 
 // URL state belongs to navigation, not to the bootstrap response. Back/Forward
 // must restore the view without refetching the whole workspace or losing filters.
@@ -14,7 +15,7 @@ export function useWorkspaceNavigation() {
   const [eventNavigationRevision, setEventNavigationRevision] = useState(0);
 
   useEffect(() => { if (window.matchMedia('(max-width: 850px)').matches)
-    window.scrollTo({ top: 0, behavior: 'instant' }); }, [page]);
+    scrollWorkspaceTo({ top: 0, behavior: 'instant' }); }, [page]);
   useEffect(() => {
     const restore = () => { const state = readWorkspaceLocation();
       setPage(state.section); setEventToOpen(state.eventId); setGuestlistEntryToOpen(state.entryId);

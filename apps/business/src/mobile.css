@@ -3,10 +3,13 @@
 
 @media (max-width: 850px) {
   .event-detail .tier-schedule-list { display: none; }
-  .app-shell { min-height: 100svh; }
+  /* Keep navigation in layout, not Safari's fixed-position viewport. Keyboard
+     dismissal and browser-toolbar changes must not leave it floating mid-page. */
+  .app-shell { display: flex; flex-direction: column; height: 100svh; height: 100dvh; min-height: 0; overflow: hidden; }
   .desktop-sidebar { display: none; }
+  .app-shell > .main-shell { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
   .main-shell, .main-content, .panel, .dashboard-grid > *, .events-workspace, .event-detail, [data-slot="tabs-content"] { min-width: 0; max-width: 100%; }
-  .main-content { padding: 24px max(16px, env(safe-area-inset-right)) calc(88px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .main-content { padding: 24px max(16px, env(safe-area-inset-right)) 24px max(16px, env(safe-area-inset-left)); }
   .topbar { position: sticky; top: 0; z-index: 25; height: auto; min-height: 64px; padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); background: #14141cf2; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
   .breadcrumb { gap: 8px; min-width: 0; font-size: 15px; }
   .breadcrumb > span, .breadcrumb > svg, .live-label { display: none; }
@@ -15,7 +18,7 @@
   .business-profile-heading { gap: 12px; }
   .business-profile-heading h2 { font-size: 20px; }
   .business-profile-actions > button { min-width: 96px; }
-  .mobile-bottom-nav { position: fixed; inset: auto 0 0; z-index: 35; display: flex; padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); border-top: 1px solid #41394f; background: #15121df5; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); box-shadow: 0 -8px 28px #0003; }
+  .mobile-bottom-nav { position: relative; order: 1; flex-shrink: 0; z-index: 35; display: flex; padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); border-top: 1px solid #41394f; background: #15121d; box-shadow: 0 -8px 28px #0003; }
   .mobile-bottom-nav button { flex: 1; min-width: 0; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; border: 0; border-radius: 12px; background: transparent; color: #aaa3b8; font-size: 10px; font-weight: 600; }
   .mobile-bottom-nav button[aria-current="page"] { background: #b9a9ff15; color: #e0d5ff; box-shadow: inset 0 1px #c8b9f72b; }
   .mobile-bottom-nav button:focus-visible { outline: 2px solid #cbb4ff; outline-offset: -2px; }

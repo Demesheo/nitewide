@@ -96,6 +96,18 @@ workspacesTest('one organization context persists across every workspace; aggreg
 });
 
 teamPaginationTest('business entry and workspace journey keeps branding, clean navigation and real reports usable', async ({ page, fixture }) => {
+  const mobile = page.viewportSize().width <= 850;
+  const assertMobileNavigation = async () => {
+    if (!mobile) return;
+    const nav = page.getByRole('navigation', { name: 'Business navigation', exact: true });
+    await expect(nav).toBeVisible();
+    await expect.poll(() => nav.evaluate(element => Math.abs(element.getBoundingClientRect().bottom - window.innerHeight))).toBeLessThanOrEqual(1);
+    const navBox = await nav.boundingBox();
+    const workspaceBox = await page.locator('.app-shell > .main-shell').boundingBox();
+    expect(workspaceBox.y + workspaceBox.height).toBeLessThanOrEqual(navBox.y + 1);
+    expect(await nav.evaluate(element => getComputedStyle(element).position)).toBe('relative');
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  };
   await test.step('Landing and a clean sign-in boot retain readable approved branding', async () => {
     await page.goto('/');
     await expect(page.locator('.lp-footer').getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', `${urls.customer}/privacy`);
@@ -172,6 +184,29 @@ teamPaginationTest('business entry and workspace journey keeps branding, clean n
     await expect(setup.locator('ol')).not.toBeVisible();
     await expectNoOverflow(page);
   });
+  await test.step('Mobile navigation stays below the scrollport across tab changes and toolbar-size changes', async () => {
+    if (!mobile) return;
+    const workspace = page.locator('.app-shell > .main-shell');
+    const original = page.viewportSize();
+    for (const section of ['Analytics', 'Events', 'Overview']) {
+      await businessSection(page, section);
+      await expect.poll(() => workspace.evaluate(element => element.scrollTop)).toBe(0);
+      await page.locator('.app-footer').scrollIntoViewIfNeeded();
+      await expect.poll(() => workspace.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+      await assertMobileNavigation();
+      await expectNoOverflow(page);
+    }
+    await page.setViewportSize({ ...original, height: original.height - 100 });
+    await assertMobileNavigation();
+    await page.setViewportSize(original);
+    await assertMobileNavigation();
+    await expect(page.getByRole('group', { name: 'Pagination for team members' })).toBeVisible();
+    await page.locator('.app-footer').scrollIntoViewIfNeeded();
+    const footer = await page.locator('.app-footer').boundingBox();
+    const nav = await page.locator('.mobile-bottom-nav').boundingBox();
+    expect(footer.y + footer.height).toBeLessThanOrEqual(nav.y);
+    await workspace.evaluate(element => element.scrollTo({ top: 0, behavior: 'instant' }));
+  });
   await test.step('New events open the artwork picker and start with no tickets or packages', async () => {
     await page.getByRole('button', { name: 'Create event', exact: true }).click();
     const editor = page.getByRole('dialog', { name: 'Create an event', exact: true });
@@ -185,6 +220,15 @@ teamPaginationTest('business entry and workspace journey keeps branding, clean n
     await expectNoOverflow(page);
     await test.info().attach('business-empty-artwork-upload', { body: await editor.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
     await editor.getByLabel('Event name', { exact: true }).fill('Explicit inventory test');
+    if (mobile) {
+      // Desktop WebKit cannot open a native iPhone keyboard; exercise its
+      // resize/focus/dismiss lifecycle without claiming native-device coverage.
+      const original = page.viewportSize();
+      await page.setViewportSize({ ...original, height: 520 });
+      await expect(editor.getByLabel('Event name', { exact: true })).toBeFocused();
+      await editor.getByLabel('Event name', { exact: true }).blur();
+      await page.setViewportSize(original);
+    }
     await editor.getByRole('button', { name: 'Continue', exact: true }).click();
     await editor.getByRole('button', { name: 'Continue', exact: true }).click();
     const tiers = editor.getByTestId('offering-editor');
@@ -198,6 +242,14 @@ teamPaginationTest('business entry and workspace journey keeps branding, clean n
     await editor.getByRole('button', { name: 'Close', exact: true }).click();
     await editor.getByRole('button', { name: 'Close and keep draft', exact: true }).click();
     await expect(editor).toHaveCount(0);
+    if (mobile) {
+      await expect(page.locator('body')).not.toHaveAttribute('data-scroll-locked');
+      await page.locator('.app-footer').scrollIntoViewIfNeeded();
+      await assertMobileNavigation();
+      const screenshot = test.info().outputPath('business-mobile-navigation-after-draft.png');
+      await page.screenshot({ path: screenshot });
+      await test.info().attach('business-mobile-navigation-after-draft', { path: screenshot, contentType: 'image/png' });
+    }
   });
   await test.step('Overview charts switch categories and team pagination uses the backend', async () => {
     await expect(page.locator('.app-footer').getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', `${urls.customer}/privacy`);

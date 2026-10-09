@@ -17,7 +17,7 @@ test('business table pagination scrolls to its own card on both page directions'
   const component = readFileSync(new URL('../src/components/TablePagination.jsx', import.meta.url), 'utf8');
   assert.match(component, /const changePage = \(page\) => \{/);
   assert.match(component, /paginationRef\.current\?\.closest\('section'\)/);
-  assert.match(component, /window\.scrollTo\(/);
+  assert.match(component, /scrollWorkspaceToElement\(card,/);
   assert.match(component, /onClick=\{\(\) => changePage\(pager\.currentPage - 1\)\}/);
   assert.match(component, /onClick=\{\(\) => changePage\(pager\.currentPage \+ 1\)\}/);
   assert.match(component, /if \(onPageChange\) return onPageChange\(\)/);

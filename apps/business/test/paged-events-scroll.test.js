@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 test('PagedEvents skips fresh restores, accepts zero, cancels pending restore, and keeps pager scroll', async () => {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+  const dom = new JSDOM('<!doctype html><html><body><div class="app-shell"><div class="main-shell"><div id="root"></div></div></div></body></html>', {
     url: 'http://localhost/?section=events', pretendToBeVisual: true,
   });
   const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLButtonElement', 'HTMLInputElement',
@@ -20,8 +20,10 @@ test('PagedEvents skips fresh restores, accepts zero, cancels pending restore, a
   const cancelFrame = (id) => { canceled.push(id); rafs.delete(id); };
   const flushFrames = () => { const pending = [...rafs.values()]; rafs.clear(); pending.forEach((callback) => callback(0)); };
   const scrollCalls = [];
+  const documentScrollCalls = [];
   const cardScrollCalls = [];
-  dom.window.scrollTo = (...args) => scrollCalls.push(args);
+  dom.window.scrollTo = (...args) => documentScrollCalls.push(args);
+  dom.window.document.querySelector('.main-shell').scrollTo = (...args) => scrollCalls.push(args);
   dom.window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
   dom.window.HTMLElement.prototype.scrollIntoView = function (options) { cardScrollCalls.push({ element: this, options }); };
   for (const [key, value] of Object.entries({
@@ -81,6 +83,7 @@ test('PagedEvents skips fresh restores, accepts zero, cancels pending restore, a
     await waitFor(() => assert.ok(rafs.size > 0, 'saved zero offset schedules a restoration'));
     flushFrames();
     assert.deepEqual(scrollCalls.at(-1), [{ top: 0, behavior: 'instant' }]);
+    assert.deepEqual(documentScrollCalls, [], 'mobile list restoration does not move the document');
 
     mounted.unmount();
     cleanup();
