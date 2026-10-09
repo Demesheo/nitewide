@@ -1,3 +1,5 @@
+import { publicAppLink } from '../../../shared/app-links.mjs';
+
 const sections = new Set(['overview', 'analytics', 'events', 'admissions', 'team', 'payments']);
 const tabs = new Set(['sales', 'tickets', 'people', 'guestlist']);
 const eventViews = new Set(['upcoming', 'past', 'draft', 'all']);
@@ -115,7 +117,8 @@ export function readWorkspaceLocation(search = window.location.search) {
 
 export function writeWorkspaceLocation(changes, { replace = false } = {}) {
   const url = new URL(window.location.href);
-  url.pathname = '/app';
+  const workspace = new URL(publicAppLink('businessWorkspace', '/?section=overview'), url.origin);
+  url.pathname = workspace.pathname;
   // Explicit section changes are navigation: begin with that destination's
   // state. A partial write keeps only parameters owned by the active section.
   if (Object.hasOwn(changes, 'section')) {
@@ -130,7 +133,8 @@ export function writeWorkspaceLocation(changes, { replace = false } = {}) {
   }
   const { section, params } = sectionParams(url.searchParams);
   url.search = '';
-  if (section !== 'overview') url.searchParams.set('section', section);
+  // Overview must survive reload without becoming the public landing page.
+  url.searchParams.set('section', section);
   for (const [key, value] of params) {
     if (defaultValues[key] === value) continue;
     if (key === 'reportTable' && value === 'regions' &&

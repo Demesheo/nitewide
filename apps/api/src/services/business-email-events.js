@@ -6,8 +6,9 @@ const { venueAssignmentCurrent, currentVenueMembership } = require('./venue-acce
 const name = (user) => user?.displayName?.trim() || 'there';
 const percent = (bps) => `${(Number(bps || 0) / 100).toFixed(2).replace(/\.00$/, '')}%`;
 const expiresAt = (value) => `${new Date(value).toLocaleString('en-US', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' })} UTC`;
-const makeUrl = (base, params = {}, pathname = '/app') => {
-  const url = new URL(pathname, base);
+const makeUrl = (base, params = {}) => {
+  const url = new URL(base);
+  if (!params.invite) url.searchParams.set('section', params.event ? 'events' : 'overview');
   for (const [key, value] of Object.entries(params)) if (value != null) url.searchParams.set(key, value);
   return url.toString();
 };

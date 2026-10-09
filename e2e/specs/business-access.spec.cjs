@@ -185,7 +185,7 @@ customerAuthTest('a copied customer token is checked before any workspace naviga
     new MutationObserver(() => { if (document.querySelector('.app-shell')) window.__protectedWorkspaceAppeared = true; }).observe(document, { childList: true, subtree: true });
   }, { key: sessionKey, value: customer });
   await page.route('**/api/business/bootstrap', async route => { await waiting; return route.continue(); });
-  await page.goto('/app');
+  await page.goto('/?section=overview');
   await expect(page.getByRole('heading', { name: 'Checking your Business access.', exact: true })).toBeVisible();
   await expect(page.getByRole('navigation')).toHaveCount(0); release();
   await expect(page.getByRole('heading', { name: 'Welcome back.', exact: true })).toBeVisible();
@@ -201,7 +201,7 @@ businessAuthTest('bootstrap failures hide protected data, retry safely and retur
   let unavailable = true;
   await page.addInitScript(({ key, value }) => sessionStorage.setItem(key, JSON.stringify(value)), { key: sessionKey, value: business });
   await page.route('**/api/business/bootstrap', route => unavailable ? route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { message: 'Workspace is temporarily unavailable.' } }) }) : route.continue());
-  await page.goto('/app');
+  await page.goto('/?section=overview');
   await expect(page.getByRole('heading', { name: 'We couldn’t open your workspace.', exact: true })).toBeVisible();
   await expect(page.locator('.app-shell')).toHaveCount(0);
   unavailable = false; await page.getByRole('button', { name: 'Try again', exact: true }).click();
@@ -235,7 +235,7 @@ customerAuthTest('an existing customer signs into an onboarding invitation using
   await page.route('**/api/auth/onboarding/preview?**', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: {
     email: fixture.accounts.customer.email, displayName: fixture.accounts.customer.name, accountMode: 'existing', kind: 'organization', expiresAt: new Date(Date.now() + 3600000).toISOString(),
   } }) }));
-  await page.goto(`/app?onboarding=${token}`);
+  await page.goto(`/?onboarding=${token}`);
   await page.getByRole('button', { name: 'Sign in to continue', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Request access', exact: true })).toHaveCount(0);
   await page.getByLabel('Work email', { exact: true }).fill(fixture.accounts.customer.email);

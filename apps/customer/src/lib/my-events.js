@@ -41,7 +41,6 @@ export function validMyEventDetail(result) {
 
 export function myEventBusinessUrl(base, eventId, location) {
   const url = new URL(base, location.href);
-  url.pathname = '/app';
   url.search = '';
   url.hash = '';
   url.searchParams.set('section', 'events');

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 test('shared report tables and team performance fetch real second pages and persist page size', async () => {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',
-    { url: 'http://localhost/app?section=analytics', pretendToBeVisual: true });
+    { url: 'http://localhost/?section=analytics', pretendToBeVisual: true });
   const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLButtonElement', 'HTMLInputElement',
     'HTMLSelectElement', 'Element', 'Node', 'Event', 'MouseEvent', 'MutationObserver', 'getComputedStyle',
     'requestAnimationFrame', 'cancelAnimationFrame', 'IS_REACT_ACT_ENVIRONMENT'];
@@ -62,7 +62,7 @@ test('shared report tables and team performance fetch real second pages and pers
     assert.equal(requests.at(-1).searchParams.get('pageSize'), '25');
     assert.equal(screen.getByRole('button', { name: 'Next' }).disabled, true);
     unmount(); cleanup();
-    dom.window.history.replaceState({}, '', '/app');
+    dom.window.history.replaceState({}, '', '/?section=overview');
 
     view = render(React.createElement(BusinessTeamPerformance, { session: { accessToken: 'fixture' }, query: '',
       totalSales: 20000, directSalesCents: 0, revision: 0, onUnauthorized() {}, onEvents() {} }),

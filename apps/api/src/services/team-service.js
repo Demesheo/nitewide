@@ -26,7 +26,7 @@ function rosterPeople(leaders, employees, promoters) {
   for (const entry of promoters.filter((row) => row.status === 'active')) add(entry, 'Promoter');
   return [...people.values()];
 }
-function createTeamService({ models, permissions, email: emailService = null, stripe = null, businessAppUrl = 'http://localhost:5174/app' }) {
+function createTeamService({ models, permissions, email: emailService = null, stripe = null, businessAppUrl = 'http://localhost:5174/' }) {
   async function assertManager(userId, organizationId, transaction) {
     await permissions.assertManageOrganization(userId, organizationId, transaction);
     const organization = await models.Organization.findByPk(organizationId, { transaction });

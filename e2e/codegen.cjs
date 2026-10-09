@@ -17,7 +17,7 @@ async function main() {
   }
   await mkdir('test-results', { recursive: true });
   console.log('Record only on these disposable apps. Demo password: NitewideDemo!2026; emails: jordan/sam/admin@playwright.nitewide.test.');
-  const target = app === 'business' ? `${urls.business}/app` : urls[app];
+  const target = app === 'business' ? `${urls.business}/` : urls[app];
   await run(process.execPath, [require.resolve('@playwright/test/cli'), 'codegen', '--device=iPhone 13', '--browser=webkit', '--timezone=America/New_York', '--block-service-workers', '--output', `test-results/codegen-${app}.spec.js`, target]);
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; }).finally(() => shutdown(process.exitCode || 0));

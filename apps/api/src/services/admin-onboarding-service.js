@@ -35,7 +35,7 @@ const onboardingSchema = z.object({
   if ((!business || value.recipient.role !== 'manager') && value.recipient.financeAuthorized) context.addIssue({ code: 'custom', message: 'Explicit finance grants apply only to business managers' });
 });
 
-function createAdminOnboardingService({ models, permissions, email = null, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', now = () => new Date() }) {
+function createAdminOnboardingService({ models, permissions, email = null, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/', now = () => new Date() }) {
   const transaction = async (handler) => {
     try { return await mutationTransaction(models.User.sequelize, handler, { accessChange: true }); }
     catch (error) { if (['40001', '40P01'].includes(error.original?.code || error.parent?.code) || error.name === 'SequelizeOptimisticLockError') throw conflict('This record changed concurrently. Refresh and try again.', 'CONCURRENT_CHANGE'); if (error.name === 'SequelizeUniqueConstraintError') throw conflict('An account, business, or pending invitation with these details already exists.', 'DUPLICATE_RECORD'); throw error; }

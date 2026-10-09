@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 test('Business recovery catches render and lazy failures, exposes no error data, and reloads only on request', async () => {
   const rootPath = resolve(fileURLToPath(new URL('..', import.meta.url)));
-  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/sign-in?returnTo=%2Fapp#resume',pretendToBeVisual:true });
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/sign-in?returnTo=%2F%3Fsection%3Doverview#resume',pretendToBeVisual:true });
   const values = {window:dom.window,document:dom.window.document,navigator:dom.window.navigator,HTMLElement:dom.window.HTMLElement,
     Node:dom.window.Node,Event:dom.window.Event,MouseEvent:dom.window.MouseEvent,IS_REACT_ACT_ENVIRONMENT:true};
   const originals = new Map(Object.keys(values).map(key => [key,Object.getOwnPropertyDescriptor(globalThis,key)]));

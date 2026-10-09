@@ -44,7 +44,7 @@ test('first-admin CLI gates explicit release identity and terminal approval befo
     DATABASE_URL: 'postgres://synthetic:PrivateDatabase123@database.example.test/nitewide_staging', DATABASE_SSL: 'true',
     MEDIA_STORAGE_DRIVER: 'r2', R2_ACCOUNT_ID: 'a'.repeat(32), R2_BUCKET: 'nitewide-staging-media',
     R2_ACCESS_KEY_ID: 'synthetic-access-key', R2_SECRET_ACCESS_KEY: 'PrivateR2Value123-for-offline-testing-only',
-    CUSTOMER_APP_URL: 'https://staging.example.test', BUSINESS_APP_URL: 'https://staging.example.test/app',
+    CUSTOMER_APP_URL: 'https://staging.example.test', BUSINESS_APP_URL: 'https://staging.example.test/business',
     RENDER_GIT_COMMIT: revision, ...Object.fromEntries(SECRET_NAMES.map(name => [name, randomBytes(32).toString('hex')])),
   };
   const logs = [];

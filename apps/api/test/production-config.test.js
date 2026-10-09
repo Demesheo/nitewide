@@ -22,7 +22,7 @@ test('regular release configuration isolates staging/production, bounds pools an
       DATABASE_URL: `postgres://app:password@database.example/nitewide_${APP_ENVIRONMENT}`, DATABASE_POOL_MAX: '4',
       MEDIA_STORAGE_DRIVER: 'r2', R2_ACCOUNT_ID: 'a'.repeat(32), R2_BUCKET: `nitewide-${APP_ENVIRONMENT}-media`,
       R2_ACCESS_KEY_ID: 'synthetic-access-key', R2_SECRET_ACCESS_KEY: 'synthetic-r2-secret-key-for-offline-tests',
-      CUSTOMER_APP_URL: `https://${APP_ENVIRONMENT}.example.test`, BUSINESS_APP_URL: `https://${APP_ENVIRONMENT}.example.test/app`,
+      CUSTOMER_APP_URL: `https://${APP_ENVIRONMENT}.example.test`, BUSINESS_APP_URL: `https://${APP_ENVIRONMENT}.example.test/business`,
       RENDER_GIT_COMMIT: 'a'.repeat(40) };
     const config = releaseConfig(environment);
     assert.equal(config.serveFrontends, true);
@@ -66,7 +66,7 @@ test('regular release configuration isolates staging/production, bounds pools an
       { DATABASE_URL: 'postgres://app:password@database.example/nitewide_demo' },
       { DATABASE_URL: `postgres://app:password@database.example/nitewide_${APP_ENVIRONMENT === 'staging' ? 'production' : 'staging'}` },
       { CUSTOMER_APP_URL: undefined }, { BUSINESS_APP_URL: undefined }, { CUSTOMER_APP_URL: 'http://localhost:5173' },
-      { BUSINESS_APP_URL: 'https://other.example.test/app' }, { BUSINESS_APP_URL: `${environment.CUSTOMER_APP_URL}/business` },
+      { BUSINESS_APP_URL: 'https://other.example.test/business' }, { BUSINESS_APP_URL: `${environment.CUSTOMER_APP_URL}/unexpected` },
       { ADMIN_APP_URL: 'https://other.example.test/admin' }, { ADMIN_APP_URL: `${environment.CUSTOMER_APP_URL}/` },
       { CUSTOMER_APP_URL: `${environment.CUSTOMER_APP_URL}/?invite=unexpected` },
       { DATABASE_POOL_MAX: '0' }, { DATABASE_POOL_MAX: '41' }, { RENDER_GIT_COMMIT: 'not-a-sha' },
@@ -79,15 +79,19 @@ test('regular release configuration isolates staging/production, bounds pools an
     if (APP_ENVIRONMENT === 'staging') assert.throws(() => releaseConfig({ ...environment,
       CUSTOMER_APP_URL: 'https://nitewide.com', BUSINESS_APP_URL: 'https://nitewide.com/app' }), /production customer hostname/);
     const subdomains = { ...environment, APP_ROUTING_MODE: 'subdomains',
-      CUSTOMER_APP_URL: `https://${APP_ENVIRONMENT}.nitewide.test`, BUSINESS_APP_URL: `https://business-${APP_ENVIRONMENT}.nitewide.test/app`,
+      CUSTOMER_APP_URL: `https://${APP_ENVIRONMENT}.nitewide.test`, BUSINESS_APP_URL: `https://business-${APP_ENVIRONMENT}.nitewide.test`,
       ADMIN_APP_URL: `https://admin-${APP_ENVIRONMENT}.nitewide.test`,
       CORS_ORIGINS: `https://${APP_ENVIRONMENT}.nitewide.test,https://business-${APP_ENVIRONMENT}.nitewide.test,https://admin-${APP_ENVIRONMENT}.nitewide.test` };
     assert.equal(releaseConfig(subdomains).APP_ROUTING_MODE, 'subdomains');
+    assert.equal(releaseConfig({ ...subdomains, BUSINESS_APP_URL: `${subdomains.BUSINESS_APP_URL}/app` }).businessAppUrl,
+      `${subdomains.BUSINESS_APP_URL}/`, 'the preceding environment value supports image-first rollout without generating /app links');
+    assert.equal(releaseConfig({ ...environment, BUSINESS_APP_URL: `${environment.CUSTOMER_APP_URL}/app` }).businessAppUrl,
+      `${environment.CUSTOMER_APP_URL}/business`);
     for (const invalid of [
       { APP_ROUTING_MODE: 'unknown' }, { ADMIN_APP_URL: undefined }, { ADMIN_APP_URL: '' },
       { ADMIN_APP_URL: 'https://localhost' }, { ADMIN_APP_URL: subdomains.CUSTOMER_APP_URL },
       { ADMIN_APP_URL: 'https://invalid_host.example.test' }, { ADMIN_APP_URL: 'https://admin.example.test.' },
-      { ADMIN_APP_URL: `${subdomains.ADMIN_APP_URL}/admin` }, { BUSINESS_APP_URL: `${subdomains.BUSINESS_APP_URL}/` },
+      { ADMIN_APP_URL: `${subdomains.ADMIN_APP_URL}/admin` }, { BUSINESS_APP_URL: `${subdomains.BUSINESS_APP_URL}/app/` },
       { CUSTOMER_APP_URL: `${subdomains.CUSTOMER_APP_URL}/app` }, { ADMIN_APP_URL: `${subdomains.ADMIN_APP_URL}?secret=not-public` },
       { ADMIN_APP_URL: `${subdomains.ADMIN_APP_URL}#fragment` }, { ADMIN_APP_URL: 'https://user:password@admin.nitewide.test' },
       { CORS_ORIGINS: '*' }, { CORS_ORIGINS: subdomains.CUSTOMER_APP_URL }, { CORS_ORIGINS: `${subdomains.CORS_ORIGINS},https://invalid.test/path` },
@@ -120,7 +124,7 @@ test('live Stripe requires a complete isolated production setup and disabled liv
     DATABASE_URL: 'postgres://app:password@database.example/nitewide_production',
     MEDIA_STORAGE_DRIVER: 'r2', R2_ACCOUNT_ID: 'a'.repeat(32), R2_BUCKET: 'nitewide-production-media',
     R2_ACCESS_KEY_ID: 'synthetic-access-key', R2_SECRET_ACCESS_KEY: 'synthetic-r2-secret-key-for-offline-tests',
-    CUSTOMER_APP_URL: 'https://production.example.test', BUSINESS_APP_URL: 'https://production.example.test/app',
+    CUSTOMER_APP_URL: 'https://production.example.test', BUSINESS_APP_URL: 'https://production.example.test/business',
     STRIPE_MODE: 'live', STRIPE_SECRET_KEY: 'sk_live_offlinefixture', STRIPE_PUBLISHABLE_KEY: 'pk_live_offlinefixture',
     STRIPE_WEBHOOK_SECRET: 'whsec_offlinefixture', STRIPE_ACCOUNT_WEBHOOK_SECRET: 'whsec_offlineaccountfixture' };
   for (const STRIPE_SECRET_KEY of ['sk_live_offlinefixture', 'rk_live_offlinefixture']) {
@@ -223,7 +227,7 @@ test('release migrations hold the lock, never seed, and close it on CLI failure 
 
 test('hosted Stripe requires explicit HTTPS public return URLs even without email or checkout webhooks', () => {
   const stripe = { ...production, STRIPE_MODE: 'test', STRIPE_SECRET_KEY: 'sk_test_offlinefixture',
-    CUSTOMER_APP_URL: 'https://customer.example.test', BUSINESS_APP_URL: 'https://business.example.test/app' };
+    CUSTOMER_APP_URL: 'https://customer.example.test', BUSINESS_APP_URL: 'https://business.example.test/' };
   for (const HOSTED_DEMO of ['false', 'true']) {
     const environment = { ...stripe, HOSTED_DEMO };
     const configured = getConfig(environment);
@@ -249,12 +253,12 @@ test('hosted Stripe requires explicit HTTPS public return URLs even without emai
 test('local Stripe keeps localhost return URLs and offline hosted tests retain disabled payment defaults', () => {
   for (const NODE_ENV of ['development','test']) {
     const local = getConfig({ NODE_ENV, STRIPE_MODE:'test', STRIPE_SECRET_KEY:'sk_test_offlinefixture' });
-    assert.equal(local.CUSTOMER_APP_URL,'http://localhost:5173');assert.equal(local.businessAppUrl,'http://localhost:5174/app');
+    assert.equal(local.CUSTOMER_APP_URL,'http://localhost:5173');assert.equal(local.businessAppUrl,'http://localhost:5174/');
     assert.equal(getConfig({ NODE_ENV, STRIPE_MODE:'test', STRIPE_SECRET_KEY:'sk_test_offlinefixture',
-      CUSTOMER_APP_URL:'http://127.0.0.1:5173', BUSINESS_APP_URL:'http://localhost:5174/app' }).businessAppUrl,'http://localhost:5174/app');
+      CUSTOMER_APP_URL:'http://127.0.0.1:5173', BUSINESS_APP_URL:'http://localhost:5174/' }).businessAppUrl,'http://localhost:5174/');
   }
   assert.equal(getConfig({ ...production, HOSTED_DEMO:'true' }).STRIPE_MODE,'disabled');
-  assert.equal(getConfig({ ...production, HOSTED_DEMO:'true' }).businessAppUrl,'http://localhost:5173/app');
+  assert.equal(getConfig({ ...production, HOSTED_DEMO:'true' }).businessAppUrl,'http://localhost:5173/business');
 });
 
 test('proxy headers are not trusted by default and only bounded explicit hop counts are accepted', () => {

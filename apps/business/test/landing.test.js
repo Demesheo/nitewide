@@ -12,8 +12,14 @@ import { customerLink } from "../src/lib/customer-link.js";
 
 test("public landing and workspace routes are distinct, including trailing slashes", () => {
   assert.equal(businessPage("/"), "landing");
-  for (const path of ["/sign-in", "/sign-in/", "/app", "/app/"])
+  for (const path of ["/sign-in", "/sign-in/"])
     assert.equal(businessPage(path), "workspace");
+  for (const path of ['/app', '/app/']) assert.equal(businessPage(path, '?section=events'), 'not-found');
+  for (const path of ['/', '/business', '/business/']) {
+    for (const search of ['?section=overview', '?section=payments&paymentAccountReturn=account', '?onboarding=token', '?resetPassword=token', '?verifyEmail=token', '?event=event', '?workspaceOrganization=organization']) {
+      assert.equal(businessPage(path, search), 'workspace', `${path}${search}`);
+    }
+  }
   assert.equal(businessPage("/unknown"), "not-found");
   assert.equal(businessPage("/sign-in-elsewhere"), "not-found");
 });

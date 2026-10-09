@@ -49,7 +49,7 @@ test('hosted customer, business and admin icon routes serve PNG bytes rather tha
   const server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
-  for (const [name, page] of [['customer', '/'], ['business', '/app'], ['admin', '/admin']]) {
+  for (const [name, page] of [['customer', '/'], ['business', '/business?section=overview'], ['admin', '/admin']]) {
     const html = (await request(server, page)).text;
     const links = [...html.matchAll(/<link rel="(?:icon|apple-touch-icon)"[^>]+href="([^"]+)"/g)];
     assert.equal(links.length, 2);

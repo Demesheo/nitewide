@@ -29,7 +29,7 @@ function safeIndividualProfile(profile, at = new Date(), mode = 'test') {
     eligibility: commissionEligibility({ userId: profile.userId, individualProfile: profile, now: at, mode }),
     cardReady: individualReady(profile, 'card', at, mode), bankReady: individualReady(profile, 'us_bank_account', at, mode) };
 }
-function createIndividualCommissionProfileService({ sequelize, models, stripe, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', now = () => new Date() }) {
+function createIndividualCommissionProfileService({ sequelize, models, stripe, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/', now = () => new Date() }) {
   const transact = work => mutationTransaction(sequelize, work, { accessChange: true });
   const mode = () => stripe?.mode || 'disabled';
   const enabled = () => { if (!isStripeMode(mode())) throw conflict('Individual Stripe connection is unavailable.', 'PAYMENTS_NOT_ENABLED'); };

@@ -72,7 +72,7 @@ const CHECK_MESSAGES = Object.freeze({
   BUSINESS_CALLBACK_INVALID: 'Set an explicit valid BUSINESS_APP_URL. Hosted payments require a public HTTPS URL without credentials, query or fragment.',
   CALLBACK_URLS_CONFIGURED: 'Customer and business callback URL configuration passed the deployment-format checks.',
   CALLBACK_CORS_MISMATCH: 'CORS_ORIGINS must include the configured customer and business callback origins for hosted payments.',
-  HOSTED_DEMO_CALLBACK_ROUTING_MISMATCH: 'Bundled hosted-demo callbacks must share one public origin, with CUSTOMER_APP_URL at the root and BUSINESS_APP_URL at /app or /app/.',
+  HOSTED_DEMO_CALLBACK_ROUTING_MISMATCH: 'Bundled hosted-demo callbacks must share one public origin, with CUSTOMER_APP_URL at the root and BUSINESS_APP_URL at /business or /business/.',
   APP_ROUTING_INVALID: 'Subdomain routing requires distinct public HTTPS customer, business and admin URLs at their expected paths, with all three origins in CORS.',
   SHARED_SANDBOX_ROUTING: 'Shared sandbox merchant routing overrides event and business selection. It is permitted only for development, test or an explicitly hosted demo and must be removed before production payments.',
   SHARED_SANDBOX_ROUTING_FORBIDDEN: 'Remove STRIPE_SANDBOX_SHARED_ACCOUNT_ID: shared routing is allowed only in a development, test or explicitly hosted-demo sandbox runtime.',
@@ -143,7 +143,7 @@ function inspectPaymentConfiguration(config = {}) {
       if (hosted(config) && !callbackValues.every(value => origins.includes(new URL(value).origin))) checks.push(check('CALLBACK_CORS_MISMATCH', 'fail'));
       if (config.APP_ROUTING_MODE !== 'subdomains' && (config.hostedDemo === true || config.HOSTED_DEMO === 'true')) {
         const [customer, business] = callbackValues.map(value => new URL(value));
-        if (customer.origin !== business.origin || customer.pathname !== '/' || !['/app', '/app/'].includes(business.pathname)) {
+        if (customer.origin !== business.origin || customer.pathname !== '/' || !['/business', '/business/'].includes(business.pathname)) {
           checks.push(check('HOSTED_DEMO_CALLBACK_ROUTING_MISMATCH', 'fail'));
         }
       }

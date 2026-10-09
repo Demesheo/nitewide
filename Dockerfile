@@ -9,7 +9,7 @@ COPY apps/admin/package.json apps/admin/package.json
 COPY apps/pricing/package.json apps/pricing/package.json
 RUN npm install --global npm@12.1.0 && npm ci
 COPY apps ./apps
-# One origin: consumer /, business /business + /app, admin /admin.
+# Shared-origin paths: customer /, Business /business, Admin /admin.
 RUN VITE_BUSINESS_URL=/business npm run build --workspace @nitewide/customer && \
     VITE_BUSINESS_HOME=/business VITE_CUSTOMER_URL=/ npm run build --workspace @nitewide/business -- --base=/business/ && \
     VITE_CUSTOMER_URL=/ VITE_BUSINESS_URL=/business npm run build --workspace @nitewide/admin -- --base=/admin/

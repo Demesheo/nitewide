@@ -8,7 +8,7 @@ const { createBusinessService } = require('../src/services/business-service');
 const { sendAttendeeInstructions } = require('../src/services/attendee-instructions-service');
 const { TEMPLATES } = require('../src/services/email-templates');
 
-const BUSINESS_URL = 'https://business.nitewide.example/app';
+const BUSINESS_URL = 'https://business.nitewide.example/';
 const CUSTOMER_URL = 'https://nitewide.example/';
 const future = (hours) => new Date(Date.now() + hours * 3600000).toISOString();
 const address = (label, run) => `delivered+business-${label}-${run}@resend.dev`;

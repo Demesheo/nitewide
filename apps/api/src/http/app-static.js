@@ -59,13 +59,13 @@ function installAppStatic(app, root = path.resolve(__dirname, '../../../..'), co
     app.use('/assets', (req, res, next) => assetHandlers[selectedApp(req)](req, res, next), missingAsset);
     app.get(['/', '/index.html'], (req, res) => {
       const name = selectedApp(req);
-      if (name !== 'admin' && new URL(req.originalUrl, 'http://localhost').searchParams.get('invite')) return redirect(req, res, links.businessWorkspace);
+      if (name === 'customer' && new URL(req.originalUrl, 'http://localhost').searchParams.get('invite')) return redirect(req, res, links.businessWorkspace);
       return pages[name](req, res);
     });
     app.get(['/business', '/business/', '/business/index.html'], (req, res) => redirect(req, res, links.businessHome));
-    app.get(['/app', '/app/', '/sign-in', '/sign-in/'], (req, res) => selectedApp(req) === 'business'
+    app.get(['/sign-in', '/sign-in/'], (req, res) => selectedApp(req) === 'business'
       ? pages.business(req, res)
-      : redirect(req, res, new URL(req.path.startsWith('/app') ? '/app' : '/sign-in', apps.business)));
+      : redirect(req, res, new URL('/sign-in', apps.business)));
     app.get(['/admin', '/admin/', '/admin/index.html'], (req, res) => redirect(req, res, links.adminUrl));
     app.use('/business', onHost('business', publicHandlers.business));
     app.use('/admin', onHost('admin', publicHandlers.admin));
@@ -77,14 +77,14 @@ function installAppStatic(app, root = path.resolve(__dirname, '../../../..'), co
   app.use('/business/assets', assetHandlers.business, missingAsset);
   app.use('/admin/assets', assetHandlers.admin, missingAsset);
   app.use('/assets', assetHandlers.customer, missingAsset);
-  app.get(['/business', '/business/', '/business/index.html', '/app', '/app/', '/sign-in', '/sign-in/'], pages.business);
+  app.get(['/business', '/business/', '/business/index.html', '/sign-in', '/sign-in/'], pages.business);
   app.get(['/admin', '/admin/', '/admin/index.html'], pages.admin);
   app.get('/', (req, res, next) => {
     // Older team/promoter links pointed to the customer root. Keep their
     // tokens and query intact, but never take a redirect target from input.
     const url = new URL(req.originalUrl, 'http://localhost');
     if (!url.searchParams.get('invite')) return next();
-    noStore(res).redirect(302, `/app${url.search}`);
+    noStore(res).redirect(302, `/business${url.search}`);
   }, pages.customer);
   app.get('/index.html', pages.customer);
   app.use('/business', publicHandlers.business);

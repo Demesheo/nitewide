@@ -27,7 +27,7 @@ test('booking contact stays in Messages, receives an organizer reply and raises 
   const organizer = await context.newPage();
   try {
     await test.step('the real Business organizer sees the same thread and replies', async () => {
-      await loginViaApi(organizer, fixture, 'business', 'business', '/app');
+      await loginViaApi(organizer, fixture, 'business', 'business', '/?section=overview');
       await organizer.getByRole('button', { name: /^Messages/ }).click();
       const dialog = organizer.getByRole('dialog');
       await dialog.getByRole('button', { name: /Can I arrive with my party at 10pm/ }).click();
@@ -81,8 +81,14 @@ test('commission confirmation names each approved statement, covers business fee
     if (mutations.length === 1) return route.fulfill({ status: 503, json: { error: { code: 'PROVIDER_UNAVAILABLE', message: 'Payment response unavailable. Retry this approved payment.' } } });
     return route.fulfill({ json: { data: { paymentId: '00000000-0000-4000-8000-000000000814', currency: 'USD', status: 'paid_fee_review', netSettlementStatus: 'invoicing_fee_unknown', commissionCents: 1200, estimatedFeeCents: 100, totalCents: 1300, actualFeeCents: null, verifiedNetCents: null, residualCents: null } } });
   });
-  await loginViaApi(page, fixture, 'business', 'business', `/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/?section=payments&paymentOrganization=${fixture.ids.org}`);
   const chooseAndPay = async () => {
+    // This isolated interface fixture mocks commission finance access, while
+    // merchant panes retain the real API denial. Let those panels settle before
+    // iPhone scrolls to a statement; their late alerts otherwise move the target
+    // between Playwright's hit test and its click. No sleeps or forced clicks.
+    await expect(page.locator('.payment-overview')).toHaveAttribute('aria-busy', 'false');
+    await expect(page.locator('.payment-accounts').getByRole('alert')).toHaveText('Business owner or authorized finance manager access required');
     await page.getByRole('checkbox', { name: /Alex Individual at First event statement/ }).check();
     await page.getByRole('checkbox', { name: /Alex Individual at Second event statement/ }).check();
     await page.getByRole('button', { name: 'Pay 2 selected statements' }).click();
@@ -176,7 +182,7 @@ test('authorized finance fee review retains audited evidence on retry and requir
     if (route.request().method() === 'GET' && path.endsWith(`/${paymentId}`)) return route.fulfill({ json: { data: payment } });
     throw new Error(`Unexpected offline commission operation: ${route.request().method()} ${path}`);
   });
-  await loginViaApi(page, fixture, 'business', 'business', `/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/?section=payments&paymentOrganization=${fixture.ids.org}`);
   const openPayment = async () => {
     await page.getByRole('button', { name: 'View payment for Audited fee-review statement', exact: true }).click();
     const modal = page.getByRole('dialog', { name: 'Commission payment', exact: true });

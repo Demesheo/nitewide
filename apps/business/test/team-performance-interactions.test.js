@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 test('team performance requests and renders sales in the direction shown by its sort control', async () => {
   const businessRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
-    url: 'http://localhost/app', pretendToBeVisual: true,
+    url: 'http://localhost/', pretendToBeVisual: true,
   });
   const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLButtonElement', 'HTMLInputElement', 'HTMLSelectElement', 'Element', 'Node', 'Event', 'MouseEvent', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame'];
   const originalGlobals = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));

@@ -213,7 +213,7 @@ for (const fixture of [
       assert.ok(calls.some(call => call.path === `/api/business/organizations/${invitedOrganizationId}/team-page`));
       assert.ok(queries.getByRole('button', { name: 'Invite team member' }));
     }
-  }, { path: `/app?invite=landing-invitation${fixture.otherOwner ? `&workspaceOrganization=${ownedOrganizationId}` : ''}`, storedSession: session, fetcher: async ({ path }) => {
+  }, { path: `/?invite=landing-invitation${fixture.otherOwner ? `&workspaceOrganization=${ownedOrganizationId}` : ''}`, storedSession: session, fetcher: async ({ path }) => {
     if (path === '/api/team/invitations/landing-invitation') return response({ email: session.user.email, role: fixture.role, organizationName: invitedOrganization.name, accountMode: 'existing' });
     if (path.endsWith('/accept')) return response({ organizationId: invitedOrganizationId, role: fixture.role });
     if (path === '/api/auth/me') return response({ user: session.user, roles: updatedSession.roles });
@@ -240,7 +240,7 @@ test('accepted event-only promoter invitation opens its assigned event and resol
     assert.equal(queries.queryByRole('button', { name: 'Edit event' }), null);
     assert.equal(calls.some(call => call.path.includes('/team-page')), false);
     assert.equal(calls.filter(call => call.path.endsWith('/accept')).length, 1);
-  }, { path: '/app?invite=event-invitation', storedSession: session, fetcher: async ({ path }) => {
+  }, { path: '/?invite=event-invitation', storedSession: session, fetcher: async ({ path }) => {
     if (path === '/api/team/invitations/event-invitation') return response({ email: session.user.email, role: 'affiliate', eventId: event.id, eventTitle: event.title, accountMode: 'existing' });
     if (path.endsWith('/accept')) return response({ eventId: event.id, role: 'affiliate' });
     if (path === '/api/auth/me') return response({ user: session.user, roles: ['organization_owner', 'affiliate'] });
@@ -286,7 +286,7 @@ test('restored customer session never renders protected navigation and Business 
     assert.match(queries.getByRole('alert').textContent, /does not have active Business access/);
     assert.equal(dom.window.sessionStorage.getItem('nitewide.business.session'), null);
     assert.deepEqual(calls.map((call) => call.path), ['/api/business/bootstrap']);
-  }, { path: '/app', storedSession: session, fetcher: async () => new Promise((done) => { complete = done; }) });
+  }, { path: '/?section=overview', storedSession: session, fetcher: async () => new Promise((done) => { complete = done; }) });
 });
 
 test('bootstrap service failure safely offers Retry and Return to sign in without workspace exposure', async () => {
@@ -302,7 +302,7 @@ test('bootstrap service failure safely offers Retry and Return to sign in withou
     await queries.findByRole('heading', { name: 'Welcome back.' });
     assert.equal(dom.window.sessionStorage.getItem('nitewide.business.session'), null);
     assert.equal(calls.some((call) => call.path.includes('/logout')), false);
-  }, { path: '/app', storedSession: session, fetcher: async () => response({ message: 'Business services are temporarily unavailable.' }, 503) });
+  }, { path: '/?section=overview', storedSession: session, fetcher: async () => response({ message: 'Business services are temporarily unavailable.' }, 503) });
 });
 
 test('explicit invitation-only sign-in retains generic identity auth and omits the public access request action', async () => {
@@ -315,7 +315,7 @@ test('explicit invitation-only sign-in retains generic identity auth and omits t
     await user.click(queries.getByRole('button', { name: 'Sign in to Nitewide' }));
     assert.equal(calls[0].path, '/api/auth/sign-in');
     assert.equal(signedIn.accessToken, session.accessToken);
-  }, { path: '/app?onboarding=synthetic-invitation', fetcher: async () => response(session) });
+  }, { path: '/?onboarding=synthetic-invitation', fetcher: async () => response(session) });
 });
 
 test('event tabs activate on a native click without synthesized mousedown and preserve the selection when share data arrives', async () => {
@@ -344,7 +344,7 @@ test('event tabs activate on a native click without synthesized mousedown and pr
     fireEvent.mouseDown(offerings, { button: 0, ctrlKey: false });
     fireEvent.click(offerings);
     assert.deepEqual(changedTabs, ['tickets', 'sales', 'tickets'], 'normal mouse activation plus its click records only one tab change');
-  }, { path: '/app?section=events', fetcher: async ({ path }) => {
+  }, { path: '/?section=events', fetcher: async ({ path }) => {
     if (path.endsWith('/summary')) return response(summary);
     if (path.endsWith('/referral-link')) return new Promise((done) => { completeLink = done; });
     if (path.endsWith('/guestlist-invite-pools')) return new Promise((done) => { completePools = done; });

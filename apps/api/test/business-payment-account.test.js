@@ -14,7 +14,7 @@ function fixture({role='owner',financeAuthorized=false,active=true,mode='test'}=
       count:async()=>profiles.size,findAll:async()=>[...profiles.values()]},Event:{findAll:async()=>[],findByPk:async()=>null},Order:{count:async()=>0} };
   let remote = {...readyRemote(),livemode:mode === 'live'};
   const stripe = {mode,createAccount:async (params,options)=>{calls.push({params,options});return remote;},retrieveAccount:async ()=>remote,createAccountLink:async params=>{calls.push(params);return {object:'v2.core.account_link',account:params.account,livemode:mode === 'live',url:'https://connect.stripe.test/single-use',expires_at:'2033-05-18T03:33:20.000Z'};}};
-  return {models,stripe,profiles,calls,organization,service:createBusinessPaymentAccountService({models,stripe,businessAppUrl:'https://business.example/app'}),setRemote:r=>remote=r};
+  return {models,stripe,profiles,calls,organization,service:createBusinessPaymentAccountService({models,stripe,businessAppUrl:'https://business.example/'}),setRemote:r=>remote=r};
 }
 test('named profile persists before provider creation and stable retries reuse controller account',async()=>{
   const f=fixture();const id=randomUUID();const a=await f.service.create('user','org',{name:'Nightclub A',idempotencyKey:id});

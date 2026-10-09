@@ -10,7 +10,7 @@ function isolatedEnvironment(databaseUrl, source = process.env) {
     AUTH_TOKEN_SECRET: 'playwright-session-key-not-for-real-environments',
     QR_TOKEN_SECRET: 'playwright-qr-key-not-for-real-environments',
     EMAIL_ENCRYPTION_KEY: 'playwright-email-key-not-for-real-environments',
-    CUSTOMER_APP_URL: urls.customer, BUSINESS_APP_URL: `${urls.business}/app`,
+    CUSTOMER_APP_URL: urls.customer, BUSINESS_APP_URL: `${urls.business}/`,
     VITE_API_URL: '/api', VITE_CUSTOMER_URL: urls.customer, VITE_BUSINESS_URL: urls.business,
     NITEWIDE_API_PROXY: urls.api, CORS_ORIGINS: [urls.customer, urls.business, urls.admin].join(','),
   };

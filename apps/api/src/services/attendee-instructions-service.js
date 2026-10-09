@@ -5,7 +5,7 @@ const { createHash } = require('node:crypto');
 const { queueEventEmail } = require('./email-events');
 const { queueInstructionsSent } = require('./business-email-events');
 
-async function sendAttendeeInstructions({ models, permissions, email, customerAppUrl, businessAppUrl = 'http://localhost:5174/app', userId, eventId, instructions, idempotencyKey = null }) {
+async function sendAttendeeInstructions({ models, permissions, email, customerAppUrl, businessAppUrl = 'http://localhost:5174/', userId, eventId, instructions, idempotencyKey = null }) {
   if (!email?.enabled) throw new DomainError('Transactional email is not configured', { code: 'EMAIL_UNAVAILABLE', status: 503 });
   const digest = createHash('sha256').update(instructions).digest('hex');
   const count = await mutationTransaction(models.Event.sequelize, async (transaction) => {

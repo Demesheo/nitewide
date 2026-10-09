@@ -78,7 +78,7 @@ function summarizeEvent({ orders, offerings, people, guests }) {
   return { summary, tiers: [...tiers.values()], people: [...referrals.values()].map(({ customerIds, guestlistCustomerIds, ...p }) => ({ ...p, customers: customerIds.size, guestlistCustomers: guestlistCustomerIds.size })), customers: [...customers.values()], channels: [...channels.values()] };
 }
 
-function createEventWorkspaceService({ models: m, permissions, email = null, stripe = null, businessAppUrl = 'http://localhost:5174/app', now = () => new Date() }) {
+function createEventWorkspaceService({ models: m, permissions, email = null, stripe = null, businessAppUrl = 'http://localhost:5174/', now = () => new Date() }) {
   async function roster(event) {
     if (!event.organizationId) return [];
     const include = [{ model: m.User, as: 'user', attributes: ['id', 'displayName', 'email', 'isActive'] }];

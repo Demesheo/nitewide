@@ -84,7 +84,7 @@ test('Overview event sales mix displays venue-local dates while names can trunca
 test('Overview switches from Tickets & packages to Events with unique sales mix keys and no React warnings', async () => {
   const businessRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
-    url: 'http://localhost/app', pretendToBeVisual: true,
+    url: 'http://localhost/', pretendToBeVisual: true,
   });
   const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLButtonElement', 'HTMLInputElement', 'HTMLSelectElement', 'Element', 'Node', 'Event', 'MouseEvent', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame'];
   const originalGlobals = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));

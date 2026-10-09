@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 test('analytics table controls stay with the active table and preserve URL scope', { timeout: 30000 }, async () => {
   const businessRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
-    url: 'http://localhost/app?section=analytics&reportPeriod=7&reportTable=regions&reportPage=4&reportPageSize=10&reportSort=events_desc&reportSearch=seed&reportTeamSearch=stale&reportRegions=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC',
+    url: 'http://localhost/?section=analytics&reportPeriod=7&reportTable=regions&reportPage=4&reportPageSize=10&reportSort=events_desc&reportSearch=seed&reportTeamSearch=stale&reportRegions=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC',
     pretendToBeVisual: true,
   });
   dom.window.showSaveFilePicker = async () => ({ createWritable: async () => new WritableStream() });
@@ -229,7 +229,7 @@ test('analytics table controls stay with the active table and preserve URL scope
       url.searchParams.get('venueIds') === 'venue-a')));
 
     act(() => {
-      dom.window.history.pushState({}, '', `/app?section=analytics&reportPeriod=custom&reportStart=${editedStart}&reportEnd=${expectedEnd}&reportTable=events&reportSearch=Rew1nd&reportRegions=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC`);
+      dom.window.history.pushState({}, '', `/?section=analytics&reportPeriod=custom&reportStart=${editedStart}&reportEnd=${expectedEnd}&reportTable=events&reportSearch=Rew1nd&reportRegions=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC`);
       dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate'));
     });
     await waitFor(() => {
@@ -237,7 +237,7 @@ test('analytics table controls stay with the active table and preserve URL scope
       assert.equal(searchInput.value, 'Rew1nd', 'Back restores both the applied search and its visible draft');
     });
     act(() => {
-      dom.window.history.pushState({}, '', `/app?section=analytics&reportPeriod=custom&reportStart=${editedStart}&reportEnd=${expectedEnd}&reportTable=events&reportSearch=early&reportRegions=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC`);
+      dom.window.history.pushState({}, '', `/?section=analytics&reportPeriod=custom&reportStart=${editedStart}&reportEnd=${expectedEnd}&reportTable=events&reportSearch=early&reportRegions=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC`);
       dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate'));
     });
     await waitFor(() => {
@@ -246,7 +246,7 @@ test('analytics table controls stay with the active table and preserve URL scope
     });
 
     act(() => {
-      dom.window.history.pushState({}, '', '/app?section=analytics&reportPeriod=custom&reportStart=2026-09-01&reportEnd=2026-09-30&reportTable=venues&reportPage=3&reportPageSize=10&reportSort=events_desc&reportSearch=seed&reportRegion=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC');
+      dom.window.history.pushState({}, '', '/?section=analytics&reportPeriod=custom&reportStart=2026-09-01&reportEnd=2026-09-30&reportTable=venues&reportPage=3&reportPageSize=10&reportSort=events_desc&reportSearch=seed&reportRegion=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC');
       dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate'));
     });
     await screen.findByRole('heading', { name: 'Venues & creators' });
@@ -322,7 +322,7 @@ test('analytics table controls stay with the active table and preserve URL scope
     await waitFor(() => assert.ok(requests.some((url) => url.pathname === '/api/business/reports/customers' &&
       url.searchParams.get('eventId') === '00000000-0000-4000-8000-000000000001')));
     act(() => {
-      dom.window.history.pushState({}, '', '/app?section=analytics&reportPeriod=custom&reportStart=2026-09-01&reportEnd=2026-09-30&reportTable=offerings&reportEvent=00000000-0000-4000-8000-000000000001&reportRegion=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC');
+      dom.window.history.pushState({}, '', '/?section=analytics&reportPeriod=custom&reportStart=2026-09-01&reportEnd=2026-09-30&reportTable=offerings&reportEvent=00000000-0000-4000-8000-000000000001&reportRegion=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC');
       dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate'));
     });
     await waitFor(() => {
@@ -331,7 +331,7 @@ test('analytics table controls stay with the active table and preserve URL scope
       assert.equal(params.get('reportTable'), 'offerings');
     });
     act(() => {
-      dom.window.history.pushState({}, '', '/app?section=analytics&reportPeriod=custom&reportStart=2026-09-01&reportEnd=2026-09-30&reportTable=events&reportRegion=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC');
+      dom.window.history.pushState({}, '', '/?section=analytics&reportPeriod=custom&reportStart=2026-09-01&reportEnd=2026-09-30&reportTable=events&reportRegion=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC');
       dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate'));
     });
     await waitFor(() => {
@@ -340,7 +340,7 @@ test('analytics table controls stay with the active table and preserve URL scope
       assert.equal(params.get('reportTable'), 'events');
     });
     act(() => {
-      dom.window.history.pushState({}, '', '/app?section=analytics&reportPeriod=custom&reportStart=2026-09-01&reportEnd=2026-09-30&reportTable=offerings&reportEvent=00000000-0000-4000-8000-000000000001&reportRegion=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC');
+      dom.window.history.pushState({}, '', '/?section=analytics&reportPeriod=custom&reportStart=2026-09-01&reportEnd=2026-09-30&reportTable=offerings&reportEvent=00000000-0000-4000-8000-000000000001&reportRegion=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC');
       dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate'));
     });
     await waitFor(() => {
@@ -349,7 +349,7 @@ test('analytics table controls stay with the active table and preserve URL scope
       assert.equal(params.get('reportTable'), 'offerings');
     });
     act(() => {
-      dom.window.history.pushState({}, '', '/app?section=analytics&reportPeriod=custom&reportStart=2026-09-01&reportEnd=2026-09-30&reportTable=customers&reportEvent=00000000-0000-4000-8000-000000000001&reportRegion=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC');
+      dom.window.history.pushState({}, '', '/?section=analytics&reportPeriod=custom&reportStart=2026-09-01&reportEnd=2026-09-30&reportTable=customers&reportEvent=00000000-0000-4000-8000-000000000001&reportRegion=Orlando%2C%20FL%2C%20US&organizationIds=org-a&venueIds=venue-a&reportTimezone=UTC');
       dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate'));
     });
     await waitFor(() => {
@@ -476,7 +476,7 @@ test('analytics table controls stay with the active table and preserve URL scope
     const restoreDates = (startDate, endDate) => act(() => {
       const params = new URLSearchParams(dom.window.location.search);
       params.set('reportPeriod', 'custom'); params.set('reportStart', startDate); params.set('reportEnd', endDate);
-      dom.window.history.pushState({}, '', `/app?${params}`);
+      dom.window.history.pushState({}, '', `/?${params}`);
       dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate'));
     });
     for (const [startDate, endDate, message] of [

@@ -15,13 +15,13 @@ function assertPublicAppUrl(value, name) {
 function subdomainApps(config) {
   const apps = {};
   for (const [name, key, pathname] of [
-    ['customer', 'CUSTOMER_APP_URL', '/'], ['business', 'BUSINESS_APP_URL', '/app'], ['admin', 'ADMIN_APP_URL', '/'],
+    ['customer', 'CUSTOMER_APP_URL', '/'], ['business', 'BUSINESS_APP_URL', '/'], ['admin', 'ADMIN_APP_URL', '/'],
   ]) {
     assertPublicAppUrl(config[key], key);
     const url = new URL(config[key]);
     const dnsName = url.hostname.length <= 253 && url.hostname.split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label));
     if (url.pathname !== pathname || url.search || url.hash || url.port || ipaddr.isValid(url.hostname) || !dnsName) {
-      throw new Error('Subdomain routing requires three distinct public HTTPS hostnames: customer at /, business at /app, and admin at /');
+      throw new Error('Subdomain routing requires three distinct public HTTPS hostnames with each app at /');
     }
     apps[name] = url;
   }
@@ -49,14 +49,16 @@ function publicAppLinks(config) {
   if (config.APP_ROUTING_MODE !== 'subdomains') {
     // Bundled path routing stays relative to the current host, including a
     // disabled-payment demo that has no explicit public callback URLs yet.
-    return { customerUrl: '/', businessHome: '/business', businessWorkspace: '/app', adminUrl: '/admin' };
+    return { customerUrl: '/', businessHome: '/business', businessWorkspace: '/business?section=overview', adminUrl: '/admin' };
   }
   const customer = new URL(config.CUSTOMER_APP_URL);
   const business = new URL(config.BUSINESS_APP_URL);
+  const workspace = new URL(business);
+  workspace.searchParams.set('section', 'overview');
   return {
     customerUrl: customer.toString(),
     businessHome: new URL('/', business).toString(),
-    businessWorkspace: business.toString(),
+    businessWorkspace: workspace.toString(),
     adminUrl: new URL(config.ADMIN_APP_URL).toString(),
   };
 }

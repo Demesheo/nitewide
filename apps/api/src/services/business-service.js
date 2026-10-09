@@ -143,7 +143,7 @@ function createBusinessService({
   permissions,
   email = null,
   customerAppUrl = 'http://localhost:5173',
-  businessAppUrl = 'http://localhost:5174/app',
+  businessAppUrl = 'http://localhost:5174/',
   now = () => new Date(),
   environment = process.env.NODE_ENV || 'development',
   hostedDemo = false,

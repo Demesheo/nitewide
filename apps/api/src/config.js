@@ -83,6 +83,15 @@ function getConfig(environment = process.env) {
   // can turn missing deployment URLs into a local callback.
   validateStripeSettings(environment);
   const values = schema.parse(environment);
+  // Accept the previously shipped environment value during image-first rollout,
+  // but never generate, serve or redirect a public /app route.
+  if (values.BUSINESS_APP_URL) {
+    const business = new URL(values.BUSINESS_APP_URL);
+    if (business.pathname === '/app') {
+      business.pathname = values.APP_ROUTING_MODE === 'paths' && business.origin === new URL(values.CUSTOMER_APP_URL).origin ? '/business' : '/';
+      values.BUSINESS_APP_URL = business.toString();
+    }
+  }
   values.EMAIL_DELIVERY_POLICY = emailDeliveryPolicy(values);
   // Public-address matching is automatic in approved release environments only.
   // Local, test and demo runtimes stay offline even with an inherited override.
@@ -123,9 +132,9 @@ function getConfig(environment = process.env) {
     }
     for (const name of ['CUSTOMER_APP_URL', 'BUSINESS_APP_URL']) assertPublicStripeReturnUrl(environment[name], name);
     const customer = new URL(values.CUSTOMER_APP_URL), business = new URL(values.BUSINESS_APP_URL);
-    if (values.APP_ROUTING_MODE === 'paths' && (customer.pathname !== '/' || business.pathname !== '/app' || customer.origin !== business.origin
+    if (values.APP_ROUTING_MODE === 'paths' && (customer.pathname !== '/' || business.pathname !== '/business' || customer.origin !== business.origin
       || customer.search || customer.hash || business.search || business.hash)) {
-      throw new Error('Single-origin deployments require CUSTOMER_APP_URL at / and BUSINESS_APP_URL at /app on the same origin');
+      throw new Error('Single-origin deployments require CUSTOMER_APP_URL at / and BUSINESS_APP_URL at /business on the same origin');
     }
     if (values.APP_ROUTING_MODE === 'paths' && values.ADMIN_APP_URL) {
       const admin = new URL(values.ADMIN_APP_URL);
@@ -168,7 +177,7 @@ function getConfig(environment = process.env) {
   if (values.RESEND_API_KEY && values.NODE_ENV === 'production' && !values.CUSTOMER_APP_URL.startsWith('https://')) {
     throw new Error('Production transactional email requires an HTTPS CUSTOMER_APP_URL');
   }
-  const businessAppUrl = values.BUSINESS_APP_URL || (values.HOSTED_DEMO === 'true' ? new URL('/app', values.CUSTOMER_APP_URL).toString() : 'http://localhost:5174/app');
+  const businessAppUrl = values.BUSINESS_APP_URL || (values.HOSTED_DEMO === 'true' ? new URL('/business', values.CUSTOMER_APP_URL).toString() : 'http://localhost:5174/');
   if (values.RESEND_API_KEY && values.NODE_ENV === 'production' && !businessAppUrl.startsWith('https://')) {
     throw new Error('Production transactional email requires an HTTPS BUSINESS_APP_URL');
   }

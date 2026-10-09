@@ -81,7 +81,7 @@ async function assertFinanceAccess(models, userId, organizationId, transaction) 
   if (!membership || !(membership.role === 'owner' || membership.role === 'admin' && membership.financeAuthorized)) throw forbidden('Business owner or authorized finance manager access required');
   return org;
 }
-function createBusinessPaymentAccountService({ models, stripe = null, businessAppUrl = 'http://localhost:5174/app',now = () => new Date() }) {
+function createBusinessPaymentAccountService({ models, stripe = null, businessAppUrl = 'http://localhost:5174/',now = () => new Date() }) {
   const sharedAccountId = stripe?.mode === 'test' && stripe.sandboxSharedAccountId;
   const assertNormalSelection = () => {
     if (sharedAccountId) throw conflict('Shared sandbox testing routes new payments through one merchant. Disable that server setting before changing account selection.', 'SANDBOX_SHARED_MERCHANT');

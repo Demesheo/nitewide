@@ -53,7 +53,7 @@ test('onboarding is available before webhook setup, but paid operations fail clo
 });
 test('explicit sandbox configuration works on the hosted demo without falling back to fake payment success', () => {
   assert.deepEqual(stripeConfiguration({ ...config, hostedDemo: true, NODE_ENV: 'production',
-    CUSTOMER_APP_URL: 'https://demo.example.test', BUSINESS_APP_URL: 'https://demo.example.test/app' }), {
+    CUSTOMER_APP_URL: 'https://demo.example.test', BUSINESS_APP_URL: 'https://demo.example.test/business' }), {
     configured: true, enabled: true, mode: 'test', publishableKey: 'pk_test_mock', demoEnabled: false,
   });
   assert.equal(stripeConfiguration({ STRIPE_MODE: 'disabled', hostedDemo: true, NODE_ENV: 'production' }).demoEnabled, true);
@@ -61,7 +61,7 @@ test('explicit sandbox configuration works on the hosted demo without falling ba
 test('live clients require explicit production, complete matching credentials and public callbacks before any SDK operation', () => {
   const live = { ...config, NODE_ENV: 'production', APP_ENVIRONMENT: 'production', HOSTED_DEMO: 'false',
     STRIPE_MODE: 'live', STRIPE_SECRET_KEY: 'sk_live_mock', STRIPE_PUBLISHABLE_KEY: 'pk_live_mock',
-    CUSTOMER_APP_URL: 'https://production.example.test', BUSINESS_APP_URL: 'https://production.example.test/app' };
+    CUSTOMER_APP_URL: 'https://production.example.test', BUSINESS_APP_URL: 'https://production.example.test/business' };
   let calls = 0;
   const sdk = { checkout: { sessions: { create: () => ++calls } } };
   assert.deepEqual(stripeConfiguration(live), { configured: true, enabled: true, mode: 'live', publishableKey: 'pk_live_mock', demoEnabled: false });
@@ -78,7 +78,7 @@ test('live clients require explicit production, complete matching credentials an
     { STRIPE_SECRET_KEY: 'sk_test_mock' }, { STRIPE_PUBLISHABLE_KEY: 'pk_test_mock' },
     { STRIPE_WEBHOOK_SECRET: '' }, { STRIPE_ACCOUNT_WEBHOOK_SECRET: '' }, { STRIPE_PUBLISHABLE_KEY: '' },
     { STRIPE_ACCOUNT_WEBHOOK_SECRET: live.STRIPE_WEBHOOK_SECRET },
-    { CUSTOMER_APP_URL: undefined }, { BUSINESS_APP_URL: 'http://localhost:5174/app' },
+    { CUSTOMER_APP_URL: undefined }, { BUSINESS_APP_URL: 'http://localhost:5174/' },
     { STRIPE_SANDBOX_SHARED_ACCOUNT_ID: 'acct_shared' }, { STRIPE_MODE: '[' },
   ]) {
     assert.throws(() => createStripeClient({ ...live, ...changes }, { sdk }));
@@ -92,7 +92,7 @@ test('restricted keys preserve mode safety, account scope and public-secret sepa
     const restricted = { ...config, NODE_ENV: mode === 'live' ? 'production' : 'development',
       APP_ENVIRONMENT: mode === 'live' ? 'production' : undefined, HOSTED_DEMO: 'false',
       STRIPE_MODE: mode, STRIPE_SECRET_KEY: `rk_${mode}_offlineprivate`, STRIPE_PUBLISHABLE_KEY: `pk_${mode}_offlinepublic`,
-      CUSTOMER_APP_URL: 'https://customer.example.test', BUSINESS_APP_URL: 'https://business.example.test/app' };
+      CUSTOMER_APP_URL: 'https://customer.example.test', BUSINESS_APP_URL: 'https://business.example.test/' };
     const calls = [], sdk = { checkout: { sessions: { create: (...args) => { calls.push(args); return 'offline-session'; } } } };
     const publicConfig = stripeConfiguration(restricted);
     assert.equal(publicConfig.enabled, true);
@@ -124,7 +124,7 @@ test('purchase and commission payment-intent retrieval share guarded connected-a
     const settings = { ...config, NODE_ENV: mode === 'live' ? 'production' : 'development',
       APP_ENVIRONMENT: mode === 'live' ? 'production' : undefined, HOSTED_DEMO: 'false',
       STRIPE_MODE: mode, STRIPE_SECRET_KEY: `${prefix}_${mode}_offlineprivate`, STRIPE_PUBLISHABLE_KEY: `pk_${mode}_offlinepublic`,
-      CUSTOMER_APP_URL: 'https://customer.example.test', BUSINESS_APP_URL: 'https://business.example.test/app' };
+      CUSTOMER_APP_URL: 'https://customer.example.test', BUSINESS_APP_URL: 'https://business.example.test/' };
     const calls = [], intent = { id: 'pi_offline', object: 'payment_intent', livemode: mode === 'live' };
     const client = createStripeClient(settings, { sdk: { paymentIntents: { retrieve: (...args) => { calls.push(args); return intent; } } } });
     assert.equal(client.retrievePaymentIntent, client.retrieveCommissionPaymentIntent);

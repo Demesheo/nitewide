@@ -15,7 +15,7 @@ const config = {
   NODE_ENV: 'test', LOG_LEVEL: 'silent', STRIPE_MODE: 'test', STRIPE_SECRET_KEY: 'sk_test_offlineprivate',
   STRIPE_PUBLISHABLE_KEY: 'pk_test_offlinepublic', STRIPE_WEBHOOK_SECRET: 'whsec_offlinepayment',
   STRIPE_ACCOUNT_WEBHOOK_SECRET: 'whsec_offlineaccount', CUSTOMER_APP_URL: 'https://customer.nitewide.test',
-  BUSINESS_APP_URL: 'https://business.nitewide.test/app', businessAppUrl: 'https://business.nitewide.test/app',
+  BUSINESS_APP_URL: 'https://business.nitewide.test/', businessAppUrl: 'https://business.nitewide.test/',
   corsOrigins: ['https://customer.nitewide.test', 'https://business.nitewide.test'],
   AUTH_TOKEN_SECRET: 'offline-test-auth-key-with-32-characters', RELEASE_REVISION: 'a'.repeat(40),
 };
@@ -167,17 +167,18 @@ test('hosted callbacks require explicit public HTTPS origins without credentials
   assert.ok(hasCheck(inspectPaymentConfiguration({ ...hosted, corsOrigins: [] }), 'CALLBACK_CORS_MISMATCH', 'fail'));
   assert.equal(inspectPaymentConfiguration(hosted).mode, 'sandbox-ready');
   const demo = { ...hosted, hostedDemo: true, CUSTOMER_APP_URL: 'https://demo.nitewide.test',
-    BUSINESS_APP_URL: 'https://demo.nitewide.test/app', corsOrigins: ['https://demo.nitewide.test'] };
+    BUSINESS_APP_URL: 'https://demo.nitewide.test/business', corsOrigins: ['https://demo.nitewide.test'] };
   assert.equal(inspectPaymentConfiguration(demo).mode, 'sandbox-ready');
-  assert.equal(inspectPaymentConfiguration({ ...demo, BUSINESS_APP_URL: 'https://demo.nitewide.test/app/' }).mode, 'sandbox-ready');
+  assert.equal(inspectPaymentConfiguration({ ...demo, BUSINESS_APP_URL: 'https://demo.nitewide.test/business/' }).mode, 'sandbox-ready');
   for (const changes of [{ CUSTOMER_APP_URL: 'https://demo.nitewide.test/wrong-customer' },
-    { BUSINESS_APP_URL: 'https://demo.nitewide.test/app/sign-in' },
-    { BUSINESS_APP_URL: 'https://business.nitewide.test/app', corsOrigins: ['https://demo.nitewide.test', 'https://business.nitewide.test'] }]) {
+    { BUSINESS_APP_URL: 'https://demo.nitewide.test/business/sign-in' },
+    { BUSINESS_APP_URL: 'https://demo.nitewide.test/app' },
+    { BUSINESS_APP_URL: 'https://business.nitewide.test/', corsOrigins: ['https://demo.nitewide.test', 'https://business.nitewide.test'] }]) {
     const report = inspectPaymentConfiguration({ ...demo, ...changes });
     assert.equal(report.mode, 'configuration-blocked');
     assert.ok(hasCheck(report, 'HOSTED_DEMO_CALLBACK_ROUTING_MISMATCH', 'fail'));
   }
-  assert.equal(inspectPaymentConfiguration({ ...config, CUSTOMER_APP_URL: 'http://localhost:5173', BUSINESS_APP_URL: 'http://localhost:5174/app' }).mode, 'sandbox-ready');
+  assert.equal(inspectPaymentConfiguration({ ...config, CUSTOMER_APP_URL: 'http://localhost:5173', BUSINESS_APP_URL: 'http://localhost:5174/' }).mode, 'sandbox-ready');
   const separate = { ...hosted, hostedDemo: true, APP_ROUTING_MODE: 'subdomains', ADMIN_APP_URL: 'https://admin.nitewide.test',
     corsOrigins: [...config.corsOrigins, 'https://admin.nitewide.test'] };
   assert.equal(inspectPaymentConfiguration(separate).mode, 'sandbox-ready');
@@ -192,7 +193,7 @@ test('hosted callbacks require explicit public HTTPS origins without credentials
 test('shared merchant routing is an explicit sandbox warning and fails closed outside permitted runtimes', () => {
   const shared = { ...config, STRIPE_SANDBOX_SHARED_ACCOUNT_ID: 'acct_offlineshared' };
   for (const changes of [{}, { STRIPE_SECRET_KEY: 'rk_test_offlineprivate' }, { NODE_ENV: 'development' }, { NODE_ENV: 'production', hostedDemo: true,
-    CUSTOMER_APP_URL: 'https://demo.nitewide.test', BUSINESS_APP_URL: 'https://demo.nitewide.test/app', corsOrigins: ['https://demo.nitewide.test'] }]) {
+    CUSTOMER_APP_URL: 'https://demo.nitewide.test', BUSINESS_APP_URL: 'https://demo.nitewide.test/business', corsOrigins: ['https://demo.nitewide.test'] }]) {
     const report = inspectPaymentConfiguration({ ...shared, ...changes });
     assert.equal(report.mode, 'sandbox-ready');
     assert.ok(hasCheck(report, 'SHARED_SANDBOX_ROUTING', 'warn'));

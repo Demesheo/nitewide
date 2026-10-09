@@ -230,7 +230,7 @@ test('sandbox profiles persist scoped provider readiness and lock event merchant
     const org2=await m.Organization.create({name:'Other business',slug:`other-${randomUUID()}`,onboardingEstablished:true});
     await m.OrganizationOwner.create({organizationId:org.id,userId:owner.id,role:'owner'});
     await m.OrganizationOwner.create({organizationId:org2.id,userId:other.id,role:'owner'});
-    const service=createBusinessPaymentAccountService({models:m,stripe,businessAppUrl:'https://business.example/app'});
+    const service=createBusinessPaymentAccountService({models:m,stripe,businessAppUrl:'https://business.example/'});
     const input={name:'Club A merchant',idempotencyKey:randomUUID()};const profile=await service.create(owner.id,org.id,input);
     await service.create(owner.id,org.id,input);assert.equal(providerCalls,1);
     await assert.rejects(service.list(other.id,org.id),{code:'FORBIDDEN'});

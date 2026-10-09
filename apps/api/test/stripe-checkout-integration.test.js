@@ -754,7 +754,7 @@ test('live checkout, recovery, webhook fulfillment and full refunds preserve liv
     } };
     const { paymentCheckouts: payments, refunds, stripeWebhooks: webhook } = require('../src/payments/services').createPaymentServices({
       sequelize, models, checkout, email, services: { stripe: provider.stripe }, permissions: createPermissionService(models),
-      config: { CUSTOMER_APP_URL: 'https://nitewide.test', businessAppUrl: 'https://business.nitewide.test/app' },
+      config: { CUSTOMER_APP_URL: 'https://nitewide.test', businessAppUrl: 'https://business.nitewide.test/' },
     });
     const input = { buyerUserId: buyer.id, eventId: event.id, idempotencyKey: randomUUID(), items: [{ offeringId: offering.id, quantity: 1 }] };
     provider.loseNextCreation();

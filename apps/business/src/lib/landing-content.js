@@ -123,8 +123,10 @@ export const questions = [
 export function businessPage(pathname, search = '') {
   const path = pathname.replace(/\/+$/, "") || "/";
   if (path === "/" || path === "/business") {
-    return new URLSearchParams(search).get('invite') ? "workspace" : "landing";
+    const params = new URLSearchParams(search);
+    return ['section', 'invite', 'onboarding', 'resetPassword', 'verifyEmail', 'event', 'workspaceOrganization']
+      .some(key => params.get(key)) ? "workspace" : "landing";
   }
-  if (path === "/sign-in" || path === "/app") return "workspace";
+  if (path === "/sign-in") return "workspace";
   return "not-found";
 }

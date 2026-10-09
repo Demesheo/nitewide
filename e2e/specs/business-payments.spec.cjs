@@ -47,7 +47,7 @@ test('shared sandbox payments journey protects merchant choices and explains una
     payload.data.event={...payload.data.event,canManageFinance:true,canChangePaymentAccount:true};
     await route.fulfill({response,json:payload});
   });
-  await loginViaApi(page,fixture,'business','business',`/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await loginViaApi(page,fixture,'business','business',`/?section=payments&paymentOrganization=${fixture.ids.org}`);
   await test.step('The shared merchant is identified, refreshable and cannot mutate individual choices', async () => {
     const card=page.locator('.payment-accounts'),notice=card.locator('.shared-sandbox-notice');
     await expect(notice.getByText('Shared sandbox payments',{exact:true})).toBeVisible();
@@ -63,7 +63,7 @@ test('shared sandbox payments journey protects merchant choices and explains una
   });
   await test.step('The same shared merchant routes event payments and hides ineffective selectors when readiness is lost', async () => {
     paymentsReady = false;
-    await page.goto(`/app?section=events&event=${fixture.ids.event}`);
+    await page.goto(`/?section=events&event=${fixture.ids.event}`);
     const payments=page.locator('.payment-accounts');
     await expect(payments.getByText('Shared sandbox payments',{exact:true})).toBeVisible();
     await expect(payments).toContainText('Paid checkout remains unavailable');
@@ -104,7 +104,7 @@ authTest('merchant disconnect journey blocks unresolved obligations, disables sa
     }
     return route.fulfill({json:{data:{items:[account],total:1,page:1,pageSize:10,hasMore:false,canDisconnectPayments:true,defaultPaymentAccountId:account.id}}});
   });
-  await loginViaApi(page,fixture,'business','business',`/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await loginViaApi(page,fixture,'business','business',`/?section=payments&paymentOrganization=${fixture.ids.org}`);
   const card=page.locator('.payment-accounts');
   await test.step('Unresolved payments and refunds block disconnection but allow a confirmed reversible disable', async () => {
     await card.getByRole('button',{name:'Disconnect Stripe',exact:true}).click();
@@ -189,7 +189,7 @@ authTest('merchant setup journey names defaults, recovers hosted onboarding and 
     return route.fulfill({ json: { data: { items: accounts, total: accounts.length, page: 1, pageSize: 10, hasMore: false, defaultPaymentAccountId } } });
   });
   await page.route('https://connect.stripe.com/**', route => route.fulfill({ contentType: 'text/html', body: '<html><body><h1>Offline Stripe setup</h1><label>Email address<input type="email" /></label></body></html>' }));
-  await loginViaApi(page, fixture, 'business', 'business', `/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/?section=payments&paymentOrganization=${fixture.ids.org}`);
   const card = page.locator('.payment-accounts').first();
   await test.step('Payment totals, readiness checks and named default/new accounts stay in one merchant surface', async () => {
     await expect(page.getByRole('heading', { name: 'Your payments, clearly.', exact: true })).toBeVisible();
@@ -241,7 +241,7 @@ authTest('merchant setup journey names defaults, recovers hosted onboarding and 
     expect(attempts).toBe(3);
   });
   await test.step('Returning from hosted setup verifies the new account and keeps Organization free of merchant controls', async () => {
-    await page.goto(`/app?section=payments&paymentAccountReturn=${accounts[1].id}&paymentOrganization=${fixture.ids.org}`);
+    await page.goto(`/?section=payments&paymentAccountReturn=${accounts[1].id}&paymentOrganization=${fixture.ids.org}`);
     await expect(page.getByRole('status').filter({ hasText: 'Payment readiness checked with Stripe.' })).toBeVisible();
     await expect(page.locator('.payment-accounts')).toHaveCount(1);
     await expect(card.locator('article').filter({ has: page.getByRole('heading', { name: 'Uptown', exact: true }) }).getByText('Ready for sandbox payments', { exact: true })).toBeVisible();
@@ -267,7 +267,7 @@ test('event merchant journey locks unresolved payments then changes future routi
     selected = route.request().postDataJSON().paymentAccountId;
     return route.fulfill({ json: { data: { paymentAccountId: selected } } });
   });
-  await loginViaApi(page, fixture, 'business', 'business', `/app?section=events&event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/?section=events&event=${fixture.ids.event}`);
   const card = page.locator('.payment-accounts');
   await test.step('Pending checkouts and refunds keep event merchant selection read only', async () => {
     await expect(card.getByRole('heading', { name: 'Event payments' })).toBeVisible();
@@ -304,11 +304,11 @@ authTest('manager without finance or earnings permission does not see payments n
     await route.fulfill({ response, json: payload });
   });
   page.on('request', request => { if (/\/payment-(?:overview|accounts)|\/payments\/earnings/.test(request.url())) paymentRequests.push(request.url()); });
-  await loginViaApi(page, fixture, 'business', 'business', `/app?section=team&teamOrganizationId=${fixture.ids.org}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/?section=team&teamOrganizationId=${fixture.ids.org}`);
   await expect(page.getByRole('heading', { name: 'Build your team' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Payment accounts' })).toHaveCount(0);
   await expect(page.getByRole('navigation').getByRole('button', { name: 'Payments', exact: true })).toHaveCount(0);
-  await page.goto(`/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await page.goto(`/?section=payments&paymentOrganization=${fixture.ids.org}`);
   await expect(page.getByRole('navigation').filter({ visible: true }).getByRole('button', { name: 'Overview', exact: true })).toBeVisible();
   await expect(page.getByRole('navigation').filter({ visible: true }).getByRole('button', { name: 'Overview', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('heading', { name: 'Payment accounts' })).toHaveCount(0);
@@ -330,7 +330,7 @@ authTest('commission-only access shows personal earnings without merchant reques
   await mockPaymentSummaries(page);
   const merchantRequests = [];
   page.on('request', request => { if (/\/payment-(?:overview|accounts)/.test(request.url())) merchantRequests.push(request.url()); });
-  await loginViaApi(page, fixture, 'business', 'business', `/app?section=payments&paymentOrganization=${fixture.ids.org}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/?section=payments&paymentOrganization=${fixture.ids.org}`);
   await expect(page.getByRole('heading', { name: 'Your payments, clearly.', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'My commissions', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Commission rate locked at 0%' })).toBeVisible();

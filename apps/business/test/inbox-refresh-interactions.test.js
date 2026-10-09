@@ -28,7 +28,7 @@ async function loadComponents() {
 }
 
 test('message and notification inboxes refresh on navigation and explicit actions while idle browsers stay quiet', async t => {
-  const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/app', pretendToBeVisual: true });
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });
   const values = { window: dom.window, document: dom.window.document, navigator: dom.window.navigator,
     sessionStorage: dom.window.sessionStorage, localStorage: dom.window.localStorage,
     HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement,
@@ -244,13 +244,13 @@ test('message and notification inboxes refresh on navigation and explicit action
       await waitFor(() => assert.equal(lists(), 1));
       await user.click(screen.getByRole('button', { name: 'Navigate to events' })); await waitFor(() => assert.equal(lists(), 2));
       await user.click(screen.getByRole('button', { name: 'Navigate to overview' })); await waitFor(() => assert.equal(lists(), 3));
-      await act(async () => { dom.window.history.replaceState(null, '', '/app?section=events'); dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate')); });
+      await act(async () => { dom.window.history.replaceState(null, '', '/?section=events'); dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate')); });
       await waitFor(() => assert.equal(lists(), 4)); await quiet(calls); cleanup();
     });
 
     await t.test('the actual Business shell refreshes inboxes on page navigation and keeps its bootstrap quiet on focus', async () => {
       const calls = [], priorFetch = globalThis.fetch;
-      dom.window.history.replaceState(null, '', '/app?section=events');
+      dom.window.history.replaceState(null, '', '/?section=events');
       dom.window.sessionStorage.setItem('nitewide.business.session', JSON.stringify({ ...session, expiresAt: new Date(Date.now() + 3600000).toISOString() }));
       globalThis.fetch = async (path, options = {}) => {
         calls.push({ path, ...options });
@@ -275,7 +275,7 @@ test('message and notification inboxes refresh on navigation and explicit action
         await user.click(navigation.getByRole('button', { name: 'Events', exact: true }));
         await screen.findByRole('heading', { name: 'Every event. The whole picture.' }); await flush();
         for (const path of inboxPaths) assert.equal(count(path), 3, path);
-        await act(async () => { dom.window.history.replaceState(null, '', '/app'); dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate')); });
+        await act(async () => { dom.window.history.replaceState(null, '', '/?section=overview'); dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate')); });
         await screen.findByText('No open actions right now.'); await flush();
         for (const path of inboxPaths) assert.equal(count(path), 4, path);
         await quiet(calls, include);

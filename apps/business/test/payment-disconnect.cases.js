@@ -7,7 +7,7 @@ import {createPaymentTestServer} from './helpers/payment-runtime.js';
 
 test('connection warning requires explicit confirmation, blocks unresolved obligations and never treats a lost provider response as disconnected',async()=>{
   const root=resolve(fileURLToPath(new URL('..',import.meta.url)));
-  const dom=new JSDOM('<html><body><div id="root"></div></body></html>',{url:'http://localhost/app',pretendToBeVisual:true});
+  const dom=new JSDOM('<html><body><div id="root"></div></body></html>',{url:'http://localhost/',pretendToBeVisual:true});
   const values={window:dom.window,document:dom.window.document,navigator:dom.window.navigator,HTMLElement:dom.window.HTMLElement,
     HTMLInputElement:dom.window.HTMLInputElement,HTMLButtonElement:dom.window.HTMLButtonElement,HTMLFormElement:dom.window.HTMLFormElement,
     Element:dom.window.Element,Node:dom.window.Node,NodeFilter:dom.window.NodeFilter,DocumentFragment:dom.window.DocumentFragment,

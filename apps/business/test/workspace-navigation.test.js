@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
+import { businessPage } from '../src/lib/landing-content.js';
 import { readWorkspaceLocation, writeWorkspaceLocation } from '../src/lib/workspace-navigation.js';
 import { resolveOrganizationScope, readOrganizationPreference, organizationPreferenceKey } from '../src/lib/organization-scope.js';
 
@@ -16,8 +17,24 @@ async function withLocation(path, run) {
   }
 }
 
+test('configured root and demo workspaces preserve Payments returns and reloadable Overview', async () => {
+  for (const workspace of ['https://business.nitewide.test/?section=overview', 'https://business-staging.nitewide.test/?section=overview', '/business?section=overview']) {
+    await withLocation('/?section=payments&paymentAccountReturn=00000000-0000-4000-8000-000000000601&commissionProfileReturn=profile', window => {
+      window.__NITEWIDE_PUBLIC_CONFIG__ = { businessWorkspace: workspace };
+      writeWorkspaceLocation({}, { replace: true });
+      assert.equal(window.location.pathname, workspace.startsWith('/') ? '/business' : '/');
+      assert.equal(readWorkspaceLocation().section, 'payments');
+      assert.equal(window.location.search.includes('paymentAccountReturn='), true);
+      assert.equal(window.location.search.includes('commissionProfileReturn=profile'), true);
+      writeWorkspaceLocation({ section: 'overview' });
+      assert.equal(window.location.search, '?section=overview');
+      assert.equal(businessPage(window.location.pathname, window.location.search), 'workspace');
+    });
+  }
+});
+
 test('section navigation drops unrelated filters, defaults, and selected records', async () => {
-  await withLocation('/app?section=analytics&event=old-event&eventView=upcoming&teamSearch=Zoe&reportTable=venues&reportSort=orders_desc&reportPage=1&reportTeamPage=1', (window) => {
+  await withLocation('/?section=analytics&event=old-event&eventView=upcoming&teamSearch=Zoe&reportTable=venues&reportSort=orders_desc&reportPage=1&reportTeamPage=1', (window) => {
     const initial = readWorkspaceLocation();
     assert.equal(initial.section, 'analytics');
     assert.equal(initial.eventId, null);
@@ -26,7 +43,7 @@ test('section navigation drops unrelated filters, defaults, and selected records
     assert.equal(window.location.search, '?section=analytics&reportTable=venues&reportSort=orders_desc');
     for (const section of ['events', 'admissions', 'team', 'payments', 'overview']) {
       writeWorkspaceLocation({ section });
-      assert.equal(window.location.search, section === 'overview' ? '' : `?section=${section}`);
+      assert.equal(window.location.search, `?section=${section}`);
       assert.equal(readWorkspaceLocation().section, section);
     }
   });
@@ -36,7 +53,7 @@ test('payments deep links preserve finance selection and onboarding return only 
   const organizationA = '00000000-0000-4000-8000-000000000601';
   const organizationB = '00000000-0000-4000-8000-000000000602';
   const account = '00000000-0000-4000-8000-000000000603';
-  await withLocation(`/app?section=payments&paymentOrganization=${organizationA}&paymentAccountReturn=${account}&teamOrganizationId=stale&event=stale`, (window) => {
+  await withLocation(`/?section=payments&paymentOrganization=${organizationA}&paymentAccountReturn=${account}&teamOrganizationId=stale&event=stale`, (window) => {
     const initial = readWorkspaceLocation();
     assert.equal(initial.section, 'payments');
     assert.equal(initial.paymentOrganization, organizationA);
@@ -55,7 +72,7 @@ test('payments deep links preserve finance selection and onboarding return only 
 test('Back restores the selected payments business after section navigation', async () => {
   const organizationA = '00000000-0000-4000-8000-000000000601';
   const organizationB = '00000000-0000-4000-8000-000000000602';
-  await withLocation(`/app?section=payments&paymentOrganization=${organizationA}`, async (window) => {
+  await withLocation(`/?section=payments&paymentOrganization=${organizationA}`, async (window) => {
     writeWorkspaceLocation({ paymentOrganization: organizationB });
     writeWorkspaceLocation({ section: 'events' });
     await new Promise((resolve) => {
@@ -70,7 +87,7 @@ test('Back restores the selected payments business after section navigation', as
 test('legacy Stripe return links migrate from Team to Payments', async () => {
   const organization = '00000000-0000-4000-8000-000000000601';
   const account = '00000000-0000-4000-8000-000000000603';
-  await withLocation(`/app?section=team&teamOrganizationId=${organization}&paymentOrganization=${organization}&paymentAccountReturn=${account}`, window => {
+  await withLocation(`/?section=team&teamOrganizationId=${organization}&paymentOrganization=${organization}&paymentAccountReturn=${account}`, window => {
     assert.equal(readWorkspaceLocation().section, 'payments');
     assert.equal(readWorkspaceLocation().paymentOrganization, organization);
     writeWorkspaceLocation({}, { replace: true });
@@ -79,7 +96,7 @@ test('legacy Stripe return links migrate from Team to Payments', async () => {
 });
 
 test('event deep links retain only their list context and detail parameters', async () => {
-  await withLocation('/app?event=event-a&eventSearch=Rew1nd&eventPage=2&reportEvent=stale&reportTable=customers&teamPage=4', (window) => {
+  await withLocation('/?event=event-a&eventSearch=Rew1nd&eventPage=2&reportEvent=stale&reportTable=customers&teamPage=4', (window) => {
     assert.equal(readWorkspaceLocation().section, 'events', 'legacy event links still select Events');
     writeWorkspaceLocation({ tab: 'guestlist' });
     assert.equal(window.location.search, '?section=events&event=event-a&eventSearch=Rew1nd&eventPage=2&tab=guestlist');
@@ -91,7 +108,7 @@ test('event deep links retain only their list context and detail parameters', as
 });
 
 test('venue management state belongs only to Team and clears on section navigation', async () => {
-  await withLocation('/app?section=team&teamOrganizationId=org-a', (window) => {
+  await withLocation('/?section=team&teamOrganizationId=org-a', (window) => {
     writeWorkspaceLocation({ managedVenueBusinessId: 'org-a', managedVenueId: 'venue-a', managedVenueTab: 'team', venueSearch: 'North', venuesPage: 2, venueTeamPage: 3 });
     assert.equal(new URLSearchParams(window.location.search).get('managedVenueId'), 'venue-a');
     assert.equal(new URLSearchParams(window.location.search).get('venuesPage'), '2');
@@ -103,7 +120,7 @@ test('venue management state belongs only to Team and clears on section navigati
 });
 
 test('Back and Forward restore each section’s own state and no-op writes add no history', async () => {
-  await withLocation('/app?section=analytics&reportSearch=Rew1nd&reportTable=events', async (window) => {
+  await withLocation('/?section=analytics&reportSearch=Rew1nd&reportTable=events', async (window) => {
     writeWorkspaceLocation({ section: 'events' });
     writeWorkspaceLocation({ eventSearch: 'Friday', eventPage: 2 });
     const historyLength = window.history.length;
@@ -127,7 +144,7 @@ test('Back and Forward restore each section’s own state and no-op writes add n
 });
 
 test('fresh Events navigation clears stale Events scroll while preserving other history metadata', async () => {
-  await withLocation('/app?section=analytics&reportSearch=Rew1nd', (window) => {
+  await withLocation('/?section=analytics&reportSearch=Rew1nd', (window) => {
     window.history.replaceState({ eventsScrollY: 864, analyticsScrollY: 127, marker: 'kept' }, '', window.location.href);
     writeWorkspaceLocation({ section: 'events' });
 
@@ -139,7 +156,7 @@ test('fresh Events navigation clears stale Events scroll while preserving other 
 });
 
 test('leaving Events clears the destination scroll state and Back retains the Events list offset', async () => {
-  await withLocation('/app?section=events&eventSearch=Friday&eventPage=2', async (window) => {
+  await withLocation('/?section=events&eventSearch=Friday&eventPage=2', async (window) => {
     window.history.replaceState({ eventsScrollY: 438, marker: 'kept' }, '', window.location.href);
     writeWorkspaceLocation({ section: 'analytics' });
 
@@ -156,7 +173,7 @@ test('leaving Events clears the destination scroll state and Back retains the Ev
 });
 
 test('partial Events list and detail writes preserve Events scroll and unrelated history metadata', async () => {
-  await withLocation('/app?section=events&eventSearch=Friday&eventPage=2', (window) => {
+  await withLocation('/?section=events&eventSearch=Friday&eventPage=2', (window) => {
     window.history.replaceState({ eventsScrollY: 512, marker: 'kept' }, '', window.location.href);
     writeWorkspaceLocation({ eventSort: 'title_desc' });
     assert.equal(window.history.state.eventsScrollY, 512);
@@ -174,7 +191,7 @@ test('partial Events list and detail writes preserve Events scroll and unrelated
 });
 
 test('same-URL explicit Events navigation cleans stale scroll without adding history', async () => {
-  await withLocation('/app?section=events', (window) => {
+  await withLocation('/?section=events', (window) => {
     window.history.replaceState({ eventsScrollY: 999, marker: 'kept' }, '', window.location.href);
     const historyLength = window.history.length;
     const stateBefore = window.history.state;
@@ -194,7 +211,7 @@ test('one persisted organization survives section navigation; owner aggregates n
   const manager = '00000000-0000-4000-8000-000000000612';
   const promoter = '00000000-0000-4000-8000-000000000613';
   const data = { organizations: [{ id: owner, isOwner: true }, { id: manager, isOwner: false, canManageFinance: true }, { id: promoter }], scope: {} };
-  await withLocation('/app', window => {
+  await withLocation('/?section=overview', window => {
     writeWorkspaceLocation({ workspaceOrganization: manager });
     for (const section of ['analytics', 'events', 'admissions', 'payments', 'team', 'overview']) {
       writeWorkspaceLocation({ section });

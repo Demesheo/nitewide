@@ -12,7 +12,7 @@ const { forbidden } = require('../domain/errors');
 const { MAX_GUESTLIST_REQUEST_PARTY_SIZE, MAX_GUESTLIST_APPROVAL_PARTY_SIZE, assertGuestlistPartySize } = require('../domain/guestlist-party-size');
 const { reconcileGuestlistPasses } = require('./guestlist-pass-service');
 
-function createGuestlistService({ sequelize, models, permissions = createPermissionService(models), now = () => new Date(), email = null, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', reviewEmailsEnabled = false }) {
+function createGuestlistService({ sequelize, models, permissions = createPermissionService(models), now = () => new Date(), email = null, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/', reviewEmailsEnabled = false }) {
   const notifications = createNotificationService(models);
   async function request(input, context = {}) {
     assertGuestlistPartySize(input.partySize, MAX_GUESTLIST_REQUEST_PARTY_SIZE);

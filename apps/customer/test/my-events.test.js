@@ -59,9 +59,11 @@ test('event timing includes ongoing nights and list requests preserve server pag
 });
 
 test('Open in Business targets the workspace event deep link instead of the business landing page', () => {
-  const link = new URL(myEventBusinessUrl('https://business.nitewide.test/', eventId, { href: 'https://nitewide.test/' }));
-  assert.equal(link.origin, 'https://business.nitewide.test');
-  assert.equal(link.pathname, '/app');
-  assert.equal(link.searchParams.get('section'), 'events');
-  assert.equal(link.searchParams.get('event'), eventId);
+  for (const base of ['https://business.nitewide.test/', 'https://business-staging.nitewide.test/', 'https://nitewide-demo.onrender.com/business', 'http://localhost:5174/']) {
+    const link = new URL(myEventBusinessUrl(`${base}?section=overview&invite=stale#old`, eventId, { href: 'https://nitewide.test/' }));
+    assert.equal(link.origin, new URL(base).origin);
+    assert.equal(link.pathname, new URL(base).pathname);
+    assert.deepEqual([...link.searchParams], [['section', 'events'], ['event', eventId]]);
+    assert.equal(link.hash, '');
+  }
 });

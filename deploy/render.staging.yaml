@@ -20,7 +20,7 @@ projects:
               - key: CUSTOMER_APP_URL
                 value: "https://staging.nitewide.com"
               - key: BUSINESS_APP_URL
-                value: "https://business-staging.nitewide.com/app"
+                value: "https://business-staging.nitewide.com"
               - key: ADMIN_APP_URL
                 value: "https://admin-staging.nitewide.com"
               - key: CORS_ORIGINS

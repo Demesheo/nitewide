@@ -8,7 +8,7 @@ const config = { NODE_ENV: 'production', hostedDemo: true, RELEASE_REVISION: rev
   AUTH_TOKEN_SECRET: 'private-auth-'.repeat(4), STRIPE_MODE: 'test', STRIPE_SECRET_KEY: 'sk_test_private',
   STRIPE_PUBLISHABLE_KEY: 'pk_test_private', STRIPE_WEBHOOK_SECRET: 'whsec_privatepayment',
   STRIPE_ACCOUNT_WEBHOOK_SECRET: 'whsec_privateaccount', STRIPE_CONNECT_CLIENT_ID: 'ca_private',
-  CUSTOMER_APP_URL: 'https://example.com', businessAppUrl: 'https://example.com/app',
+  CUSTOMER_APP_URL: 'https://example.com', businessAppUrl: 'https://example.com/business',
   corsOrigins: ['https://example.com', 'https://business.example.com'] };
 
 test('payment runtime evidence detects configuration drift without returning settings or secrets', () => {

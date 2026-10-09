@@ -17,7 +17,7 @@ function deferred() {
 
 test('prepared exports keep progress current and isolate asynchronous work by session', async t => {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-  const dom = new JSDOM('<html><body><div id="root"></div></body></html>', { url: 'http://localhost/app', pretendToBeVisual: true });
+  const dom = new JSDOM('<html><body><div id="root"></div></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });
   const values = {
     window: dom.window, document: dom.window.document, navigator: dom.window.navigator, sessionStorage: dom.window.sessionStorage,
     HTMLElement: dom.window.HTMLElement, HTMLButtonElement: dom.window.HTMLButtonElement,
@@ -357,7 +357,7 @@ test('prepared exports keep progress current and isolate asynchronous work by se
       const saved = [], downloads = [];
       let logoutCalls = 0;
       dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
-      dom.window.history.replaceState(null, '', '/app?section=events');
+      dom.window.history.replaceState(null, '', '/?section=events');
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(first));
       subtest.mock.method(dom.window.HTMLAnchorElement.prototype, 'click', function () { saved.push(this.download); });
       subtest.mock.method(globalThis, 'fetch', async (path, options = {}) => {

@@ -19,7 +19,7 @@ const accountData = organizationId => ({ items: [{ id: `${organizationId}-accoun
 
 test('payments workspace protects finance scope, switches views and organizations, and recovers request failures', async t => {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-  const dom = new JSDOM('<html><body><div id="root"></div></body></html>', { url: 'http://localhost/app?section=payments', pretendToBeVisual: true });
+  const dom = new JSDOM('<html><body><div id="root"></div></body></html>', { url: 'http://localhost/?section=payments', pretendToBeVisual: true });
   const values = {
     window: dom.window, document: dom.window.document, navigator: dom.window.navigator,
     HTMLElement: dom.window.HTMLElement, HTMLButtonElement: dom.window.HTMLButtonElement, HTMLInputElement: dom.window.HTMLInputElement, HTMLSelectElement: dom.window.HTMLSelectElement,
@@ -50,7 +50,7 @@ test('payments workspace protects finance scope, switches views and organization
       view = render(React.createElement(BusinessPayments, { session, organizations, ...props, request }), { container: dom.window.document.getElementById('root') });
       return view;
     };
-    const location = search => dom.window.history.replaceState({}, '', `/app?section=payments${search}`);
+    const location = search => dom.window.history.replaceState({}, '', `/?section=payments${search}`);
 
     await t.test('finance dropdown excludes unauthorized organizations and personal view clears merchant controls', async () => {
       location('&paymentOrganization=private');

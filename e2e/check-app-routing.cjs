@@ -21,7 +21,7 @@ const config = getConfig({ NODE_ENV: 'production', APP_ENVIRONMENT: 'staging', A
   EMAIL_ENCRYPTION_KEY: 'offline-email-secret-never-for-deployment',
   MEDIA_STORAGE_DRIVER: 'r2', R2_ACCOUNT_ID: 'a'.repeat(32), R2_BUCKET: 'nitewide-staging-media',
   R2_ACCESS_KEY_ID: 'synthetic-access-key', R2_SECRET_ACCESS_KEY: 'synthetic-r2-secret-never-for-deployment',
-  CUSTOMER_APP_URL: origins.customer, BUSINESS_APP_URL: `${origins.business}/app`, ADMIN_APP_URL: origins.admin,
+  CUSTOMER_APP_URL: origins.customer, BUSINESS_APP_URL: origins.business, ADMIN_APP_URL: origins.admin,
   CORS_ORIGINS: Object.values(origins).join(','), STRIPE_MODE: 'disabled',
 });
 
@@ -46,6 +46,11 @@ async function checkBrowser(name, browserType, options, loopback) {
       // Existing CSS imports Google Fonts. Use local fallbacks in this offline
       // routing test instead of contacting a third-party font service.
       if (url.origin === 'https://fonts.googleapis.com') return route.fulfill({ contentType: 'text/css', body: '' });
+      // Customer discovery requests an approximate city on first load. Keep
+      // that known lookup offline without allowing any other provider traffic.
+      if (request.method() === 'GET' && url.origin === 'https://api.bigdatacloud.net' && url.pathname === '/data/reverse-geocode-client') {
+        return route.fulfill({ json: { city: 'Orlando', principalSubdivisionCode: 'US-FL', countryCode: 'US' } });
+      }
       if (!Object.values(origins).includes(url.origin)) {
         failures.push(`Unexpected external request: ${url.origin}`);
         return route.abort();
@@ -101,11 +106,15 @@ async function checkBrowser(name, browserType, options, loopback) {
     await noOverflow();
     await page.reload();
     await expect(page.getByRole('form', { name: 'Business sign in' })).toBeVisible();
-    await checkDocument(`${origins.business}/app?section=events`);
+    await checkDocument(`${origins.business}/?section=payments&paymentAccountReturn=synthetic-account`);
+    await expect(page.getByRole('form', { name: 'Business sign in' })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole('form', { name: 'Business sign in' })).toBeVisible();
+    await checkDocument(`${origins.business}/?section=overview`);
     await expect(page.getByRole('form', { name: 'Business sign in' })).toBeVisible();
 
     await checkDocument(`${origins.customer}/?invite=synthetic-team-token`);
-    await expect(page).toHaveURL(`${origins.business}/app?invite=synthetic-team-token`);
+    await expect(page).toHaveURL(`${origins.business}/?invite=synthetic-team-token`);
     await expect(page.getByRole('form', { name: 'Create account and accept invitation' })).toBeVisible();
     await expect(page.getByLabel('Confirm password', { exact: true })).toBeVisible();
     await noOverflow();

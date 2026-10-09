@@ -41,7 +41,7 @@ const test = base.extend({
   }, { auto: true }],
 });
 
-async function login(page, fixture, app, role = app, destination = app === 'business' ? '/app' : '/') {
+async function login(page, fixture, app, role = app, destination = app === 'business' ? '/?section=overview' : '/') {
   const account = fixture.accounts[role];
   const labels = labelsFor(test.info(), { app, role });
   await timing.measure('fresh-auth', async () => {
@@ -56,7 +56,7 @@ async function login(page, fixture, app, role = app, destination = app === 'busi
 
 // Feature tests still create a real session after their disposable DB reset.
 // Dedicated auth tests use login() to retain the form submission coverage.
-async function loginViaApi(page, fixture, app, role = app, destination = app === 'business' ? '/app' : '/') {
+async function loginViaApi(page, fixture, app, role = app, destination = app === 'business' ? '/?section=overview' : '/') {
   const account = fixture.accounts[role];
   const labels = labelsFor(test.info(), { app, role });
   const endpoint = app === 'business' ? '/api/auth/business/sign-in' : '/api/auth/sign-in';

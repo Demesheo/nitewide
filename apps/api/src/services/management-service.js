@@ -10,7 +10,7 @@ const { assertCommissionPricing } = require('../domain/editor-pricing-policy');
 const { createBusinessSlug } = require('../domain/business-slug');
 const { individualCommissionContext } = require('./commission-profile-repository');
 
-function createManagementService({ models, permissions, email = null, businessAppUrl = 'http://localhost:5174/app', customerAppUrl = 'http://localhost:5173', environment = process.env.NODE_ENV || 'development', hostedDemo = false, stripe = null }) {
+function createManagementService({ models, permissions, email = null, businessAppUrl = 'http://localhost:5174/', customerAppUrl = 'http://localhost:5173', environment = process.env.NODE_ENV || 'development', hostedDemo = false, stripe = null }) {
   const eventWorkspace = createEventWorkspaceService({ models, permissions, email, businessAppUrl, stripe });
   const eventMutation = (userId, eventId, work, accessChange = false) => mutationTransaction(models.Event.sequelize, async (transaction) => {
     await models.Event.findByPk(eventId, { transaction, lock: transaction.LOCK.UPDATE });

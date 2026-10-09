@@ -16,7 +16,7 @@ workspacesTest('one organization context persists across every workspace; aggreg
   // Verify CSV content through the cross-browser download path rather than a
   // native Chromium file picker, which Playwright cannot accept for the user.
   await page.addInitScript(() => { delete window.showSaveFilePicker; });
-  await loginViaApi(page, fixture, 'business', 'business', `/app?workspaceOrganization=${fixture.ids.org}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/?workspaceOrganization=${fixture.ids.org}`);
   const selector = page.getByRole('combobox', { name: 'Workspace organization', exact: true });
   const choose = async name => { await selector.click(); await page.getByRole('option', { name, exact: true }).click(); };
   const assertSelection = async (name, id) => {
@@ -44,7 +44,7 @@ workspacesTest('one organization context persists across every workspace; aggreg
     await assertSelection('Managed Nights', fixture.ids.organization1);
     await page.reload();
     await assertSelection('Managed Nights', fixture.ids.organization1);
-    await page.goto('/app');
+    await page.goto('/?section=overview');
     await assertSelection('Managed Nights', fixture.ids.organization1);
   });
   await test.step('Promoter membership remains personal; changing organizations removes stale operational state', async () => {
@@ -356,7 +356,7 @@ for (const failure of ['unavailable chunk','route render failure']) {
         ? route.fulfill({status:504,contentType:'text/plain',headers:{'Cache-Control':'no-store'},body:'This workspace asset is temporarily unavailable.'})
         : route.fulfill({contentType:'application/javascript',headers:{'Cache-Control':'no-store'},body:`export default function BrokenBusinessRoute() { throw new Error(${JSON.stringify(privateMarker)}); }`});
     });
-    const address = `${urls.business}/sign-in?returnTo=%2Fapp%3Fsection%3Devents#resume`;
+    const address = `${urls.business}/sign-in?returnTo=%2F%3Fsection%3Devents#resume`;
     await page.goto(address);
     await expect(page.getByRole('heading',{name:'This page couldn’t open',exact:true})).toBeVisible();
     await expect(page.getByRole('alert')).toContainText('Unsaved information may need to be entered again');
@@ -397,7 +397,7 @@ test('business startup retains a safe static recovery message when its productio
   await page.goto('/');
   await page.evaluate(value => sessionStorage.setItem('nitewide.business.session',value),rawSession);
   await page.route(url => url.origin === urls.business && /^\/assets\/index-[^/]+\.js$/.test(url.pathname),route => route.fulfill({status:504,contentType:'text/plain',headers:{'Cache-Control':'no-store'},body:'Startup temporarily unavailable.'}));
-  const address = `${urls.business}/sign-in?returnTo=%2Fapp#resume`;
+  const address = `${urls.business}/sign-in?returnTo=%2F%3Fsection%3Doverview#resume`;
   await page.goto(address);
   await expect(page.getByRole('heading',{name:'Opening Nitewide Business…',exact:true})).toBeVisible();
   await expect(page.getByRole('status')).toContainText('Your stored sign-in session will remain');
@@ -407,11 +407,11 @@ test('business startup retains a safe static recovery message when its productio
 });
 
 async function eventDetails(page, fixture) {
-  await loginViaApi(page, fixture, 'business', 'business', `/app?section=events&event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'business', 'business', `/?section=events&event=${fixture.ids.event}`);
   await expect(page.getByRole('heading', { name: 'Playwright Friday Night', exact: true })).toBeVisible();
 }
 async function admissions(page, fixture) {
-  await loginViaApi(page, fixture, 'business', 'business', '/app?section=admissions');
+  await loginViaApi(page, fixture, 'business', 'business', '/?section=admissions');
   await page.getByRole('button', { name: 'Start admissions for Playwright Friday Night', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Ready at the door' })).toBeVisible();
 }
@@ -447,11 +447,11 @@ test('promoter invitation links open Business, renew safely and allow the invite
   await expect(dialog.getByRole('status')).toContainText('at 0% commission');
   await expectNoOverflow(page);
   const input = dialog.getByRole('textbox', { name: 'Invitation link', exact: true });
-  await expect(input).toHaveValue(new RegExp(`^${urls.business}/app\\?invite=`));
+  await expect(input).toHaveValue(new RegExp(`^${urls.business}/\\?invite=`));
   const original = await input.inputValue();
   await dialog.locator('li').filter({ hasText: fixture.accounts.customer.email }).getByRole('button', { name: 'Renew link', exact: true }).click();
   await expect(input).not.toHaveValue(original);
-  await expect(input).toHaveValue(new RegExp(`^${urls.business}/app\\?invite=`));
+  await expect(input).toHaveValue(new RegExp(`^${urls.business}/\\?invite=`));
   const renewed = await input.inputValue();
   const url = new URL(renewed);
   await dialog.getByRole('button', { name: 'Copy link', exact: true }).click();
@@ -473,7 +473,7 @@ test('promoter invitation links open Business, renew safely and allow the invite
     await recipient.getByLabel('Password', { exact: true }).fill(fixture.password);
     await recipient.getByRole('button', { name: 'Sign in and accept', exact: true }).click();
     await expect(recipient.getByRole('heading', { name: 'Playwright Friday Night', exact: true })).toBeVisible();
-    await expect(recipient).toHaveURL(new RegExp(`/app\\?.*event=${fixture.ids.event}`));
+    await expect(recipient).toHaveURL(new RegExp(`/\\?.*event=${fixture.ids.event}`));
     await expectNoOverflow(recipient);
   } finally { await recipient.close(); }
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
@@ -503,14 +503,14 @@ test('promoter invitation links open Business, renew safely and allow the invite
 
 test('organization invitation links and resend links open the team acceptance screen', async ({ page, context, request, fixture }, testInfo) => {
   await gestureClipboard(context, '__copiedTeamInviteLink');
-  await loginViaApi(page, fixture, 'business', 'business', '/app?section=team');
+  await loginViaApi(page, fixture, 'business', 'business', '/?section=team');
   await page.getByRole('button', { name: 'Invite team member', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Invite a team member', exact: true });
   await dialog.getByLabel('Name (optional)', { exact: true }).fill('Invited Customer');
   await dialog.getByLabel('Email', { exact: true }).fill(fixture.accounts.customer.email);
   await dialog.getByRole('button', { name: 'Create invitation', exact: true }).click();
   const input = dialog.getByRole('textbox', { name: 'Invitation link', exact: true });
-  await expect(input).toHaveValue(new RegExp(`^${urls.business}/app\\?invite=`));
+  await expect(input).toHaveValue(new RegExp(`^${urls.business}/\\?invite=`));
   const copyInvite = dialog.getByRole('button', { name: 'Copy link', exact: true });
   await expect(copyInvite.locator('svg.lucide-copy')).toHaveCount(1);
   if (page.viewportSize().width > 850) {
@@ -551,15 +551,15 @@ test('organization invitation links and resend links open the team acceptance sc
   await resend.click();
   await expect(dialog).toBeVisible();
   await expect(input).not.toHaveValue(original);
-  await expect(input).toHaveValue(new RegExp(`^${urls.business}/app\\?invite=`));
+  await expect(input).toHaveValue(new RegExp(`^${urls.business}/\\?invite=`));
   const renewed = await input.inputValue();
   expect((await request.get(`${urls.api}/api/team/invitations/${new URL(original).searchParams.get('invite')}`)).status()).toBe(404);
   expect((await request.get(`${urls.api}/api/team/invitations/${copiedToken}`)).status()).toBe(404);
   const recipient = await context.newPage();
   const expectEmployeeWorkspace = async () => {
-    await expect(recipient).toHaveURL(url => url.pathname === '/app'
+    await expect(recipient).toHaveURL(url => url.pathname === '/'
       && !url.searchParams.has('invite')
-      && !url.searchParams.has('section')
+      && url.searchParams.get('section') === 'overview'
       && url.searchParams.get('workspaceOrganization') === fixture.ids.org);
     await expect(recipient.getByRole('heading', { name: 'Your performance, clearly.', exact: true })).toBeVisible();
     await expect(recipient.getByRole('combobox', { name: 'Workspace organization', exact: true })).toHaveText('Playwright Nightlife');
@@ -588,7 +588,7 @@ test('organization invitation links and resend links open the team acceptance sc
     const newToken = (await newInvite.json()).data.token;
     // Clear the prior identity before opening a different recipient's invitation.
     await recipient.evaluate(() => sessionStorage.clear());
-    await recipient.goto(`${urls.business}/app?invite=${newToken}`);
+    await recipient.goto(`${urls.business}/?invite=${newToken}`);
     await expect(recipient.getByRole('button', { name: 'Create account and accept', exact: true })).toBeVisible();
     await expect(recipient.getByLabel('Name', { exact: true })).toBeVisible();
     await expect(recipient.getByLabel('Name', { exact: true })).toHaveValue('New Teammate');
@@ -814,7 +814,7 @@ reportsExportTest('analytics journey keeps charts readable, drills through real 
     if (json.data?.eventMix) json.data.eventMix = json.data.eventMix.map(row => ({ ...row, label: longName }));
     await route.fulfill({ response, json });
   });
-  await loginViaApi(page, fixture, 'business', 'business', '/app?section=analytics');
+  await loginViaApi(page, fixture, 'business', 'business', '/?section=analytics');
   await test.step('Keyboard chart tooltips show readable Sales labels and measured non-overlapping axes', async () => {
     for (const title of ['Sales pace', 'Top events']) {
       const chart = page.locator('section').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
@@ -892,7 +892,7 @@ reportsExportTest('analytics journey keeps charts readable, drills through real 
     await expectNoOverflow(page);
   });
   await test.step('A real full CSV download includes events beyond the visible first page', async () => {
-    await page.goto('/app?section=analytics&reportTable=events');
+    await page.goto('/?section=analytics&reportTable=events');
     await expect(page.getByRole('table', { name: 'events report' })).toBeVisible();
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
@@ -925,7 +925,7 @@ test('background exports show progress and remain downloadable after section nav
     downloadsRequested += 1;
     return route.fulfill({ contentType: 'text/csv', headers: { 'Content-Disposition': 'attachment; filename="nitewide-customers.csv"' }, body: csv });
   });
-  await loginViaApi(page, fixture, 'business', 'business', '/app?section=analytics');
+  await loginViaApi(page, fixture, 'business', 'business', '/?section=analytics');
   await test.step('Queued export holds visible progress across section navigation', async () => {
     await expect(page.getByRole('table', { name: 'regions report' })).toBeVisible();
     await page.getByRole('button', { name: 'Export CSV', exact: true }).click();

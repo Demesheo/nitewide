@@ -468,7 +468,7 @@ test('team invitation creation stores only a token hash, audits without secrets,
     organizationId: ORG, email: 'new-staff@example.test', role: 'employee', reason: WHY,
   });
   const link = new URL(result.handoff.url);
-  assert.equal(link.pathname, '/app');
+  assert.equal(link.pathname, '/');
   assert.equal(link.origin, 'http://localhost:5174');
   const token = link.searchParams.get('invite');
   assert.ok(token);

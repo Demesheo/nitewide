@@ -148,6 +148,8 @@ test('admin onboarding, scoped edits, and lifecycle transitions preserve authori
     assert.equal('handoff' in orgInvite.body.data, false);
     const orgSetupUrl = emailMessages.find(({ message }) => message.template === 'nitewide-account-setup' && message.to === 'fixture-owner@example.test')?.message.variables.SETUP_URL;
     assert.ok(orgSetupUrl);
+    assert.equal(new URL(orgSetupUrl).pathname, '/', 'owner onboarding targets the root Business workspace');
+    assert.equal(new URL(orgSetupUrl).origin, 'http://localhost:5174');
     const orgToken = new URL(orgSetupUrl).searchParams.get('onboarding');
     const orgInvitation = await models.OnboardingInvitation.findByPk(orgInvite.body.data.id);
     assert.equal(orgInvitation.tokenHash, crypto.createHash('sha256').update(orgToken).digest('hex'));

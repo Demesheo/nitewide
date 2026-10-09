@@ -17,7 +17,7 @@ const { createBusinessTeamReadService } = require('../services/business-team-rea
 const { createBusinessEventReuseService } = require('../services/business-event-reuse-service');
 
 function createRouter(options) {
-  const { publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/app', qrTokenSecret, deliveryTrackingConfigured = false } = options;
+  const { publicController, managementController, commerceController, authController, auth, requireUser, models, permissions, invitations, notifications, email, customerAppUrl = 'http://localhost:5173', businessAppUrl = 'http://localhost:5174/', qrTokenSecret, deliveryTrackingConfigured = false } = options;
   const router = require('./contract-router').instrumentRouter(express.Router(), { requireUser, permissions });
   const { environment = process.env.NODE_ENV || 'development', hostedDemo = false } = options;
   const { stripe, paymentMode = 'test', paymentAccounts, paymentConfiguration = require('../payments/stripe-client').stripeConfiguration({ NODE_ENV: environment, hostedDemo }) } = options;

@@ -15,7 +15,7 @@ const snapshotAt = new Date();
 const staticStripeConfig = {
   STRIPE_MODE: 'test', STRIPE_SECRET_KEY: 'sk_test_offlinepreflight', STRIPE_PUBLISHABLE_KEY: 'pk_test_offlinepreflight',
   STRIPE_WEBHOOK_SECRET: 'whsec_offlinepayment', STRIPE_ACCOUNT_WEBHOOK_SECRET: 'whsec_offlineaccount',
-  CUSTOMER_APP_URL: 'https://customer.nitewide.test', BUSINESS_APP_URL: 'https://business.nitewide.test/app',
+  CUSTOMER_APP_URL: 'https://customer.nitewide.test', BUSINESS_APP_URL: 'https://business.nitewide.test/',
 };
 const provider = { mode: 'test', enabled: true };
 const readyProfile = {

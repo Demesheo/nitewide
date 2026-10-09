@@ -25,7 +25,7 @@ test('shared merchant routing is explicit, sandbox only, and never valid for ord
     assert.throws(()=>createStripeClient({...config,...changes},{sdk:{}}));
   }
   assert.equal(getConfig(config).STRIPE_SANDBOX_SHARED_ACCOUNT_ID,'acct_shared');
-  assert.throws(()=>getConfig({...config,NODE_ENV:'production',CUSTOMER_APP_URL:'https://customer.example',BUSINESS_APP_URL:'https://business.example/app'}),/shared sandbox merchant/i);
+  assert.throws(()=>getConfig({...config,NODE_ENV:'production',CUSTOMER_APP_URL:'https://customer.example',BUSINESS_APP_URL:'https://business.example/'}),/shared sandbox merchant/i);
 });
 
 test('shared routing does not override scope on historical provider retrievals or refunds', () => {

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 test('business workflows preserve scope, navigation, delivery confirmation, and recoverable editor changes', async (t) => {
   const businessRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
-    url: 'http://localhost/app',
+    url: 'http://localhost/',
     pretendToBeVisual: true,
   });
   const originalGlobals = new Map();

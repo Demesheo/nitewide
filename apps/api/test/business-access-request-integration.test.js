@@ -42,7 +42,7 @@ test('Business entry and manually reviewed access requests preserve authority, i
     return id;
   } };
   const permissions = createPermissionService(m);
-  const onboarding = createAdminOnboardingService({ models: m, permissions, email, businessAppUrl: 'https://business.nitewide.test/app' });
+  const onboarding = createAdminOnboardingService({ models: m, permissions, email, businessAppUrl: 'https://business.nitewide.test/' });
   const access = createBusinessAccessRequestService({ models: m, permissions, onboarding });
   const auth = createAuthService({ sequelize: db, models: m, tokenSecret: config.AUTH_TOKEN_SECRET, email });
   const validateResponse = (method, path, response) => {

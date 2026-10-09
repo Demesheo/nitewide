@@ -39,7 +39,7 @@ test('customer preview is present in initial HTML and serves the approved brand 
     assert.match(html, /property="og:image:alt"/);
     assert.equal((html.match(/property="og:image"/g) || []).length, 1);
   }
-  for (const route of ['/business', '/app', '/sign-in', '/admin']) {
+  for (const route of ['/business', '/business?section=overview', '/sign-in', '/admin']) {
     const html = (await httpRequest(server, route)).text;
     assert.ok(!html.includes(imageUrl), route + ' must not acquire customer preview metadata');
   }

@@ -85,7 +85,7 @@ test('durable email workers with mocked provider, leases, safe replay and intern
       const allowed = [];
       for (const template of ESSENTIAL_TEMPLATES) allowed.push(await essential.queue({ ...message, key: `essential/${template}`, template,
         variables: { NAME: 'Staging User', VERIFY_URL: 'https://staging.example.test/?verifyEmail=private', RESET_URL: 'https://staging.example.test/?resetPassword=private',
-          SETUP_URL: 'https://business-staging.example.test/app?onboarding=private', EXPIRES_AT: new Date(clock.getTime() + 86400000).toISOString(), ACCOUNT_MODE: 'existing' } }));
+          SETUP_URL: 'https://business-staging.example.test/?onboarding=private', EXPIRES_AT: new Date(clock.getTime() + 86400000).toISOString(), ACCOUNT_MODE: 'existing' } }));
       const before = sends;
       assert.equal(await essential.drain(), 7);
       assert.equal(sends - before, 3);

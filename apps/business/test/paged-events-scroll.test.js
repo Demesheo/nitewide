@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 test('PagedEvents skips fresh restores, accepts zero, cancels pending restore, and keeps pager scroll', async () => {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
-    url: 'http://localhost/app?section=events', pretendToBeVisual: true,
+    url: 'http://localhost/?section=events', pretendToBeVisual: true,
   });
   const keys = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLButtonElement', 'HTMLInputElement',
     'HTMLSelectElement', 'Element', 'Node', 'Event', 'MouseEvent', 'MutationObserver', 'getComputedStyle',
@@ -74,7 +74,7 @@ test('PagedEvents skips fresh restores, accepts zero, cancels pending restore, a
 
     mounted.unmount();
     cleanup();
-    dom.window.history.replaceState({ eventsScrollY: 0 }, '', '/app?section=events');
+    dom.window.history.replaceState({ eventsScrollY: 0 }, '', '/?section=events');
     scrollCalls.length = 0;
     mount();
     await screen.findByRole('button', { name: 'Open Neon Night' });
@@ -84,7 +84,7 @@ test('PagedEvents skips fresh restores, accepts zero, cancels pending restore, a
 
     mounted.unmount();
     cleanup();
-    dom.window.history.replaceState({ eventsScrollY: 0 }, '', '/app?section=events');
+    dom.window.history.replaceState({ eventsScrollY: 0 }, '', '/?section=events');
     mount();
     await screen.findByRole('button', { name: 'Open Neon Night' });
     await waitFor(() => assert.ok(rafs.size > 0, 'restore frame is pending before unmount'));

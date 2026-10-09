@@ -35,7 +35,7 @@ function fixture(mode = 'live') {
     disconnectAccount: async () => { remoteCalls++; return { disconnected: true }; },
   };
   const serviceFor = provider => createIndividualCommissionProfileService({ sequelize, models, stripe: provider, now: () => at,
-    businessAppUrl: 'https://business.example.test/app', customerAppUrl: 'https://customer.example.test' });
+    businessAppUrl: 'https://business.example.test/', customerAppUrl: 'https://customer.example.test' });
   return { stripe, service: serviceFor(stripe), serviceFor, profile: () => profile, remote: () => remote, calls: () => remoteCalls };
 }
 
