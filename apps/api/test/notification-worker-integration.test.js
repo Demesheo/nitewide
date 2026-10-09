@@ -57,10 +57,11 @@ test('durable checkout notification worker: rollback, leases, preferences, revoc
       assert.equal(job.status, 'completed'); assert.equal(job.processed_deliveries, job.total_deliveries);
     });
     async function queue(extra = {}) {
-      const order = await m.Order.create({ eventId: ids.event, buyerUserId: ids.guest, status: 'paid', currency: 'USD', subtotalCents: 1000,
+      const buyerUserId = extra.buyerUserId ?? ids.guest;
+      const order = await m.Order.create({ eventId: ids.event, buyerUserId, status: 'paid', currency: 'USD', subtotalCents: 1000,
         totalCents: 1000, paidAt: new Date(), idempotencyKey: randomUUID() });
       return db.transaction((transaction) => worker.enqueueCheckout({ orderId: order.id, eventId: ids.event, eventTitle: 'Worker snapshot title',
-        buyerUserId: ids.guest, referrerUserId: ids.promoter, eventAffiliateId: affiliate.id, orgAffiliateId: null,
+        buyerUserId, referrerUserId: ids.promoter, eventAffiliateId: affiliate.id, orgAffiliateId: null,
         names: '1 × Worker fixture ticket', subtotalCents: 1000, commissionCents: 100, demo: false,
         soldOutOfferings: [{ id: offering.id, name: offering.name }], ...extra }, transaction));
     }
@@ -108,13 +109,22 @@ test('durable checkout notification worker: rollback, leases, preferences, revoc
       const userIds = Array.from({ length: BATCH_SIZE+10 }, () => randomUUID());
       await m.User.bulkCreate(userIds.map((id) => ({ id, displayName: 'Worker manager', email: `${id}@worker.nitewide.test` })));
       await m.OrganizationOwner.bulkCreate(userIds.map((userId) => ({ organizationId: ids.org, userId, role: 'admin' })));
-      const job = await queue({ referrerUserId: null, eventAffiliateId: null, soldOutOfferings: [] });
+      // The greatest UUIDv4 sorts after every randomly generated leader ID.
+      // Keep an essential buyer delivery in the tail: it must never be selected
+      // as a supposedly revocable organization membership.
+      const buyer = await m.User.create({ id: 'ffffffff-ffff-4fff-bfff-ffffffffffff', displayName: 'Tail buyer', email: 'tail-buyer@worker.nitewide.test' });
+      const job = await queue({ buyerUserId: buyer.id, referrerUserId: null, eventAffiliateId: null, soldOutOfferings: [] });
       assert.equal(await worker.drain({ maxJobs: 1, maxBatches: 1 }), 1);
       const [checkpoint] = await q('SELECT * FROM notification_jobs WHERE id=:id', { id: job.id });
       assert.equal(checkpoint.processed_deliveries, BATCH_SIZE); assert.equal(checkpoint.status, 'retry'); assert.equal(checkpoint.attempts, 0);
+      assert.equal(checkpoint.total_deliveries, BATCH_SIZE+13);
+      const [buyerDelivery] = await q("SELECT * FROM notification_job_deliveries WHERE job_id=:id AND user_id=:buyer AND kind='purchase_confirmed'", { id: job.id, buyer: buyer.id });
+      assert.ok(buyerDelivery); assert.equal(buyerDelivery.processed_at, null, 'essential buyer is deliberately still pending');
       // Membership removal after planning must still suppress delivery.
-      const [pending] = await q('SELECT * FROM notification_job_deliveries WHERE job_id=:id AND processed_at IS NULL LIMIT 1', { id: job.id });
-      await m.OrganizationOwner.update({ lifecycleState: 'suspended' }, { where: { organizationId: ids.org, userId: pending.user_id } });
+      const [pending] = await q("SELECT * FROM notification_job_deliveries WHERE job_id=:id AND processed_at IS NULL AND kind='event_purchase' ORDER BY dedupe_key LIMIT 1", { id: job.id });
+      assert.ok(pending, 'an undelivered organization leader remains in the fanout tail');
+      const [suspended] = await m.OrganizationOwner.update({ lifecycleState: 'suspended' }, { where: { organizationId: ids.org, userId: pending.user_id } });
+      assert.equal(suspended, 1, 'the selected recipient has exactly one revocable membership');
       await q("UPDATE notification_jobs SET status='running',lease_token=:token,lease_until=NOW()-INTERVAL '1 minute' WHERE id=:id", { id: job.id, token: randomUUID() });
       await competitor.drain();
       const [finished] = await q('SELECT * FROM notification_jobs WHERE id=:id', { id: job.id });
@@ -123,6 +133,10 @@ test('durable checkout notification worker: rollback, leases, preferences, revoc
       assert.equal(notifications.length, finished.total_deliveries-1);
       assert.equal(new Set(notifications.map((row) => `${row.userId}:${row.kind}`)).size, notifications.length);
       assert.ok(!notifications.some((row) => row.userId === pending.user_id));
+      assert.equal(notifications.filter((row) => row.userId === buyer.id && row.kind === 'purchase_confirmed').length, 1);
+      const skipped = await q('SELECT * FROM notification_job_deliveries WHERE job_id=:id AND skipped=true', { id: job.id });
+      assert.equal(skipped.length, 1); assert.equal(skipped[0].user_id, pending.user_id);
+      assert.ok(skipped[0].processed_at); assert.equal(skipped[0].notification_id, null);
       const stopJob = await queue({ referrerUserId: null, eventAffiliateId: null, soldOutOfferings: [] });
       const stoppingWorker = createNotificationJobService({ sequelize: db, models: m, concurrency: 1 });
       const original = m.Notification.create.bind(m.Notification); let stopPromise;
