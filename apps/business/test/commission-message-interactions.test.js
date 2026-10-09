@@ -22,7 +22,7 @@ test('commission approval, funding retry, personal setup and booking conversatio
     const { CommissionStatements } = await vite.ssrLoadModule('/src/components/CommissionStatements.jsx');
     const { PersonalCommissionConnection } = await vite.ssrLoadModule('/src/components/PersonalCommissionConnection.jsx');
     const { MyCommissions, commissionPaymentLabel } = await vite.ssrLoadModule('/src/components/MyCommissions.jsx');
-    const { canReviewCommissionFee } = await vite.ssrLoadModule('/src/components/CommissionFeeReview.jsx');
+    const { CommissionFeeReview, canReviewCommissionFee } = await vite.ssrLoadModule('/src/components/CommissionFeeReview.jsx');
     const { Messages: CustomerMessages } = await vite.ssrLoadModule(resolve(root, '../customer/src/components/messages.jsx'));
     const { ReferralEarnings } = await vite.ssrLoadModule(resolve(root, '../customer/src/components/referral-earnings.jsx'));
     const { BookingMessages } = await vite.ssrLoadModule(resolve(root, '../shared/BookingMessages.jsx'));
@@ -63,6 +63,9 @@ test('commission approval, funding retry, personal setup and booking conversatio
       await user.click(screen.getByRole('button', { name: 'Pay 2 selected statements' }));
       const modal = await screen.findByRole('dialog', { name: 'Confirm commission payment' });
       await within(modal).findByText('$25.50');
+      assert.ok(within(modal).getByText('Estimated processing fees', { exact: true }));
+      assert.equal(within(modal).getAllByText('$1.50', { exact: true }).length, 1);
+      assert.equal(within(modal).queryByText('Business fee allowance', { exact: true }), null);
       assert.equal(within(modal).queryByText('Sandbox payment · Test funds only.'), null);
       assert.equal(within(modal).getByRole('button', { name: 'Create approved Stripe payment' }).disabled, true);
       await user.click(within(modal).getByRole('checkbox'));
@@ -78,6 +81,7 @@ test('commission approval, funding retry, personal setup and booking conversatio
       await screen.findByText('Fee review · net not verified');
       assert.equal(calls.filter(call => call.path.endsWith('/commission-payments')).at(-1).body.idempotencyKey, first.body.idempotencyKey);
       assert.ok(screen.getByText('Not verified', { exact: true }));
+      assert.equal(screen.getByText('Processing fees', { exact: true }).parentElement.querySelector('dd').textContent, 'Awaiting fee evidence');
       assert.equal(screen.queryByText('Net credit verified'), null);
     });
 
@@ -104,15 +108,17 @@ test('commission approval, funding retry, personal setup and booking conversatio
       }
       await fund(); await screen.findByText('Unknown result. Retry the same payment.');
       fail = false; await fund(); await screen.findByText('Net credit · provider-verified fees');
+      assert.equal(screen.getByText('Processing fees', { exact: true }).parentElement.querySelector('dd').textContent, '$1.00');
       assert.equal(calls[1].idempotencyKey, calls[0].idempotencyKey); assert.equal(Object.hasOwn(calls[1], 'installmentFingerprint'), false);
       marker = 'first-new-completed-attempt'; await fund(); await screen.findByText('Net credit · provider-verified fees');
       assert.notEqual(calls[2].idempotencyKey, calls[1].idempotencyKey); assert.equal(calls[2].approvedTotalCents, calls[1].approvedTotalCents);
     });
 
-    await t.test('manual invoicing-fee review saves immutable evidence and retry identity, labels merchant proof, and requires fresh residual approval', async () => {
+    await t.test('combined processing-fee review saves immutable evidence and retry identity, labels merchant proof, and requires fresh residual approval', async () => {
       const eligible = { paymentId: 'fee-payment', status: 'paid_fee_review', providerVerificationStatus: 'verified', fundsReceived: true, processingFeeCents: 100, feeEvidence: null, feeReview: null, currency: 'USD', netSettlementStatus: 'invoicing_fee_unknown', commissionCents: 1200, totalCents: 1300, actualFeeCents: null, verifiedNetCents: null, hostedInvoiceUrl: 'https://invoice.stripe.com/i/already-paid' };
       assert.equal(canReviewCommissionFee(eligible), true);
-      for (const change of [{ status: 'paid' }, { providerVerificationStatus: 'review' }, { fundsReceived: false }, { processingFeeCents: null }, { feeEvidence: 'merchant_reviewed' }, { feeEvidence: 'provider_verified' }]) assert.equal(canReviewCommissionFee({ ...eligible, ...change }), false);
+      assert.equal(canReviewCommissionFee({ ...eligible, processingFeeCents: 0 }), true);
+      for (const change of [{ status: 'paid' }, { providerVerificationStatus: 'review' }, { fundsReceived: false }, { processingFeeCents: null }, { processingFeeCents: -1 }, { processingFeeCents: 0.5 }, { feeEvidence: 'merchant_reviewed' }, { feeEvidence: 'provider_verified' }]) assert.equal(canReviewCommissionFee({ ...eligible, ...change }), false);
       let current = eligible, fail = true; const calls = [];
       const rows = [{ id: 'fee-statement', recipientUserId: 'Alex', recipientDisplayName: 'Alex', eventTitle: 'Fee review night', status: 'approved', currency: 'USD', availableAt: '2026-01-01T00:00:00Z', reservedCommissionCents: 1200, payableCommissionCents: 0, payment: { paymentId: 'fee-payment', status: 'paid_fee_review' } }];
       const request = async (path, identity, options = {}) => {
@@ -121,17 +127,54 @@ test('commission approval, funding retry, personal setup and booking conversatio
         return { items: rows, total: 1 };
       };
       const props = { session, organization: { id: 'org', name: 'Business' }, request };
-      async function openReview() { mount(CommissionStatements, props); await user.click(await screen.findByRole('button', { name: 'View payment for Fee review night' })); return screen.findByRole('form', { name: 'Merchant invoicing-fee review' }); }
+      async function openReview() { mount(CommissionStatements, props); await user.click(await screen.findByRole('button', { name: 'View payment for Fee review night' })); return screen.findByRole('form', { name: 'Merchant processing-fee review' }); }
       const form = await openReview(); assert.equal(screen.queryByRole('link', { name: /Pay from business/ }), null);
-      await user.type(within(form).getByLabelText('Invoicing fee (USD)'), '5.67'); await user.type(within(form).getByLabelText('Evidence reference'), 'Stripe statement INV-8'); await user.type(within(form).getByLabelText('Reason for fee review'), 'Reviewed the merchant invoicing fee report');
+      assert.equal(screen.getByText('Processing fees', { exact: true }).parentElement.querySelector('dd').textContent, 'Awaiting fee evidence');
+      assert.ok(screen.getByText('Not verified', { exact: true }));
+      await user.type(within(form).getByLabelText('Processing fees (USD)'), '6.67'); await user.type(within(form).getByLabelText('Evidence reference'), 'Stripe statement INV-8'); await user.type(within(form).getByLabelText('Reason for fee review'), 'Reviewed the merchant processing-fee report');
       await user.click(within(form).getByRole('checkbox')); await user.click(within(form).getByRole('button', { name: 'Record merchant fee review' }));
       await screen.findByText('Fee review response lost.'); assert.equal(calls[0].invoicingFeeCents, 567);
-      const retryForm = await openReview(); assert.equal(within(retryForm).getByLabelText('Invoicing fee (USD)').value, '5.67'); assert.equal(within(retryForm).getByLabelText('Evidence reference').disabled, true);
+      const retryForm = await openReview(); assert.equal(within(retryForm).getByLabelText('Processing fees (USD)').value, '6.67'); assert.equal(within(retryForm).getByLabelText('Evidence reference').disabled, true);
       fail = false; await user.click(within(retryForm).getByRole('checkbox')); await user.click(within(retryForm).getByRole('button', { name: 'Retry saved fee review' }));
       await screen.findByText('Merchant-reviewed fees · residual commission owed'); assert.deepEqual(calls[1], calls[0]);
       assert.ok(screen.getByText('Stripe net · merchant reviewed')); assert.ok(screen.getByText(/fresh quote and separate approval/)); assert.ok(screen.getByText('Evidence reference: Stripe statement INV-8'));
-      assert.equal(screen.queryByRole('form', { name: 'Merchant invoicing-fee review' }), null); assert.equal(screen.queryByRole('link', { name: /Pay from business/ }), null);
+      assert.equal(screen.getByText('Processing fees', { exact: true }).parentElement.querySelector('dd').textContent, '$6.67');
+      assert.equal(screen.queryByRole('form', { name: 'Merchant processing-fee review' }), null); assert.equal(screen.queryByRole('link', { name: /Pay from business/ }), null);
       assert.equal(commissionPaymentLabel({ ...current, status: 'disputed' }), 'disputed');
+    });
+
+    await t.test('total fee input subtracts the verified payment fee exactly once, rejects smaller totals and preserves legacy retries', async () => {
+      for (const [id, verifiedFee, total, additionalFee] of [['decimal', 62, '0.66', 4], ['no-additional-fee', 62, '0.62', 0], ['zero-total', 0, '0.00', 0]]) {
+        const calls = [], errors = [], payment = { paymentId: id, currency: 'USD', processingFeeCents: verifiedFee };
+        const storageKey = `nitewide.action.commission-fee-review.${session.user.id}.${id}`;
+        mount(CommissionFeeReview, { session, payment, busy: '', onReview: async body => calls.push(body), onError: error => errors.push(error) });
+        const form = screen.getByRole('form', { name: 'Merchant processing-fee review' }), fields = within(form);
+        const amount = fields.getByLabelText('Processing fees (USD)');
+        assert.equal(amount.value, '', 'No fee total or zero additional fee is inferred without evidence');
+        assert.equal(fields.getByRole('button', { name: 'Record merchant fee review' }).disabled, true);
+        await user.type(fields.getByLabelText('Evidence reference'), 'Recipient fee report');
+        await user.type(fields.getByLabelText('Reason for fee review'), 'Reviewed all fees for this invoice');
+        await user.click(fields.getByRole('checkbox'));
+        if (id === 'decimal') {
+          await user.type(amount, '0.61');
+          await user.click(fields.getByRole('button', { name: 'Record merchant fee review' }));
+          assert.deepEqual(errors, ['Total processing fees cannot be less than the already-verified payment fee.']);
+          assert.equal(calls.length, 0); assert.equal(localStorage.getItem(storageKey), null);
+          await user.clear(amount);
+        }
+        await user.type(amount, total); await user.click(fields.getByRole('button', { name: 'Record merchant fee review' }));
+        assert.equal(calls.length, 1); assert.equal(calls[0].invoicingFeeCents, additionalFee);
+        assert.equal(Object.hasOwn(calls[0], 'processingFeeCents'), false, 'The verified charge fee is not submitted a second time');
+        assert.equal(JSON.parse(JSON.parse(localStorage.getItem(storageKey)).fingerprint).invoicingFeeCents, additionalFee);
+      }
+      const payload = { invoicingFeeCents: 4, evidenceReference: 'Previously saved invoice-fee report', reason: 'Legacy additional-fee review' };
+      const key = '00000000-0000-4000-8000-000000000129', calls = [];
+      localStorage.setItem(`nitewide.action.commission-fee-review.${session.user.id}.legacy-review`, JSON.stringify({ fingerprint: JSON.stringify(payload), idempotencyKey: key }));
+      mount(CommissionFeeReview, { session, payment: { paymentId: 'legacy-review', currency: 'USD', processingFeeCents: 62 }, busy: '', onReview: async body => calls.push(body), onError: error => assert.fail(error) });
+      assert.equal(screen.getByLabelText('Processing fees (USD)').value, '0.66');
+      assert.equal(screen.getByLabelText('Processing fees (USD)').disabled, true);
+      await user.click(screen.getByRole('checkbox')); await user.click(screen.getByRole('button', { name: 'Retry saved fee review' }));
+      assert.deepEqual(calls, [{ ...payload, idempotencyKey: key }]);
     });
 
     await t.test('only independently verified payable invoices expose a Stripe payment link', async () => {

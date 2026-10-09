@@ -40,13 +40,22 @@ test('booking contact stays in Messages, receives an organizer reply and raises 
     });
     await test.step('Notifications opens the exact reply, marks it read and leaves the paid booking and email queue intact', async () => {
       await page.bringToFront();
+      const token = await page.evaluate(() => JSON.parse(localStorage.getItem('nitewide.session')).accessToken);
+      // Reply notifications are delivered by the real asynchronous worker.
+      // Wait for this exact record before opening the one-shot inbox; the
+      // application intentionally does not poll an already-open inbox.
+      await expect.poll(async () => {
+        const response = await request.get(`${urls.api}/api/notifications?page=1&pageSize=20`, { headers: { Authorization: `Bearer ${token}` } });
+        expect(response.ok()).toBe(true);
+        const { data } = await response.json();
+        return data.items.filter(item => item.kind === 'organizer_message' && item.metadata?.threadId === thread.id && item.metadata?.orderId === fixture.ids.order).length;
+      }).toBe(1);
       await page.getByRole('button', { name: /^Notifications/ }).click();
       const read = page.waitForResponse(response => response.url().includes(`/customer/messages/${thread.id}/read`) && response.request().method() === 'POST');
       await page.getByRole('dialog').getByRole('button', { name: /^Organizer replied/ }).click();
       const dialog = page.getByRole('dialog');
       await expect(dialog.getByText('Yes. Please have your booking QR code ready.', { exact: true })).toBeVisible();
       expect((await read).ok()).toBe(true);
-      const token = await page.evaluate(() => JSON.parse(localStorage.getItem('nitewide.session')).accessToken);
       const detail = await (await request.get(`${urls.api}/api/customer/messages/${thread.id}`, { headers: { Authorization: `Bearer ${token}` } })).json();
       expect(detail.data.thread.unread).toBe(false);
       const pass = await (await request.get(`${urls.api}/api/customer/purchases/${fixture.ids.order}/tickets`, { headers: { Authorization: `Bearer ${token}` } })).json();
@@ -81,6 +90,9 @@ test('commission confirmation names each approved statement, covers business fee
     for (const row of rows) await expect(dialog.locator('.commission-quote-statements').getByText(row.eventTitle, { exact: true })).toBeVisible();
     await expect(dialog.getByText('$12.00', { exact: true })).toBeVisible();
     await expect(dialog.getByText('$13.00', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('Estimated processing fees', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('$1.00', { exact: true })).toHaveCount(1);
+    await expect(dialog.getByText('Business fee allowance', { exact: true })).toHaveCount(0);
     await expect(dialog.getByRole('button', { name: 'Create approved Stripe payment' })).toBeDisabled();
     await dialog.getByRole('checkbox').check();
     await dialog.getByRole('button', { name: 'Create approved Stripe payment' }).click();
@@ -100,6 +112,7 @@ test('commission confirmation names each approved statement, covers business fee
     const dialog = page.getByRole('dialog', { name: 'Commission payment', exact: true });
     await expect(dialog.getByText('Fee review · net not verified', { exact: true })).toBeVisible();
     await expect(dialog.getByText('Not verified', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('Processing fees', { exact: true }).locator('..')).toHaveText('Processing feesAwaiting fee evidence');
     expect(mutations).toHaveLength(2);
     expect(mutations[1]).toEqual(mutations[0]);
     await expectNoOverflow(page);
@@ -167,15 +180,17 @@ test('authorized finance fee review retains audited evidence on retry and requir
   const openPayment = async () => {
     await page.getByRole('button', { name: 'View payment for Audited fee-review statement', exact: true }).click();
     const modal = page.getByRole('dialog', { name: 'Commission payment', exact: true });
-    await expect(modal.getByRole('form', { name: 'Merchant invoicing-fee review' })).toBeVisible();
+    await expect(modal.getByRole('form', { name: 'Merchant processing-fee review' })).toBeVisible();
     await expect(modal.locator('.commission-quote-statements')).toContainText('$12.00');
     return modal;
   };
   await test.step('received funds hide the stale invoice and audited fee evidence needs explicit confirmation', async () => {
     const dialog = await openPayment();
     await expect(dialog.getByRole('link', { name: /Pay from business/ })).toHaveCount(0);
+    await expect(dialog.getByText('Processing fees', { exact: true }).locator('..')).toHaveText('Processing feesAwaiting fee evidence');
+    await expect(dialog.getByLabel('Processing fees (USD)', { exact: true })).toBeEmpty();
     await expect(dialog.getByRole('button', { name: 'Record merchant fee review' })).toBeDisabled();
-    await dialog.getByLabel('Invoicing fee (USD)', { exact: true }).fill('5.67');
+    await dialog.getByLabel('Processing fees (USD)', { exact: true }).fill('6.67');
     await dialog.getByLabel('Evidence reference', { exact: true }).fill('Stripe invoicing statement INV-823');
     await dialog.getByRole('textbox', { name: 'Reason for fee review', exact: true }).fill('Finance reviewed the invoicing fee statement for this paid commission.');
     await dialog.getByRole('checkbox').check();
@@ -187,13 +202,13 @@ test('authorized finance fee review retains audited evidence on retry and requir
   await test.step('reload retains immutable evidence, reauthorizes its retry and records only merchant-reviewed net', async () => {
     await page.reload();
     const dialog = await openPayment();
-    await expect(dialog.getByLabel('Invoicing fee (USD)', { exact: true })).toHaveValue('5.67');
+    await expect(dialog.getByLabel('Processing fees (USD)', { exact: true })).toHaveValue('6.67');
     await expect(dialog.getByLabel('Evidence reference', { exact: true })).toHaveValue('Stripe invoicing statement INV-823');
     // The wrapping label contains the textarea's restored text; its accessible
     // textbox name stays stable while an exact label-text lookup does not.
     const reason = dialog.getByRole('textbox', { name: 'Reason for fee review', exact: true });
     await expect(reason).toHaveValue('Finance reviewed the invoicing fee statement for this paid commission.');
-    for (const name of ['Invoicing fee (USD)', 'Evidence reference']) await expect(dialog.getByLabel(name, { exact: true })).toBeDisabled();
+    for (const name of ['Processing fees (USD)', 'Evidence reference']) await expect(dialog.getByLabel(name, { exact: true })).toBeDisabled();
     await expect(reason).toBeDisabled();
     await expect(dialog.getByRole('button', { name: 'Retry saved fee review' })).toBeDisabled();
     await dialog.getByRole('checkbox').check();
@@ -201,9 +216,10 @@ test('authorized finance fee review retains audited evidence on retry and requir
     await expect(dialog.getByText('Merchant-reviewed fees · residual commission owed', { exact: true })).toBeVisible();
     expect(reviews).toHaveLength(2); expect(reviews[1]).toEqual(reviews[0]);
     await expect(dialog.getByText('Stripe net · merchant reviewed', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('Processing fees', { exact: true }).locator('..')).toHaveText('Processing fees$6.67');
     await expect(dialog.getByText('Provider-verified Stripe net', { exact: true })).toHaveCount(0);
     await expect(dialog.getByText('Net credit verified', { exact: true })).toHaveCount(0);
-    await expect(dialog.getByRole('form', { name: 'Merchant invoicing-fee review' })).toHaveCount(0);
+    await expect(dialog.getByRole('form', { name: 'Merchant processing-fee review' })).toHaveCount(0);
     await expect(dialog.getByRole('link', { name: /Pay from business/ })).toHaveCount(0);
     await expect(dialog.getByText(/fresh quote and separate approval/)).toBeVisible();
     await expect(dialog.getByText('Evidence reference: Stripe invoicing statement INV-823', { exact: true })).toBeVisible();
