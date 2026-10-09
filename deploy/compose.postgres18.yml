@@ -12,7 +12,9 @@ services:
     ports:
       - "127.0.0.1:5434:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      # The initialization server accepts Unix sockets before PostGIS is ready.
+      # Wait for the final TCP listener used by host-side test runners.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
       interval: 5s
       timeout: 5s
       retries: 15

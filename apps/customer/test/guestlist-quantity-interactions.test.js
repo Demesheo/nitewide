@@ -5,6 +5,64 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestServer } from '../../business/test/helpers/vite-server.js';
 
+function recordIntervals(t, window) {
+  const globalIntervals = [], windowIntervals = [];
+  const nativeSetInterval = globalThis.setInterval;
+  const nativeWindowSetInterval = window.setInterval.bind(window);
+  // Keep real clearInterval paired with real handles. Faking intervals while
+  // JSDOM has a pending animation frame can orphan its native 60 Hz timer.
+  t.mock.method(globalThis, 'setInterval', (callback, delay, ...args) => {
+    const handle = nativeSetInterval(callback, delay, ...args);
+    globalIntervals.push({ callback, delay, handle });
+    return handle;
+  });
+  t.mock.method(window, 'setInterval', (callback, delay, ...args) => {
+    const handle = nativeWindowSetInterval(callback, delay, ...args);
+    windowIntervals.push({ delay, handle });
+    return handle;
+  });
+  return {
+    globalIntervals,
+    assertNoPolling() {
+      assert.deepEqual(windowIntervals.map(({ delay }) => delay), [], 'the component never schedules window polling');
+      // Testing Library's awaited findBy/waitFor checks also use a real timer.
+      const isHarnessInterval = ({ callback, delay }) => delay === 1000 / 60
+        || (delay === 50 && callback.name === 'checkRealTimersCallback');
+      assert.deepEqual(globalIntervals.filter((interval) => !isHarnessInterval(interval)).map(({ delay }) => delay), [],
+        'only JSDOM animation frames and Testing Library waits may schedule native intervals');
+    },
+  };
+}
+
+test('native interval recording preserves animation-frame cancellation and DOM timer cleanup', async (t) => {
+  const nativeClearInterval = globalThis.clearInterval;
+  const cleared = new Set();
+  t.mock.method(globalThis, 'clearInterval', (handle) => {
+    cleared.add(handle);
+    nativeClearInterval(handle);
+  });
+  const trackingClearInterval = globalThis.clearInterval;
+  const dom = new JSDOM('', { pretendToBeVisual: true });
+  const intervals = recordIntervals(t, dom.window);
+  try {
+    assert.equal(globalThis.clearInterval, trackingClearInterval, 'recording must not replace the paired native clear operation');
+    for (let index = 0; index < 2; index += 1) {
+      await new Promise((resolveFrame) => dom.window.requestAnimationFrame(resolveFrame));
+    }
+    const canceled = dom.window.requestAnimationFrame(() => assert.fail('a canceled frame must not run'));
+    dom.window.cancelAnimationFrame(canceled);
+    dom.window.requestAnimationFrame(() => assert.fail('closing the DOM must cancel a pending frame'));
+    dom.window.close();
+    intervals.assertNoPolling();
+    assert.equal(intervals.globalIntervals.length, 4, 'successive frames exercise replacement of JSDOM’s tracked interval');
+    assert.deepEqual(intervals.globalIntervals.filter(({ handle }) => !cleared.has(handle)), [],
+      'no native animation interval survives DOM cleanup');
+  } finally {
+    dom.window.close();
+    for (const { handle } of intervals.globalIntervals) nativeClearInterval(handle);
+  }
+});
+
 test('customer guestlist steppers preserve drafts, cap requests and submit the chosen approval', async (t) => {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const eventId = '61daf017-d30c-4030-9b89-dd29d875ddaf';
@@ -136,6 +194,7 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
 
     await t.test('Booked navigation issues one read under StrictMode and ignores focus, visibility and ordinary rerenders', async (subtest) => {
       reset();
+      const intervals = recordIntervals(subtest, dom.window);
       const empty = { page: 1, pageSize: 10, total: 0, orders: [], guestlists: [], entries: [] };
       const props = { open: true, embedded: true, session, onOpenChange() {} };
       const strict = (value) => React.createElement(React.StrictMode, null, React.createElement(AccountDialog, value));
@@ -144,13 +203,11 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
       await screen.findByText('Something to look forward to.');
       assert.equal(calls.length, 1, 'StrictMode does not start a canceled duplicate bookings request');
       assert.equal(calls[0].signal.aborted, false);
-      subtest.mock.timers.enable({ apis: ['setInterval'] });
       await act(async () => {
-        subtest.mock.timers.tick(30_000);
         dom.window.dispatchEvent(new dom.window.Event('focus'));
         dom.window.document.dispatchEvent(new dom.window.Event('visibilitychange'));
       });
-      subtest.mock.timers.reset();
+      intervals.assertNoPolling();
       view.rerender(strict({ ...props, session: { ...session, user: { ...session.user } } }));
       assert.equal(calls.length, 1);
       view.rerender(strict({ ...props, bookingsRevision: 1 }));
@@ -169,6 +226,7 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
       assert.equal(calls[0].url.pathname, `/api/customer/guestlists/${ticket.id}/pass`);
       assert.equal(calls[0].signal.aborted, false);
       reset();
+      intervals.assertNoPolling();
     });
 
     await t.test('Booked edits initialize deep-linked legacy requests, cap at five and keep a failed draft retryable', async () => {
@@ -292,15 +350,14 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
 
     await t.test('passes do not poll or refresh on focus, and explicit refresh clears unavailable admission caches', async (subtest) => {
       reset();
+      const intervals = recordIntervals(subtest, dom.window);
       const approved = { id: pending.id, kind: 'guestlist', partySize: 4, status: 'confirmed', event, tickets: Array.from({ length: 4 }, (_, index) => ({ id: `status-pass-${index}`, spots: 1, status: 'confirmed', offering: 'Guestlist', qrImage: `data:image/png;base64,status-${index}` })) };
       const page = { page: 1, total: 1, orders: [], guestlists: [approved], entries: [{ kind: 'guestlist', id: approved.id }] };
       let releasePass;
       handler = (call) => call.url.pathname.endsWith('/pass') ? new Promise((resolve) => { releasePass = (pass) => resolve(response(pass)); }) : response(page);
       view = render(React.createElement(AccountDialog, { open: true, embedded: true, session, notificationBooking: { ticket: approved }, onOpenChange() {} }), { container: container() });
       await screen.findByText('Pass 1 of 4');
-      subtest.mock.timers.enable({ apis: ['setInterval'] });
-      await act(async () => subtest.mock.timers.tick(15_000));
-      subtest.mock.timers.reset();
+      intervals.assertNoPolling();
       assert.equal(calls.length, 0, 'an open pass makes no timer reads');
       const cacheKey = `nitewide.passes:${session.user.id}:guestlist:${approved.id}`;
       assert.ok(dom.window.localStorage.getItem(cacheKey));
@@ -330,6 +387,7 @@ test('customer guestlist steppers preserve drafts, cap requests and submit the c
       assert.ok(screen.getByText('4 of 4 checked in'));
       delete dom.window.document.hidden;
       reset();
+      intervals.assertNoPolling();
     });
 
     await t.test('deep-linked passes retry explicitly, recheck renewed credentials and discard revoked cached admission', async () => {
