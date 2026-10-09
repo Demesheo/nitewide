@@ -57,6 +57,9 @@ function installAppStatic(app, root = path.resolve(__dirname, '../../../..'), co
     app.use('/business/assets', onHost('business', assetHandlers.business), missingAsset);
     app.use('/admin/assets', onHost('admin', assetHandlers.admin), missingAsset);
     app.use('/assets', (req, res, next) => assetHandlers[selectedApp(req)](req, res, next), missingAsset);
+    app.get(['/privacy', '/privacy/'], (req, res) => selectedApp(req) === 'customer'
+      ? pages.customer(req, res)
+      : noStore(res).redirect(302, new URL('/privacy', apps.customer).toString()));
     app.get(['/', '/index.html'], (req, res) => {
       const name = selectedApp(req);
       if (name === 'customer' && new URL(req.originalUrl, 'http://localhost').searchParams.get('invite')) return redirect(req, res, links.businessWorkspace);
@@ -77,6 +80,7 @@ function installAppStatic(app, root = path.resolve(__dirname, '../../../..'), co
   app.use('/business/assets', assetHandlers.business, missingAsset);
   app.use('/admin/assets', assetHandlers.admin, missingAsset);
   app.use('/assets', assetHandlers.customer, missingAsset);
+  app.get(['/privacy', '/privacy/'], pages.customer);
   app.get(['/business', '/business/', '/business/index.html', '/sign-in', '/sign-in/'], pages.business);
   app.get(['/admin', '/admin/', '/admin/index.html'], pages.admin);
   app.get('/', (req, res, next) => {

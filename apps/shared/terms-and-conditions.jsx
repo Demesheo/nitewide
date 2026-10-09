@@ -2,10 +2,12 @@ import { useId, useRef, useState } from 'react';
 import { Dialog } from 'radix-ui';
 import { Download, X } from 'lucide-react';
 import terms from './legal/terms-2026-10-07.json';
+import privacy from './legal/privacy-2026-10-09.json';
+import { PrivacyLink } from './privacy-policy.jsx';
 import './terms-and-conditions.css';
 
 export const TERMS_VERSION = terms.version;
-export const termsAcceptance = { termsAccepted: true, termsVersion: TERMS_VERSION };
+export const termsAcceptance = { termsAccepted: true, termsVersion: TERMS_VERSION, privacyAcknowledged: true, privacyVersion: privacy.version };
 
 function saveTerms() {
   const text = [terms.title, `Version ${terms.version} · Updated ${terms.updated}`, terms.reviewStatus, terms.notice,
@@ -52,9 +54,9 @@ export function TermsAcceptance({ accepted, onChange, disabled = false }) {
   return <div className="nw-terms-consent">
     <div className="nw-terms-choice">
       <input id={id} type="checkbox" name="termsAccepted" checked={accepted} required disabled={disabled}
-        aria-label="I agree to the terms and conditions of use for Nitewide" aria-describedby={noticeId} onChange={event => onChange(event.target.checked)} />
-      <div><label htmlFor={id}>I agree to the </label><TermsLink disabled={disabled}>terms and conditions of use for Nitewide</TermsLink><span>.</span></div>
+        aria-label="I agree to the terms and conditions of use for Nitewide and acknowledge the Privacy Policy" aria-describedby={noticeId} onChange={event => onChange(event.target.checked)} />
+      <div><label htmlFor={id}>I agree to the </label><TermsLink disabled={disabled}>terms and conditions of use for Nitewide</TermsLink><span> and acknowledge the </span><PrivacyLink newTab disabled={disabled}>Privacy Policy</PrivacyLink><span>.</span></div>
     </div>
-    <p id={noticeId}>Required to create an account. Includes individual arbitration and a class-action waiver, with a 30-day opt-out and exceptions required by law.</p>
+    <p id={noticeId}>Required to create an account. Terms include individual arbitration and a class-action waiver, with a 30-day opt-out and exceptions required by law. Optional marketing consent is separate. Privacy Policy opens in a new tab.</p>
   </div>;
 }

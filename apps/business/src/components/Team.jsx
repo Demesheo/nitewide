@@ -48,7 +48,7 @@ export function TeamInviteLanding({ token, session, onAccepted }) {
     event.preventDefault();
     if (accepting.current || !invite) return;
     if (register) {
-      if (!termsAccepted) { setError('Please agree to the Nitewide terms and conditions to create an account.'); return; }
+      if (!termsAccepted) { setError('Please agree to the Nitewide terms and acknowledge the Privacy Policy to create an account.'); return; }
       const invalidPassword = passwordRequirementError(password);
       const invalidConfirmation = !confirmation ? 'Please confirm your password.' : password !== confirmation ? 'Passwords do not match.' : '';
       setPasswordError(invalidPassword); setConfirmationError(invalidConfirmation);

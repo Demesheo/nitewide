@@ -15,7 +15,7 @@ function recoverySecret() { return Array.from(crypto.getRandomValues(new Uint8Ar
 function pendingSecret() { try { const saved = sessionStorage.getItem('nitewide.support.pending-secret'); if (/^[a-f\d]{64}$/.test(saved || '')) return saved; } catch {} const token = recoverySecret(); try { sessionStorage.setItem('nitewide.support.pending-secret', token); } catch {} return token; }
 
 // A panel shared by the app Messages dialog and the Admin Messages workspace.
-export function SupportMessages({ session, source = 'customer', request, ui, admin = false, active = true, showHeading = true, initialContext, guestRecovery, initialThreadId, onOpened, onOpenCase, onUnreadChange, onBusyChange, refreshKey = 0 }) {
+export function SupportMessages({ session, source = 'customer', request, ui, admin = false, active = true, showHeading = true, initialContext, guestRecovery, initialThreadId, onOpened, onOpenCase, onUnreadChange, onBusyChange, refreshKey = 0, privacy = false }) {
   const { Button } = ui;
   const [list, setList] = useState(null), [detail, setDetail] = useState(null), [selected, setSelected] = useState(guestRecovery?.id || null);
   const [recovery, setRecovery] = useState(guestRecovery || null), [composing, setComposing] = useState(!session && !guestRecovery);
@@ -86,7 +86,7 @@ export function SupportMessages({ session, source = 'customer', request, ui, adm
   if (visibleFor !== identity) return null;
   return <section className="support-messages" aria-busy={busy || loading}>
     {showHeading && <h2>{admin ? 'Nitewide support messages' : 'Contact Nitewide'}</h2>}
-    <p className="booking-message-help">{admin ? 'Review customer, business, and account-access messages. Replies are private to the requester; open the linked support case to manage its status.' : recovery ? 'Your private account-access conversation with Nitewide.' : session ? 'Private messages with Nitewide. Organizer conversations and refund requests stay in Organizer messages.' : 'Help with signing in or accessing your account. Sign in for other support questions.'}</p>
+    <p className="booking-message-help">{admin ? 'Review customer, business, and account-access messages. Replies are private to the requester; open the linked support case to manage its status.' : privacy ? 'Private privacy requests with Nitewide. No account is required. Include Privacy request and describe what you need; do not send passwords, card numbers, or identity documents.' : recovery ? 'Your private account-access conversation with Nitewide.' : session ? 'Private messages with Nitewide. Organizer conversations and refund requests stay in Organizer messages.' : 'Help with signing in or accessing your account. You can also make a privacy request without signing in. Sign in for other support questions.'}</p>
     {(session || recovery) && <Button variant="outline" type="button" disabled={busy || loading} onClick={() => setRevision(value => value + 1)}>Reload support messages</Button>}
     {error && <p role="alert" className="booking-message-error">{error} <Button variant="outline" type="button" disabled={busy} onClick={() => setRevision(value => value + 1)}>Retry loading</Button></p>}
     {notice && <p role="status">{notice}</p>}
@@ -108,8 +108,8 @@ export function SupportMessages({ session, source = 'customer', request, ui, adm
   </section>;
 }
 
-export function ContactNitewide({ session, source, request, ui }) {
+export function ContactNitewide({ session, source, request, ui, privacy = false }) {
   const { Button, Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } = ui;
   const [recovery, setRecovery] = useState(recoveryFromLocation), [open, setOpen] = useState(Boolean(recovery)), [busy, setBusy] = useState(false);
-  return <><Button variant="ghost" type="button" className="contact-nitewide-link" onClick={() => { const saved = recoveryFromLocation(); if (session && !saved) window.dispatchEvent(new CustomEvent('nitewide:contact-support')); else { setRecovery(saved); setOpen(true); } }}>Contact Nitewide</Button><Dialog open={open} onOpenChange={value => { if (!busy) setOpen(value); }}><DialogContent className="booking-messages-dialog" showCloseButton={!busy} onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} onPointerDownOutside={event => { if (busy) event.preventDefault(); }}><DialogHeader><DialogTitle>Contact Nitewide</DialogTitle><DialogDescription>Private account-access support.</DialogDescription></DialogHeader><SupportMessages key={session?.accessToken || 'guest'} session={session} source={source} request={request} ui={ui} guestRecovery={recovery} showHeading={false} onBusyChange={setBusy}/></DialogContent></Dialog></>;
+  return <><Button variant="ghost" type="button" className="contact-nitewide-link" onClick={() => { const saved = recoveryFromLocation(); if (session && !saved) window.dispatchEvent(new CustomEvent('nitewide:contact-support')); else { setRecovery(saved); setOpen(true); } }}>Contact Nitewide</Button><Dialog open={open} onOpenChange={value => { if (!busy) setOpen(value); }}><DialogContent className="booking-messages-dialog" showCloseButton={!busy} onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} onPointerDownOutside={event => { if (busy) event.preventDefault(); }}><DialogHeader><DialogTitle>Contact Nitewide</DialogTitle><DialogDescription>{privacy ? 'Private privacy requests. No account required.' : 'Private account-access and privacy support.'}</DialogDescription></DialogHeader><SupportMessages key={session?.accessToken || 'guest'} session={session} source={source} request={request} ui={ui} guestRecovery={recovery} showHeading={false} onBusyChange={setBusy} privacy={privacy}/></DialogContent></Dialog></>;
 }

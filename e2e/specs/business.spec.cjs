@@ -98,11 +98,15 @@ workspacesTest('one organization context persists across every workspace; aggreg
 teamPaginationTest('business entry and workspace journey keeps branding, clean navigation and real reports usable', async ({ page, fixture }) => {
   await test.step('Landing and a clean sign-in boot retain readable approved branding', async () => {
     await page.goto('/');
+    await expect(page.locator('.lp-footer').getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', `${urls.customer}/privacy`);
+    await expect(page.locator('.lp-footer').getByRole('link', { name: 'Return to Nitewide', exact: true })).toHaveAttribute('href', `${urls.customer}/`);
     await expectBrandImage(page.locator('.lp-header .lp-brand img'));
     await expectBrandIcons(page);
     await expectNoOverflow(page);
     await test.info().attach('business-brand-landing', { body: await page.screenshot(), contentType: 'image/png' });
     await page.goto('/sign-in');
+    await expect(page.locator('.signin-form footer').getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', `${urls.customer}/privacy`);
+    await expect(page.locator('.signin-form footer').getByRole('link', { name: 'Return to Nitewide', exact: true })).toHaveAttribute('href', `${urls.customer}/`);
     await expect(page.getByLabel('Work email', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign in to Nitewide', exact: true })).toBeVisible();
@@ -196,6 +200,8 @@ teamPaginationTest('business entry and workspace journey keeps branding, clean n
     await expect(editor).toHaveCount(0);
   });
   await test.step('Overview charts switch categories and team pagination uses the backend', async () => {
+    await expect(page.locator('.app-footer').getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', `${urls.customer}/privacy`);
+    await expect(page.locator('.app-footer').getByRole('link', { name: 'Return to Nitewide', exact: true })).toHaveAttribute('href', `${urls.customer}/`);
     await page.locator('.app-footer').getByRole('button', { name: 'Contact Nitewide', exact: true }).click();
     const messages = page.getByRole('dialog', { name: 'Messages', exact: true });
     await messages.getByRole('button', { name: 'Report an issue', exact: true }).click();
@@ -600,6 +606,15 @@ test('organization invitation links and resend links open the team acceptance sc
     await expect(recipient.getByRole('dialog', { name: 'Nitewide Terms and Conditions of Use' })).toBeVisible();
     await expectNoOverflow(recipient);
     await recipient.getByRole('button', { name: 'Close terms and conditions', exact: true }).click();
+    const privacyPopup = recipient.waitForEvent('popup');
+    await recipient.getByRole('link', { name: 'Privacy Policy', exact: true }).click();
+    const privacy = await privacyPopup;
+    try {
+      await expect(privacy.getByRole('heading', { name: 'Nitewide Privacy Policy', exact: true })).toBeVisible();
+      await expectNoOverflow(privacy);
+    } finally { await privacy.close(); }
+    await expect(recipient.getByLabel('Name', { exact: true })).toHaveValue('New Teammate');
+    await expect(recipient.getByRole('checkbox')).toHaveCount(1);
     await expect(recipient.getByRole('checkbox', { name: /I agree to the terms/ })).not.toBeChecked();
     await recipient.getByRole('checkbox', { name: /I agree to the terms/ }).check();
     const requirements = recipient.getByRole('list', { name: 'Password requirements', exact: true });

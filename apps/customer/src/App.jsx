@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { TermsLink } from '../../shared/terms-and-conditions.jsx';
+import { PrivacyLink } from '../../shared/privacy-policy.jsx';
 import { ArrowUpRight, ArrowRight, MapPin, Search, Ticket, Users, Minus, Plus, Check, Compass, X, Share, Heart, LogIn } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Badge } from "./components/ui/badge";
@@ -1066,6 +1067,7 @@ function CustomerApp() {
         <nav className="footer-secondary-links" aria-label="Support and legal">
           <ContactNitewide session={session} />
           <TermsLink />
+          <PrivacyLink />
         </nav>
       </footer>
 

@@ -61,6 +61,11 @@ test('signup and profile expose email choices only, keep phone optional and pres
     await user.type(screen.getByLabelText('Confirm password', { exact: true }), 'Welcome123');
     await user.click(screen.getByRole('checkbox', { name: 'Email me event recommendations and updates.' }));
     const agreement = screen.getByRole('checkbox', { name: /I agree to the terms/ });
+    const privacyLink = screen.getByRole('link', { name: 'Privacy Policy', exact: true });
+    assert.equal(privacyLink.href, 'http://localhost:5173/privacy');
+    assert.equal(privacyLink.target, '_blank');
+    assert.equal(privacyLink.rel, 'noopener noreferrer');
+    assert.match(agreement.getAttribute('aria-label'), /acknowledge the Privacy Policy/);
     assert.equal(agreement.checked, false);
     assert.equal(agreement.required, true);
     assert.equal(screen.getByRole('button', { name: 'Create account', exact: true }).disabled, true);
@@ -86,6 +91,8 @@ test('signup and profile expose email choices only, keep phone optional and pres
     assert.equal(registration.marketingConsent, true);
     assert.equal(registration.termsAccepted, true);
     assert.equal(registration.termsVersion, '2026-10-07');
+    assert.equal(registration.privacyAcknowledged, true);
+    assert.equal(registration.privacyVersion, '2026-10-09');
     assert.equal('transactionalSmsConsent' in registration || 'marketingSmsConsent' in registration, false);
 
     view.rerender(React.createElement(AccountDialog, { open: true, onOpenChange() {}, session, onProfile: value => profiles.push(value), onSignOut() {} }));
@@ -115,7 +122,7 @@ test('signup and profile expose email choices only, keep phone optional and pres
     await user.click(activate);
     await screen.findByRole('heading', { name: "You're all set." });
     assert.deepEqual(calls.find(call => call.path === '/api/auth/onboarding/accept').body, {
-      token: 'fixture-onboarding', password: 'Welcome123', confirmPassword: 'Welcome123', termsAccepted: true, termsVersion: '2026-10-07',
+      token: 'fixture-onboarding', password: 'Welcome123', confirmPassword: 'Welcome123', termsAccepted: true, termsVersion: '2026-10-07', privacyAcknowledged: true, privacyVersion: '2026-10-09',
     });
   } finally {
     view?.unmount();

@@ -47,7 +47,7 @@ export function OnboardingSetup({ token, session, onSignIn, onSwitchAccount, onC
   async function accept(event) {
     event.preventDefault();
     if (!preview || mismatch || (existing && !session) || busy) return;
-    if (!existing && !termsAccepted) { setError('Please agree to the Nitewide terms and conditions to activate your account.'); return; }
+    if (!existing && !termsAccepted) { setError('Please agree to the Nitewide terms and acknowledge the Privacy Policy to activate your account.'); return; }
     const invalidPassword = !existing ? passwordRequirementError(password) : '';
     if (!existing && (invalidPassword || password !== confirmPassword)) {
       setError(invalidPassword || 'Passwords do not match.');

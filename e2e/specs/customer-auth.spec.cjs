@@ -145,6 +145,20 @@ authTest('registration requires matching passwords and creates a real account', 
   await expect(terms.getByRole('region', { name: 'Terms and conditions document' })).toContainText('30-DAY OPT-OUT');
   await expectNoOverflow(page);
   await terms.getByRole('button', { name: 'Back to form' }).click();
+  await test.step('public privacy opens separately without accepting consent or losing the signup draft', async () => {
+    const link = page.getByRole('link', { name: 'Privacy Policy', exact: true });
+    await expect(link).toHaveAttribute('href', `${urls.customer}/privacy`);
+    const popupPromise = page.waitForEvent('popup');
+    await link.click();
+    const privacy = await popupPromise;
+    try {
+      await expect(privacy.getByRole('heading', { name: 'Nitewide Privacy Policy', exact: true })).toBeVisible();
+      await expectNoOverflow(privacy);
+    } finally { await privacy.close(); }
+    await expect(page.getByRole('checkbox', { name: /acknowledge the Privacy Policy/ })).not.toBeChecked();
+    await expect(page.getByLabel('Your name', { exact: true })).toHaveValue('Browser New Customer');
+    await expect(page.getByLabel('Password', { exact: true })).toHaveValue(fixture.password);
+  });
   await expect(page.getByRole('checkbox', { name: /I agree to the terms/ })).not.toBeChecked();
   await expect(page.getByLabel('Your name', { exact: true })).toHaveValue('Browser New Customer');
   await page.getByRole('checkbox', { name: /I agree to the terms/ }).check();

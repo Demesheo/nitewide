@@ -21,6 +21,7 @@ import FeeComparison from "./components/fee-comparison";
 import { BrandMark, BusinessBrand } from './components/BusinessBrand';
 import { ContactNitewide } from './components/Messages';
 import { TermsLink } from '../../shared/terms-and-conditions.jsx';
+import { PrivacyLink, ReturnToNitewide } from '../../shared/privacy-policy.jsx';
 import "./landing.css";
 
 const icons = {
@@ -556,6 +557,8 @@ export default function Landing() {
       <footer className="lp-footer lp-container">
         <ContactNitewide/>
         <TermsLink/>
+        <PrivacyLink/>
+        <ReturnToNitewide/>
         <Brand />
         <p>Made for the people who make it happen.</p>
         <a href="#main">Back to top ↑</a>

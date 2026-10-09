@@ -1,0 +1,136 @@
+{
+  "title": "Nitewide Privacy Policy",
+  "version": "2026-10-09",
+  "updated": "October 9, 2026",
+  "summary": "How we handle information when you discover events, make bookings, run a business, or promote a night on Nitewide.",
+  "sections": [
+    {
+      "id": "scope",
+      "title": "1. Who we are and who this covers",
+      "paragraphs": [
+        "Nitewide, Inc., a Delaware corporation (Nitewide, we, us), provides event discovery, ticket and package booking, guestlists, invitations, referrals, and business operations tools. This policy covers our Customer and Business apps, public event and rundown pages, and related communications and support. Our service is currently intended for people in the United States who are at least 18 years old.",
+        "This policy describes Nitewide's information practices. Organizers, venues, promoters, payment providers, and other third parties may also handle information independently under their own notices. Agreeing to our Terms and acknowledging this policy is not consent to optional marketing, advertising tracking, or every possible future use of your information."
+      ]
+    },
+    {
+      "id": "collection",
+      "title": "2. Information we collect and its sources",
+      "paragraphs": [
+        "Account and contact information: your name, email, optional phone number, account identifiers, credentials, verification status, preferences, and records of policy acknowledgment and communication choices. Passwords are stored as salted hashes, not readable passwords. An administrator or inviter may supply your name, email, and role before you create an account.",
+        "Event and business information: business and venue names, addresses, websites, social links, event descriptions, schedules, flyers and uploaded media, offerings, team roles, promoter assignments, public rundown information, and payment-account status. Obtain appropriate permission before uploading someone else's information or image.",
+        "Bookings and participation: selected events and offerings, guest names and contact details, guestlist requests and decisions, invitations, tickets and passes, attendance/check-ins, favorites, referrals, commission attribution, and customer-organizer messages. Organizers and other participants may supply information about you when arranging bookings or invitations.",
+        "Transactions and support: order amounts, fees, currency, payment/refund status, provider identifiers, invoices and settlement records, billing-contact snapshots for commission invoices, support requests, messages, and audit history. Stripe supplies payment, dispute, verification, and account-status updates.",
+        "Device and service information: IP address, browser/device information, request timing and errors, security/abuse signals, and browser storage supporting sessions, preferences, referrals, checkout recovery, and offline passes. Our infrastructure and service providers may receive technical details when your browser connects to them."
+      ]
+    },
+    {
+      "id": "location",
+      "title": "3. Location information",
+      "paragraphs": [
+        "We use your selected or remembered city to find nearby events. The app may ask BigDataCloud to estimate a city from your IP address without requesting device coordinates. If you choose the location control and grant browser permission, we send device coordinates to BigDataCloud to identify a city. That provider receives your IP address and, for this optional request, the coordinates.",
+        "You can deny or revoke browser location permission and choose a city manually. Nitewide remembers the resulting city rather than continuously tracking device location in the background. Venue addresses and event coordinates are separate information used for listings and directions."
+      ]
+    },
+    {
+      "id": "uses",
+      "title": "4. How we use information",
+      "paragraphs": [
+        "We use information to create and secure accounts; verify contact information; approve business access and manage roles; display events and rundowns; process bookings, guestlists, invitations, admissions, payments and refunds; attribute referrals and commissions; provide reports/exports; and deliver support and service communications.",
+        "We also troubleshoot and improve the service, understand performance through operational reporting, enforce rules, prevent abuse and fraud, resolve disputes, maintain accounting/audit records, and meet legal obligations. Optional promotions follow separate choices. Signup acknowledgment is not permission for unrelated advertising or monetized disclosure."
+      ]
+    },
+    {
+      "id": "stripe",
+      "title": "5. Payments and financial information handled by Stripe",
+      "paragraphs": [
+        "Stripe processes paid purchases, refunds, connected-account onboarding, commission invoices, and supported settlement activity. Card details entered in Stripe's payment forms go to Stripe; Nitewide's application database does not store full card numbers or card security codes. Banking and identity-verification information entered during Stripe-hosted onboarding is handled by Stripe, not stored as raw bank numbers or identity documents in our application database.",
+        "Nitewide still stores financial records needed to operate the service: purchaser and billing-contact information, orders, amounts and fees, currency, payment/refund/dispute status, commissions, invoice links, provider transaction identifiers, and connected-account capability or verification status. Stripe may provide limited payment-method details and other metadata. Authorized business users receive financial and booking information within their permitted scope.",
+        "Stripe's privacy policy governs its handling of payment, banking, identity, device, and fraud-prevention information. Stripe may act independently for regulatory/security purposes and retain transaction records to meet legal obligations. A refund, account closure, or deletion request to Nitewide does not automatically erase Stripe's records. We review requests concerning our records and coordinate with providers where appropriate; requests about Stripe's independent processing may also need to be made to Stripe."
+      ]
+    },
+    {
+      "id": "disclosures",
+      "title": "6. Who receives information",
+      "paragraphs": [
+        "Organizers and authorized teams receive information needed to fulfill bookings, manage guestlists/admissions, communicate with participants, handle refunds, and reconcile performance. Depending on their role and assignment, owners, managers, employees, and promoters may see relevant contact details, bookings, attendance, referrals, or financial information. Access is role-scoped, not unrestricted access to every customer. Organizers are responsible for their independent uses; contact them about those uses.",
+        "Providers help host/protect the apps and databases, store media, deliver email, process payments, and identify cities. They currently include Render, Cloudflare (including R2), Resend, Stripe, and BigDataCloud. We disclose information needed for those functions, such as application records, media, message recipients/content, transactions, or network/location information. Providers may have independent legal/security obligations.",
+        "Other recipients include people you invite or choose to communicate with; advisers and authorities when reasonably necessary for legal compliance, safety, fraud prevention, or disputes; and parties involved in proposed financing, acquisition, or transfer of our business, subject to appropriate protections and applicable law. We may also disclose information at your direction."
+      ]
+    },
+    {
+      "id": "public",
+      "title": "7. Public pages and private links",
+      "paragraphs": [
+        "Published events, flyers, business names, and names displayed on public personal or business rundowns can be viewed without an account, shared by others, and potentially indexed by search engines. Do not put confidential information in public listings or media. Removing content may not remove third-party copies, screenshots, or search caches.",
+        "Some invitations, passes, and support-recovery links grant access to specific information to whoever holds the link. Treat them as private credentials and do not post them publicly. A recovery link does not establish account ownership. Private Nitewide support conversations are for authorized support/administrative personnel, not automatically shared with organizers."
+      ]
+    },
+    {
+      "id": "storage",
+      "title": "8. Browser storage, cookies, and external services",
+      "paragraphs": [
+        "Browser local/session storage supports essential functions including sign-in, discovery preferences, saved events, referral attribution, checkout recovery, and eligible offline passes. First-party referrals credit event participants; they are distinct from third-party cross-site advertising. Providers, including Stripe and network/security providers, may use cookies or similar technologies for their services.",
+        "You can clear browser storage and use browser cookie controls. This may sign you out, remove preferences/cached passes, or interrupt checkout and private-link recovery. Maps, social sites, payment pages, and other external links lead to services governed by their own notices.",
+        "Do Not Track: our current apps do not change their operation in response to a browser's Do Not Track setting. Providers may collect technical information through their services as described above and in their own notices. Do Not Track is distinct from legally required opt-out signals; future covered advertising or sale/sharing features must recognize applicable required signals before activation."
+      ]
+    },
+    {
+      "id": "advertising",
+      "title": "9. Analytics, advertising, and future information sharing",
+      "paragraphs": [
+        "At this policy's effective date, Nitewide's apps do not implement Google Ads, AdSense, third-party advertising pixels, or a program selling personal information or sharing it for cross-context behavioral advertising. We do use information for the operational purposes and provider disclosures above. This describes current practices, not a permanent commitment that our business model will never change.",
+        "We may later introduce analytics, advertising, marketing tools, internal advertising, or revenue-generating information-sharing arrangements. Before a material new use or sale/sharing practice, we will update disclosures and provide notices, consent, opt-outs, and recognition of applicable universal opt-out signals required by law. Existing acknowledgment is not advance consent to those practices. Such features need appropriate privacy controls before activation."
+      ]
+    },
+    {
+      "id": "communications",
+      "title": "10. Communications and choices",
+      "paragraphs": [
+        "Verification, password recovery, booking confirmations, receipts, invitations, security notices, and responses to requests are service communications. Manage available notification preferences in your profile. Some communications remain necessary for transactions, security, or legal obligations.",
+        "Optional email recommendations/promotions use a separate marketing choice, not the required signup checkbox. Change that choice in your profile or use an unsubscribe option where provided. If optional text marketing or other channels are introduced, we will provide required channel-specific notices and choices. Providing a phone number or acknowledging this policy is not consent to promotional texts."
+      ]
+    },
+    {
+      "id": "retention",
+      "title": "11. Retention and deletion",
+      "paragraphs": [
+        "Retention depends on purpose, account/transaction activity, security, disputes, and legal obligations. The current system does not apply a single automatic deletion period to accounts, bookings, financial records, support conversations, or audit history. Disabling or archiving is not deletion. We manually review privacy/deletion requests through Contact Nitewide, including what can be removed or de-identified and what must be retained.",
+        "Existing short-lived controls: report-export jobs and download eligibility expire after 24 hours, with expired job records cleaned up by the worker. Cached offline passes are valid for at most 24 hours and no later than one hour after event end; invalid entries are removed when the cache is read. Downloaded copies outside our storage are not remotely erased.",
+        "Sign-in sessions have a 12-hour validity window, password-reset links one hour, and email-verification links 24 hours. Related database records may outlive expired or consumed links; validity is not immediate deletion. Private support-recovery links expire after 90 days without automatically deleting conversations.",
+        "Encrypted outbound-email variables are cleared after successful sending and when the worker processes expired or policy-blocked messages. Failed messages may retain encrypted content for retries or reviewed replay. Recipient, delivery, status, and provider records may remain for troubleshooting/audit. Media cleanup depends on configuration and reference checks; we do not promise automatic removal of every unused upload.",
+        "Relevant records may be retained after closure/deletion requests for accounting, tax, fraud prevention, payment disputes, agreements, or legal holds, with their use limited accordingly. Backup copies may persist through providers' backup lifecycles. Stripe and organizers have independent retention obligations. We do not promise a fixed financial-record or backup deletion deadline that the current system does not enforce."
+      ]
+    },
+    {
+      "id": "rights",
+      "title": "12. Privacy requests and U.S. state rights",
+      "paragraphs": [
+        "Use Contact Nitewide below or in either footer to ask about information, request access/a copy, correction, deletion, or review of a privacy decision. Label the message Privacy request and describe the request and relevant account/booking. No account creation is required: the signed-out form provides a private recovery link for replies. Save it. Do not send passwords, full card/bank numbers, or identity documents in the form.",
+        "Depending on your state and whether its law applies to Nitewide, rights may include access, correction, deletion, portability, appeal, opting out of sale/targeted advertising or certain profiling, and limiting qualifying sensitive-information uses. Authorized agents may act where permitted. We verify identity/authority proportionately, explain applicable exceptions or denials, and respond within legally required deadlines. Contact Nitewide to appeal; you may also contact your state privacy regulator. We will not unlawfully discriminate for exercising rights.",
+        "We can help direct requests to organizers/providers holding information independently. This policy does not claim that every state law applies to our business or that every request requires erasing legally retained financial/security records."
+      ]
+    },
+    {
+      "id": "security-children",
+      "title": "13. Security, children, and processing locations",
+      "paragraphs": [
+        "Safeguards include access controls, password hashing, limited-lifetime credentials, and protected communications. No service guarantees complete security. Keep passwords/private links confidential and contact us about suspected misuse.",
+        "Nitewide is intended for adults 18 and older, not children. We do not knowingly collect information from children under 13. Contact us if you believe a child has provided information so we can investigate and take appropriate action. Events may impose additional age restrictions.",
+        "Although offered for U.S. use, providers may process information in the U.S. or other countries where they operate, subject to those locations' laws. U.S.-only availability is not a promise of exclusively U.S. provider processing."
+      ]
+    },
+    {
+      "id": "contact",
+      "title": "14. Updates and contact",
+      "paragraphs": [
+        "Changes will be published here with an updated effective date, with additional notice or consent when legally required for material changes. Future possibilities are not activated merely by updating this policy or by signup acknowledgment.",
+        "Contact Nitewide, Inc. for privacy questions, requests, appeals, or concerns using the button below or either app's footer. Signed-in users may use their private support inbox; signed-out users may use the recovery-link form. Include Privacy request in your message for appropriate routing."
+      ]
+    }
+  ],
+  "providerLinks": [
+    { "label": "Stripe privacy policy", "url": "https://stripe.com/privacy" },
+    { "label": "Stripe data retention", "url": "https://support.stripe.com/questions/data-retention-policy" },
+    { "label": "BigDataCloud privacy and cookies", "url": "https://www.bigdatacloud.com/privacy-and-cookie-policy" }
+  ]
+}

@@ -3548,6 +3548,16 @@
                     "const": "2026-10-07",
                     "description": "Version displayed to the user. Stale versions must be reviewed again."
                   },
+                  "privacyAcknowledged": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "Acknowledgment of the displayed privacy policy; not optional marketing consent."
+                  },
+                  "privacyVersion": {
+                    "type": "string",
+                    "const": "2026-10-09",
+                    "description": "Privacy policy version displayed with the shared signup checkbox."
+                  },
                   "guestlistInviteToken": {
                     "type": "string",
                     "minLength": 20,
@@ -3559,7 +3569,9 @@
                   "email",
                   "password",
                   "termsAccepted",
-                  "termsVersion"
+                  "termsVersion",
+                  "privacyAcknowledged",
+                  "privacyVersion"
                 ]
               }
             }
@@ -62884,6 +62896,16 @@
                     "type": "string",
                     "const": "2026-10-07",
                     "description": "Version displayed to the user. Stale versions must be reviewed again."
+                  },
+                  "privacyAcknowledged": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "Acknowledgment of the displayed privacy policy; not optional marketing consent."
+                  },
+                  "privacyVersion": {
+                    "type": "string",
+                    "const": "2026-10-09",
+                    "description": "Privacy policy version displayed with the shared signup checkbox."
                   }
                 },
                 "required": [

@@ -969,6 +969,9 @@ td small {
 }
 .app-footer {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
   justify-content: space-between;
   padding: 13px 0 24px;
   color: #797387;
@@ -1451,6 +1454,9 @@ textarea:focus-visible {
   font-size: 10px;
   margin-top: 40px;
 }
+.signin-form > footer { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 16px; width: 100%; margin-top: 28px; }
+.signin-form > footer .nw-terms-link { display: inline-flex; align-items: center; min-height: 44px; font-size: 12px; }
+.signin-form > footer small { width: 100%; color: #a79bb6; font-size: 10px; text-align: center; }
 .signin-access { margin-top: 24px; padding-top: 20px; border-top: 1px solid #302637; }
 .signin-access p { margin: 0 0 12px; color: #bfb0cb; font-size: 12px; }
 .signin-access > button { width: 100%; min-height: 44px; }

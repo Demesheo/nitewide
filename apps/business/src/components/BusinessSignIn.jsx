@@ -8,6 +8,7 @@ import { BrandMark, BusinessBrand } from './BusinessBrand';
 import { ContactNitewide } from './Messages';
 import { publicAppLink } from '../../../shared/app-links.mjs';
 import { TermsLink } from '../../../shared/terms-and-conditions.jsx';
+import { PrivacyLink, ReturnToNitewide } from '../../../shared/privacy-policy.jsx';
 
 export function BusinessSignIn({ onSession, notice = '', invitationOnly = false }) {
   const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get('resetPassword'));
@@ -65,5 +66,5 @@ export function BusinessSignIn({ onSession, notice = '', invitationOnly = false 
       <div className="signin-note"><ShieldCheck size={16}/><span>{invitationOnly ? 'Your invitation must be accepted before Business access is available.' : 'Business access requires approval and completed onboarding. A customer account alone does not grant access.'}</span></div>
       {mode === 'sign-in' && !invitationOnly && <div className="signin-access"><p>New to Nitewide Business?</p><Button ref={requestTrigger} type="button" variant="outline" size="lg" disabled={busy} onClick={() => { setMode('request'); setError(''); setMessage(''); }}>Request access <ArrowRight aria-hidden="true" /></Button></div>}
       </>}
-    </div><footer><ContactNitewide/><TermsLink/><small>© {new Date().getFullYear()} Nitewide · Business, after hours.</small></footer></section></main>;
+    </div><footer><ContactNitewide/><TermsLink/><PrivacyLink/><ReturnToNitewide/><small>© {new Date().getFullYear()} Nitewide · Business, after hours.</small></footer></section></main>;
 }

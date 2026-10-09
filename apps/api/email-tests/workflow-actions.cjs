@@ -83,6 +83,7 @@ async function collectWorkflowMessages(runLabel) {
     await action('account signup → verify email', TEMPLATES.verifyEmail, () => auth.register({
       email: address, displayName: 'Nitewide Test', password: 'WorkflowTest123!', phone: null,
       termsAccepted: true, termsVersion: require('../src/domain/terms-acceptance').TERMS_VERSION,
+      privacyAcknowledged: true, privacyVersion: require('../src/domain/terms-acceptance').PRIVACY_VERSION,
     }));
     const verifyToken = new URL(messages.at(-1).variables.VERIFY_URL).searchParams.get('verifyEmail');
     await action('email verification → welcome', TEMPLATES.welcome, () => auth.verifyEmail(verifyToken));

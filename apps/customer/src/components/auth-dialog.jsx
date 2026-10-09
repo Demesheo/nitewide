@@ -60,7 +60,7 @@ export function AuthDialog({ open, onOpenChange, onSuccess, guestlistInviteToken
     const body = { email: form.get("email"), password: form.get("password") };
     if (register) {
       if (!termsAccepted) {
-        setError('Please agree to the Nitewide terms and conditions to create an account.');
+        setError('Please agree to the Nitewide terms and acknowledge the Privacy Policy to create an account.');
         event.currentTarget.elements.namedItem('termsAccepted')?.focus();
         return;
       }

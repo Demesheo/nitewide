@@ -125,6 +125,40 @@ discoveryTest('customer discovery keeps its chosen area, branding and private si
   await footer.scrollIntoViewIfNeeded();
   await expectBrandImage(footer.getByRole('link', { name: 'Nitewide home', exact: true }).locator('img'));
   await expect(footer.getByRole('link', { name: 'For business', exact: true })).toBeVisible();
+  await test.step('footer privacy is public, reloadable, quiet, and accepts a private request without an account', async () => {
+    const link = footer.getByRole('link', { name: 'Privacy policy', exact: true });
+    await expect(link).toHaveAttribute('href', `${urls.customer}/privacy`);
+    const requests = [];
+    const observe = request => { if (new URL(request.url()).pathname.startsWith('/api/')) requests.push(request.url()); };
+    page.on('request', observe);
+    try {
+      await link.click();
+      await expect(page.getByRole('heading', { name: 'Nitewide Privacy Policy', exact: true })).toBeVisible();
+      await page.reload();
+      await expect(page.getByRole('navigation', { name: 'Privacy policy contents', exact: true })).toBeVisible();
+      await expectNoOverflow(page);
+      await testInfo.attach('public-privacy-policy', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+      await page.getByRole('navigation', { name: 'Privacy policy contents' }).getByRole('link', { name: 'Privacy requests and U.S. state rights' }).click();
+      await expect(page.locator('#rights')).toBeInViewport();
+      await page.getByRole('button', { name: 'Contact Nitewide', exact: true }).click();
+      const privacySupport = page.getByRole('dialog', { name: 'Contact Nitewide', exact: true });
+      await expect(privacySupport.getByText(/Private privacy requests with Nitewide/)).toBeVisible();
+      expect(requests).toEqual([]);
+      await privacySupport.getByRole('textbox', { name: 'Your name', exact: true }).fill('Guest privacy requester');
+      await privacySupport.getByRole('textbox', { name: 'Email', exact: true }).fill(fixture.accounts.customer.email);
+      await privacySupport.getByRole('textbox', { name: 'Describe the issue', exact: true }).fill('Privacy request: please tell me how to request a copy of my information.');
+      await privacySupport.getByRole('button', { name: 'Send to Nitewide', exact: true }).click();
+      await expect(privacySupport.getByLabel('Support conversation')).toContainText('Privacy request:');
+      await expect(privacySupport.locator('.support-messages')).toHaveAttribute('aria-busy', 'false');
+      await page.reload();
+      const recovered = page.getByRole('dialog', { name: 'Contact Nitewide', exact: true });
+      await expect(recovered.getByLabel('Support conversation')).toContainText('Privacy request:');
+      await recovered.getByRole('button', { name: 'Close', exact: true }).click();
+      await page.getByRole('banner').getByRole('link', { name: 'Return to Nitewide', exact: true }).click();
+      await expect(cards).toHaveCount(9);
+    } finally { page.off('request', observe); }
+    await footer.scrollIntoViewIfNeeded();
+  });
   await expectNoOverflow(page);
   await footer.getByRole('button', { name: 'Contact Nitewide', exact: true }).click();
   const support = page.getByRole('dialog', { name: 'Contact Nitewide', exact: true });

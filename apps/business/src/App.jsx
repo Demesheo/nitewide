@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TermsLink } from '../../shared/terms-and-conditions.jsx';
+import { PrivacyLink, ReturnToNitewide } from '../../shared/privacy-policy.jsx';
 import {
   BarChart3,
   ArrowDownToLine,
@@ -500,6 +501,8 @@ export default function App() {
           <footer className="app-footer">
             <ContactNitewide session={session}/>
             <TermsLink/>
+            <PrivacyLink/>
+            <ReturnToNitewide/>
             <span>Nitewide Business</span>
             <span>Made for the people who make it happen.</span>
           </footer>

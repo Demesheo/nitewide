@@ -2,8 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createAuthService, createPasswordRecord, passwordMatches, signToken, verifyToken } = require('../src/services/auth-service');
 const { register } = require('../src/http/schemas');
-const { TERMS_VERSION, documentSha256 } = require('../src/domain/terms-acceptance');
-const agreement = { termsAccepted: true, termsVersion: TERMS_VERSION };
+const { TERMS_VERSION, documentSha256, PRIVACY_VERSION, privacyDocumentSha256 } = require('../src/domain/terms-acceptance');
+const agreement = { termsAccepted: true, termsVersion: TERMS_VERSION, privacyAcknowledged: true, privacyVersion: PRIVACY_VERSION };
 
 test('passwords are stored as salted hashes and can be verified', async () => {
   const credential = await createPasswordRecord('Customer123');
@@ -55,8 +55,13 @@ test('registration normalizes an optional phone and keeps SMS choices separate',
   assert.deepEqual(acceptance.record.after, { version: TERMS_VERSION, documentSha256, acceptedAt: now.toISOString(), source: 'registration', explicitAcceptance: true });
   assert.equal(acceptance.record.actorUserId, 'user-1');
   assert.ok(acceptance.options.transaction);
+  const acknowledgment = audits.find(item => item.record.action === 'account.privacy_acknowledged');
+  assert.equal(privacyDocumentSha256, '9c0a9a6216200131159c482cd78a16f629bdd349f4b2e832aba3f6aa6e21987a', 'acknowledged policy text must remain immutable');
+  assert.deepEqual(acknowledgment.record.after, { version: PRIVACY_VERSION, documentSha256: privacyDocumentSha256, acknowledgedAt: now.toISOString(), source: 'registration', explicitAcknowledgment: true });
+  assert.equal(acknowledgment.record.actorUserId, 'user-1');
+  assert.equal(acknowledgment.options.transaction, acceptance.options.transaction);
   const { termsAccepted, termsVersion, ...noAgreement } = input;
-  for (const invalid of [noAgreement, { ...input, termsAccepted: false }, { ...input, termsAccepted: 'true' }, { ...input, termsVersion: 'old-version' }]) {
+  for (const invalid of [noAgreement, { ...input, termsAccepted: false }, { ...input, termsAccepted: 'true' }, { ...input, termsVersion: 'old-version' }, { ...input, privacyAcknowledged: undefined }, { ...input, privacyAcknowledged: false }, { ...input, privacyAcknowledged: 'true' }, { ...input, privacyVersion: 'old-version' }]) {
     assert.equal(register.safeParse(invalid).success, false);
     await assert.rejects(() => service.register(invalid));
   }

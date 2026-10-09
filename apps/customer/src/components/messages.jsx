@@ -10,7 +10,7 @@ export function Messages({ session, request = api, ...props }) {
   const send = useCallback((path, options) => token ? request(path, { ...options, token }) : Promise.reject(new Error('Sign in to view booking messages.')), [request, token]);
   return <BookingMessages {...props} session={session} side="customer" request={send} ui={ui} />;
 }
-export function ContactNitewide({ session }) {
+export function ContactNitewide({ session, privacy = false }) {
   const send = useCallback((path, options) => api(path, { ...options, token: session?.accessToken }), [session?.accessToken]);
-  return <SharedContact session={session} source="customer" request={send} ui={ui} />;
+  return <SharedContact session={session} source="customer" request={send} ui={ui} privacy={privacy} />;
 }

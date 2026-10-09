@@ -128,6 +128,11 @@ test('invitation signup recovers an account-creation race and retries acceptance
     assert.equal(queries.getByLabelText('Phone (optional)').required, false);
     assert.equal(queries.queryByRole('checkbox', { name: /text|sms/i }), null);
     const agreement = queries.getByRole('checkbox', { name: /I agree to the terms/ });
+    assert.equal(queries.getAllByRole('checkbox').length, 1, 'Terms and Privacy use one shared choice');
+    const privacy = queries.getByRole('link', { name: 'Privacy Policy', exact: true });
+    assert.equal(privacy.href, 'http://localhost:5173/privacy');
+    assert.equal(privacy.target, '_blank');
+    assert.equal(privacy.rel, 'noopener noreferrer');
     assert.equal(agreement.checked, false);
     assert.equal(queries.getByRole('button', { name: 'Create account and accept', exact: true }).disabled, true);
     await user.click(queries.getByRole('link', { name: /terms and conditions of use/ }));
@@ -157,6 +162,8 @@ test('invitation signup recovers an account-creation race and retries acceptance
     assert.equal(registration.phone, '', 'invitation signup does not require a phone');
     assert.equal(registration.termsAccepted, true);
     assert.equal(registration.termsVersion, '2026-10-07');
+    assert.equal(registration.privacyAcknowledged, true);
+    assert.equal(registration.privacyVersion, '2026-10-09');
     assert.equal('transactionalSmsConsent' in registration || 'marketingSmsConsent' in registration, false, 'signup leaves dormant SMS flags to the backend defaults');
     assert.equal(calls.filter(call => call.path === '/api/auth/sign-in').length, 1);
     assert.equal(acceptAttempts, 2);
@@ -270,7 +277,7 @@ test('new owner activation shows the shared password requirements and accepts an
     await user.type(queries.getByLabelText('Confirm password', { exact: true }), 'Accept12');
     await user.click(queries.getByRole('button', { name: 'Confirm email and activate' }));
     await queries.findByRole('heading', { name: "You're all set." });
-    assert.deepEqual(calls.find(call => call.path.endsWith('/accept')).body, { token: 'private-owner-invitation', password: 'Accept12', confirmPassword: 'Accept12', termsAccepted: true, termsVersion: '2026-10-07' });
+    assert.deepEqual(calls.find(call => call.path.endsWith('/accept')).body, { token: 'private-owner-invitation', password: 'Accept12', confirmPassword: 'Accept12', termsAccepted: true, termsVersion: '2026-10-07', privacyAcknowledged: true, privacyVersion: '2026-10-09' });
   }, { fetcher: async ({ path }) => path.endsWith('/preview') ? response({ accountMode: 'new', email: session.user.email, displayName: 'New Owner', kind: 'organization', expiresAt: '2099-01-01T00:00:00.000Z' }) : response({}) });
 });
 

@@ -3,8 +3,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { request: httpRequest } = require('./support/http-client.cjs');
 const { randomUUID } = require("node:crypto");
-const { TERMS_VERSION } = require('../src/domain/terms-acceptance');
-const agreement = { termsAccepted: true, termsVersion: TERMS_VERSION };
+const { TERMS_VERSION, PRIVACY_VERSION } = require('../src/domain/terms-acceptance');
+const agreement = { termsAccepted: true, termsVersion: TERMS_VERSION, privacyAcknowledged: true, privacyVersion: PRIVACY_VERSION };
 const { assertManagedTestDatabase } = require('../scripts/test-database.cjs');
 const { createDemoStaticFixture } = require('./support/demo-static-fixture.cjs');
 test(

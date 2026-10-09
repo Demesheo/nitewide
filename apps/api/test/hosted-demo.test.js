@@ -75,7 +75,7 @@ test('non-demo releases serve all apps with secure routes and stage-only indexin
       R2_ACCESS_KEY_ID: 'synthetic-access-key', R2_SECRET_ACCESS_KEY: 'synthetic-r2-secret-key-for-offline-tests' });
     const app = createApp({ sequelize: {}, models: {}, config, staticRoot: root, healthCheck: async () => {} });
     const request = await serve(t, app);
-    for (const [url, name] of [['/', 'customer'], ['/business', 'business'], ['/sign-in', 'business'], ['/business?section=events', 'business'], ['/admin/', 'admin']]) {
+    for (const [url, name] of [['/', 'customer'], ['/privacy', 'customer'], ['/privacy/', 'customer'], ['/business', 'business'], ['/sign-in', 'business'], ['/business?section=events', 'business'], ['/admin/', 'admin']]) {
       const response = await request(url);
       assert.equal(response.status, 200);
       assert.match(response.text, new RegExp(`${name} test fixture`));
@@ -100,7 +100,7 @@ test('single-origin demo maps each app and assets without swallowing unknown API
   }
   const app = express(); installAppStatic(app, root);
   const request = await serve(t, app);
-  for (const [url, name] of [['/', 'customer'], ['/business', 'business'], ['/business?section=overview', 'business'], ['/sign-in', 'business'], ['/admin', 'admin']]) {
+  for (const [url, name] of [['/', 'customer'], ['/privacy', 'customer'], ['/privacy/', 'customer'], ['/business', 'business'], ['/business?section=overview', 'business'], ['/sign-in', 'business'], ['/admin', 'admin']]) {
     const response = await request(url); const html = response.text;
     assert.equal(response.status, 200); assert.match(html, new RegExp(`<main>${name}</main>`));
     assert.doesNotMatch(html, /Public demo|Shared sample data|No real charges|role="status"/);
@@ -201,6 +201,16 @@ test('subdomains route each built app, public configuration and legacy links wit
   const hosts = { customer: 'staging.nitewide.test', business: 'business-staging.nitewide.test', admin: 'admin-staging.nitewide.test' };
   for (const [name, host] of Object.entries(hosts)) {
     const headers = { host };
+    const privacy = await request('/privacy?invite=private-token&returnTo=https://untrusted.test/', { headers });
+    assert.equal(privacy.headers['cache-control'], 'no-store');
+    if (name === 'customer') {
+      assert.equal(privacy.status, 200);
+      assert.match(privacy.text, /customer test fixture/);
+      assert.equal((await request('/privacy/', { headers })).status, 200);
+    } else {
+      assert.equal(privacy.status, 302);
+      assert.equal(privacy.headers.location, 'https://staging.nitewide.test/privacy', 'legal redirects must not forward private tokens or user-supplied targets');
+    }
     for (const url of ['/', '/index.html']) {
       const page = await request(url, { headers });
       assert.equal(page.status, 200);

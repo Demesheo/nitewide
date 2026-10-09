@@ -2,8 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { createAdminOnboardingService } = require('../src/services/admin-onboarding-service');
-const { TERMS_VERSION, documentSha256 } = require('../src/domain/terms-acceptance');
-const agreement = { termsAccepted: true, termsVersion: TERMS_VERSION };
+const { TERMS_VERSION, documentSha256, PRIVACY_VERSION, privacyDocumentSha256 } = require('../src/domain/terms-acceptance');
+const agreement = { termsAccepted: true, termsVersion: TERMS_VERSION, privacyAcknowledged: true, privacyVersion: PRIVACY_VERSION };
 
 const ADMIN = '10000000-0000-4000-8000-000000000001';
 const OTHER = '10000000-0000-4000-8000-000000000002';
@@ -191,7 +191,7 @@ test('preview is non-consuming; new-account accept requires confirmed password a
   assert.equal(recipient.onboardingPending, true);
   await assert.rejects(() => context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Different12345', ...agreement }));
   await assert.rejects(() => context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345', token: raw, ...agreement }));
-  for (const invalid of [{}, { ...agreement, termsAccepted: false }, { ...agreement, termsVersion: 'stale' }]) {
+  for (const invalid of [{}, { ...agreement, termsAccepted: false }, { ...agreement, termsVersion: 'stale' }, { ...agreement, privacyAcknowledged: undefined }, { ...agreement, privacyAcknowledged: false }, { ...agreement, privacyVersion: 'stale' }]) {
     await assert.rejects(() => context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345', ...invalid }));
   }
   assert.equal(context.credentials.size, 0);
@@ -208,6 +208,9 @@ test('preview is non-consuming; new-account accept requires confirmed password a
   const acceptance = context.auditRows.find(row => row.action === 'account.terms_accepted');
   assert.deepEqual(acceptance.after, { version: TERMS_VERSION, documentSha256, acceptedAt: context.now.toISOString(), source: 'onboarding_activation', explicitAcceptance: true });
   assert.equal(acceptance.actorUserId, recipient.id);
+  const acknowledgment = context.auditRows.find(row => row.action === 'account.privacy_acknowledged');
+  assert.deepEqual(acknowledgment.after, { version: PRIVACY_VERSION, documentSha256: privacyDocumentSha256, acknowledgedAt: context.now.toISOString(), source: 'onboarding_activation', explicitAcknowledgment: true });
+  assert.equal(acknowledgment.actorUserId, recipient.id);
   await assert.rejects(() => context.service.accept(raw, { password: 'Password12345', confirmPassword: 'Password12345' }), { code: 'ONBOARDING_INVALID' });
 });
 
