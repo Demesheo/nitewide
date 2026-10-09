@@ -29,6 +29,11 @@ COPY --from=build /app/apps/api/src apps/api/src
 COPY --from=build /app/apps/shared/legal apps/shared/legal
 COPY --from=build /app/apps/shared/discovery-areas.mjs apps/shared/discovery-areas.mjs
 COPY --from=build /app/apps/shared/report-dates.mjs apps/shared/report-dates.mjs
+COPY --from=build /app/apps/shared/public-links.mjs apps/shared/public-links.mjs
+COPY --from=build /app/apps/shared/public-metadata.mjs apps/shared/public-metadata.mjs
+# Public landing claims are shared with server-rendered HTML; no React runtime
+# or private workspace source is needed in the serving image.
+COPY --from=build /app/apps/business/src/lib/landing-content.js apps/business/src/lib/landing-content.js
 COPY --from=build /app/apps/api/.sequelizerc apps/api/.sequelizerc
 COPY --from=build /app/apps/customer/dist apps/customer/dist
 COPY --from=build /app/apps/business/dist apps/business/dist

@@ -14,9 +14,9 @@ const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'ut
 test('event card Save remains independent of Open and exposes its pressed state', () => {
   assert.match(card, /<button\s+type="button"\s+className=\{`save-button/);
   assert.match(card, /aria-pressed=\{saved\}[\s\S]*?onClick=\{\(click\) => \{ click\.stopPropagation\(\); onSave\?\.\(\); \}\}/);
-  assert.match(card, /<article[^>]+onClick=\{\(click\) => \{ if \(!click\.target\.closest\('button'\)\) onOpen\?\.\(\); \}\}/);
+  assert.match(card, /<article[^>]+onClick=\{\(click\) => \{ if \(!click\.target\.closest\('button, a'\)\) onOpen\?\.\(\); \}\}/);
   assert.match(card, /onClick=\{\(click\) => \{ click\.stopPropagation\(\); onSave\?\.\(\); \}\}/);
-  assert.match(card, /<button\s+type="button"\s+className="card-open"[\s\S]*?onClick=\{\(click\) => \{ click\.stopPropagation\(\); onOpen\?\.\(\); \}\}/);
+  assert.match(card, /<a\s+href=\{eventPublicHref\(event\.id, event\.referralCode\)\}\s+className="card-open"[\s\S]*?ordinaryLinkClick\(click\)[\s\S]*?click\.preventDefault\(\); click\.stopPropagation\(\); onOpen\(\);/);
   assert.doesNotMatch(styles, /\.card-open::after\s*\{/);
 });
 

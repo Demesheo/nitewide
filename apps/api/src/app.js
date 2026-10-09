@@ -151,7 +151,8 @@ function createApp({ sequelize, models, config, healthCheck = () => sequelize.au
   app.locals.reportExports = router.reportExports;
   app.use('/api', router);
   app.use('/api/admin/background', requireUser, require('./routes/background-jobs').createBackgroundJobRouter({ sequelize, models, permissions, email, notificationJobs }));
-  if (config.serveFrontends || config.hostedDemo) require('./http/app-static').installAppStatic(app, staticRoot, config);
+  if (config.serveFrontends || config.hostedDemo) require('./http/app-static').installAppStatic(app, staticRoot, config,
+    services.publicSeo || require('./services/public-seo-service').createPublicSeoService({ models, customerAppUrl: config.CUSTOMER_APP_URL, rundowns: router.rundowns }));
   app.use((req, res, next) => {
     const domainMethods = req.path.startsWith('/api/') ? router.allowedMethods?.(req.path.slice(4)) || [] : [];
     const methods = [...new Set([...domainMethods, ...require('./http/app-contract').externalAllowedMethods(req.path)])].sort();

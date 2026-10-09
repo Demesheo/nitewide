@@ -15,6 +15,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
 import { EventCard } from "./components/event-card";
 import { DiscoveryResults } from './components/discovery-results';
 import { RundownPage } from './components/rundown-page';
+import { usePublicMetadata } from './lib/use-public-metadata';
 import { loadRundownEvent } from './lib/rundown-event';
 import { DiscoveryCitySearch } from './components/discovery-city-search';
 import { DiscoveryDateSearch } from './components/discovery-date-search';
@@ -245,6 +246,9 @@ function CustomerApp() {
     [offeringId, setOfferingId] = useState(""),
     [quantity, setQuantity] = useState(1),
     [stage, setStage] = useState("details");
+  const [rundownMetadata, setRundownMetadata] = useState(null);
+  usePublicMetadata({ event: selected, view, preview: rundownPreview, rundownId,
+    rundown: rundownMetadata?.id === rundownId ? rundownMetadata : null });
   const previousPreviewToken = useRef(session?.accessToken);
   useEffect(() => {
     if (rundownPreview && previousPreviewToken.current !== session?.accessToken) {
@@ -960,7 +964,7 @@ function CustomerApp() {
         {savedCollection.loadState === 'loading' && !savedCollection.items.length ? <LoadingIndicator>Finding your saved nights…</LoadingIndicator> : savedCollection.loadState === 'error' && !savedCollection.items.length ? <div className="account-empty"><p>We couldn’t load your saved events.</p><Button onClick={savedCollection.retry}>Try again</Button></div> : savedUpcoming.length ? <div className="event-grid">{savedUpcoming.map((event) => <EventCard key={event.id} event={event} saved onSave={() => save(event)} onOpen={() => openEvent(event)} />)}</div> : <div className="account-empty"><h2>{savedCollection.hasMore ? 'No active nights on this page.' : 'No upcoming saved events yet.'}</h2><p>{savedCollection.hasMore ? 'More saved nights may appear on the next page.' : 'Tap the heart on an event to keep it here. Past events stay out of your shortlist.'}</p><Button className="dark-glass-action" onClick={() => navigateView('discover')}>Discover events</Button></div>}
         {savedCollection.hasMore && savedCollection.loadState !== 'error' && <Button className="load-more" variant="outline" disabled={savedCollection.loadState === 'loading'} onClick={savedCollection.loadMore}>More saved nights</Button>}
       </main>}
-      {showingRundown && <RundownPage rundownId={rundownId} preview={rundownPreview} session={session} onSignIn={() => setAuthOpen(true)} onOpenEvent={openRundownEvent} />}
+      {showingRundown && <RundownPage rundownId={rundownId} preview={rundownPreview} session={session} onSignIn={() => setAuthOpen(true)} onOpenEvent={openRundownEvent} onMetadata={setRundownMetadata} />}
       <main hidden={view !== 'discover' || showingRundown} className={returnVisitor ? 'return-visitor-discovery' : ''}
         onPointerDownCapture={retainCityMenuForControl} onMouseDownCapture={retainCityMenuForControl}
         onClickCapture={dismissCityMenuForControl} onPointerCancelCapture={dismissCityMenuForControl}>

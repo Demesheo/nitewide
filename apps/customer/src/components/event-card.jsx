@@ -5,10 +5,11 @@ import { eventDate, eventTime } from "../lib/presentation";
 import { EventArtwork } from "./event-artwork";
 import { isPremiumHost } from '../lib/premium-host';
 import { eventVenueName } from '../lib/event-venue';
+import { eventPublicHref, ordinaryLinkClick } from '../../../shared/public-links.mjs';
 export function EventCard({ event, saved, onSave, onOpen, children, actionLabel }) {
   const lowest = eventStartingPrice(event);
   return (
-    <article data-testid="customer-event-card" data-event-id={event.id} className={`event-card${isPremiumHost(event) ? ' premium-host-card' : ''}`} onClick={(click) => { if (!click.target.closest('button')) onOpen?.(); }}>
+    <article data-testid="customer-event-card" data-event-id={event.id} className={`event-card${isPremiumHost(event) ? ' premium-host-card' : ''}`} onClick={(click) => { if (!click.target.closest('button, a')) onOpen?.(); }}>
       <div className="card-image">
         <div className="image-link">
           <EventArtwork event={event} loading="lazy" />
@@ -39,14 +40,14 @@ export function EventCard({ event, saved, onSave, onOpen, children, actionLabel 
           {eventVenueName(event)}
         </p>
         <h3 className="card-title">
-          <button
-            type="button"
+          <a
+            href={eventPublicHref(event.id, event.referralCode)}
             className="card-open"
-            onClick={(click) => { click.stopPropagation(); onOpen?.(); }}
+            onClick={(click) => { if (onOpen && ordinaryLinkClick(click)) { click.preventDefault(); click.stopPropagation(); onOpen(); } }}
             aria-label={`Explore ${event.title}`}
           >
             <span className="card-title-text">{event.title}</span>
-          </button>
+          </a>
         </h3>
         <p className="card-location">
           <MapPin size={13} />

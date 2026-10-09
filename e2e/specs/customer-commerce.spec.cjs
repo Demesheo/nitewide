@@ -18,9 +18,11 @@ async function selectVipCheckout(page) {
 }
 
 test('shared event preserves saved state, maps and free-versus-paid admission labels', async ({ page, fixture }, testInfo) => {
-  await loginViaApi(page, fixture, 'customer', 'customer', `/?city=Miami%2C%20FL&event=${fixture.ids.event}`);
+  await loginViaApi(page, fixture, 'customer', 'customer', `/events/${fixture.ids.event}?city=Miami%2C%20FL`);
   const details = page.getByTestId('customer-event-details');
   await expect(details.getByRole('heading', { name: 'Playwright Friday Night' })).toBeVisible();
+  await expect(page).toHaveTitle(/Playwright Friday Night.*Nitewide/);
+  await expect(page.locator('head link[rel="canonical"]')).toHaveAttribute('href', `${urls.customer}/events/${fixture.ids.event}`);
   // Regression for CI: the authenticated header is intentionally inaccessible
   // while the deep-linked modal is open. Session setup must still complete.
   await expect(page.getByRole('button', { name: "Open Jordan Customer's profile" })).toHaveCount(0);
@@ -51,6 +53,8 @@ test('shared event preserves saved state, maps and free-versus-paid admission la
   await details.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page).not.toHaveURL(/event=/);
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Saved', exact: true }).click();
+  await expect(page.locator('head meta[name="robots"]')).toHaveAttribute('content', /noindex/);
+  await expect(page.locator('head link[rel="canonical"]')).toHaveCount(0);
   await expect(page.locator('#saved').getByTestId('customer-event-card')).toHaveCount(1);
   const savedPrice = page.locator('#saved').getByTestId('customer-event-card').locator('.card-price');
   await expect(savedPrice).toContainText('From $27.80 total');

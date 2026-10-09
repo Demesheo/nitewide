@@ -8,6 +8,7 @@ const { personalRundownScope, publicRundownEventScope } = require('./rundown-pol
 const { mutationTransaction } = require('./mutation-transaction');
 const { offeringSaleState } = require('../domain/event-policy');
 const { effectiveFeeMode } = require('@nitewide/pricing');
+const { publicPath } = require('../../../shared/public-links.mjs');
 
 const cursorSchema = z.object({ version: z.literal(1), rundownId: z.uuid(), startsAt: z.iso.datetime({ offset: true }), id: z.uuid() }).strict();
 const previewCursorSchema = z.object({ version: z.literal(2), kind: z.enum(['personal', 'business']), ownerId: z.uuid(),
@@ -48,7 +49,7 @@ function rundownEvent(event, currentTime = new Date()) {
 function createRundownService({ models, customerAppUrl, now = () => new Date() }) {
   const select = (sql, replacements, transaction) => models.Event.sequelize.query(sql, { replacements, transaction, type: QueryTypes.SELECT });
   const assertAccess = (userId, transaction) => assertBusinessAccess(models, userId, transaction, undefined, { allowSuspendedOrganizations: false });
-  const url = (id) => { const result = new URL('/', customerAppUrl); result.searchParams.set('rundown', id); return result.toString(); };
+  const url = id => new URL(publicPath('rundowns', id), customerAppUrl).toString();
   const item = (owner, profile, canPublish) => ({ kind: owner.kind, name: owner.name, organizationId: owner.organizationId || null,
     published: Boolean(profile?.published), canPublish, url: profile?.published ? url(profile.id) : null });
   async function organizations(userId, transaction) {

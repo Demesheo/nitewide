@@ -44,6 +44,7 @@ function createRouter(options) {
   const myEvents = require('../services/customer-my-events-service').createCustomerMyEventsService({ models, businessRead: customerEventRead, businessEventRead,
     invitations, referralLinks, reviewGuestlist: options.reviewGuestlist });
   const rundowns = require('../services/rundown-service').createRundownService({ models, permissions, customerAppUrl });
+  router.rundowns = rundowns;
   const account = createCustomerAccountService({ models, tokenSecret: qrTokenSecret });
   const saved = createCustomerSavedService({ models });
   const admissions = createAdmissionsService({ models, permissions });

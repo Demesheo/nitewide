@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { ArrowDown, ArrowUpRight, CalendarDays } from 'lucide-react';
 import { Button } from './ui/button';
 import { EventArtwork } from './event-artwork';
@@ -7,6 +8,7 @@ import { eventVenueName } from '../lib/event-venue';
 import { eventDate, eventTime } from '../lib/presentation';
 import { useRundown } from '../lib/use-rundown';
 import './rundown-page.css';
+import { eventPublicHref, ordinaryLinkClick } from '../../../shared/public-links.mjs';
 
 function dateLabel(event) {
   if (!event.startsAt || Number.isNaN(new Date(event.startsAt).getTime())) return 'Date to be confirmed';
@@ -24,7 +26,9 @@ function priceLabel(event) {
 export function RundownCard({ event, onOpenEvent }) {
   const location = [eventVenueName(event), event.location?.city].filter(Boolean).join(' · ');
   return <article className="rundown-card" data-testid="rundown-event-card" data-event-id={event.id}>
-    <button type="button" className="rundown-card-open" aria-label={`View ${event.title}`} onClick={() => onOpenEvent?.(event)}>
+    <a href={eventPublicHref(event.id, event.referralCode)} className="rundown-card-open" aria-label={`View ${event.title}`} onClick={click => {
+      if (onOpenEvent && ordinaryLinkClick(click)) { click.preventDefault(); onOpenEvent(event); }
+    }}>
       <EventArtwork event={event} className="rundown-flyer" loading="lazy" />
       <span className="rundown-card-copy">
         <span className="rundown-card-title" title={event.title}>{event.title}</span>
@@ -32,12 +36,13 @@ export function RundownCard({ event, onOpenEvent }) {
         <span className="rundown-card-location" title={location}>{location}</span>
         <span className="rundown-card-bottom"><span>{priceLabel(event)}</span><ArrowUpRight size={13} aria-hidden="true" /></span>
       </span>
-    </button>
+    </a>
   </article>;
 }
 
-export function RundownPage({ rundownId, onOpenEvent, preview, session, onSignIn }) {
+export function RundownPage({ rundownId, onOpenEvent, preview, session, onSignIn, onMetadata }) {
   const { profile, items, loadState, error, moreState, moreError, hasMore, reload, loadMore } = useRundown(rundownId, { preview, session });
+  useEffect(() => { onMetadata?.({ id: rundownId, profile, items, loadState }); }, [onMetadata, rundownId, profile, items, loadState]);
   return <main className="rundown-page wrap" id="rundown" aria-labelledby="rundown-title">
     <header className="rundown-heading">
       <p className="eyebrow">{preview ? 'YOUR RUNDOWN' : 'THE RUNDOWN'}</p>

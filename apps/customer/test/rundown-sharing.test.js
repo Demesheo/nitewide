@@ -267,7 +267,16 @@ test('Rundown viewing and sharing use one target and respect browser gestures an
       assert.equal(accessLoss.length, 0);
     });
 
-    for (const url of ['javascript:alert(1)', `https://other.test/?rundown=${personalId}`, `${publicLink(personalId)}&ref=old`, `https://customer.test/private?rundown=${personalId}`]) {
+    await t.test('permanent rundown links share directly while preserving the existing preview action', async () => {
+      reset(); const url = `https://customer.test/rundowns/${personalId}`;
+      handler = () => respond({ items: [{ ...publishedPersonal, url }] });
+      mount(); await screen.findByRole('button', { name: 'Share', exact: true });
+      await user.click(screen.getByRole('button', { name: 'Share', exact: true }));
+      assert.equal(shares.at(-1).url, url);
+      assert.equal(screen.getByRole('link', { name: 'View', exact: true }).href, 'https://customer.test/?rundownPreview=personal');
+    });
+    for (const url of ['javascript:alert(1)', `https://other.test/?rundown=${personalId}`, `${publicLink(personalId)}&ref=old`, `https://customer.test/private?rundown=${personalId}`,
+      `https://customer.test/rundowns/${personalId}?ref=old`, `https://customer.test/rundowns/${personalId}#private`]) {
       await t.test(`malformed public link never enables sharing: ${url}`, async () => {
         reset(); handler = () => respond({ items: [{ ...publishedPersonal, url }] });
         mount(); await screen.findByRole('button', { name: 'Reload rundown sharing' });

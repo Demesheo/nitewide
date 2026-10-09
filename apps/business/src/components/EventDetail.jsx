@@ -12,6 +12,7 @@ import { api } from '@/lib/api';
 import { money } from '@/lib/business';
 import { eventTeamRoles, filterEventTeam } from '@/lib/events';
 import { customerLink } from '@/lib/customer-link';
+import { eventPublicLink } from '../../../shared/public-links.mjs';
 
 export function ReferralLink({ event, session, revision, onUnauthorized, onInvited }) {
   const [link, setLink] = useState(null);
@@ -37,8 +38,7 @@ export function ReferralLink({ event, session, revision, onUnauthorized, onInvit
       .catch(() => { if (active) setInvitePools(null); });
     return () => { active = false; };
   }, [event.id, session, revision, linkRetry, invitePoolRevision]);
-  const url = link ? new URL(customerLink(import.meta.env.VITE_CUSTOMER_URL, window.location), window.location.href) : null;
-  if (url) { url.searchParams.set('event', event.id); url.searchParams.set('ref', link.code); }
+  const url = link ? eventPublicLink(event.id, new URL(customerLink(import.meta.env.VITE_CUSTOMER_URL, window.location), window.location.href), link.code) : null;
   const canInviteGuest = event.status === 'published' && invitePools?.open && (invitePools.direct || invitePools.own.length > 0);
   return <><ShareEventCard referralUrl={url?.toString() || ''} canInviteGuest={Boolean(canInviteGuest)} onInviteGuest={() => { setInvitePools(null); setInvitePoolRevision((value) => value + 1); setInviteOpen(true); }} referralError={linkError} onRetryReferral={() => setLinkRetry((value) => value + 1)}/><GuestlistInviteDialog open={inviteOpen} onOpenChange={setInviteOpen} eventId={event.id} invitePools={invitePools} session={session} onUnauthorized={onUnauthorized} onSuccess={onInvited}/></>;
 }

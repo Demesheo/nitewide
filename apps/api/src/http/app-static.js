@@ -3,10 +3,11 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { subdomainApps, appForHost, publicAppLinks } = require('../domain/app-routing');
 
-function installAppStatic(app, root = path.resolve(__dirname, '../../../..'), config = {}) {
+function installAppStatic(app, root = path.resolve(__dirname, '../../../..'), config = {}, publicSeo) {
   const dirs = Object.fromEntries(['customer', 'business', 'admin'].map(name => [name, path.join(root, 'apps', name, 'dist')]));
   const apps = config.APP_ROUTING_MODE === 'subdomains' ? subdomainApps(config) : null;
   const links = publicAppLinks(config);
+  const seo = require('./public-seo').createPublicSeoHandler({ config, service: publicSeo });
   // A new release changes the fingerprinted module URLs referenced by HTML.
   // Never retain the entry document or a missing old module at a cache/CDN.
   const noStore = res => res.set('Cache-Control', 'no-store');
@@ -43,9 +44,19 @@ function installAppStatic(app, root = path.resolve(__dirname, '../../../..'), co
           new URL('/images/nitewide-social-nightlife-v1.png', config.CUSTOMER_APP_URL).toString());
       }
     }
-    return (_req, res) => noStore(res).type('html').send(document);
+    return (req, res, next) => { noStore(res); return seo.page(name, document, req, res).catch(next); };
   };
   const pages = Object.fromEntries(Object.keys(dirs).map(name => [name, page(name)]));
+  const selectedName = req => apps ? appForHost(req.get('host'), apps) : req.path.startsWith('/admin') ? 'admin' : 'customer';
+  app.get('/robots.txt', (req, res) => noStore(res).type('text').send(seo.robots(selectedName(req))));
+  app.get(['/sitemap.xml', /^\/sitemaps\/[^/]+\.xml$/], (req, res, next) => seo.sitemap(selectedName(req), req, res).catch(next));
+  app.get([/^\/events(?:\/.*)?$/, /^\/rundowns(?:\/.*)?$/], (req, res, next) => {
+    if (!apps || selectedName(req) === 'customer') return pages.customer(req, res, next);
+    const url = new URL(req.path, config.CUSTOMER_APP_URL);
+    const input = new URL(req.originalUrl, 'http://localhost');
+    for (const key of ['ref', 'rundown']) if (input.searchParams.has(key)) url.searchParams.set(key, input.searchParams.get(key));
+    return noStore(res).redirect(302, url.toString());
+  });
   if (apps) {
     const selectedApp = req => appForHost(req.get('host'), apps);
     const onHost = (name, handler) => (req, res, next) => selectedApp(req) === name ? handler(req, res, next) : missingAsset(req, res);

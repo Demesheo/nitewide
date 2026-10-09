@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 import { ManualCopyLink, useClipboardCopy } from '../../../shared/clipboard-copy.jsx';
 import { CopyLinkButton } from '../../../shared/copy-link-button.jsx';
 import './rundown-sharing.css';
+import { publicTarget } from '../../../shared/public-links.mjs';
 
 const itemKey = item => item.kind === 'personal' ? 'personal' : `business:${item.organizationId}`;
 const unavailable = () => new Error('We couldn’t load rundown sharing. Please try again.');
@@ -15,8 +16,11 @@ function publicUrl(value) {
   if (typeof value !== 'string' || !value) return null;
   try {
     const url = new URL(value, window.location.origin);
+    const target = publicTarget(url.pathname);
+    const validPath = target?.kind === 'rundowns' && !url.search;
+    const validLegacy = url.pathname === '/' && [...url.searchParams.keys()].length === 1 && uuidPattern.test(url.searchParams.get('rundown') || '');
     if (!['http:', 'https:'].includes(url.protocol) || url.origin !== window.location.origin || url.username || url.password
-      || url.pathname !== '/' || url.hash || [...url.searchParams.keys()].length !== 1 || !uuidPattern.test(url.searchParams.get('rundown') || '')) return null;
+      || (!validPath && !validLegacy) || url.hash) return null;
     return url.toString();
   } catch { return null; }
 }

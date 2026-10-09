@@ -63,8 +63,11 @@ test('public rundown React pagination is anonymous, manual, retryable and protec
       assert.ok(screen.getByRole('heading', { name: 'Alex Morgan’s Rundown' }));
       assert.ok(screen.getByText('Free')); assert.equal(screen.getAllByText('From $11.64 total').length, 5);
       assert.equal(screen.queryByRole('button', { name: /sign in/i }), null);
-      fireEvent.click(screen.getByRole('button', { name: 'View Night 1' }));
-      fireEvent.click(screen.getByRole('button', { name: 'View Night 2' }));
+      const first = screen.getByRole('link', { name: 'View Night 1' });
+      assert.equal(new URL(first.href).searchParams.get('ref'), 'referral-1');
+      fireEvent.click(first, { ctrlKey: true }); assert.equal(opened.length, 0, 'modified clicks keep native browser navigation');
+      fireEvent.click(first);
+      fireEvent.click(screen.getByRole('link', { name: 'View Night 2' }));
       assert.deepEqual(opened.map(item => [item.id, item.referralCode]), [['event-1', 'referral-1'], ['event-2', null]]);
       assert.equal(screen.getAllByRole('img').length, 6);
       assert.equal(screen.getByRole('img', { name: 'Night 1 event flyer' }).getAttribute('src'), '/flyers/night-1.png');
@@ -210,7 +213,7 @@ test('public rundown React pagination is anonymous, manual, retryable and protec
       assert.ok(screen.getByRole('heading', { name: 'Alex Morgan’s Rundown' }));
       assert.ok(screen.getByText('Preview · Upcoming nights · Soonest first'));
       assert.equal(screen.queryByRole('button', { name: /share|publish/i }), null);
-      fireEvent.click(screen.getByRole('button', { name: 'View Night 1' }));
+      fireEvent.click(screen.getByRole('link', { name: 'View Night 1' }));
       assert.equal(opened[0].referralCode, null);
       fireEvent.click(screen.getByRole('button', { name: 'View more' }));
       assert.equal(requests[1].url.searchParams.get('cursor'), 'preview-next');

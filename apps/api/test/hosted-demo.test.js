@@ -80,7 +80,7 @@ test('non-demo releases serve all apps with secure routes and stage-only indexin
       assert.equal(response.status, 200);
       assert.match(response.text, new RegExp(`${name} test fixture`));
       assert.equal(response.headers['cache-control'], 'no-store');
-      assert.equal(Boolean(response.headers['x-robots-tag']), APP_ENVIRONMENT === 'staging');
+      assert.equal(Boolean(response.headers['x-robots-tag']), APP_ENVIRONMENT === 'staging' || ['/sign-in', '/business?section=events', '/admin/'].includes(url));
     }
     assert.equal((await request('/api/auth/me', { headers: { 'x-user-id': 'admin' } })).status, 401);
     assert.equal((await request('/api/not-real')).status, 404);
@@ -215,7 +215,7 @@ test('subdomains route each built app, public configuration and legacy links wit
       const page = await request(url, { headers });
       assert.equal(page.status, 200);
       assert.match(page.text, new RegExp(`${name} test fixture`));
-      assert.match(page.text, /<script src="\/app-config.js"><\/script><\/head>/);
+      assert.match(page.text, /<head>[\s\S]*<script src="\/app-config.js"><\/script>[\s\S]*<\/head>/);
       assert.equal(page.headers['cache-control'], 'no-store');
     }
     const runtime = await request('/app-config.js', { headers });

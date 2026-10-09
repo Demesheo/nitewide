@@ -697,7 +697,7 @@ test('manager personal invitation journey opens four account-free passes, copies
     await expect(manual).toBeVisible();
     await expect(manual).toHaveAttribute('readonly', '');
     const link = await manual.inputValue();
-    expect(new URL(link).searchParams.get('event')).toBe(fixture.ids.event);
+    expect(new URL(link).pathname).toBe(`/events/${fixture.ids.event}`);
     await manual.click();
     await expect.poll(() => manual.evaluate(input => [input.selectionStart, input.selectionEnd])).toEqual([0, link.length]);
     await expect(share).not.toContainText('Allow clipboard access');

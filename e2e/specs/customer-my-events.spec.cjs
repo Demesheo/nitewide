@@ -106,7 +106,7 @@ paginationTest('business rundown viewing before sharing, six-flyer paging and an
   const preview = await previewOpened;
   await expect(preview.getByRole('heading', { name: 'Playwright Nightlife’s Rundown', exact: true })).toBeVisible();
   await expect(preview.getByTestId('rundown-event-card')).toHaveCount(6);
-  await preview.getByTestId('rundown-event-card').first().getByRole('button').click();
+  await preview.getByTestId('rundown-event-card').first().getByRole('link').click();
   await expect(preview.getByTestId('customer-event-details')).toBeVisible();
   await preview.reload();
   await expect(preview.getByTestId('customer-event-details')).toBeVisible();
@@ -148,7 +148,8 @@ paginationTest('business rundown viewing before sharing, six-flyer paging and an
   await expect(share.getByRole('button', { name: 'Link copied', exact: true })).toBeVisible();
   const link = await page.evaluate(() => window.__rundownLink);
   const url = new URL(link);
-  expect([...url.searchParams.keys()]).toEqual(['rundown']);
+  expect(url.pathname).toMatch(/^\/rundowns\/[0-9a-f-]{36}$/);
+  expect([...url.searchParams.keys()]).toEqual([]);
   await page.evaluate(() => localStorage.removeItem('nitewide.session'));
   const discoveryRequests = [];
   page.on('request', request => { if (/\/api\/(events\?|discovery\/|location)/.test(request.url())) discoveryRequests.push(request.url()); });
@@ -170,10 +171,10 @@ paginationTest('business rundown viewing before sharing, six-flyer paging and an
   await page.getByRole('button', { name: 'View more', exact: true }).click();
   await expect(cards).toHaveCount(12);
   const firstId = await cards.first().getAttribute('data-event-id');
-  await cards.first().getByRole('button').click();
+  await cards.first().getByRole('link').click();
   const details = page.getByTestId('customer-event-details');
   await expect(details).toBeVisible();
-  expect(new URL(page.url()).searchParams.get('rundown')).toBe(url.searchParams.get('rundown'));
+  expect(new URL(page.url()).searchParams.get('rundown')).toBe(url.pathname.split('/')[2]);
   expect(new URL(page.url()).searchParams.has('ref')).toBe(false);
   await details.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(details).toHaveCount(0);
@@ -182,7 +183,7 @@ paginationTest('business rundown viewing before sharing, six-flyer paging and an
   // A customer can use the usual checkout at the public link. The shared
   // business link must not inherit a previous personal affiliate context.
   await loginViaApi(page, fixture, 'customer', 'customer', `${url.pathname}${url.search}`);
-  await page.getByTestId('rundown-event-card').first().getByRole('button').click();
+  await page.getByTestId('rundown-event-card').first().getByRole('link').click();
   await details.getByRole('button', { name: /^Continue ·/ }).click();
   const ordered = page.waitForResponse(response => response.url().endsWith('/api/orders') && response.request().method() === 'POST');
   await details.getByRole('button', { name: 'Confirm demo booking', exact: true }).click();
@@ -214,12 +215,12 @@ paginationTest('personal rundown survives details reload and preserves referral 
   await share.getByRole('button', { name: 'Copy link', exact: true }).click();
   await expect(share.getByRole('button', { name: 'Link copied', exact: true })).toBeVisible();
   const link = await page.evaluate(() => window.__personalRundownLink);
-  const rundownId = new URL(link).searchParams.get('rundown');
+  const rundownId = new URL(link).pathname.split('/')[2];
   await page.evaluate(() => localStorage.removeItem('nitewide.session'));
   await page.goto(link);
   await expect(page.getByRole('heading', { name: 'Leo Promoter’s Rundown', exact: true })).toBeVisible();
   await expect(page.getByTestId('rundown-event-card')).toHaveCount(6);
-  await page.getByTestId('rundown-event-card').first().getByRole('button').click();
+  await page.getByTestId('rundown-event-card').first().getByRole('link').click();
   const details = page.getByTestId('customer-event-details');
   await expect(details).toBeVisible();
   expect(new URL(page.url()).searchParams.get('ref')).toBe(`RUN-${rundownId}`);
@@ -229,11 +230,11 @@ paginationTest('personal rundown survives details reload and preserves referral 
   await expect(details).toHaveCount(0);
   await expect(page.getByTestId('rundown-event-card')).toHaveCount(6);
   const closed = new URL(page.url());
-  expect(closed.searchParams.get('rundown')).toBe(rundownId);
+  expect(closed.pathname).toBe(`/rundowns/${rundownId}`);
   expect(closed.searchParams.has('event')).toBe(false);
   expect(closed.searchParams.has('ref')).toBe(false);
   await loginViaApi(page, fixture, 'customer', 'customer', `${closed.pathname}${closed.search}`);
-  await page.getByTestId('rundown-event-card').first().getByRole('button').click();
+  await page.getByTestId('rundown-event-card').first().getByRole('link').click();
   await details.getByRole('button', { name: /^Continue ·/ }).click();
   const ordered = page.waitForResponse(response => response.url().endsWith('/api/orders') && response.request().method() === 'POST');
   await details.getByRole('button', { name: 'Confirm demo booking', exact: true }).click();
@@ -305,7 +306,7 @@ paginationTest('manager directory, referral-copy recovery and guest approval end
     await expect(manual).toBeVisible();
     await expect(manual).toHaveAttribute('readonly', '');
     const link = await manual.inputValue();
-    expect(new URL(link).searchParams.get('event')).toBe(fixture.ids.event);
+    expect(new URL(link).pathname).toBe(`/events/${fixture.ids.event}`);
     await manual.click();
     await expect.poll(() => manual.evaluate(input => [input.selectionStart, input.selectionEnd])).toEqual([0, link.length]);
     await expect(page.getByRole('button', { name: 'Referral link copied', exact: true })).toHaveCount(0);
@@ -356,7 +357,7 @@ operatorTest('manager invites four account-free guests, copies only from dialogs
   await page.getByRole('button', { name: 'Copy my referral link', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Referral link copied', exact: true })).toBeVisible();
   const referral = new URL(await page.evaluate(() => window.__operatorCopiedLink));
-  expect(referral.searchParams.get('event')).toBe(fixture.ids.event);
+  expect(referral.pathname).toBe(`/events/${fixture.ids.event}`);
   expect(referral.searchParams.has('ref')).toBe(true);
   expect(referral.searchParams.has('myEvent')).toBe(false);
   await guestlist(page).getByRole('button', { name: 'Invite a guest', exact: true }).click();

@@ -9,6 +9,8 @@ const { createApp } = require('../src/app');
 const { signToken } = require('../src/services/auth-service');
 const { buildContract } = require('../src/http/contract-build');
 const { resolveAffiliate } = require('../src/services/affiliate-service');
+const { publicTarget } = require('../../shared/public-links.mjs');
+const { createPublicSeoService } = require('../src/services/public-seo-service');
 
 test('automatic personal and business rundowns preserve public visibility, scope and transactional referral rules', { timeout: 60000 }, async (t) => {
   assertManagedTestDatabase();
@@ -19,6 +21,7 @@ test('automatic personal and business rundowns preserve public visibility, scope
   const ids = Object.fromEntries([...roles,'org','foreignOrg','location','otherLocation','foreignLocation','independentEvent','foreignEvent',
     'draft','unlisted','cancelled','completed','past','suspended','removed','expired','future','privateLocationEvent'].map(key => [key, randomUUID()]));
   const current = Date.now(), liveIds = Array.from({ length: 9 }, () => randomUUID()).sort(), tokens = new Map(), profiles = new Map();
+  const seo = createPublicSeoService({ models: m, customerAppUrl: 'https://customer.offline.nitewide.test/' });
   let server;
   try {
     await m.User.bulkCreate(roles.map(role => ({ id: ids[role], email: `${role}-${ids.org}@offline.nitewide.test`, displayName: `Rundown ${role}`,
@@ -153,11 +156,11 @@ test('automatic personal and business rundowns preserve public visibility, scope
       for (const role of ['owner','employee','orgPromoter','promoter','venueManager','venueEmployee','venuePromoter','independent']) {
         const [response, concurrent] = await Promise.all([share(role), share(role)]); assert.equal(response.status, 200, JSON.stringify(response.body)); wire('/customer/rundowns', response, 'post');
         assert.equal(concurrent.status, 200, JSON.stringify(concurrent.body)); assert.equal(concurrent.body.data.url, response.body.data.url);
-        const publicId = new URL(response.body.data.url).searchParams.get('rundown'); assert.notEqual(publicId, ids[role]); profiles.set(role, publicId);
-        assert.equal(new URL(response.body.data.url).pathname, '/'); assert.equal(new URL(response.body.data.url).searchParams.size, 1);
+        const publicId = publicTarget(new URL(response.body.data.url).pathname).id; assert.notEqual(publicId, ids[role]); profiles.set(role, publicId);
+        assert.equal(new URL(response.body.data.url).pathname, `/rundowns/${publicId}`); assert.equal(new URL(response.body.data.url).searchParams.size, 0);
         const repeated = await share(role); assert.equal(repeated.body.data.url, response.body.data.url);
       }
-      const business = await share('manager', { kind: 'business', organizationId: ids.org }); assert.equal(business.status, 200); profiles.set('business', new URL(business.body.data.url).searchParams.get('rundown'));
+      const business = await share('manager', { kind: 'business', organizationId: ids.org }); assert.equal(business.status, 200); profiles.set('business', publicTarget(new URL(business.body.data.url).pathname).id);
       for (const role of ['employee','orgPromoter','promoter','venueManager']) {
         const response = await share(role, { kind: 'business', organizationId: ids.org }); assert.equal(response.status, 200); assert.equal(response.body.data.url, business.body.data.url); assert.equal(response.body.data.canPublish, true);
       }
@@ -175,6 +178,33 @@ test('automatic personal and business rundowns preserve public visibility, scope
       assert.equal((await page(randomUUID())).status, 404);
       await assert.rejects(m.Rundown.bulkCreate([{ userId: ids.ordinary, organizationId: ids.org }]), error => error.parent?.code === '23514', 'database enforces exactly one owner');
       await assert.rejects(m.Rundown.create({ userId: ids.owner, published: true }), error => error.name === 'SequelizeUniqueConstraintError', 'database prevents duplicate personal links');
+    });
+    await t.test('SEO reads and partitioned sitemaps use current public visibility and owner access without provisioning or attribution writes', async () => {
+      const before = await counts();
+      const eventUrls = await seo.sitemap('events');
+      const eventIds = eventUrls.map(url => publicTarget(new URL(url).pathname).id);
+      for (const excluded of ['draft', 'unlisted', 'cancelled', 'completed', 'past', 'suspended']) assert.equal(eventIds.includes(ids[excluded]), false, excluded);
+      assert.ok(liveIds.every(id => eventIds.includes(id)));
+      const direct = await seo.event(liveIds[0]); assert.equal(direct.indexable, true); assert.equal(direct.event.offerings.length, 1);
+      assert.equal((await seo.event(ids.unlisted)).indexable, false, 'existing unlisted links remain usable, never indexed');
+      assert.equal((await seo.event(ids.past)).indexable, false);
+      await assert.rejects(seo.event(ids.draft), { status: 404 });
+      for (const id of [liveIds[1], ids.privateLocationEvent]) {
+        const content = JSON.stringify((await seo.event(id)).event);
+        assert.doesNotMatch(content, /456 Secret Street|789 Hidden Street|latitude|postalCode|accessCodeHash|commissionMinimumSubtotalCents/);
+      }
+      const page = await seo.rundown(profiles.get('promoter')); assert.equal(page.items[0].referralCode, `RUN-${profiles.get('promoter')}`);
+      const rundownUrls = await seo.sitemap('rundowns'); assert.ok([...profiles.values()].every(id => rundownUrls.includes(`https://customer.offline.nitewide.test/rundowns/${id}`)));
+      const employeeProfile = await m.Rundown.findByPk(profiles.get('employee'));
+      await employeeProfile.update({ published: false });
+      assert.equal((await seo.sitemap('rundowns')).includes(`https://customer.offline.nitewide.test/rundowns/${profiles.get('employee')}`), false);
+      await assert.rejects(seo.rundown(profiles.get('employee')), { status: 404 });
+      await employeeProfile.update({ published: true });
+      assert.ok((await seo.home()).items.length <= 12);
+      assert.deepEqual(await seo.sitemapIndex(), [{ kind: 'static', page: 1 }, { kind: 'events', page: 1 }, { kind: 'rundowns', page: 1 }]);
+      await assert.rejects(seo.sitemap('events', 2), { status: 404 });
+      for (const page of [0, -1, 1.5, 1000001]) await assert.rejects(seo.sitemap('events', page), { status: 404 });
+      assert.deepEqual(await counts(), before, 'SEO never creates profiles, assignments, referral visits, orders or provider jobs');
     });
     await t.test('six-card keyset pages are stable across cities and exclude event removals and nonpublic states', async () => {
       const before = await counts(), first = await page(profiles.get('owner'), '?pageSize=6');
@@ -258,6 +288,7 @@ test('automatic personal and business rundowns preserve public visibility, scope
       const code = `RUN-${profiles.get('promoter')}`, before = await counts();
       for (const update of [{ status: 'inactive', endsAt: null, startsAt: null }, { status: 'active', endsAt: new Date(Date.now() - 1000) }, { status: 'active', endsAt: null, startsAt: new Date(Date.now() + 100000) }]) {
         await override.update(update); assert.equal((await page(profiles.get('promoter'))).status, 404);
+        assert.equal((await seo.sitemap('rundowns')).includes(`https://customer.offline.nitewide.test/rundowns/${profiles.get('promoter')}`), false);
         const denied = await request(`/events/${liveIds[0]}/referral-visits`, null, { method: 'POST', body: { code, sessionKey: randomUUID() } });
         assert.equal(denied.status, 400, JSON.stringify(denied.body)); assert.equal(denied.body.error.code, 'INVALID_AFFILIATE');
       }
@@ -274,6 +305,8 @@ test('automatic personal and business rundowns preserve public visibility, scope
       await m.User.update({ isActive: false }, { where: { id: ids.promoter } }); assert.equal((await page(profiles.get('promoter'))).status, 404);
       await m.Organization.update({ lifecycleState: 'suspended', status: 'suspended' }, { where: { id: ids.org } });
       assert.equal((await page(profiles.get('business'))).status, 404); assert.equal((await page(profiles.get('owner'))).status, 404);
+      const finalSitemap = await seo.sitemap('rundowns');
+      for (const role of ['business', 'owner', 'venuePromoter', 'promoter']) assert.equal(finalSitemap.includes(`https://customer.offline.nitewide.test/rundowns/${profiles.get(role)}`), false, role);
       assert.equal((await preview('owner', 'business', ids.org)).status, 403); assert.equal((await preview('owner')).status, 403);
       assert.deepEqual(await counts(), before, 'denied attribution must not write or revive assignments');
     });

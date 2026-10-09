@@ -1,4 +1,5 @@
 import { compareEventListings } from './discovery.js';
+import { eventPublicLink } from '../../../shared/public-links.mjs';
 
 // One card per event, with an explicit choice when multiple connections refer it.
 export function connectionEvents(entries, { people = null, city = 'all', query = '' } = {}, now = new Date()) {
@@ -24,8 +25,5 @@ export function selectedConnection(group, personId) {
   return group.referrals.find((entry) => entry.referrer.id === personId) || group.referrals[0];
 }
 export function connectionLink(entry, origin) {
-  const url = new URL('/', origin);
-  url.searchParams.set('event', entry.event.id);
-  url.searchParams.set('ref', entry.code);
-  return url.toString();
+  return eventPublicLink(entry.event.id, origin, entry.code);
 }
