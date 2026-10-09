@@ -1,16 +1,39 @@
 const { createHash, randomUUID } = require('node:crypto');
 const { Op, QueryTypes } = require('sequelize');
+const { z } = require('zod');
 const { conflict, notFound } = require('../domain/errors');
 const { mutationTransaction } = require('./mutation-transaction');
 const { assertFinanceAccess } = require('./business-payment-account-service');
 const { individualReady } = require('./individual-commission-profile-service');
 const { statementSelection, commissionApproval, commissionPage, commissionFeeReviewInput } = require('../http/commission-payment-schemas');
 const { isStripeMode, matchesStripeLivemode } = require('../payments/stripe-mode');
+const { assertActiveUser } = require('./lifecycle-service');
 const providerId = value => typeof value === 'string' ? value : value?.id;
 const sameCurrency = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toUpperCase() === b.toUpperCase();
 const zero = value => value == null || value === 0;
 const terminal = new Set(['failed', 'reversed', 'disputed']);
 const RECOVERY_WINDOW_MS = 23 * 3600000;
+const billingEmailSnapshotSchema = z.object({ version: z.literal(1), userId: z.uuid(), email: z.email().max(320),
+  verifiedAt: z.iso.datetime(), customerName: z.string().min(1).max(160) }).strict();
+function verifiedBillingEmailSnapshot(user, customerName, approvedAt) {
+  assertActiveUser(user);
+  const verifiedAt = user.emailVerifiedAt instanceof Date ? user.emailVerifiedAt
+    : typeof user.emailVerifiedAt === 'string' ? new Date(user.emailVerifiedAt) : null;
+  if (!verifiedAt || !Number.isFinite(+verifiedAt) || !Number.isFinite(+approvedAt) || +verifiedAt <= 0 || +verifiedAt > +approvedAt) {
+    throw conflict('Verify your account email before approving a commission payment.', 'COMMISSION_BILLING_EMAIL_REQUIRED');
+  }
+  const parsed = billingEmailSnapshotSchema.safeParse({ version: 1, userId: user.id, email: user.email,
+    verifiedAt: verifiedAt.toISOString(), customerName });
+  if (!parsed.success) throw conflict('Verify a valid account email before approving a commission payment.', 'COMMISSION_BILLING_EMAIL_REQUIRED');
+  return parsed.data;
+}
+function approvedBillingEmailSnapshot(payment) {
+  const parsed = billingEmailSnapshotSchema.safeParse(payment.billingEmailSnapshot);
+  if (!parsed.success || parsed.data.userId !== payment.approvedByUserId) return null;
+  const verifiedAt = new Date(parsed.data.verifiedAt), approvedAt = new Date(payment.approvedAt);
+  return Number.isFinite(+approvedAt) && +verifiedAt > 0 && +verifiedAt <= +approvedAt
+    && verifiedAt.toISOString() === parsed.data.verifiedAt ? parsed.data : null;
+}
 // A test-only allowance, not Stripe pricing or a promise of the recipient's net.
 const SANDBOX_FEE_POLICY = Object.freeze({ id: 'sandbox-commission-allowance-v1', basis: 'sandbox_estimate', card: { bps: 400, fixedCents: 50 }, us_bank_account: { bps: 200, fixedCents: 50 }, invoicingFeesIncludedInEstimate: true, exact: false });
 // Standard US domestic payment and Invoicing Starter estimates. Each component
@@ -172,18 +195,25 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
   async function approve(userId, organizationId, body) {
     enabled(); quotePolicy(); const input = commissionApproval.parse(body);
     const approvalHash = createHash('sha256').update(JSON.stringify({ statementIds: [...input.statementIds].sort(), paymentMethod: input.paymentMethod, approvedTotalCents: input.approvedTotalCents, feeEstimateAcknowledged: true })).digest('hex');
-    await assertFinanceAccess(models, userId, organizationId);
+    const organization = await assertFinanceAccess(models, userId, organizationId);
     const old = await models.CommissionPayment.findOne({ where: { organizationId, idempotencyKey: input.idempotencyKey } });
     if (old) { if (old.approvalHash !== approvalHash) throw conflict('Commission retry does not match the original approval.', 'COMMISSION_IDEMPOTENCY_CONFLICT'); return reconcile(old); }
+    // Reject new unverified billing identities before any provider operation.
+    // Existing attempts retain their immutable approval, not a retrying user's
+    // current email or an arbitrary business owner's address.
+    verifiedBillingEmailSnapshot(await models.User.findByPk(userId), organization.name, now());
     const preliminary = await selected(organizationId, input.statementIds);
     const profile = await models.IndividualCommissionProfile.findOne({ where: { userId: preliminary.recipientUserId } });
     if (!profile?.stripeAccountId) throw conflict('The recipient must connect their individual Stripe account.', 'COMMISSION_PROFILE_NOT_READY');
     await individualProfiles.synchronizeTrusted(profile.stripeAccountId);
     const payment = await transact(async transaction => {
-      await assertFinanceAccess(models, userId, organizationId, transaction);
+      const currentOrganization = await assertFinanceAccess(models, userId, organizationId, transaction);
       await sequelize.query('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))', { replacements: { key: `commission-approval/${organizationId}/${input.idempotencyKey}` }, transaction, type: QueryTypes.SELECT });
       const existing = await models.CommissionPayment.findOne({ where: { organizationId, idempotencyKey: input.idempotencyKey }, transaction, lock: transaction.LOCK.UPDATE });
       if (existing) { if (existing.approvalHash !== approvalHash) throw conflict('Commission retry does not match the original approval.', 'COMMISSION_IDEMPOTENCY_CONFLICT'); return existing; }
+      const approver = await models.User.findByPk(userId, { transaction, lock: transaction.LOCK.SHARE || 'SHARE' });
+      const approvedAt = now();
+      const billingEmailSnapshot = verifiedBillingEmailSnapshot(approver, currentOrganization.name, approvedAt);
       const selection = await selected(organizationId, input.statementIds, transaction);
       const currentProfile = await models.IndividualCommissionProfile.findByPk(profile.id, { transaction, lock: transaction.LOCK.UPDATE });
       if (!currentProfile || currentProfile.userId !== selection.recipientUserId || currentProfile.stripeAccountId !== profile.stripeAccountId || !individualReady(currentProfile, input.paymentMethod, now(), stripe.mode)) throw conflict('The recipient’s individual Stripe account is not verified for this payment method.', 'COMMISSION_PROFILE_NOT_READY');
@@ -192,7 +222,7 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
       const created = await models.CommissionPayment.create({ id: randomUUID(), organizationId, recipientUserId: selection.recipientUserId, individualCommissionProfileId: profile.id,
         stripeAccountId: currentProfile.stripeAccountId, providerMode: stripe.mode, currency: selection.currency, commissionCents: priced.commissionCents,
         feeAllowanceCents: priced.estimatedFeeCents, totalCents: priced.totalCents, feePolicy, statementSnapshot: selection.statements,
-        paymentMethod: input.paymentMethod, idempotencyKey: input.idempotencyKey, approvalHash, approvedByUserId: userId, approvedAt: now(), status: 'creating' }, { transaction });
+        paymentMethod: input.paymentMethod, idempotencyKey: input.idempotencyKey, approvalHash, approvedByUserId: userId, approvedAt, billingEmailSnapshot, status: 'creating' }, { transaction });
       const reserved = await ledger.reserveStatements({ organizationId, recipientUserId: selection.recipientUserId, currency: selection.currency, statementIds: input.statementIds, paymentId: created.id, providerMode: stripe.mode, transaction });
       if ((reserved.amountCents ?? reserved.totalCents) !== priced.commissionCents) throw conflict('Commission reservation changed. Review a fresh quote.', 'COMMISSION_QUOTE_CHANGED');
       if (reserved.statements.some(statement => !selection.statements.some(selected => selected.id === statement.id && selected.amountCents === statement.amountCents))) throw conflict('Itemized commission amounts changed. Review a fresh quote.', 'COMMISSION_QUOTE_CHANGED');
@@ -214,19 +244,30 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
   }
   async function recoverCreation(payment, observation) {
     const options = { stripeAccount: payment.stripeAccountId };
+    const billing = approvedBillingEmailSnapshot(payment);
+    const creationReview = async () => ({ payment: await bind(payment, { status: 'review', errorCode: 'COMMISSION_CREATION_REVIEW', reconciliationStatus: 'creation_outcome_unknown', hostedInvoiceUrl: null }, observation), blocked: true });
     function assertCreationPolicy() {
       if (payment.providerMode === 'live' && payment.feePolicy?.basis !== 'estimated_provider_fees') throw conflict('Approved live commission fee evidence is required.', 'COMMISSION_VERIFICATION_FAILED');
     }
-    if (!payment.providerInvoiceId && (+now() - +new Date(payment.approvedAt) < 0 || +now() - +new Date(payment.approvedAt) >= RECOVERY_WINDOW_MS)) return bind(payment, { status: 'review', errorCode: 'COMMISSION_CREATION_REVIEW', reconciliationStatus: 'creation_outcome_unknown', hostedInvoiceUrl: null }, observation);
+    // Never retrofit an email onto old provider idempotency keys. Existing
+    // non-draft invoices remain reconcilable without changing their customer.
+    if (payment.providerInvoiceId && !payment.providerCustomerId) throw conflict('Commission invoice customer binding needs review.', 'COMMISSION_VERIFICATION_FAILED');
+    if (!payment.providerInvoiceId && (!billing || +now() - +new Date(payment.approvedAt) < 0 || +now() - +new Date(payment.approvedAt) >= RECOVERY_WINDOW_MS)) return creationReview();
     if (!payment.providerCustomerId) {
+      if (!billing) return creationReview();
       assertCreationPolicy();
-      const organization = await models.Organization.findByPk(payment.organizationId);
-      const customer = await stripe.createCommissionCustomer({ name: organization.name, metadata: invoiceMetadata(payment) }, { ...options, idempotencyKey: `commission/${payment.id}/customer` });
-      if (customer?.object !== 'customer' || !matchesStripeLivemode(customer, payment.providerMode) || !metadataMatches(customer, payment)) throw conflict('Commission customer could not be verified.', 'COMMISSION_VERIFICATION_FAILED');
+      const customer = await stripe.createCommissionCustomer({ name: billing.customerName, email: billing.email, metadata: invoiceMetadata(payment) }, { ...options, idempotencyKey: `commission/${payment.id}/customer` });
+      if (customer?.object !== 'customer' || customer.deleted || customer.email !== billing.email || !matchesStripeLivemode(customer, payment.providerMode) || !metadataMatches(customer, payment)) throw conflict('Commission customer could not be verified.', 'COMMISSION_VERIFICATION_FAILED');
       payment = await bind(payment, { providerCustomerId: customer.id }, observation);
+    }
+    async function verifyBillingCustomer() {
+      const customer = await stripe.retrieveCommissionCustomer(payment.providerCustomerId, options);
+      if (customer?.id !== payment.providerCustomerId || customer.object !== 'customer' || customer.deleted || customer.email !== billing.email
+        || !matchesStripeLivemode(customer, payment.providerMode) || !metadataMatches(customer, payment)) throw conflict('Commission billing customer could not be verified.', 'COMMISSION_VERIFICATION_FAILED');
     }
     if (!payment.providerInvoiceId) {
       assertCreationPolicy();
+      await verifyBillingCustomer();
       const invoice = await stripe.createCommissionInvoice({ customer: payment.providerCustomerId, collection_method: 'send_invoice', days_until_due: 30,
         auto_advance: false, pending_invoice_items_behavior: 'exclude', currency: payment.currency.toLowerCase(), discounts: [], automatic_tax: { enabled: false },
         payment_settings: { payment_method_types: [payment.paymentMethod] }, metadata: invoiceMetadata(payment),
@@ -238,8 +279,10 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
     let invoice = await stripe.retrieveCommissionInvoice(payment.providerInvoiceId, options);
     if (invoice?.id !== payment.providerInvoiceId || !matchesStripeLivemode(invoice, payment.providerMode) || !metadataMatches(invoice, payment) || providerId(invoice.customer) !== payment.providerCustomerId) throw conflict('Commission invoice could not be verified.', 'COMMISSION_VERIFICATION_FAILED');
     if (invoice.status === 'draft') {
+      if (!billing) return creationReview();
       assertCreationPolicy();
-      if (+now() - +new Date(payment.approvedAt) >= RECOVERY_WINDOW_MS) return bind(payment, { status: 'review', errorCode: 'COMMISSION_CREATION_REVIEW', reconciliationStatus: 'creation_outcome_unknown', hostedInvoiceUrl: null }, observation);
+      if (+now() - +new Date(payment.approvedAt) < 0 || +now() - +new Date(payment.approvedAt) >= RECOVERY_WINDOW_MS) return creationReview();
+      await verifyBillingCustomer();
       for (const statement of payment.statementSnapshot) await stripe.createCommissionInvoiceItem({ customer: payment.providerCustomerId, invoice: invoice.id, currency: payment.currency.toLowerCase(), amount: statement.amountCents, discountable: false,
         description: `Event commission: ${statement.eventTitle}`, metadata: { ...invoiceMetadata(payment), commissionStatementId: statement.id, eventId: statement.eventId } }, { ...options, idempotencyKey: `commission/${payment.id}/statement/${statement.id}` });
       if (payment.feeAllowanceCents > 0) await stripe.createCommissionInvoiceItem({ customer: payment.providerCustomerId, invoice: invoice.id, currency: payment.currency.toLowerCase(), amount: payment.feeAllowanceCents, discountable: false,
@@ -248,7 +291,7 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
     }
     // Do not publish an unverified provider URL. Binding and all approved
     // itemized lines are independently checked by reconcile before exposure.
-    return payment;
+    return { payment, blocked: false };
   }
   async function verifyLines(payment) {
     const count = payment.statementSnapshot.length + (payment.feeAllowanceCents > 0 ? 1 : 0);
@@ -315,8 +358,9 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
     const observation = { token, invalidatedAt: +new Date(payment.invalidatedAt || 0) };
     const options = { stripeAccount: payment.stripeAccountId };
     try {
-      payment = await recoverCreation(payment, observation);
-      if (!payment.providerInvoiceId || payment.errorCode === 'COMMISSION_CREATION_REVIEW') return safePayment(payment);
+      const creation = await recoverCreation(payment, observation);
+      payment = creation.payment;
+      if (creation.blocked || !payment.providerInvoiceId) return safePayment(payment);
       // Refund/dispute invalidation cannot change immutable approved terms.
       // Cancel the original provider invoice, then retrieve the outcome anew.
       // A lost void response, ACH processing or funds already received keeps
@@ -353,6 +397,13 @@ function createCommissionPaymentService({ sequelize, models, stripe, ledger, ind
         const failed = intent?.status === 'requires_payment_method' && intent.last_payment_error;
         const hostedInvoiceUrl = invoice.hosted_invoice_url;
         if (hostedInvoiceUrl && !/^https:\/\/invoice\.stripe\.com\//.test(hostedInvoiceUrl)) throw conflict('Commission invoice link could not be verified.', 'COMMISSION_VERIFICATION_FAILED');
+        // Finalization freezes the billing identity independently of later
+        // Customer changes. Check it before offering an unpaid payment link,
+        // never instead of reconciling received funds, voids or legacy invoices.
+        const billing = approvedBillingEmailSnapshot(payment);
+        if (hostedInvoiceUrl && !payment.invalidatedAt && !processing && billing && invoice.customer_email !== billing.email) {
+          throw conflict('Commission invoice billing identity needs review.', 'COMMISSION_VERIFICATION_FAILED');
+        }
         payment = await bind(payment, { status: processing ? 'processing' : failed ? 'payment_failed' : 'awaiting_payment', providerVerificationStatus: 'verified',
           verifiedObservationToken: observation.token,
           hostedInvoiceUrl: payment.invalidatedAt || processing ? null : hostedInvoiceUrl || null,

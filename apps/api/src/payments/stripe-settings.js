@@ -1,16 +1,15 @@
 const { assertPublicAppUrl } = require('../domain/app-routing');
 const { sharedSandboxAccountId } = require('../domain/shared-sandbox-merchant');
 const { isStripeMode } = require('./stripe-mode');
-
-const credentialMode = (value, prefix) => value?.match(new RegExp(`^${prefix}_(test|live)_[A-Za-z0-9]+$`))?.[1] || null;
+const { stripeServerKeyMode, stripePublishableKeyMode } = require('./stripe-keys');
 
 // Shared by startup and direct client construction so bypassing getConfig does
 // not permit live credentials in a sandbox or silently mix payment modes.
 function validateStripeSettings(config = {}) {
   const mode = config.STRIPE_MODE ?? 'disabled';
   if (mode !== 'disabled' && !isStripeMode(mode)) throw new Error('Invalid STRIPE_MODE');
-  const secretMode = credentialMode(config.STRIPE_SECRET_KEY, 'sk');
-  const publishableMode = credentialMode(config.STRIPE_PUBLISHABLE_KEY, 'pk');
+  const secretMode = stripeServerKeyMode(config.STRIPE_SECRET_KEY);
+  const publishableMode = stripePublishableKeyMode(config.STRIPE_PUBLISHABLE_KEY);
   for (const [name, keyMode] of [['STRIPE_SECRET_KEY', secretMode], ['STRIPE_PUBLISHABLE_KEY', publishableMode]]) {
     if (config[name] && !keyMode) throw new Error(`${name} must be a Stripe test or live key`);
     if (isStripeMode(mode) && keyMode && keyMode !== mode) throw new Error(`${name} must match STRIPE_MODE`);

@@ -4,18 +4,21 @@ const { createStripeTestIdentity } = require('../../../e2e/test-data/stripe-conn
 const { STRIPE_API_VERSION } = require('../src/payments/stripe-client');
 const { controllerMatches, providerState, paymentsReady, RESPONSIBILITIES } = require('../src/services/business-payment-account-service');
 const { sharedSandboxAccountId } = require('../src/domain/shared-sandbox-merchant');
+const { stripeServerKeyMode, stripePublishableKeyMode } = require('../src/payments/stripe-keys');
 
 function assertSandboxInvocation(args, environment) {
   const resume = args.length === 3 && args[1] === '--resume' && /^(api-onboarding|payment-regression)-\d{8}-[a-f0-9]{12}$/.test(args[2]);
   const existing = args.length === 3 && args[1] === '--account' && /^acct_[A-Za-z0-9]+$/.test(args[2]);
   if (args[0] !== '--run' || !(args.length === 1 || resume || existing)) throw new Error('Invoke explicitly with npm run test:stripe:sandbox, optionally -- --resume <test identifier> or -- --account <Nitewide sandbox account ID>.');
   if (environment.CI && environment.CI !== 'false') throw new Error('Real Stripe sandbox tests are not allowed in CI, build or deployment jobs.');
-  if (environment.NODE_ENV === 'production' || environment.HOSTED_DEMO === 'true') throw new Error('Run sandbox tests locally, not inside an application deployment.');
-  if (environment.STRIPE_MODE !== 'test' || !/^sk_test_[A-Za-z0-9]+$/.test(environment.STRIPE_SECRET_KEY || '')
-    || !/^pk_test_[A-Za-z0-9]+$/.test(environment.STRIPE_PUBLISHABLE_KEY || '')) throw new Error('Configure STRIPE_MODE=test and matching sandbox secret/publishable keys in local .env. Live keys are forbidden.');
+  if (environment.NODE_ENV === 'production' || environment.APP_ENVIRONMENT === 'production'
+    || environment.HOSTED_DEMO === 'true' || environment.hostedDemo === true) throw new Error('Run sandbox tests locally, not inside an application deployment.');
+  if (environment.STRIPE_MODE !== 'test' || stripeServerKeyMode(environment.STRIPE_SECRET_KEY) !== 'test'
+    || stripePublishableKeyMode(environment.STRIPE_PUBLISHABLE_KEY) !== 'test') throw new Error('Configure STRIPE_MODE=test and matching sandbox server (standard or restricted) and publishable keys locally. Live keys are forbidden.');
 }
 
 function sandboxCredentials(environment) {
+  assertSandboxInvocation(['--run'], environment);
   return { STRIPE_MODE: 'test', STRIPE_SECRET_KEY: environment.STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY: environment.STRIPE_PUBLISHABLE_KEY,
     // This private local receiver replays retrieved Stripe events. It never
     // uses or changes the developer's deployed destination signing secrets.

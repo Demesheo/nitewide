@@ -88,12 +88,80 @@ test('verified Stripe money is held for invoicing fee review until actual net ca
   assert.equal(result.status, 'paid_fee_review'); assert.equal(result.fundsReceived, true); assert.equal(result.verifiedNetCents, null); assert.equal(result.recipientBankPayoutVerified, false); assert.equal(result.netSettlementStatus, 'invoicing_fee_unknown'); assert.equal(f.settlements.length, 0);
   assert.deepEqual(f.reads, ['invoice', 'invoice', 'customer', 'lines', 'payments', 'intent', 'charge', 'balance']);
 });
+test('legacy or malformed billing snapshots cannot create or finalize invoices but bound historical invoices still reconcile', async () => {
+  const actor = '11111111-1111-4111-8111-111111111111';
+  const snapshot = { version: 1, userId: actor, email: 'verified-payer@offline.nitewide.test', verifiedAt: at.toISOString(), customerName: 'Business' };
+  const invalidSnapshots = [null, {}, { ...snapshot, userId: '22222222-2222-4222-8222-222222222222' },
+    { ...snapshot, email: 'not-an-email' }, { ...snapshot, verifiedAt: 'not-a-date' }, { ...snapshot, verifiedAt: new Date(+at + 1000).toISOString() }];
+  for (const mode of ['test', 'live']) {
+    for (const billingEmailSnapshot of invalidSnapshots) {
+      const f = evidenceFixture({ mode }); f.payment.approvedByUserId = actor;
+      f.payment.providerInvoiceId = null; f.payment.billingEmailSnapshot = billingEmailSnapshot;
+      const writes = [];
+      for (const method of ['createCommissionCustomer', 'createCommissionInvoice', 'createCommissionInvoiceItem', 'finalizeCommissionInvoice']) {
+        f.stripe[method] = async () => { writes.push(method); throw new Error('Unverified billing must not write to the provider'); };
+      }
+      const result = await f.service.reconcile(f.payment);
+      assert.equal(result.status, 'review'); assert.equal(result.errorCode, 'COMMISSION_CREATION_REVIEW');
+      assert.equal(result.netSettlementStatus, 'creation_outcome_unknown'); assert.equal(result.hostedInvoiceUrl, null);
+      assert.deepEqual(writes, []); assert.deepEqual(f.settlements, []); assert.deepEqual(f.reads, []);
+      assert.equal(result.retryable, undefined, 'legacy missing terms require review, not endless provider retries');
+    }
+    const draft = evidenceFixture({ mode }); draft.payment.billingEmailSnapshot = null; draft.invoice.status = 'draft';
+    let finalized = false; draft.stripe.finalizeCommissionInvoice = async () => { finalized = true; };
+    const held = await draft.service.reconcile(draft.payment);
+    assert.equal(held.errorCode, 'COMMISSION_CREATION_REVIEW'); assert.equal(held.hostedInvoiceUrl, null);
+    assert.equal(finalized, false); assert.deepEqual(draft.settlements, []);
+    const originalPayments = draft.invoicePayments.data;
+    draft.invoice.status = 'open'; draft.invoice.amount_paid = 0; draft.invoice.amount_remaining = 1100; draft.invoicePayments.data = [];
+    const laterOpen = await draft.service.reconcile(draft.payment);
+    assert.equal(laterOpen.status, 'awaiting_payment'); assert.equal(laterOpen.errorCode, null);
+    assert.equal(laterOpen.hostedInvoiceUrl, draft.invoice.hosted_invoice_url); assert.equal(finalized, false);
+    draft.invoice.status = 'paid'; draft.invoice.amount_paid = 1100; draft.invoice.amount_remaining = 0; draft.invoicePayments.data = originalPayments;
+    const laterVerified = await draft.service.reconcile(draft.payment);
+    assert.equal(laterVerified.status, 'paid_fee_review'); assert.equal(laterVerified.fundsReceived, true);
+    assert.equal(laterVerified.errorCode, 'COMMISSION_INVOICING_FEE_REVIEW');
+    const historical = evidenceFixture({ mode, invoiceFee: 0 }); historical.payment.billingEmailSnapshot = null;
+    const settled = await historical.service.reconcile(historical.payment);
+    assert.equal(settled.status, 'paid'); assert.equal(settled.verifiedNetCents, 1050);
+    assert.equal(historical.settlements.length, 1); assert.equal(historical.settlements[0].paid, true);
+  }
+});
 test('actual fully attributed fee evidence settles net once; insufficient net retains the business obligation', async () => {
   const paid = evidenceFixture({ invoiceFee: 25 }); const result = await paid.service.reconcile(paid.payment);
   assert.equal(result.status, 'paid'); assert.equal(result.verifiedNetCents, 1025); assert.equal(result.actualFeeCents, 75); assert.equal(paid.settlements.length, 1); assert.equal(paid.settlements[0].paid, true);
   await paid.service.reconcile(paid.payment); assert.equal(paid.settlements.length, 1);
   const short = evidenceFixture({ invoiceFee: 75 }); const incomplete = await short.service.reconcile(short.payment);
   assert.equal(incomplete.status, 'paid_fee_review'); assert.equal(incomplete.residualCents, 25); assert.equal(incomplete.netSettlementStatus, 'net_shortfall'); assert.equal(short.settlements.length, 1); assert.equal(short.settlements[0].settledAmountCents, 975);
+});
+test('new hosted commission links require the finalized billing email while paid and void evidence remains reconcilable', async () => {
+  function billingFixture(mode, unpaid = true) {
+    const f = evidenceFixture({ mode, invoiceFee: 0 });
+    f.payment.approvedByUserId = '11111111-1111-4111-8111-111111111111';
+    f.payment.billingEmailSnapshot = { version: 1, userId: f.payment.approvedByUserId, email: 'verified-payer@offline.nitewide.test',
+      verifiedAt: at.toISOString(), customerName: 'Business' };
+    f.invoice.customer_email = f.payment.billingEmailSnapshot.email;
+    if (unpaid) { f.invoice.status = 'open'; f.invoice.amount_paid = 0; f.invoice.amount_remaining = f.invoice.total; f.invoicePayments.data = []; }
+    return f;
+  }
+  for (const mode of ['test', 'live']) {
+    const matching = billingFixture(mode), payable = await matching.service.reconcile(matching.payment);
+    assert.equal(payable.status, 'awaiting_payment'); assert.equal(payable.hostedInvoiceUrl, matching.invoice.hosted_invoice_url);
+    for (const email of [null, 'different-payer@offline.nitewide.test']) {
+      const mismatched = billingFixture(mode); mismatched.invoice.customer_email = email;
+      const refused = await mismatched.service.reconcile(mismatched.payment);
+      assert.equal(refused.status, 'review'); assert.equal(refused.errorCode, 'COMMISSION_VERIFICATION_FAILED');
+      assert.equal(refused.hostedInvoiceUrl, null); assert.deepEqual(mismatched.settlements, []);
+      assert.equal(JSON.stringify(refused).includes(mismatched.payment.billingEmailSnapshot.email), false);
+    }
+    const received = billingFixture(mode, false); received.invoice.customer_email = 'changed-after-finalization@offline.nitewide.test';
+    assert.equal((await received.service.reconcile(received.payment)).status, 'paid');
+    assert.equal(received.settlements.length, 1); assert.equal(received.settlements[0].paid, true);
+    const cancelled = billingFixture(mode); cancelled.invoice.status = 'void'; cancelled.invoice.customer_email = null;
+    const released = await cancelled.service.reconcile(cancelled.payment);
+    assert.equal(released.status, 'failed'); assert.equal(released.errorCode, 'COMMISSION_INVOICE_VOID');
+    assert.equal(cancelled.settlements.length, 1); assert.equal(cancelled.settlements[0].paid, false);
+  }
 });
 test('invoice.paid, credits, out-of-band payment, edited items and mismatched charges cannot settle commission', async () => {
   const mutations = [f => { f.invoice.paid_out_of_band = true; }, f => { f.invoice.pre_payment_credit_notes_amount = 1; }, f => { f.invoice.amount_due = 0; }, f => { f.invoice.customer = 'cus_other'; }, f => { f.invoice.metadata = { ...f.invoice.metadata, approvalHash: 'forged' }; },
@@ -141,7 +209,7 @@ test('invalidated unpaid original invoices release only after independent void p
   const f = evidenceFixture(); f.payment.invalidatedAt = at; f.payment.invalidationReason = 'purchase_refund';
   f.invoice.status = 'open'; f.invoice.amount_paid = 0; f.invoice.amount_remaining = 1100; f.invoicePayments.data = [];
   let voids = 0;
-  f.stripe.voidCommissionInvoice = async (id, options) => { assert.equal(id, f.invoice.id); assert.equal(options.stripeAccount, f.payment.stripeAccountId); assert.equal(options.idempotencyKey, 'commission/payment/invalidate-void'); voids += 1; f.invoice.status = 'void'; f.invoice.amount_due = 0; f.invoice.amount_remaining = 0; throw new Error('Void succeeded; response lost'); };
+  f.stripe.voidCommissionInvoice = async (id, options) => { assert.equal(id, f.invoice.id); assert.equal(options.stripeAccount, f.payment.stripeAccountId); assert.equal(options.idempotencyKey, 'commission/payment/invalidate-void'); voids += 1; f.invoice.status = 'void'; throw new Error('Void succeeded; response lost'); };
   const result = await f.service.reconcile(f.payment);
   assert.equal(result.status, 'failed'); assert.equal(result.errorCode, 'COMMISSION_REQUOTE_REQUIRED'); assert.equal(result.hostedInvoiceUrl, null); assert.equal(voids, 1); assert.equal(f.settlements.length, 1); assert.equal(f.settlements[0].paid, false);
   await f.service.reconcile(f.payment); assert.equal(voids, 1); assert.equal(f.settlements.length, 1);

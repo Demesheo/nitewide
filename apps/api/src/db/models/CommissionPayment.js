@@ -10,6 +10,8 @@ function initCommissionPayment(sequelize) {
     feePolicy: { type: DataTypes.JSONB, allowNull: false }, statementSnapshot: { type: DataTypes.JSONB, allowNull: false },
     paymentMethod: { type: DataTypes.STRING(24), allowNull: false }, idempotencyKey: { type: DataTypes.UUID, allowNull: false },
     approvalHash: { type: DataTypes.STRING(64), allowNull: false }, approvedByUserId: { type: DataTypes.UUID, allowNull: false }, approvedAt: { type: DataTypes.DATE, allowNull: false },
+    // Private immutable provider parameters; null is retained for legacy rows.
+    billingEmailSnapshot: { type: DataTypes.JSONB, allowNull: true },
     status: { type: DataTypes.STRING(24), allowNull: false, defaultValue: 'creating' },
     providerCustomerId: DataTypes.STRING(160), providerInvoiceId: { type: DataTypes.STRING(160), unique: true },
     providerPaymentIntentId: { type: DataTypes.STRING(160), unique: true }, providerChargeId: { type: DataTypes.STRING(160), unique: true },

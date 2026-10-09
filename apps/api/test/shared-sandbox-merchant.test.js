@@ -10,11 +10,17 @@ const config = { NODE_ENV:'development', STRIPE_MODE:'test', STRIPE_SECRET_KEY:'
 
 test('shared merchant routing is explicit, sandbox only, and never valid for ordinary production', () => {
   assert.equal(sharedSandboxAccountId({}),null);
-  for (const NODE_ENV of ['development','test']) assert.equal(sharedSandboxAccountId({...config,NODE_ENV}),'acct_shared');
-  assert.equal(sharedSandboxAccountId({...config,NODE_ENV:'production',HOSTED_DEMO:'true'}),'acct_shared');
-  assert.equal(sharedSandboxAccountId({...config,NODE_ENV:'production',hostedDemo:true}),'acct_shared');
+  for (const STRIPE_SECRET_KEY of ['sk_test_mock', 'rk_test_mock']) {
+    const current = { ...config, STRIPE_SECRET_KEY };
+    for (const NODE_ENV of ['development','test']) assert.equal(sharedSandboxAccountId({...current,NODE_ENV}),'acct_shared');
+    assert.equal(sharedSandboxAccountId({...current,NODE_ENV:'production',HOSTED_DEMO:'true'}),'acct_shared');
+    assert.equal(sharedSandboxAccountId({...current,NODE_ENV:'production',hostedDemo:true}),'acct_shared');
+    assert.equal(getConfig(current).STRIPE_SANDBOX_SHARED_ACCOUNT_ID,'acct_shared');
+    assert.equal(createStripeClient(current, { sdk: {} }).sandboxSharedAccountId, 'acct_shared');
+  }
   for (const changes of [{NODE_ENV:'production'},{NODE_ENV:'production',hostedDemo:false},{NODE_ENV:'staging'},
-    {STRIPE_MODE:'disabled'},{STRIPE_MODE:'live'},{STRIPE_SECRET_KEY:'sk_live_mock'},{STRIPE_SANDBOX_SHARED_ACCOUNT_ID:'acct_bad/route'}]) {
+    {STRIPE_MODE:'disabled'},{STRIPE_MODE:'live'},{STRIPE_SECRET_KEY:'sk_live_mock'},{STRIPE_SECRET_KEY:'rk_live_mock'},
+    {STRIPE_SECRET_KEY:'pk_test_mock'},{STRIPE_SECRET_KEY:'rk_test_'},{STRIPE_SANDBOX_SHARED_ACCOUNT_ID:'acct_bad/route'}]) {
     assert.throws(()=>sharedSandboxAccountId({...config,...changes}));
     assert.throws(()=>createStripeClient({...config,...changes},{sdk:{}}));
   }

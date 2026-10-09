@@ -8,6 +8,7 @@ const {
   createPaymentPreflight, inspectPaymentPreflight, inspectPaymentConfiguration, requiredPaymentSchema, REQUIRED_MIGRATIONS, CHECK_MESSAGES,
 } = require('../src/diagnostics/payment-preflight');
 const { paymentPreflightReport } = require('../src/http/payment-preflight-schemas');
+const { paymentRuntimeEvidence } = require('../src/diagnostics/payment-runtime');
 
 const observedAt = new Date('2026-10-04T12:00:00.000Z');
 const config = {
@@ -118,6 +119,38 @@ test('live preflight requires production isolation, mode-matched routes and work
   assert.equal(disabledFixture.calls.length, 0);
 });
 
+test('restricted credentials pass format checks without proving permissions or exposing keys and remain runtime-bound', async () => {
+  for (const original of [config, liveConfig]) {
+    const mode = original.STRIPE_MODE;
+    const restricted = { ...original, STRIPE_SECRET_KEY: `rk_${mode}_offlineprivate` };
+    const evidence = paymentRuntimeEvidence(restricted);
+    const fixture = databaseFixture();
+    const report = await inspectPaymentPreflight(dependencies(fixture, { config: restricted, stripe: { mode, enabled: true } }), { requirePaid: true });
+    assert.equal(report.mode, mode === 'live' ? 'live-ready' : 'sandbox-ready');
+    assert.equal(report.workers.status, 'ready');
+    assert.ok(hasCheck(report, 'KEY_PAIR_IDENTITY_NOT_VERIFIED', 'not-checked'));
+    assert.ok(hasCheck(report, 'WEBHOOK_DELIVERY_NOT_VERIFIED', 'not-checked'));
+    const workerRead = fixture.calls.find(call => call.sql.includes('FROM background_workers'));
+    assert.ok(Object.values(workerRead.options.replacements).includes(evidence.configurationFingerprint));
+    assert.notEqual(evidence.configurationFingerprint, paymentRuntimeEvidence(original).configurationFingerprint,
+      'replacing a standard key with a restricted key requires matching API and worker settings');
+    assert.notEqual(evidence.configurationFingerprint, paymentRuntimeEvidence({ ...restricted, STRIPE_SECRET_KEY: `rk_${mode}_rotatedprivate` }).configurationFingerprint);
+    assert.ok(!JSON.stringify({ report, evidence }).includes(restricted.STRIPE_SECRET_KEY));
+    const disabledFixture = databaseFixture();
+    const disabled = await inspectPaymentPreflight(dependencies(disabledFixture, { config: { ...restricted, STRIPE_MODE: 'disabled' }, stripe: null }));
+    assert.equal(disabled.mode, 'disabled'); assert.equal(disabledFixture.calls.length, 0);
+    for (const changes of [
+      { STRIPE_SECRET_KEY: `rk_${mode === 'test' ? 'live' : 'test'}_offlineprivate` },
+      { STRIPE_PUBLISHABLE_KEY: restricted.STRIPE_SECRET_KEY },
+      ...(mode === 'live' ? [{ APP_ENVIRONMENT: 'staging' }, { STRIPE_MODE: 'disabled', APP_ENVIRONMENT: 'staging' }, { HOSTED_DEMO: 'true' }] : []),
+    ]) {
+      const blocked = inspectPaymentConfiguration({ ...restricted, ...changes });
+      assert.equal(blocked.mode, 'configuration-blocked');
+      assert.ok(!JSON.stringify(blocked).includes(restricted.STRIPE_SECRET_KEY));
+    }
+  }
+});
+
 test('hosted callbacks require explicit public HTTPS origins without credentials, query, fragments or CORS drift', () => {
   const hosted = { ...config, NODE_ENV: 'production' };
   for (const name of ['CUSTOMER_APP_URL', 'BUSINESS_APP_URL']) {
@@ -158,7 +191,7 @@ test('hosted callbacks require explicit public HTTPS origins without credentials
 
 test('shared merchant routing is an explicit sandbox warning and fails closed outside permitted runtimes', () => {
   const shared = { ...config, STRIPE_SANDBOX_SHARED_ACCOUNT_ID: 'acct_offlineshared' };
-  for (const changes of [{}, { NODE_ENV: 'development' }, { NODE_ENV: 'production', hostedDemo: true,
+  for (const changes of [{}, { STRIPE_SECRET_KEY: 'rk_test_offlineprivate' }, { NODE_ENV: 'development' }, { NODE_ENV: 'production', hostedDemo: true,
     CUSTOMER_APP_URL: 'https://demo.nitewide.test', BUSINESS_APP_URL: 'https://demo.nitewide.test/app', corsOrigins: ['https://demo.nitewide.test'] }]) {
     const report = inspectPaymentConfiguration({ ...shared, ...changes });
     assert.equal(report.mode, 'sandbox-ready');
@@ -201,8 +234,12 @@ test('successful diagnostics use one bounded read-only snapshot, aggregate route
 });
 
 test('missing schema or ledger entries skip routing and suppress raw database exception messages', async () => {
+  assert.ok(REQUIRED_MIGRATIONS.includes('202610090003-commission-billing-email.cjs'));
+  assert.ok(requiredPaymentSchema().commission_payments.includes('billing_email_snapshot'));
   for (const input of [{ columns: [] }, { columns: catalog().filter(column => column.column_name !== 'controller_matches') },
-    { migrations: REQUIRED_MIGRATIONS.slice(1) }]) {
+    { migrations: REQUIRED_MIGRATIONS.slice(1) },
+    { columns: catalog().filter(column => column.table_name !== 'commission_payments' || column.column_name !== 'billing_email_snapshot') },
+    { migrations: REQUIRED_MIGRATIONS.filter(name => name !== '202610090003-commission-billing-email.cjs') }]) {
     const fixture = databaseFixture(input);
     const report = await inspectPaymentPreflight(dependencies(fixture));
     assert.equal(report.schema.status, 'blocked');

@@ -12,13 +12,15 @@ const raw = value => JSON.parse(JSON.stringify(value));
 
 function fakeStripe(account) {
   const livemode = account.livemode;
-  const caches = new Map(), customers = new Map(), invoices = new Map(), intents = new Map(), charges = new Map(), balances = new Map(), calls = [];
-  let loseInvoiceResponse = false, loseVoidResponse = false;
+  const caches = new Map(), parameters = new Map(), customers = new Map(), invoices = new Map(), intents = new Map(), charges = new Map(), balances = new Map(), calls = [];
+  let loseCustomerResponse = false, loseInvoiceResponse = false, loseVoidResponse = false;
   function checked(options) { assert.equal(options.stripeAccount, account.id, 'Every customer, invoice and payment lookup belongs to the person’s account'); }
   async function idempotent(name, params, options, create) {
     checked(options); calls.push({ name, params: raw(params), key: options.idempotencyKey });
-    if (!caches.has(options.idempotencyKey)) caches.set(options.idempotencyKey, create());
+    if (!caches.has(options.idempotencyKey)) { caches.set(options.idempotencyKey, create()); parameters.set(options.idempotencyKey, raw(params)); }
+    else assert.deepEqual(raw(params), parameters.get(options.idempotencyKey), 'Provider retries must retain the original idempotency parameters');
     const result = caches.get(options.idempotencyKey);
+    if (name === 'customer' && loseCustomerResponse) { loseCustomerResponse = false; throw new Error('Customer succeeded but response was lost'); }
     if (name === 'invoice' && loseInvoiceResponse) { loseInvoiceResponse = false; throw new Error('Provider succeeded but response was lost'); }
     return raw(result);
   }
@@ -28,13 +30,17 @@ function fakeStripe(account) {
     disconnectAccount: async id => { assert.equal(id, account.id); return { disconnected: true }; },
     createCommissionCustomer: (params, options) => idempotent('customer', params, options, () => { const customer = { id: `cus_${randomUUID().replaceAll('-', '')}`, object: 'customer', livemode, ...params }; customers.set(customer.id, customer); return customer; }),
     retrieveCommissionCustomer: async (id, options) => { checked(options); return raw(customers.get(id)); },
-    createCommissionInvoice: (params, options) => idempotent('invoice', params, options, () => { const invoice = { id: `in_${randomUUID().replaceAll('-', '')}`, object: 'invoice', livemode, status: 'draft', ...params,
+    createCommissionInvoice: (params, options) => idempotent('invoice', params, options, () => {
+      if (params.collection_method === 'send_invoice' && !require('zod').z.email().safeParse(customers.get(params.customer)?.email).success) {
+        throw Object.assign(new Error('The customer needs a valid email when collection_method=send_invoice.'), { type: 'StripeInvalidRequestError', statusCode: 400 });
+      }
+      const invoice = { id: `in_${randomUUID().replaceAll('-', '')}`, object: 'invoice', livemode, status: 'draft', ...params, customer_email: customers.get(params.customer)?.email,
       subtotal: 0, total: 0, amount_due: 0, amount_paid: 0, amount_remaining: 0, lines: [], payments: [] }; invoices.set(invoice.id, invoice); return invoice; }),
     createCommissionInvoiceItem: (params, options) => idempotent('item', params, options, () => { const invoice = invoices.get(params.invoice), item = { id: `ii_${randomUUID().replaceAll('-', '')}`, object: 'invoiceitem', livemode, ...params }; invoice.lines.push(item); return item; }),
-    finalizeCommissionInvoice: (id, params, options) => idempotent('finalize', params, options, () => { const invoice = invoices.get(id); invoice.total = invoice.subtotal = invoice.amount_due = invoice.amount_remaining = invoice.lines.reduce((sum, line) => sum + line.amount, 0); invoice.status = 'open'; invoice.hosted_invoice_url = `https://invoice.stripe.com/i/${id}`; return invoice; }),
+    finalizeCommissionInvoice: (id, params, options) => idempotent('finalize', params, options, () => { const invoice = invoices.get(id); invoice.total = invoice.subtotal = invoice.amount_due = invoice.amount_remaining = invoice.lines.reduce((sum, line) => sum + line.amount, 0); invoice.status = 'open'; invoice.customer_email = customers.get(invoice.customer)?.email; invoice.hosted_invoice_url = `https://invoice.stripe.com/i/${id}`; return invoice; }),
     voidCommissionInvoice: async (id, options) => {
       checked(options); const invoice = invoices.get(id); assert.notEqual(invoice.status, 'paid');
-      invoice.status = 'void'; invoice.amount_due = 0; invoice.amount_remaining = 0; invoice.hosted_invoice_url = null;
+      invoice.status = 'void'; invoice.hosted_invoice_url = null;
       for (const entry of invoice.payments) { entry.status = 'canceled'; const intent = intents.get(entry.payment.payment_intent); if (intent) intent.status = 'canceled'; }
       calls.push({ name: 'void', id, key: options.idempotencyKey });
       if (loseVoidResponse) { loseVoidResponse = false; throw new Error('Void succeeded; provider response lost'); } return raw(invoice);
@@ -56,7 +62,7 @@ function fakeStripe(account) {
     balances.set(balanceId, { id: balanceId, object: 'balance_transaction', type: 'charge', source: chargeId, amount: invoice.total, fee, net: invoice.total - fee, currency: invoice.currency, fee_details: [{ type: 'stripe_fee', amount: fee, currency: invoice.currency }] });
     return { invoice, intent: intents.get(intentId), charge: charges.get(chargeId), balance: balances.get(balanceId) };
   }
-  return { stripe, customers, invoices, intents, calls, caches, succeed, loseNextInvoice: () => { loseInvoiceResponse = true; }, loseNextVoid: () => { loseVoidResponse = true; } };
+  return { stripe, customers, invoices, intents, calls, caches, succeed, loseNextCustomer: () => { loseCustomerResponse = true; }, loseNextInvoice: () => { loseInvoiceResponse = true; }, loseNextVoid: () => { loseVoidResponse = true; } };
 }
 
 test('commission execution is scoped, individually approved, idempotent, provider-verified and safely recoverable', { timeout: 60000 }, async t => {
@@ -64,7 +70,7 @@ test('commission execution is scoped, individually approved, idempotent, provide
   const config = require('../src/config').getConfig(), db = require('../src/db/sequelize').createSequelize(config), m = require('../src/db/models').initModels(db);
   const now = () => new Date();
   try {
-    const owner = await m.User.create({ displayName: 'Commission owner', email: `${randomUUID()}@offline.nitewide.test` });
+    const owner = await m.User.create({ displayName: 'Commission owner', email: `${randomUUID()}@offline.nitewide.test`, emailVerifiedAt: now() });
     const recipient = await m.User.create({ displayName: 'Commission recipient', email: `${randomUUID()}@offline.nitewide.test` });
     const other = await m.User.create({ displayName: 'Other person', email: `${randomUUID()}@offline.nitewide.test` });
     const business = await m.Organization.create({ name: 'Commission business', slug: randomUUID(), onboardingEstablished: true });
@@ -95,8 +101,35 @@ test('commission execution is scoped, individually approved, idempotent, provide
     assert.equal(schemas.commissionQuoteResponse.safeParse(raw(quote)).success, true);
     const input = { statementIds: [main.statement.id], paymentMethod: 'card', approvedTotalCents: quote.totalCents, feeEstimateAcknowledged: true, idempotencyKey: randomUUID() };
     let paymentId;
-    await t.test('lost invoice response and concurrent approval reuse one reserved payment and invoice', async () => {
-      provider.loseNextInvoice(); const interrupted = await service.approve(owner.id, business.id, input); paymentId = interrupted.paymentId;
+    await t.test('approval refuses missing, malformed and unverified payer email before provider writes or reservations', async () => {
+      const email = owner.email, emailVerifiedAt = owner.emailVerifiedAt;
+      try {
+        for (const changes of [{ email: '' }, { email: 'not-an-email' }, { emailVerifiedAt: null }, { emailVerifiedAt: new Date(Date.now() + 86400000) }]) {
+          await owner.update({ email, emailVerifiedAt, ...changes }, { validate: false });
+          await assert.rejects(service.approve(owner.id, business.id, input), { code: 'COMMISSION_BILLING_EMAIL_REQUIRED' });
+          assert.equal(provider.calls.length, 0); assert.equal(await m.CommissionPayment.count(), 0);
+          assert.equal(await m.CommissionAllocation.count(), 0); assert.equal((await main.earning.reload()).reservedCommissionCents, 0);
+        }
+        await owner.update({ email, emailVerifiedAt });
+        const changedDuringReadiness = createCommissionPaymentService({ sequelize: db, models: m, stripe: provider.stripe, ledger,
+          individualProfiles: { ...individuals, synchronizeTrusted: async accountId => {
+            await individuals.synchronizeTrusted(accountId);
+            await owner.update({ emailVerifiedAt: null });
+          } } });
+        await assert.rejects(changedDuringReadiness.approve(owner.id, business.id, input), { code: 'COMMISSION_BILLING_EMAIL_REQUIRED' });
+        assert.equal(provider.calls.length, 0); assert.equal(await m.CommissionPayment.count(), 0);
+        assert.equal(await m.CommissionAllocation.count(), 0); assert.equal((await main.earning.reload()).reservedCommissionCents, 0);
+      } finally { await owner.update({ email, emailVerifiedAt }); }
+    });
+    await t.test('lost customer/invoice responses and changed payer email retain one immutable approval and provider request', async () => {
+      const approvedEmail = owner.email, verifiedAt = owner.emailVerifiedAt.toISOString(), customerName = business.name;
+      provider.loseNextCustomer(); const customerInterrupted = await service.approve(owner.id, business.id, input); paymentId = customerInterrupted.paymentId;
+      assert.equal(customerInterrupted.retryable, true); assert.equal(provider.customers.size, 1); assert.equal(provider.invoices.size, 0);
+      assert.deepEqual(raw((await m.CommissionPayment.findByPk(paymentId)).billingEmailSnapshot), { version: 1, userId: owner.id, email: approvedEmail, verifiedAt, customerName });
+      await owner.update({ email: `${randomUUID()}@offline.nitewide.test`, emailVerifiedAt: null });
+      await business.update({ name: 'Renamed after commission approval' });
+      provider.loseNextInvoice(); const interrupted = await service.approve(owner.id, business.id, input);
+      assert.equal(interrupted.paymentId, paymentId);
       assert.equal(interrupted.retryable, true); assert.equal(provider.invoices.size, 1);
       const [one, two] = await Promise.all([service.approve(owner.id, business.id, input), service.approve(owner.id, business.id, input)]);
       assert.equal(one.paymentId, paymentId); assert.equal(two.paymentId, paymentId); assert.equal(await m.CommissionPayment.count(), 1); assert.equal(provider.customers.size, 1); assert.equal(provider.invoices.size, 1);
@@ -105,8 +138,30 @@ test('commission execution is scoped, individually approved, idempotent, provide
       assert.equal(schemas.commissionPaymentResponse.safeParse(raw(one)).success, true);
       await assert.rejects(service.approve(owner.id, business.id, { ...input, approvedTotalCents: quote.totalCents + 1 }), { code: 'COMMISSION_IDEMPOTENCY_CONFLICT' });
       const page = await service.list(owner.id, business.id); const row = page.items.find(s => s.id === main.statement.id); assert.equal(row.payment.paymentId, paymentId); assert.equal(schemas.commissionStatementPageResponse.safeParse(raw(page)).success, true);
+      const customerCalls = provider.calls.filter(call => call.name === 'customer'); assert.equal(customerCalls.length, 2);
+      assert.deepEqual(customerCalls[0], customerCalls[1]); assert.equal(customerCalls[0].params.email, approvedEmail);
+      assert.equal(customerCalls[0].params.name, customerName); assert.notEqual(customerName, business.name);
+      assert.notEqual(customerCalls[0].params.email, recipient.email); assert.notEqual(customerCalls[0].params.email, owner.email);
+      const audited = await m.AuditLog.findAll({ where: { entityId: paymentId } });
+      const exposed = JSON.stringify({ one, page, own: await service.ownStatements(recipient.id), audited: raw(audited), metadata: provider.calls.map(call => call.params?.metadata) });
+      assert.equal(exposed.includes(approvedEmail), false); assert.equal(exposed.includes('billingEmailSnapshot'), false);
+      await owner.update({ emailVerifiedAt: now() });
     });
     const saved = await m.CommissionPayment.findByPk(paymentId);
+    await t.test('authorized finance manager snapshots their verified email rather than the owner or recipient', async () => {
+      const manager = await m.User.create({ displayName: 'Finance manager', email: `${randomUUID()}@offline.nitewide.test`, emailVerifiedAt: now() });
+      await m.OrganizationOwner.create({ userId: manager.id, organizationId: business.id, role: 'admin', financeAuthorized: true });
+      const row = await statement(); await service.approveStatement(manager.id, business.id, row.statement.id);
+      const quoted = await service.quote(manager.id, business.id, { statementIds: [row.statement.id], paymentMethod: 'card' });
+      const approved = await service.approve(manager.id, business.id, { statementIds: [row.statement.id], paymentMethod: 'card', approvedTotalCents: quoted.totalCents, feeEstimateAcknowledged: true, idempotencyKey: randomUUID() });
+      const payment = await m.CommissionPayment.findByPk(approved.paymentId);
+      assert.equal(payment.status, 'awaiting_payment'); assert.equal(payment.approvedByUserId, manager.id);
+      assert.deepEqual(raw(payment.billingEmailSnapshot), { version: 1, userId: manager.id, email: manager.email, verifiedAt: manager.emailVerifiedAt.toISOString(), customerName: business.name });
+      assert.equal(provider.customers.get(payment.providerCustomerId).email, manager.email);
+      assert.equal(provider.invoices.get(payment.providerInvoiceId).customer_email, manager.email);
+      assert.notEqual(manager.email, owner.email); assert.notEqual(manager.email, recipient.email);
+      assert.equal(JSON.stringify(approved).includes(manager.email), false);
+    });
     await t.test('fake paid webhook payload and out-of-band invoice never settle an earning', async () => {
       const webhooks = createStripeWebhookService({ sequelize: db, models: m, stripe: provider.stripe, commissionPayments: service, individualCommissionProfiles: individuals });
       await assert.rejects(webhooks.receive(JSON.stringify({}), 'forged'), { code: 'INVALID_WEBHOOK' });
@@ -145,6 +200,9 @@ test('commission execution is scoped, individually approved, idempotent, provide
       await assert.rejects(service.quote(owner.id, business.id, { statementIds: [row.statement.id], paymentMethod: 'card' }), { code: 'COMMISSION_STATEMENT_NOT_PAYABLE' });
       provider.loseNextVoid(); const closed = await service.reconcile(original);
       assert.equal(closed.status, 'failed'); assert.equal(closed.errorCode, 'COMMISSION_REQUOTE_REQUIRED'); assert.equal(provider.invoices.get(original.providerInvoiceId).status, 'void');
+      assert.equal(provider.invoices.get(original.providerInvoiceId).amount_due, firstQuote.totalCents);
+      assert.equal(provider.invoices.get(original.providerInvoiceId).amount_remaining, firstQuote.totalCents);
+      assert.equal(provider.invoices.get(original.providerInvoiceId).amount_paid, 0);
       await row.earning.reload(); assert.equal(row.earning.unpaidCommissionCents, 500); assert.equal(row.earning.reservedCommissionCents, 0); assert.equal(row.earning.businessLossCents, 0);
       const nextQuote = await service.quote(owner.id, business.id, { statementIds: [row.statement.id], paymentMethod: 'card' }); assert.equal(nextQuote.commissionCents, 500); assert.notEqual(nextQuote.installmentFingerprint, firstQuote.installmentFingerprint);
       const listed = (await service.list(owner.id, business.id)).items.find(item => item.id === row.statement.id); assert.equal(listed.latestPaymentAttempt.paymentId, original.id); assert.equal(listed.latestPaymentAttempt.status, 'failed');
@@ -231,6 +289,22 @@ test('commission execution is scoped, individually approved, idempotent, provide
       await assert.rejects(saved.update({ totalCents: saved.totalCents + 1 }), /Commission approval terms are immutable|commission_payments_amounts/);
       await saved.reload(); await assert.rejects(saved.update({ stripeAccountId: 'acct_wrong' }), /Commission approval terms are immutable/);
       await saved.reload(); assert.equal(saved.stripeAccountId, account.id);
+      const originalSnapshot = raw(saved.billingEmailSnapshot);
+      for (const billingEmailSnapshot of [null, { ...originalSnapshot, email: owner.email }, { ...originalSnapshot, userId: recipient.id }]) {
+        await assert.rejects(saved.update({ billingEmailSnapshot }), /Commission billing email snapshot is immutable/);
+        await saved.reload(); assert.deepEqual(raw(saved.billingEmailSnapshot), originalSnapshot);
+      }
+      const legacy = await m.CommissionPayment.create({ organizationId: business.id, recipientUserId: recipient.id, individualCommissionProfileId: profile.id,
+        stripeAccountId: account.id, providerMode: 'test', currency: saved.currency, commissionCents: saved.commissionCents,
+        feeAllowanceCents: saved.feeAllowanceCents, totalCents: saved.totalCents, feePolicy: saved.feePolicy, statementSnapshot: saved.statementSnapshot,
+        paymentMethod: saved.paymentMethod, idempotencyKey: randomUUID(), approvalHash: saved.approvalHash,
+        approvedByUserId: owner.id, approvedAt: now(), billingEmailSnapshot: null, providerCustomerId: 'cus_legacy_without_email' });
+      await assert.rejects(legacy.update({ billingEmailSnapshot: originalSnapshot }), /Commission billing email snapshot is immutable/);
+      await legacy.reload(); assert.equal(legacy.billingEmailSnapshot, null, 'migration leaves historical approval terms unknown instead of backfilling mutable profile data');
+      const callsBefore = provider.calls.length;
+      const reviewed = await service.reconcile(legacy);
+      assert.equal(reviewed.status, 'review'); assert.equal(reviewed.errorCode, 'COMMISSION_CREATION_REVIEW'); assert.equal(reviewed.hostedInvoiceUrl, null);
+      assert.equal(provider.calls.length, callsBefore); assert.equal((await legacy.reload()).providerCustomerId, 'cus_legacy_without_email');
     });
   } finally { await db.close(); }
 });
@@ -239,7 +313,7 @@ test('live commission approval rejects mixed-mode earnings and recovers one invo
   assertManagedTestDatabase();
   const db = require('../src/db/sequelize').createSequelize(require('../src/config').getConfig()), m = require('../src/db/models').initModels(db);
   try {
-    const owner = await m.User.create({ displayName: 'Live commission owner', email: `${randomUUID()}@offline.nitewide.test` });
+    const owner = await m.User.create({ displayName: 'Live commission owner', email: `${randomUUID()}@offline.nitewide.test`, emailVerifiedAt: new Date() });
     const recipient = await m.User.create({ displayName: 'Live commission recipient', email: `${randomUUID()}@offline.nitewide.test` });
     const business = await m.Organization.create({ name: 'Live commission business', slug: randomUUID(), onboardingEstablished: true });
     await m.OrganizationOwner.create({ userId: owner.id, organizationId: business.id, role: 'owner' });
@@ -276,6 +350,9 @@ test('live commission approval rejects mixed-mode earnings and recovers one invo
     assert.equal(payment.providerMode, 'live'); assert.equal(payment.feePolicy.id, 'us-standard-invoicing-starter-v1');
     assert.equal(provider.invoices.size, 1); assert.equal(provider.customers.size, 1);
     assert.equal(payment.totalCents, input.approvedTotalCents);
+    assert.equal(payment.billingEmailSnapshot.email, owner.email); assert.equal(payment.billingEmailSnapshot.userId, owner.id);
+    assert.equal(provider.customers.get(payment.providerCustomerId).email, owner.email);
+    assert.notEqual(owner.email, recipient.email); assert.equal(JSON.stringify(recovered).includes(owner.email), false);
     provider.succeed(payment, 50);
     const webhooks = createStripeWebhookService({ sequelize: db, models: m, stripe: provider.stripe, commissionPayments: service, individualCommissionProfiles: individuals });
     const event = { id: `evt_${randomUUID()}`, livemode: true, account: account.id, type: 'invoice.paid', data: { object: { id: payment.providerInvoiceId } } };

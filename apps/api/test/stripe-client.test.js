@@ -6,9 +6,28 @@ const { offlineEnvironment } = require('../scripts/test-database.cjs');
 const { stripeApplicationFee } = require('../src/domain/stripe-pricing');
 const { calculatePricing } = require('../src/domain/pricing');
 const { isStripeMode, stripeLivemode, matchesStripeLivemode } = require('../src/payments/stripe-mode');
+const { stripeServerKeyMode, stripePublishableKeyMode } = require('../src/payments/stripe-keys');
 
 const config = { NODE_ENV: 'development', STRIPE_MODE: 'test', STRIPE_SECRET_KEY: 'sk_test_mock',
   STRIPE_PUBLISHABLE_KEY: 'pk_test_mock', STRIPE_WEBHOOK_SECRET: 'whsec_mock', STRIPE_ACCOUNT_WEBHOOK_SECRET: 'whsec_accountmock', hostedDemo: false };
+test('key classifiers distinguish restricted server credentials from browser keys without coercion', () => {
+  for (const mode of ['test', 'live']) {
+    for (const prefix of ['sk', 'rk', 'pk']) {
+      const key = `${prefix}_${mode}_offline123`;
+      assert.equal(stripeServerKeyMode(key), prefix === 'pk' ? null : mode);
+      assert.equal(stripePublishableKeyMode(key), prefix === 'pk' ? mode : null);
+      for (const invalid of [` ${key}`, `${key} `, `${key}\n`, `${key}\r\n`, `${key}/suffix`, key.toUpperCase(), `${prefix}_${mode}_`]) {
+        assert.equal(stripeServerKeyMode(invalid), null);
+        assert.equal(stripePublishableKeyMode(invalid), null);
+      }
+    }
+  }
+  for (const invalid of [undefined, null, false, 1, {}, [], 'rk_unknown_offline', 'whsec_offline',
+    { toString() { throw new Error('Key classification must not coerce'); } }]) {
+    assert.equal(stripeServerKeyMode(invalid), null);
+    assert.equal(stripePublishableKeyMode(invalid), null);
+  }
+});
 test('Stripe configuration rejects live credentials outside production and does not expose secret credentials', () => {
   for (const changes of [{ STRIPE_SECRET_KEY: 'sk_live_mock' }, { STRIPE_PUBLISHABLE_KEY: 'pk_live_mock' }, { STRIPE_MODE: 'live' }]) {
     assert.throws(() => getConfig({ ...config, ...changes, DATABASE_URL: 'postgres://test:test@localhost:5433/db' }));
@@ -24,6 +43,8 @@ test('onboarding is available before webhook setup, but paid operations fail clo
   assert.equal(client.createAccount({}), 1);
   assert.equal(client.enabled, false);
   assert.throws(() => client.createCheckoutSession({}, { stripeAccount: 'acct_mock' }), { code: 'PAYMENTS_NOT_ENABLED' });
+  assert.throws(() => client.retrievePaymentIntent('pi_mock', { stripeAccount: 'acct_mock' }), { code: 'PAYMENTS_NOT_ENABLED' });
+  assert.throws(() => client.retrieveCommissionPaymentIntent('pi_mock', { stripeAccount: 'acct_mock' }), { code: 'PAYMENTS_NOT_ENABLED' });
   assert.throws(() => client.constructWebhookEvent(Buffer.from('{}'), 'signature'), { code: 'PAYMENTS_NOT_ENABLED' });
   assert.equal(creates, 1);
   for (const name of ['STRIPE_WEBHOOK_SECRET', 'STRIPE_ACCOUNT_WEBHOOK_SECRET', 'STRIPE_PUBLISHABLE_KEY']) {
@@ -65,6 +86,59 @@ test('live clients require explicit production, complete matching credentials an
     assert.equal(stripeConfiguration({ ...live, ...changes }).demoEnabled, false);
   }
   assert.equal(calls, 1, 'invalid or disabled settings never reach the supplied SDK');
+});
+test('restricted keys preserve mode safety, account scope and public-secret separation', () => {
+  for (const mode of ['test', 'live']) {
+    const restricted = { ...config, NODE_ENV: mode === 'live' ? 'production' : 'development',
+      APP_ENVIRONMENT: mode === 'live' ? 'production' : undefined, HOSTED_DEMO: 'false',
+      STRIPE_MODE: mode, STRIPE_SECRET_KEY: `rk_${mode}_offlineprivate`, STRIPE_PUBLISHABLE_KEY: `pk_${mode}_offlinepublic`,
+      CUSTOMER_APP_URL: 'https://customer.example.test', BUSINESS_APP_URL: 'https://business.example.test/app' };
+    const calls = [], sdk = { checkout: { sessions: { create: (...args) => { calls.push(args); return 'offline-session'; } } } };
+    const publicConfig = stripeConfiguration(restricted);
+    assert.equal(publicConfig.enabled, true);
+    assert.equal(publicConfig.mode, mode);
+    assert.equal(publicConfig.publishableKey, restricted.STRIPE_PUBLISHABLE_KEY);
+    assert.ok(!JSON.stringify(publicConfig).includes(restricted.STRIPE_SECRET_KEY));
+    const client = createStripeClient(restricted, { sdk });
+    assert.equal(client.createCheckoutSession({ mode: 'payment' }, { stripeAccount: 'acct_offline' }), 'offline-session');
+    assert.deepEqual(calls, [[{ mode: 'payment' }, { stripeAccount: 'acct_offline' }]]);
+    for (const changes of [
+      { STRIPE_SECRET_KEY: `rk_${mode === 'test' ? 'live' : 'test'}_offlineprivate` },
+      { STRIPE_SECRET_KEY: restricted.STRIPE_PUBLISHABLE_KEY }, { STRIPE_PUBLISHABLE_KEY: restricted.STRIPE_SECRET_KEY },
+      { STRIPE_PUBLISHABLE_KEY: `pk_${mode === 'test' ? 'live' : 'test'}_offlinepublic` },
+    ]) {
+      assert.throws(() => createStripeClient({ ...restricted, ...changes }, { sdk }), error => {
+        assert.equal(error.code, 'PAYMENTS_NOT_ENABLED');
+        assert.doesNotMatch(error.message, /(?:rk|pk)_(?:test|live)_/);
+        return true;
+      });
+      const blocked = stripeConfiguration({ ...restricted, ...changes });
+      assert.equal(blocked.enabled, false); assert.equal(blocked.publishableKey, null);
+    }
+    assert.equal(createStripeClient({ ...restricted, STRIPE_MODE: 'disabled' }, { sdk }), null);
+    assert.equal(calls.length, 1);
+  }
+});
+test('purchase and commission payment-intent retrieval share guarded connected-account scope', () => {
+  for (const mode of ['test', 'live']) for (const prefix of ['sk', 'rk']) {
+    const settings = { ...config, NODE_ENV: mode === 'live' ? 'production' : 'development',
+      APP_ENVIRONMENT: mode === 'live' ? 'production' : undefined, HOSTED_DEMO: 'false',
+      STRIPE_MODE: mode, STRIPE_SECRET_KEY: `${prefix}_${mode}_offlineprivate`, STRIPE_PUBLISHABLE_KEY: `pk_${mode}_offlinepublic`,
+      CUSTOMER_APP_URL: 'https://customer.example.test', BUSINESS_APP_URL: 'https://business.example.test/app' };
+    const calls = [], intent = { id: 'pi_offline', object: 'payment_intent', livemode: mode === 'live' };
+    const client = createStripeClient(settings, { sdk: { paymentIntents: { retrieve: (...args) => { calls.push(args); return intent; } } } });
+    assert.equal(client.retrievePaymentIntent, client.retrieveCommissionPaymentIntent);
+    for (const method of ['retrievePaymentIntent', 'retrieveCommissionPaymentIntent']) {
+      assert.equal(client[method]('pi_offline', { stripeAccount: 'acct_offline' }), intent);
+      for (const options of [undefined, {}, { stripeAccount: '' }, { stripeAccount: 'unscoped' }]) {
+        assert.throws(() => client[method]('pi_offline', options), { code: 'PAYMENTS_NOT_READY' });
+      }
+    }
+    assert.deepEqual(calls, [
+      ['pi_offline', {}, { stripeAccount: 'acct_offline' }],
+      ['pi_offline', {}, { stripeAccount: 'acct_offline' }],
+    ]);
+  }
 });
 test('provider mode checks accept only exact booleans in known modes', () => {
   for (const [mode, expected] of [['test', false], ['live', true]]) {

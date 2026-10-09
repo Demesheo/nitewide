@@ -1,3 +1,5 @@
+const { stripeServerKeyMode } = require('../payments/stripe-keys');
+
 // Temporary server-owned routing for dev/demo testing. Never accept this
 // account from a checkout request or change provider scope on historical work.
 function sharedSandboxAccountId(config = {}) {
@@ -6,7 +8,7 @@ function sharedSandboxAccountId(config = {}) {
   const simulated = ['development', 'test'].includes(config.NODE_ENV)
     || config.NODE_ENV === 'production' && (config.hostedDemo === true || config.HOSTED_DEMO === 'true');
   if (!simulated || config.STRIPE_MODE !== 'test' || !/^acct_[A-Za-z0-9]+$/.test(id)
-    || !/^sk_test_[A-Za-z0-9]+$/.test(config.STRIPE_SECRET_KEY || '')) {
+    || stripeServerKeyMode(config.STRIPE_SECRET_KEY) !== 'test') {
     throw new Error('A shared sandbox merchant requires a development/test or hosted-demo runtime, Stripe test mode and a sandbox secret key');
   }
   return id;

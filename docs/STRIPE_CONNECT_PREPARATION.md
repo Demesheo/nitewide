@@ -4,9 +4,9 @@ Nitewide-approved businesses with completed Nitewide onboarding can create and p
 
 ## Production activation gate
 
-Live support is production-only; implementing or testing it does not activate payments. Keep `STRIPE_MODE=disabled` until the release, merchant setup, and provider verification are approved. Apply additive migration `202610090002-live-stripe.cjs` before either runtime starts. Never migrate sandbox accounts or transactions into production or rewrite their modes. Financial history is retained; rolling back to an old test-only binary after live activity is unsafe.
+Live support is production-only; implementing or testing it does not activate payments. Keep `STRIPE_MODE=disabled` while preparing the verified release, credentials and webhook destinations. After explicit activation approval, enable live mode on API and worker to allow live onboarding; complete merchant readiness and provider verification before opening paid sales. Onboarding cannot be completed through Nitewide while its Stripe integration is disabled. Apply all reviewed additive migrations, including `202610090002-live-stripe.cjs` and `202610090003-commission-billing-email.cjs`, before either runtime starts. Never migrate sandbox accounts or transactions into production or rewrite their modes. Financial history is retained; rolling back to an old test-only binary after live activity is unsafe.
 
-Configure both API and worker identically with `NODE_ENV=production`, `APP_ENVIRONMENT=production`, `HOSTED_DEMO=false`, public HTTPS Customer/Business URLs, and matching `sk_live_`/`pk_live_` keys. Remove `STRIPE_SANDBOX_SHARED_ACCOUNT_ID`. Create separate live destinations using the table below and their distinct signing secrets. Configure the live platform's Connect client ID for Standard-account disconnection; its `ca_` prefix does not prove mode or platform identity. Never put secret keys or signing secrets in client bundles or chat.
+Configure both API and worker identically with `NODE_ENV=production`, `APP_ENVIRONMENT=production`, `HOSTED_DEMO=false`, public HTTPS Customer/Business URLs, a server key (`rk_live_` or `sk_live_`) and matching `pk_live_` publishable key. Restricted-key permission verification is a separate prerequisite below. Remove `STRIPE_SANDBOX_SHARED_ACCOUNT_ID`. Create separate live destinations using the table below and their distinct signing secrets. Configure the live platform's Connect client ID for Standard-account disconnection; its `ca_` prefix does not prove mode or platform identity. Never put secret keys or signing secrets in client bundles or chat.
 
 Each business and individual commission recipient must complete their own live onboarding. Cached test readiness, test profiles, browser returns and submitted flags cannot grant live eligibility. Snapshot webhook events signed for the other mode are acknowledged without financial mutations: Stripe's [production Connect destinations can receive test events](https://support.stripe.com/questions/connect-account-webhook-configurations). Independent provider retrieval still verifies mode, merchant, identifiers, amounts, currency and metadata before fulfillment/refunds/commission settlement.
 
@@ -15,6 +15,16 @@ Live commission payments use the versioned `us-standard-invoicing-starter-v1` es
 Verified live purchases enqueue the existing transactional receipt, including worker-recovered purchases. Order-level queue idempotency prevents webhook/retry duplicates. Sandbox purchases remain email-suppressed. Actual delivery requires a verified Resend sender, server-side `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `EMAIL_ENCRYPTION_KEY`, `RESEND_TEST_MODE=false`, and `EMAIL_DELIVERY_POLICY=all` on API and worker. Delivery tracking additionally needs `RESEND_WEBHOOK_SECRET` and its destination. Do not run real email delivery in the ordinary test gate.
 
 Before launch, verify the exact tested release on API and worker; run payment preflight and require `live-ready`; verify key-pair/platform identity and both actual signed webhook deliveries separately. Complete an explicitly approved live purchase/receipt/refund and commission-payment check, merchant permissions, HTTPS/wallet domains, monitoring, backups and recovery. Offline mocks and a `live-ready` diagnostic do not prove real provider settlement or email delivery. Do not enable production CI, change secrets, deploy or move money as a side effect of local verification.
+
+### Commission billing identity and retry safety
+
+The restricted-key sandbox probe exposed a real provider requirement: Stripe rejected `send_invoice` creation because its customer had no valid email. Customer creation/read succeeded, but invoice creation and later steps did not. This was a request-data failure, not evidence that the key needs broader permissions.
+
+New commission approvals privately snapshot the approving business owner or finance manager's verified account email, user ID and verification time, plus the business name used for customer creation. The email belongs to the payer, not the individual receiving commissions. It is supplied as the connected-account customer's `email`, never Stripe metadata, public payment responses or audit payloads. Missing, invalid or unverified billing identity blocks a new approval before provider creation and reservations. The immutable snapshot survives later user-email and business-name changes and worker retries, preserving the same provider idempotency parameters; do not derive retry parameters from the current caller or silently rewrite historical approvals.
+
+Migration `202610090003-commission-billing-email.cjs` adds the nullable private snapshot and its immutability guard without inventing billing identities for older approvals. Legacy attempts with no usable snapshot and no invoice, or only a draft invoice, require review without new provider writes. Preserve their bound IDs and reservations; do not replace their customers or release funds based on an assumed failed invoice. Already-bound non-draft historical invoices can still be reconciled from independent provider evidence.
+
+Invoice creation and finalization retain `auto_advance:false`; Nitewide does not add invoice-send or automatic-payment calls. Stripe documents that this disables automatic invoice/reminder emails, but paid-invoice receipt emails have separate settings. See [automatic invoice advancement](https://docs.stripe.com/invoicing/integration/automatic-advancement-collection). A synthetic unpaid create/finalize/read/void probe tests those permissions only, not paid commission settlement, receipt delivery or a recipient's bank payout.
 
 ## Confirmed integration
 
@@ -28,13 +38,45 @@ Readiness requires an active local profile, matching-mode v2 account, full Dashb
 
 The full event editor automatically refreshes the selected merchant when creating a published event with active paid offerings or saving changes to one. An authorized preflight resolves the event override or organization default, releases its locks, and retrieves Stripe readiness. The final save rechecks permissions, event version, account selection and current readiness under locks. Users need not leave the editor for Payments → Check readiness after a long editing session. Drafts, free events, guestlist-only events and inactive paid tiers do not trigger this refresh. A restricted account or provider outage leaves the event unchanged and the entered draft available for retry; disabling or disconnecting an account still blocks paid publication. Event management does not grant finance-management permission, and existing orders retain their original merchant snapshots.
 
+## Restricted keys: compatibility is not permission verification
+
+The server accepts standard (`sk_test_`/`sk_live_`) and restricted (`rk_test_`/`rk_live_`) server-key formats. Browser keys must still use `pk_`; matching modes, production-only live gates, distinct webhook secrets and merchant readiness remain enforced. This compatibility change must be deployed before configuring a restricted key on an older image. Format acceptance and payment preflight do not contact Stripe or prove key identity or permissions; there is no automatic fallback to a broader key.
+
+Stripe documents restricted-key support across its APIs and recommends testing the permissions in a sandbox before creating a live key. Read/write settings have separate platform and connected-account columns; write includes read. Use request evidence and permission errors to refine only the needed scope, not broad category-wide write access. See [restricted API keys](https://docs.stripe.com/keys/restricted-api-keys).
+
+The following is a **source inventory and candidate scope**, not a verified minimum or a guarantee that a Dashboard row covers every endpoint:
+
+| Scope | Operations used by Nitewide | Candidate access / unresolved mapping |
+| --- | --- | --- |
+| Platform | Accounts v2 creation/retrieval with merchant configuration; v2 account links | Accounts v2 Read, Merchant Configuration Write, Account Links Write are candidates. The observed Accounts v2 row is read-only and Account Links lists v1 endpoints; v2 creation/link coverage needs sandbox evidence. |
+| Platform | v2 event retrieval; v1 account retrieval; application-fee retrieval | Events Read, Accounts v1 Read, Application Fees Read. |
+| Connected account | Checkout Session create/retrieve/expire; customer create/retrieve | Checkout Write, Customers Write. Checkout uses inline `price_data.product_data`; any additional Products/Prices permissions must be established by the actual flow, not assumed. |
+| Connected account | Invoice and invoice-item creation, finalize, void, retrieve lines/payments | Invoices Write, including its invoice-item/payment resources. Commission items use amount/currency directly, not inline products/prices. |
+| Connected account | PaymentIntent, charge, balance-transaction and dispute retrieval/listing | Payment Intents Read, Charges Read, Balance Read, Disputes Read. |
+| Connected account | Refund create/retrieve with `refund_application_fee: true` | Refund write access; the observed UI groups Charges/Refunds. Whether the application-fee side effect needs additional platform write permission remains unverified. |
+| Platform | Standard-account OAuth deauthorization | Exact Dashboard scope unverified. Test only on an explicitly approved disposable sandbox account, because success disconnects it. |
+
+Both business and individual commission accounts use **merchant** configuration; the recipient's role in Nitewide does not imply Accounts v2 Recipient Configuration write. No runtime adapter call directly creates payouts, transfers, issuing cards, products or prices. Do not grant those categories merely to resolve an unidentified failure. The official [v2 account creation](https://docs.stripe.com/api/v2/core/accounts/create), [v2 account links](https://docs.stripe.com/api/v2/core/account-links/create), [Checkout](https://docs.stripe.com/api/checkout/sessions/create), [refund](https://docs.stripe.com/api/refunds/create) and [OAuth](https://docs.stripe.com/connect/oauth-reference) references describe the operations, but do not establish the complete Dashboard permission dependencies above.
+
+Use a dedicated `rk_test_` key from the intended isolated sandbox, with its matching publishable key securely injected into the local runner. The existing runner additionally reads platform balance transactions and connected-account snapshot events for test evidence; these test-only permissions must not be mistaken for runtime requirements. Follow the explicit sandbox procedure below, inspect redacted outcomes and private Stripe request logs, and adjust only the demonstrated missing permissions. Never paste keys, one-time account links or Checkout client secrets into chat or reports.
+
+A successful checkout runner is **not** complete permission certification: it does not exercise v2 account links, commission customer/invoice creation and reconciliation, invoice voiding, active disputes, or OAuth disconnection. Reusing an existing merchant also skips account creation/update and thin-event retrieval. Record each of these as unverified until its separate approved sandbox flow passes; review key scopes again after every adjustment. Only then reproduce the verified runtime scopes on a new live restricted key. No real provider permission verification is implied by offline unit tests or by this document.
+
+### Restricted-key sandbox checkpoint — 2026-10-08
+
+The explicitly approved isolated sandbox run `api-onboarding-20261008-078c36c091b4`, using the tested restricted key, passed account creation/update/retrieval, thin-event retrieval and onboarding-link creation. After the user completed hosted onboarding, the actual ticket flow passed Checkout payment, ticket/QR verification, application-fee evidence and refund verification. Its private report is retained under `test-results/stripe-sandbox/`.
+
+The separate `commission-permissions-email-20261008-078c36c091b4` probe passed customer creation/read with a non-deliverable synthetic email, manual non-auto-advancing invoice creation, two itemized lines, finalization, invoice/line/payment-list reads and verified voiding. No invoice was sent or paid. A read-only exact-invoice repair verified the already-successful void and preserved the earlier probe assertion failure: Stripe retained the original unpaid monetary fields, so terminal `void` state and its transition must not be inferred from `amount_remaining === 0`. The original missing-email failure report remains intact.
+
+These results establish only the exercised operations for that sandbox key, not a universal minimum scope or full commission settlement. Paid commission reconciliation and fee attribution, active dispute evidence, OAuth disconnection, and actual hosted signed webhook delivery remain unverified. The ticket runner's local event replay does not establish hosted webhook transport. Production activation, real receipt delivery and recipient bank payouts are not proved or enabled by these checks.
+
 ## Sandbox configuration and webhook destinations
 
-The user has configured a local test secret securely. Secret credentials remain server-side, are not pasted into chat, and are not included in frontend bundles. Configure `STRIPE_MODE=test`, `STRIPE_SECRET_KEY=sk_test_…`, `STRIPE_PUBLISHABLE_KEY=pk_test_…`, and separate signing secrets for both destinations below. Payment enablement requires the account and payment webhook destinations to be configured. A test secret key alone supports onboarding but does not enable paid publication or checkout. Live credentials require the explicit production gate above.
+The user has configured a local test secret securely. Secret credentials remain server-side, are not pasted into chat, and are not included in frontend bundles. Configure `STRIPE_MODE=test`, `STRIPE_SECRET_KEY=rk_test_…` (or `sk_test_…`), `STRIPE_PUBLISHABLE_KEY=pk_test_…`, and separate signing secrets for both destinations below. Payment enablement requires the account and payment webhook destinations to be configured. A test server key with the necessary permissions supports onboarding but does not alone enable paid publication or checkout. Live credentials require the explicit production gate above.
 
 Before enabling hosted Stripe, explicitly configure `CUSTOMER_APP_URL=https://<public-customer-host>` and `BUSINESS_APP_URL=https://<public-business-host>/app` on the API and worker environments. For the shared demo these are `https://nitewide-demo.onrender.com` and `https://nitewide-demo.onrender.com/app`. Production/hosted Stripe startup rejects missing, insecure, credential-bearing, localhost or private-address return URLs—even before webhooks or email delivery are configured. Local development can still use localhost. Callback URLs are server configuration, never inferred from a request's Host header. Updating a URL does not change an already-issued one-time onboarding link; issue a fresh link.
 
-In Stripe Workbench, create two sandbox event destinations. For production, create separate live destinations only after the production activation gate above is complete.
+In Stripe Workbench, create two sandbox event destinations. Separately configure the live destinations while preparing production activation; registering a destination does not enable payments.
 
 | Destination | Event source / payload | Events | Signing secret |
 | --- | --- | --- | --- |
@@ -46,12 +88,12 @@ Use the intended HTTPS API hostname before these paths. Each destination has its
 ### Replicate destination setup in another environment
 
 1. Select the intended sandbox/account in the Stripe Dashboard. Open **Workbench → Webhooks**, then **Add destination** (or **Create event destination**).
-2. For payments, choose **Connected accounts** and the ten snapshot events in the table. Keep the snapshot API version at `2026-08-26.dahlia`. Choose **Webhook endpoint** as the destination type.
+2. For payments, choose **Connected accounts** and the 20 snapshot events in the table. Keep the snapshot API version at `2026-08-26.dahlia`. Choose **Webhook endpoint** as the destination type.
 3. Set the HTTPS endpoint URL to the environment's API hostname followed by `/api/webhooks/stripe`. For the shared demo this is `https://nitewide-demo.onrender.com/api/webhooks/stripe`. Name it `Nitewide sandbox payments`.
 4. Create the destination, reveal **Signing secret**, and store it as `STRIPE_WEBHOOK_SECRET` in the local root `.env`, or the corresponding API **and worker** service environment variables. Never put it in frontend/Vite variables or source control.
 5. Return to the Webhooks list and add a second destination. Choose **Your account** and the six `v2.core.account…` events in the table. These events are thin notifications; a separate payload selector might not appear. Choose **Webhook endpoint**.
 6. Use the API hostname followed by `/api/webhooks/stripe/accounts`; the shared demo URL is `https://nitewide-demo.onrender.com/api/webhooks/stripe/accounts`. Name it `Nitewide sandbox accounts`. Store this destination's own signing secret as `STRIPE_ACCOUNT_WEBHOOK_SECRET`, keeping the first secret unchanged.
-7. Registering a destination does not deploy the receiver. Keep `STRIPE_MODE=disabled` until migrations and routes are deployed and verified. Then explicitly set `STRIPE_MODE=test` with all four test credentials in the API and worker environments. Do not send test events to undeployed routes. Live mode is not supported by this code.
+7. Registering a destination does not deploy the receiver. Keep `STRIPE_MODE=disabled` until migrations and routes are deployed and verified. Then explicitly set `STRIPE_MODE=test` with all four test credentials in the API and worker environments. Do not send test events to undeployed routes. For live activation, follow the separate production gate above.
 
 For local browser/provider testing, Stripe cannot deliver directly to `localhost`. Use a controlled HTTPS tunnel or a Stripe CLI listener forwarding to each local route. A CLI listener has its **own** signing secret; do not substitute a Dashboard destination secret for it. Dashboard destination secrets are replicated by creating a separate destination per environment, not copying production secrets to development.
 
@@ -125,10 +167,10 @@ Setup-recovery verification passed all 176 Business unit/interaction tests, the 
 
 ## Explicit sandbox tests and account reuse
 
-The real-provider runner is separate from ordinary unit, PostgreSQL and Playwright tests. Run it locally with the sandbox secret and publishable keys in the ignored root `.env`, `STRIPE_MODE=test`, and Docker/PostGIS running on port 5433:
+The real-provider runner is separate from ordinary unit, PostgreSQL and Playwright tests. Run it locally with sandbox server and publishable keys securely supplied through the process environment or ignored root `.env`, `STRIPE_MODE=test`, and the isolated Docker/PostGIS server on port 5434. Never target the development database on port 5433 or a hosted database:
 
 ```sh
-npm run test:stripe:sandbox
+TEST_DATABASE_ADMIN_URL='postgres://postgres:isolated-pg18-password@127.0.0.1:5434/postgres' npm run test:stripe:sandbox
 ```
 
 This command first runs mocked payment, account, webhook and runner tests, then the isolated PostgreSQL checkout integration suite. Only after these pass does it contact Stripe. It creates one tagged Accounts v2 test merchant using the synthetic reference data in `e2e/test-data/stripe-connect/`. The generated email follows `test+api-onboarding-<date>-<random suffix>@nitewide.com`; the same identity and account are retained for retries. The runner refuses live keys, production/hosted deployments, CI and untagged or differently configured accounts. No normal test, build or deployment command invokes it.
@@ -136,7 +178,7 @@ This command first runs mocked payment, account, webhook and runner tests, then 
 To test payments using a Nitewide sandbox business that has already completed Stripe onboarding, explicitly select its connected account:
 
 ```sh
-npm run test:stripe:sandbox -- --account <acct_test_business>
+TEST_DATABASE_ADMIN_URL='postgres://postgres:isolated-pg18-password@127.0.0.1:5434/postgres' npm run test:stripe:sandbox -- --account <acct_test_business>
 ```
 
 This option independently retrieves the exact account and requires `livemode: false`, a Nitewide payment-profile identifier in Stripe metadata, the full Dashboard, Stripe-owned fees/losses and current payment readiness. It does not create another Stripe merchant, edit its metadata or repeat hosted onboarding. The fixture creates a labeled buyer and owner, an organization, a paid event and a free event automatically in a disposable database. Their emails use `test+<scenario>-<date>-<random suffix>@nitewide.com`. Existing local and Render users, organizations and merchant selections are not changed. Stripe records the actual simulated charge, application fee and refund in the sandbox selected by the local API keys.
@@ -144,7 +186,7 @@ This option independently retrieves the exact account and requires `livemode: fa
 Reports are stored outside source control at `test-results/stripe-sandbox/<test identifier>.json`. Reuse the exact account in that report rather than creating another merchant or Stripe login:
 
 ```sh
-npm run test:stripe:sandbox -- --resume <test identifier>
+TEST_DATABASE_ADMIN_URL='postgres://postgres:isolated-pg18-password@127.0.0.1:5434/postgres' npm run test:stripe:sandbox -- --resume <test identifier>
 ```
 
 Each run uses generated local test databases, not the development or Render databases. Database fixtures are removed on completion; Stripe sandbox accounts remain available for inspection and reuse. The runner never imports that account into an existing business, changes a merchant default, or alters existing event/account bindings. It has a ten-minute overall deadline and bounded subprocess/provider/browser operations. Cleanup expires its exact unpaid session or fully refunds its exact successful test charge, including the application fee, if a later check fails. Any unresolved provider cleanup is reported as a failed run; inspect its saved account, order and session identifiers before retrying. Database cleanup failures identify the generated database name.

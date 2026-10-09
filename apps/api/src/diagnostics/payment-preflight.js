@@ -5,6 +5,7 @@ const { paymentRuntimeEvidence } = require('./payment-runtime');
 const { subdomainApps } = require('../domain/app-routing');
 const { isStripeMode } = require('../payments/stripe-mode');
 const { validateStripeSettings } = require('../payments/stripe-settings');
+const { stripeServerKeyMode, stripePublishableKeyMode } = require('../payments/stripe-keys');
 
 const REQUIRED_MIGRATIONS = Object.freeze([
   '202609300006-email-worker-leases.cjs', '202610010006-stripe-sandbox.cjs',
@@ -15,6 +16,7 @@ const REQUIRED_MIGRATIONS = Object.freeze([
   '202610020004-organizer-messages.cjs',
   '202610020005-purchase-disputes.cjs',
   '202610090002-live-stripe.cjs',
+  '202610090003-commission-billing-email.cjs',
 ]);
 const BASE_SCHEMA = Object.freeze({
   sequelize_meta: ['name'],
@@ -39,7 +41,7 @@ const BASE_SCHEMA = Object.freeze({
   stripe_webhook_receipts: ['stripe_event_id', 'stripe_account_id', 'mode', 'type', 'status', 'processed_at'],
   refunds: ['order_id', 'payment_account_id', 'stripe_account_id', 'provider_refund_id', 'status', 'amount_cents', 'idempotency_key'],
   individual_commission_profiles: ['stripe_account_id', 'provider_mode', 'account_api_version', 'verified_at', 'verified_stripe_account', 'payments_disabled_at', 'disconnect_status'],
-  commission_payments: ['organization_id', 'stripe_account_id', 'provider_mode', 'status', 'provider_verification_status', 'provider_invoice_id', 'reconciliation_status', 'allocations_settled_at'],
+  commission_payments: ['organization_id', 'stripe_account_id', 'provider_mode', 'status', 'provider_verification_status', 'provider_invoice_id', 'reconciliation_status', 'allocations_settled_at', 'billing_email_snapshot'],
   commission_statements: ['organization_id', 'event_id', 'recipient_user_id', 'status'],
   commission_earnings: ['order_id', 'statement_id', 'refund_hold', 'dispute_hold'],
   commission_allocations: ['payment_id'],
@@ -117,14 +119,16 @@ function inspectPaymentConfiguration(config = {}) {
   }
   const mode = config.STRIPE_MODE || 'disabled';
   if (mode !== 'disabled' && !isStripeMode(mode)) checks.push(check('STRIPE_MODE_INVALID', 'fail'));
-  const keyMode = isStripeMode(mode) ? mode : '(?:test|live)';
+  const matchingKeyMode = keyMode => isStripeMode(keyMode) && (!isStripeMode(mode) || keyMode === mode);
   const settings = [
-    ['STRIPE_SECRET_KEY', new RegExp(`^sk_${keyMode}_[A-Za-z0-9]+$`)], ['STRIPE_PUBLISHABLE_KEY', new RegExp(`^pk_${keyMode}_[A-Za-z0-9]+$`)],
-    ['STRIPE_WEBHOOK_SECRET', /^whsec_[A-Za-z0-9]+$/], ['STRIPE_ACCOUNT_WEBHOOK_SECRET', /^whsec_[A-Za-z0-9]+$/],
+    ['STRIPE_SECRET_KEY', value => matchingKeyMode(stripeServerKeyMode(value))],
+    ['STRIPE_PUBLISHABLE_KEY', value => matchingKeyMode(stripePublishableKeyMode(value))],
+    ['STRIPE_WEBHOOK_SECRET', value => /^whsec_[A-Za-z0-9]+$/.test(value)],
+    ['STRIPE_ACCOUNT_WEBHOOK_SECRET', value => /^whsec_[A-Za-z0-9]+$/.test(value)],
   ];
   for (const [name, format] of settings) {
     if (isStripeMode(mode) && !config[name]) checks.push(check(`${name}_MISSING`, 'fail'));
-    else if (config[name] && !format.test(config[name])) checks.push(check(`${name}_INVALID`, 'fail'));
+    else if (config[name] && !format(config[name])) checks.push(check(`${name}_INVALID`, 'fail'));
   }
   if (config.STRIPE_WEBHOOK_SECRET && config.STRIPE_WEBHOOK_SECRET === config.STRIPE_ACCOUNT_WEBHOOK_SECRET) checks.push(check('STRIPE_WEBHOOK_SECRETS_NOT_DISTINCT', 'fail'));
   if (isStripeMode(mode)) {
@@ -147,7 +151,7 @@ function inspectPaymentConfiguration(config = {}) {
   } else if (mode === 'disabled') checks.push(check('PAYMENTS_DISABLED', 'pass'));
   if (config.STRIPE_SANDBOX_SHARED_ACCOUNT_ID) {
     const valid = sharedAllowed(config) && mode === 'test' && /^acct_[A-Za-z0-9]+$/.test(config.STRIPE_SANDBOX_SHARED_ACCOUNT_ID)
-      && /^sk_test_[A-Za-z0-9]+$/.test(config.STRIPE_SECRET_KEY || '');
+      && stripeServerKeyMode(config.STRIPE_SECRET_KEY) === 'test';
     checks.push(check(valid ? 'SHARED_SANDBOX_ROUTING' : 'SHARED_SANDBOX_ROUTING_FORBIDDEN', valid ? 'warn' : 'fail'));
   }
   try { validateStripeSettings(config); }

@@ -5,6 +5,7 @@ const root = require('../../../package.json');
 const { discoverTests } = require('../scripts/run-tests.cjs');
 const path = require('node:path');
 const { waitFor, command } = require('../stripe-tests/runtime.cjs');
+const { installBrowserVerificationGate } = require('../stripe-tests/browser-verification.cjs');
 
 const credentials = { STRIPE_MODE: 'test', STRIPE_SECRET_KEY: 'sk_test_synthetic', STRIPE_PUBLISHABLE_KEY: 'pk_test_synthetic' };
 test('explicit sandbox command reuses the shared merchant by default without changing a resumed attempt',()=>{
@@ -16,21 +17,45 @@ test('explicit sandbox command reuses the shared merchant by default without cha
   assert.throws(()=>reusableSandboxAccount(['--run'],{...environment,STRIPE_SECRET_KEY:'sk_live_wrong'}));
 });
 test('real Stripe tests require a unique explicit local command and reject CI/live targets', () => {
-  assert.doesNotThrow(() => assertSandboxInvocation(['--run'], credentials));
+  for (const prefix of ['sk', 'rk']) {
+    const environment = { ...credentials, STRIPE_SECRET_KEY: `${prefix}_test_synthetic` };
+    assert.doesNotThrow(() => assertSandboxInvocation(['--run'], environment));
+    assert.doesNotThrow(() => assertSandboxInvocation(['--run', '--account', 'acct_fixture'], environment));
+    assert.doesNotThrow(() => assertSandboxInvocation(['--run', '--resume', 'payment-regression-20261001-012345abcdef'], environment));
+  }
   assert.doesNotThrow(() => assertSandboxInvocation(['--run', '--resume', 'api-onboarding-20261001-012345abcdef'], credentials));
   assert.doesNotThrow(() => assertSandboxInvocation(['--run', '--resume', 'payment-regression-20261001-012345abcdef'], credentials));
   assert.doesNotThrow(() => assertSandboxInvocation(['--run', '--account', 'acct_fixture'], credentials));
   for (const args of [[], ['--run', '--other'], ['--other'], ['--run', '--resume', '../account'], ['--run', '--resume', 'acct_someoneElse'], ['--run', '--account', '../account'], ['--run', '--account', 'acct_fixture', '--resume', 'other']]) assert.throws(() => assertSandboxInvocation(args, credentials));
-  for (const overrides of [{ CI: 'true' }, { CI: '1' }, { NODE_ENV: 'production' }, { HOSTED_DEMO: 'true' }, { STRIPE_MODE: 'disabled' }, { STRIPE_SECRET_KEY: 'sk_live_notallowed' }, { STRIPE_PUBLISHABLE_KEY: 'pk_live_notallowed' }]) assert.throws(() => assertSandboxInvocation(['--run'], { ...credentials, ...overrides }));
+  for (const prefix of ['sk', 'rk']) {
+    const environment = { ...credentials, STRIPE_SECRET_KEY: `${prefix}_test_synthetic` };
+    for (const overrides of [{ CI: 'true' }, { CI: '1' }, { NODE_ENV: 'production' }, { APP_ENVIRONMENT: 'production' },
+      { HOSTED_DEMO: 'true' }, { hostedDemo: true }, { STRIPE_MODE: 'disabled' }, { STRIPE_MODE: 'live' },
+      { STRIPE_SECRET_KEY: 'sk_live_notallowed' }, { STRIPE_SECRET_KEY: 'rk_live_notallowed' },
+      { STRIPE_SECRET_KEY: 'rk_test_' }, { STRIPE_SECRET_KEY: 'rk_test_synthetic\n' }, { STRIPE_SECRET_KEY: 'pk_test_notaserverkey' },
+      { STRIPE_PUBLISHABLE_KEY: 'pk_live_notallowed' }, { STRIPE_PUBLISHABLE_KEY: 'rk_test_notpublishable' }]) {
+      assert.throws(() => assertSandboxInvocation(['--run'], { ...environment, ...overrides }));
+      assert.throws(() => sandboxCredentials({ ...environment, ...overrides }), 'credential extraction cannot bypass the local sandbox guard');
+    }
+  }
   assert.equal(root.scripts['test:stripe:sandbox'], 'node apps/api/stripe-tests/run.cjs --run');
   for (const [name, script] of Object.entries(root.scripts)) if (name !== 'test:stripe:sandbox') assert.equal(script.includes('stripe-tests/run.cjs'), false, name);
   assert.equal(discoverTests(path.resolve(__dirname, '../stripe-tests')).length, 0);
 });
 test('sandbox credentials expose no Resend key or deployed signing secret', () => {
-  const a = sandboxCredentials({ ...credentials, RESEND_API_KEY: 'never', STRIPE_WEBHOOK_SECRET: 'whsec_deployed' });
-  assert.equal(Object.hasOwn(a, 'RESEND_API_KEY'), false);
-  assert.notEqual(a.STRIPE_WEBHOOK_SECRET, 'whsec_deployed');
-  assert.notEqual(a.STRIPE_WEBHOOK_SECRET, sandboxCredentials(credentials).STRIPE_WEBHOOK_SECRET);
+  for (const prefix of ['sk', 'rk']) {
+    const environment = { ...credentials, STRIPE_SECRET_KEY: `${prefix}_test_synthetic`, RESEND_API_KEY: 'never',
+      STRIPE_WEBHOOK_SECRET: 'whsec_deployed', STRIPE_ACCOUNT_WEBHOOK_SECRET: 'whsec_deployedaccount' };
+    const a = sandboxCredentials(environment);
+    assert.equal(a.STRIPE_MODE, 'test');
+    assert.equal(a.STRIPE_SECRET_KEY, environment.STRIPE_SECRET_KEY);
+    assert.equal(a.STRIPE_PUBLISHABLE_KEY, credentials.STRIPE_PUBLISHABLE_KEY);
+    assert.equal(Object.hasOwn(a, 'RESEND_API_KEY'), false);
+    assert.notEqual(a.STRIPE_WEBHOOK_SECRET, 'whsec_deployed');
+    assert.notEqual(a.STRIPE_ACCOUNT_WEBHOOK_SECRET, 'whsec_deployedaccount');
+    assert.notEqual(a.STRIPE_WEBHOOK_SECRET, a.STRIPE_ACCOUNT_WEBHOOK_SECRET);
+    assert.notEqual(a.STRIPE_WEBHOOK_SECRET, sandboxCredentials(environment).STRIPE_WEBHOOK_SECRET);
+  }
 });
 test('test API fixture preserves production responsibilities and generated email convention', () => {
   const identity = createStripeTestIdentity('api-onboarding');
@@ -57,6 +82,9 @@ test('only Stripe-verified active tagged full-Dashboard accounts can proceed to 
 });
 test('sandbox failures redact messages, credentials, request bodies and provider URLs', () => {
   assert.deepEqual(safeFailure({ type: 'StripeInvalidRequestError', code: 'parameter_invalid', statusCode: 400, message: 'sk_test_secret cs_secret https://secret', raw: { password: 'secret' } }), { type: 'StripeInvalidRequestError', code: 'parameter_invalid', httpStatus: 400 });
+  assert.deepEqual(safeFailure({ type: 'StripePermissionError', code: 'permission_missing', statusCode: 403,
+    message: 'rk_test_secret rk_live_secret https://secret', raw: { key: 'rk_test_secret', permissions: 'private' } }),
+  { type: 'StripePermissionError', code: 'permission_missing', httpStatus: 403 });
   assert.deepEqual(safeFailure({ type: 'unsafe https://private', code: 'unsafe secret' }), { type: 'Error', code: 'SANDBOX_TEST_FAILED' });
 });
 test('explicit merchant reuse requires a Nitewide profile, the exact test account and unchanged fee responsibilities', () => {
@@ -76,6 +104,74 @@ test('sandbox polling awaits asynchronous verification and times out without inv
   assert.equal(value, 3);
   assert.equal(count, 3);
   await assert.rejects(waitFor(async () => false, async value => value, 'Synthetic timeout', 10, { intervalMs: 1 }), { code: 'SANDBOX_TIMEOUT' });
+});
+async function verificationFixture({ status = 200, data, fetch, invalidJson = false } = {}) {
+  const base = 'http://127.0.0.1:12345', orderId = 'offline-order';
+  let registration, removed;
+  const page = { route: async (url, handler) => { registration = { url, handler }; },
+    unroute: async (url, handler) => { removed = { url, handler }; } };
+  const response = { status: () => status, json: async () => {
+    if (invalidJson) throw new Error('Synthetic unparseable response');
+    return { data: data ?? { orderId, status: 'pending', verificationStatus: 'pending' }, client_secret: 'cs_test_neverlog' };
+  } };
+  const gate = await installBrowserVerificationGate(page, { base, orderId });
+  function request({ url = registration.url, method = 'POST' } = {}) {
+    const calls = { fetch: 0, fulfill: [], abort: [], continue: 0 };
+    const route = { request: () => ({ url: () => url, method: () => method }),
+      fetch: async options => { calls.fetch++; assert.deepEqual(options, { maxRedirects: 0, timeout: 15000 }); return fetch ? fetch(response) : response; },
+      fulfill: async options => { calls.fulfill.push(options); }, abort: async reason => { calls.abort.push(reason); },
+      continue: async () => { calls.continue++; } };
+    return { calls, run: () => registration.handler(route) };
+  }
+  return { gate, request, response, registration, removed: () => removed };
+}
+test('sandbox browser gate preserves the genuine exact-order precheck and blocks concurrent/later reconciliation until webhook release', async () => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const fixture = await verificationFixture({ fetch: async response => { await pending; return response; } });
+  assert.equal(fixture.registration.url, 'http://127.0.0.1:12345/api/customer/payment-checkouts/offline-order/verify');
+  assert.equal(fixture.gate.ready(), false);
+  for (const options of [{ method: 'GET' }, { url: fixture.registration.url.replace('offline-order', 'other-order') }]) {
+    const ignored = fixture.request(options); await ignored.run();
+    assert.deepEqual(ignored.calls, { fetch: 0, fulfill: [], abort: [], continue: 1 });
+  }
+  const first = fixture.request(), firstRun = first.run();
+  assert.equal(first.calls.fetch, 1, 'the first app precheck must reach the real API, not receive a synthetic 503');
+  assert.deepEqual(first.calls.fulfill, []);
+  assert.equal(fixture.gate.ready(), false);
+  const concurrent = fixture.request(); await concurrent.run();
+  assert.equal(concurrent.calls.fetch, 0, 'claim the single precheck before awaiting its response');
+  assert.equal(concurrent.calls.fulfill[0].status, 503);
+  release(); await firstRun;
+  assert.deepEqual(first.calls.fulfill, [{ response: fixture.response }], 'forward the original response without inventing pending/payment success');
+  assert.equal(fixture.gate.ready(), true);
+  const later = fixture.request(); await later.run();
+  assert.equal(later.calls.fetch, 0); assert.equal(later.calls.fulfill[0].status, 503);
+  assert.deepEqual(fixture.gate.snapshot(), { precheck: 'passed', reason: null, httpStatus: 200, requests: 3, blockedRequests: 2 });
+  assert.doesNotMatch(JSON.stringify(fixture.gate.snapshot()), /offline-order|127\.0\.0\.1|cs_test_neverlog/);
+  await fixture.gate.release();
+  assert.deepEqual(fixture.removed(), fixture.registration, 'release only this order handler after webhook assertions');
+});
+test('sandbox precheck rejects uncertain, mismatched and unsuccessful API evidence without synthesizing a usable response', async () => {
+  for (const [options, reason] of [
+    [{ status: 503 }, 'http-status'], [{ invalidJson: true }, 'invalid-response'],
+    [{ data: { orderId: 'another-order', status: 'pending' } }, 'order-mismatch'],
+    [{ data: { orderId: 'offline-order', status: 'paid' } }, 'not-pending'],
+    [{ data: { orderId: 'offline-order', status: 'pending', verificationStatus: 'review' } }, 'review'],
+    [{ data: { orderId: 'offline-order', status: 'pending', retryable: true } }, 'retryable'],
+  ]) {
+    const fixture = await verificationFixture(options), first = fixture.request(); await first.run();
+    assert.throws(() => fixture.gate.ready(), { code: 'SANDBOX_PRECHECK_FAILED' });
+    assert.equal(fixture.gate.snapshot().reason, reason); assert.equal(fixture.gate.snapshot().precheck, 'rejected');
+    assert.deepEqual(first.calls.fulfill, [], 'uncertain pending evidence must not reach provider confirmation');
+    assert.deepEqual(first.calls.abort, ['failed']);
+    const retry = fixture.request(); await retry.run(); assert.equal(retry.calls.fetch, 0); assert.equal(retry.calls.fulfill[0].status, 503);
+  }
+  const failed = await verificationFixture({ fetch: async () => { throw new Error('private response details cs_test_neverlog'); } });
+  const request = failed.request(); await request.run();
+  assert.deepEqual(request.calls.abort, ['failed']); assert.deepEqual(request.calls.fulfill, []);
+  assert.throws(() => failed.gate.ready(), { code: 'SANDBOX_PRECHECK_FAILED' });
+  assert.deepEqual(failed.gate.snapshot(), { precheck: 'failed', reason: 'request-failed', httpStatus: null, requests: 1, blockedRequests: 0 });
 });
 test('interrupted sandbox work refuses new subprocesses and provider polls', async () => {
   const controller = new AbortController();

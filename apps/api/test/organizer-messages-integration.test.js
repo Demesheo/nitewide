@@ -152,23 +152,43 @@ test('independently verified purchase disputes isolate holds and reject stale co
       stripeChargeId:'ch_disputetest',stripePaymentIntentId:'pi_disputetest',providerMode:'test',providerVerificationStatus:'verified',idempotencyKey:randomUUID()});
     const otherOrder=await m.Order.create({eventId:event.id,buyerUserId:buyer.id,status:'paid',paidAt:new Date(),subtotalCents:2000,totalCents:2200,affiliateCommissionCents:500,idempotencyKey:randomUUID()});
     for(const o of [order,otherOrder]) await m.CommissionEarning.create({orderId:o.id,organizationId:org.id,eventId:event.id,recipientUserId:owner.id,statementId:statement.id,currency:'USD',originalCommissionCents:500,unpaidCommissionCents:500,snapshot:{}});
-    let status='needs_response',badAmount=false,fetches=0,paused=false,release,ready;
+    let status='needs_response',badAmount=false,fetches=0,intentFetches=0,paused=false,release,ready;
     const charge={id:order.stripeChargeId,object:'charge',livemode:false,payment_intent:order.stripePaymentIntentId,amount:2200,application_fee_amount:200,currency:'usd',paid:true,captured:true};
     const intent={id:order.stripePaymentIntentId,object:'payment_intent',livemode:false,latest_charge:order.stripeChargeId,metadata:{orderId:order.id},amount:2200,application_fee_amount:200,currency:'usd',status:'succeeded'};
-    const stripe={enabled:true,mode:'test',retrieveDispute:async(id,options)=>{
-      assert.equal(options.stripeAccount,account.stripeAccountId); fetches++;
+    const config={NODE_ENV:'test',STRIPE_MODE:'test',STRIPE_SECRET_KEY:'rk_test_disputefixture',
+      STRIPE_PUBLISHABLE_KEY:'pk_test_disputefixture',STRIPE_WEBHOOK_SECRET:'whsec_disputefixture',
+      STRIPE_ACCOUNT_WEBHOOK_SECRET:'whsec_disputeaccountfixture'};
+    const sdk={disputes:{retrieve:async(id,params,options)=>{
+      assert.deepEqual(params,{});assert.deepEqual(options,{stripeAccount:account.stripeAccountId});fetches++;
       const result={id,object:'dispute',livemode:false,status,charge:order.stripeChargeId,payment_intent:order.stripePaymentIntentId,currency:'usd',amount:badAmount?0:2200};
       if(paused && fetches===2){ready();await new Promise(resolve=>{release=resolve;});}
       return result;
-    },retrieveCharge:async()=>charge,retrievePaymentIntent:async()=>intent};
-    const ledger=require('../src/services/commission-ledger-service').createCommissionLedgerService({sequelize,models:m});
-    const service=require('../src/services/stripe-dispute-service').createStripeDisputeService({sequelize,models:m,stripe,ledger});
+    }},charges:{retrieve:async(id,params,options)=>{
+      assert.equal(id,order.stripeChargeId);assert.deepEqual(params,{});assert.deepEqual(options,{stripeAccount:account.stripeAccountId});return charge;
+    }},paymentIntents:{retrieve:async(id,params,options)=>{
+      assert.equal(id,order.stripePaymentIntentId);assert.deepEqual(params,{});assert.deepEqual(options,{stripeAccount:account.stripeAccountId});intentFetches++;return intent;
+    }},webhooks:{constructEvent:(raw,signature,secret)=>{
+      assert.equal(signature,'fixture-signature');assert.equal(secret,config.STRIPE_WEBHOOK_SECRET);return JSON.parse(raw);
+    }}};
+    // Keep the production adapter/factory here: a hand-written Stripe facade
+    // can hide a missing provider method and leave disputes permanently pending.
+    const stripe=require('../src/payments/stripe-client').createStripeClient(config,{sdk});
+    const {commissionLedger:ledger,disputes:service,stripeWebhooks}=require('../src/payments/services').createPaymentServices({sequelize,models:m,config,services:{stripe}});
     const notification=id=>({id:`evt_${randomUUID()}`,type:'charge.dispute.created',account:account.stripeAccountId,livemode:false,data:{object:{id,status:'won'}}});
-    await service.reconcileDisputeEvent(notification('du_first'),account);
+    const opened=notification('du_first');
+    assert.deepEqual(await stripeWebhooks.receive(Buffer.from(JSON.stringify(opened)),'fixture-signature'),{received:true,replayed:false});
+    assert.equal(intentFetches,1,'the real adapter retrieves the independently bound PaymentIntent');
+    assert.equal((await m.StripeWebhookReceipt.findOne({where:{stripeEventId:opened.id}})).status,'processed');
+    const verified=await m.PurchaseDispute.findOne({where:{stripeDisputeId:'du_first'}});
+    assert.equal(verified.status,'needs_response');assert.equal(verified.amountCents,2200);assert.ok(verified.synchronizedAt);
     assert.equal((await m.CommissionEarning.findOne({where:{orderId:order.id}})).disputeHold,true,'payload success cannot bypass independently retrieved open dispute');
     assert.equal((await m.CommissionEarning.findOne({where:{orderId:otherOrder.id}})).disputeHold,false);
+    assert.deepEqual(await stripeWebhooks.receive(Buffer.from(JSON.stringify(opened)),'fixture-signature'),{received:true,replayed:true});
+    assert.equal(intentFetches,1,'processed webhook replay does not repeat provider reconciliation');
     await ledger.setRefundHold({orderId:order.id,hold:true});
-    status='won'; await service.reconcileDisputeEvent(notification('du_first'),account);
+    status='won';const resolved={...notification('du_first'),type:'charge.dispute.closed'};
+    assert.deepEqual(await stripeWebhooks.receive(Buffer.from(JSON.stringify(resolved)),'fixture-signature'),{received:true,replayed:false});
+    assert.equal(intentFetches,2);assert.equal((await m.StripeWebhookReceipt.findOne({where:{stripeEventId:resolved.id}})).status,'processed');
     const released=await m.CommissionEarning.findOne({where:{orderId:order.id}});
     assert.equal(released.disputeHold,false);assert.equal(released.refundHold,true,'dispute resolution never clears refund request hold');
     badAmount=true;

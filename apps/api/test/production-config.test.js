@@ -123,22 +123,27 @@ test('live Stripe requires a complete isolated production setup and disabled liv
     CUSTOMER_APP_URL: 'https://production.example.test', BUSINESS_APP_URL: 'https://production.example.test/app',
     STRIPE_MODE: 'live', STRIPE_SECRET_KEY: 'sk_live_offlinefixture', STRIPE_PUBLISHABLE_KEY: 'pk_live_offlinefixture',
     STRIPE_WEBHOOK_SECRET: 'whsec_offlinefixture', STRIPE_ACCOUNT_WEBHOOK_SECRET: 'whsec_offlineaccountfixture' };
-  assert.equal(getConfig(environment).STRIPE_MODE, 'live');
-  for (const changes of [
-    { NODE_ENV: 'development' }, { NODE_ENV: 'test' }, { APP_ENVIRONMENT: undefined }, { APP_ENVIRONMENT: 'staging' },
-    { HOSTED_DEMO: undefined }, { HOSTED_DEMO: 'true' }, { STRIPE_MODE: 'test' },
-    { STRIPE_SECRET_KEY: undefined }, { STRIPE_SECRET_KEY: 'sk_test_offlinefixture' },
-    { STRIPE_PUBLISHABLE_KEY: undefined }, { STRIPE_PUBLISHABLE_KEY: 'pk_test_offlinefixture' },
-    { STRIPE_WEBHOOK_SECRET: undefined }, { STRIPE_ACCOUNT_WEBHOOK_SECRET: undefined },
-    { STRIPE_WEBHOOK_SECRET: 'not-a-signing-secret' }, { STRIPE_ACCOUNT_WEBHOOK_SECRET: 'not-a-signing-secret' },
-    { STRIPE_ACCOUNT_WEBHOOK_SECRET: environment.STRIPE_WEBHOOK_SECRET },
-    { STRIPE_SANDBOX_SHARED_ACCOUNT_ID: 'acct_sharedfixture' },
-    { CUSTOMER_APP_URL: 'http://localhost:5173' }, { BUSINESS_APP_URL: 'https://127.0.0.1/app' },
-  ]) assert.throws(() => getConfig({ ...environment, ...changes }));
-  const disabled = { ...environment, STRIPE_MODE: 'disabled' };
-  assert.equal(getConfig(disabled).STRIPE_MODE, 'disabled');
-  for (const changes of [{ APP_ENVIRONMENT: 'staging' }, { HOSTED_DEMO: 'true' }, { STRIPE_PUBLISHABLE_KEY: 'pk_test_offlinefixture' }]) {
-    assert.throws(() => getConfig({ ...disabled, ...changes }));
+  for (const STRIPE_SECRET_KEY of ['sk_live_offlinefixture', 'rk_live_offlinefixture']) {
+    const current = { ...environment, STRIPE_SECRET_KEY };
+    assert.equal(getConfig(current).STRIPE_MODE, 'live');
+    for (const changes of [
+      { NODE_ENV: 'development' }, { NODE_ENV: 'test' }, { APP_ENVIRONMENT: undefined }, { APP_ENVIRONMENT: 'staging' },
+      { HOSTED_DEMO: undefined }, { HOSTED_DEMO: 'true' }, { STRIPE_MODE: 'test' },
+      { STRIPE_SECRET_KEY: undefined }, { STRIPE_SECRET_KEY: 'sk_test_offlinefixture' }, { STRIPE_SECRET_KEY: 'rk_test_offlinefixture' },
+      { STRIPE_SECRET_KEY: 'pk_live_offlinefixture' }, { STRIPE_PUBLISHABLE_KEY: 'rk_live_offlinefixture' },
+      { STRIPE_PUBLISHABLE_KEY: undefined }, { STRIPE_PUBLISHABLE_KEY: 'pk_test_offlinefixture' },
+      { STRIPE_WEBHOOK_SECRET: undefined }, { STRIPE_ACCOUNT_WEBHOOK_SECRET: undefined },
+      { STRIPE_WEBHOOK_SECRET: 'not-a-signing-secret' }, { STRIPE_ACCOUNT_WEBHOOK_SECRET: 'not-a-signing-secret' },
+      { STRIPE_ACCOUNT_WEBHOOK_SECRET: environment.STRIPE_WEBHOOK_SECRET },
+      { STRIPE_SANDBOX_SHARED_ACCOUNT_ID: 'acct_sharedfixture' },
+      { CUSTOMER_APP_URL: 'http://localhost:5173' }, { BUSINESS_APP_URL: 'https://127.0.0.1/app' },
+    ]) assert.throws(() => getConfig({ ...current, ...changes }));
+    const disabled = { ...current, STRIPE_MODE: 'disabled' };
+    assert.equal(getConfig(disabled).STRIPE_MODE, 'disabled');
+    for (const changes of [{ APP_ENVIRONMENT: 'staging' }, { APP_ENVIRONMENT: undefined }, { HOSTED_DEMO: 'true' },
+      { HOSTED_DEMO: undefined }, { NODE_ENV: 'development' }, { STRIPE_PUBLISHABLE_KEY: 'pk_test_offlinefixture' }]) {
+      assert.throws(() => getConfig({ ...disabled, ...changes }));
+    }
   }
 });
 

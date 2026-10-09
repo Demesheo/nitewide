@@ -6,6 +6,7 @@ const { createApp } = require('../src/app');
 const { getConfig } = require('../src/config');
 const { createStripeTestIdentity, assertOwnedSandboxAccount } = require('./sandbox-policy.cjs');
 const { waitFor: poll } = require('./runtime.cjs');
+const { installBrowserVerificationGate } = require('./browser-verification.cjs');
 
 async function runPaymentFlow({ root, env, credentials, sdk, stripe, sequelize, models, account, identity, check, report, save, command, signal }) {
   const waitFor = (work, predicate, label) => poll(work, predicate, label, 30000, { signal });
@@ -29,7 +30,7 @@ async function runPaymentFlow({ root, env, credentials, sdk, stripe, sequelize, 
   const freeOffering = await models.Offering.create({ eventId: freeEvent.id, name: 'Free admission', kind: 'ticket', priceCents: 0, quantityTotal: 10 });
   const express = require('express');
   const harness = express();
-  let server, browser, page;
+  let server, browser, page, verificationGate;
   let attemptedOrder;
   const stage = value => { report.paymentStep = value; save(); };
   const abort = () => { browser?.close().catch(() => {}); server?.closeAllConnections(); };
@@ -77,9 +78,6 @@ async function runPaymentFlow({ root, env, credentials, sdk, stripe, sequelize, 
     const details = page.getByTestId('customer-event-details');
     await details.getByRole('button', { name: /Sandbox General Admission/ }).click();
     await details.getByRole('button', { name: /^Continue ·/ }).click();
-    // Hold browser reconciliation so the signed HTTP webhook is what issues
-    // admission. The provider, account, preparation and cart are never mocked.
-    await page.route('**/api/customer/payment-checkouts/*/verify', route => route.fulfill({ status: 503, json: { error: { message: 'Awaiting the sandbox webhook check.' } } }));
     const preparation = page.waitForResponse(r => r.url().endsWith('/api/customer/payment-checkouts') && r.request().method() === 'POST');
     await details.getByRole('button', { name: 'Continue to payment', exact: true }).click();
     const prepared = await (await preparation).json();
@@ -93,6 +91,7 @@ async function runPaymentFlow({ root, env, credentials, sdk, stripe, sequelize, 
     assert.equal(retry.status, 200); assert.equal(retry.body.data.orderId, order.id);
     assert.equal((await sdk.checkout.sessions.list({ limit: 10 }, { stripeAccount: account.id })).data.filter(s => s.metadata?.orderId === order.id).length, 1);
     check('checkout retry retains exactly one provider session and reserves without issuing paid admissions');
+    verificationGate = await installBrowserVerificationGate(page, { base, orderId: order.id });
     stage('payment-frame-card-number');
     // Stripe may nest its card fields below the titled Payment Element frame.
     // Find the actual Stripe-hosted field frame by its accessible card label.
@@ -115,9 +114,15 @@ async function runPaymentFlow({ root, env, credentials, sdk, stripe, sequelize, 
     if (await postal.count()) await postal.fill('12345');
     stage('payment-submit');
     await details.getByRole('button', { name: /^Pay / }).click();
+    stage('payment-precheck');
+    await waitFor(() => verificationGate.ready(), ready => ready, 'genuine pre-payment verification');
+    report.browserVerification = verificationGate.snapshot(); save();
+    check('the real browser pre-payment check independently confirms the exact order is pending');
     stage('provider-payment-confirmation');
     const session = await waitFor(() => stripe.retrieveCheckoutSession(order.checkoutSessionId, { stripeAccount: account.id, expand: ['payment_intent.latest_charge'] }), s => s.status === 'complete' && s.payment_status === 'paid', 'Stripe payment confirmation');
     assert.equal(session.livemode, false);
+    await waitFor(() => verificationGate.snapshot().blockedRequests, count => count > 0, 'post-confirmation browser verification');
+    report.browserVerification = verificationGate.snapshot(); save();
     assert.equal((await order.reload()).status, 'pending'); assert.equal(await models.Ticket.count(), freeTickets);
     check('Stripe Elements confirms one simulated direct charge; no admission before server verification');
     stage('payment-webhook-replay');
@@ -139,8 +144,9 @@ async function runPaymentFlow({ root, env, credentials, sdk, stripe, sequelize, 
     assert.equal(await models.Ticket.count(), freeTickets + 1);
     check('retrieved real Stripe event passes raw-body HTTP signature checks and duplicate delivery issues admission once');
     stage('customer-pass-recovery');
-    await page.unroute('**/api/customer/payment-checkouts/*/verify');
-    await details.getByRole('button', { name: 'Check booking', exact: true }).click();
+    await verificationGate.release();
+    // Pay's recovery precheck opens already-paid passes without reconfirming.
+    await details.getByRole('button', { name: /^Pay / }).click();
     await expect(page).toHaveURL(new RegExp(`booking=purchase(?:%3A|:)${order.id}`));
     await expect(page.getByRole('img', { name: /QR code for ticket 1/ })).toBeVisible();
     assert.deepEqual(runtimeErrors, []);
@@ -168,6 +174,7 @@ async function runPaymentFlow({ root, env, credentials, sdk, stripe, sequelize, 
     check('full customer payment and application fee refund are provider verified and admission is voided; zero Resend messages');
     delete report.paymentStep; save();
   } catch (error) {
+    if (verificationGate) { report.browserVerification = verificationGate.snapshot(); save(); }
     // Record only form structure, never field values, URLs or response bodies.
     if (page && !page.isClosed()) {
       const frames = [];

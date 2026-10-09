@@ -2,6 +2,7 @@ const { DomainError } = require('../domain/errors');
 const { sharedSandboxAccountId } = require('../domain/shared-sandbox-merchant');
 const { validateStripeSettings } = require('./stripe-settings');
 const { isStripeMode } = require('./stripe-mode');
+const { stripePublishableKeyMode } = require('./stripe-keys');
 
 // Match the dated API and stripe-node 22.6.0. Accounts v2 is
 // available in this stable release; no preview-version override is needed.
@@ -13,7 +14,7 @@ function stripeConfiguration(config = {}) {
   try { validateStripeSettings(config); } catch { valid = false; }
   const configured = valid && isStripeMode(config.STRIPE_MODE);
   const publishableKeyMatches = isStripeMode(config.STRIPE_MODE)
-    && new RegExp(`^pk_${config.STRIPE_MODE}_[A-Za-z0-9]+$`).test(config.STRIPE_PUBLISHABLE_KEY || '');
+    && stripePublishableKeyMode(config.STRIPE_PUBLISHABLE_KEY) === config.STRIPE_MODE;
   const enabled = configured && publishableKeyMatches
     && /^whsec_[A-Za-z0-9]+$/.test(config.STRIPE_WEBHOOK_SECRET || '')
     && /^whsec_[A-Za-z0-9]+$/.test(config.STRIPE_ACCOUNT_WEBHOOK_SECRET || '');
@@ -35,6 +36,7 @@ function createStripeClient(config = {}, { sdk } = {}) {
     if (!/^acct_[A-Za-z0-9]+$/.test(options?.stripeAccount || '')) throw new DomainError('A verified merchant account is required', { code: 'PAYMENTS_NOT_READY', status: 409 });
     return options;
   };
+  const retrievePaymentIntent = (id, options) => { paymentGuard(); return stripe.paymentIntents.retrieve(id, {}, scope(options)); };
   return {
     mode: configuration.mode, enabled: configuration.enabled, apiVersion: STRIPE_API_VERSION, sandboxSharedAccountId,
     disconnectEnabled: disconnect.enabled, disconnectAccount: disconnect.disconnect,
@@ -50,6 +52,7 @@ function createStripeClient(config = {}, { sdk } = {}) {
     retrieveCheckoutSession: (id, options) => { paymentGuard(); const { expand, ...request } = scope(options); return stripe.checkout.sessions.retrieve(id, expand ? { expand } : {}, request); },
     expireCheckoutSession: (id, options) => { paymentGuard(); return stripe.checkout.sessions.expire(id, {}, scope(options)); },
     retrieveCharge: (id, options) => { paymentGuard(); const { expand, ...request } = scope(options); return stripe.charges.retrieve(id, expand ? { expand } : {}, request); },
+    retrievePaymentIntent,
     createCommissionCustomer: (params, options) => { paymentGuard(); return stripe.customers.create(params, scope(options)); },
     retrieveCommissionCustomer: (id, options) => { paymentGuard(); return stripe.customers.retrieve(id, {}, scope(options)); },
     createCommissionInvoice: (params, options) => { paymentGuard(); return stripe.invoices.create(params, scope(options)); },
@@ -59,7 +62,7 @@ function createStripeClient(config = {}, { sdk } = {}) {
     retrieveCommissionInvoice: (id, options) => { paymentGuard(); return stripe.invoices.retrieve(id, {}, scope(options)); },
     listCommissionInvoiceLines: (id, options, { startingAfter } = {}) => { paymentGuard(); return stripe.invoices.listLineItems(id, { limit: 100, ...(startingAfter ? { starting_after: startingAfter } : {}) }, scope(options)); },
     listCommissionInvoicePayments: (id, options) => { paymentGuard(); return stripe.invoicePayments.list({ invoice: id, limit: 100 }, scope(options)); },
-    retrieveCommissionPaymentIntent: (id, options) => { paymentGuard(); return stripe.paymentIntents.retrieve(id, {}, scope(options)); },
+    retrieveCommissionPaymentIntent: retrievePaymentIntent,
     retrieveCommissionBalanceTransaction: (id, options) => { paymentGuard(); return stripe.balanceTransactions.retrieve(id, {}, scope(options)); },
     listCommissionFeeTransactions: (id, options) => { paymentGuard(); return stripe.balanceTransactions.list({ source: id, limit: 100 }, scope(options)); },
     retrieveCommissionDispute: (id, options) => { paymentGuard(); return stripe.disputes.retrieve(id, {}, scope(options)); },
